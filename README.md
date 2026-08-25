@@ -27,6 +27,8 @@ Ki-PIDA democratizes high-end PI analysis by:
 - **Electro-Thermal Coupling:** Iterate DC copper loss and temperature-dependent copper resistance until the configured convergence threshold is reached.
 - **Volumetric Enclosure CFD:** Solve steady laminar airflow, pressure, and temperature on a structured 3D enclosure mesh with Boussinesq buoyancy.
 - **Conjugate Heat Transfer:** Map Phase 3 PCB/component/copper losses into solid obstacles coupled directly to the enclosure air-energy equation.
+- **Differential Pair Discovery:** Detect P/N, +/- and DP/DM pairs from net names and KiCad pin functions, including continuity through two-pin series passives.
+- **Stackup-Aware Differential Impedance:** Estimate routed-pair impedance by layer with adjacent filled-ground-plane coverage checks and imported stackup overrides.
 
 ## 📦 Installation
 
@@ -149,6 +151,18 @@ The airflow model applies convective boundary conditions to the 3D solid board m
 
 The Phase 4 solver is a steady, incompressible, laminar engineering model. It uses a cell-centred projection method, Boussinesq buoyancy, finite-volume advection/diffusion, and a unified sparse solid-air energy solve. Fans are boundary-flow patches rather than rotating blade geometry. Turbulence, radiation, compressibility, leakage, transient fan curves, and certification-grade validation are outside the current scope.
 
+## Tutorial: Differential Pairs and Stackup-Aware Impedance
+
+1. Open **Differential Pairs** and choose **Scan Board**. Candidates are kept separate from detected power rails and carry name/pin-function evidence plus a confidence level.
+2. Confirm valid candidates, ignore false positives, or add a manual P/N pair. Interface defaults provide common targets such as USB 90 ohm, PCIe 85 ohm, LVDS/Ethernet 100 ohm, and CAN 120 ohm.
+3. Choose **Refresh from KiCad** to read the live KiCad 10 physical stackup. When the API cannot supply a reviewed stackup, the built-in two-layer profile is marked **estimate only** and cannot produce a trusted PASS/FAIL result.
+4. To use a fabrication profile without modifying the board, choose **Import JSON**. The file contains an ordered `layers` list; copper entries require their KiCad `layer_id`, while dielectric entries require thickness and `epsilon_r`.
+5. Enter the ground nets that may act as reference planes. The analyzer checks actual filled-zone coverage on the physically adjacent copper layers above and below every matched route section.
+6. Choose **Run Differential Z**. Review the length-weighted impedance, section range, layer topology, upper/lower references, plane coverage, and length mismatch in **Results**.
+7. Save the project configuration to retain confirmed/manual pairs, ignored candidates, targets, ground-net aliases, and any imported stackup in `<project>.kipida.json`.
+
+Phase 5 uses quasi-static coupled microstrip and stripline engineering approximations. It analyzes same-layer parallel route sections and reports missing planes or layer transitions. Vias, connector launches and other three-dimensional discontinuities require a field solver or measurement coupon for final sign-off.
+
 ## 🛠️ Technical Overview (For Developers)
 
 Ki-PIDA is built on a modular architecture designed for performance and maintainability.
@@ -168,10 +182,14 @@ Ki-PIDA is built on a modular architecture designed for performance and maintain
 - **CFD Mesh (`cfd_mesh.py`):** Builds the bounded structured volumetric grid, solid/fluid masks, heat distribution, and rectangular face patches.
 - **CFD Solver (`cfd_solver.py`):** Solves steady laminar momentum/pressure with buoyancy and sparse conjugate solid-air energy, reporting conservation diagnostics and residual histories.
 - **CHT Orchestrator (`conjugate_heat_transfer.py`):** Coordinates enclosure construction, volumetric meshing, and the CFD/thermal solve.
+- **Differential Discovery (`differential_discovery.py`):** Combines net-name, pin-function, and short series-passive evidence while retaining user confirmations and exclusions.
+- **Reference Plane Analyzer (`reference_plane_analyzer.py`):** Resolves the nearest physical copper above/below each signal layer and checks local filled-ground-zone coverage.
+- **Differential Impedance (`differential_impedance.py`):** Matches parallel P/N route sections and evaluates coupled microstrip, embedded microstrip, and symmetric/asymmetric stripline estimates.
+- **Stackup Import (`stackup_io.py`):** Validates user-owned JSON stackup profiles without editing the KiCad board.
 - **Visualizer (`visualizer.py`):** Generates heatmaps via Matplotlib and renders them as overlays in KiCad.
 
 ### Methodology
-Electrical analysis utilizes a **Hybrid 2.5D Finite Difference Method (FDM)**. It represents PCB layers as 2D grids connected vertically by via/PTH elements. DC analysis uses resistive branches; AC analysis retains the same topology and adds stackup-sensitive branch inductance plus lumped source/capacitor RLC models. Phase 3 thermal analysis uses a separate **3D finite-volume solid-conduction model** through the physical stackup. Phase 4 adds a structured volumetric enclosure grid, steady incompressible projection flow, Boussinesq buoyancy, and conjugate solid-air energy. These are engineering models, not full-wave electromagnetic, turbulent RANS/LES, or rotating-fan solvers.
+Electrical analysis utilizes a **Hybrid 2.5D Finite Difference Method (FDM)**. It represents PCB layers as 2D grids connected vertically by via/PTH elements. DC analysis uses resistive branches; AC analysis retains the same topology and adds stackup-sensitive branch inductance plus lumped source/capacitor RLC models. Phase 3 thermal analysis uses a separate **3D finite-volume solid-conduction model** through the physical stackup. Phase 4 adds a structured volumetric enclosure grid, steady incompressible projection flow, Boussinesq buoyancy, and conjugate solid-air energy. Phase 5 adds quasi-static coupled transmission-line estimates with local adjacent-plane coverage evidence. These are engineering models, not full-wave electromagnetic, turbulent RANS/LES, or rotating-fan solvers.
 
 ### Stack
 - **Languages:** Python 3.9+
@@ -181,7 +199,7 @@ Electrical analysis utilizes a **Hybrid 2.5D Finite Difference Method (FDM)**. I
 
 ## � Current State (Alpha)
 
-As of the current version, Ki-PIDA implements end-to-end DC IR drop, AC target-impedance, steady-state 3D board thermal analysis, and volumetric enclosure CFD.
+As of the current version, Ki-PIDA implements end-to-end DC IR drop, AC target-impedance, steady-state 3D board thermal analysis, volumetric enclosure CFD, and stackup-aware differential-pair impedance screening.
 
 ### Capabilities:
 - **Comprehensive Extraction:** Extracts tracks, pads, and filled zones (respecting thermal reliefs and voids) from KiCad 9.0+ boards.
@@ -193,6 +211,7 @@ As of the current version, Ki-PIDA implements end-to-end DC IR drop, AC target-i
 - **Thermal and Airflow Solve:** Models 3D board conduction, natural/forced/custom convection, radiation, vias, and component heat sources.
 - **Coupled Iteration:** Feeds branch-level DC `I²R` losses into the thermal solve and updates copper resistance with temperature.
 - **Enclosure CFD:** Resolves 3D air velocity, gauge pressure, air/solid temperature, and natural or prescribed forced convection with mass/energy diagnostics.
+- **Differential Signal Integrity:** Separately discovers differential nets, checks adjacent ground-plane continuity, and estimates impedance per routed layer section.
 
 ### User Experience:
 - **Automated Rail Discovery:** Instantly find power nets based on zone connectivity.
@@ -204,4 +223,5 @@ As of the current version, Ki-PIDA implements end-to-end DC IR drop, AC target-i
 - **Phase 1:** DC IR Drop, basic thermal checks, and power tree UI.
 - **Phase 2:** AC Impedance Analysis ($Z$ vs Frequency) and decoupling capacitor optimization.
 - **Phase 3:** Full 3D board thermal modeling with airflow convection and iterative DC coupling.
-- **Phase 4 (Current):** Volumetric enclosure CFD with boundary-patch fans/vents and conjugate PCB-to-air heat transfer.
+- **Phase 4:** Volumetric enclosure CFD with boundary-patch fans/vents and conjugate PCB-to-air heat transfer.
+- **Phase 5 (Current):** Differential-pair discovery, stackup import, adjacent reference-plane analysis, and routed-pair impedance estimates.

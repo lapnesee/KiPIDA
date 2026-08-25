@@ -163,6 +163,67 @@ class Plotter:
                 print(f"Impedance plot error: {e}")
             return None
 
+    def plot_differential_impedance(self, results, as_png=False):
+        """Plot length-weighted Zdiff with per-section min/max ranges."""
+        try:
+            plotted = [result for result in results if result.weighted_impedance_ohm > 0]
+            if not plotted:
+                return None
+            labels = [result.pair.name for result in plotted]
+            values = np.asarray([result.weighted_impedance_ohm for result in plotted])
+            lower = values - np.asarray([result.minimum_impedance_ohm for result in plotted])
+            upper = np.asarray([result.maximum_impedance_ohm for result in plotted]) - values
+            colors = [
+                "#2ca02c" if result.status == "PASS" else
+                "#d62728" if result.status == "FAIL" else "#ffbf00"
+                for result in plotted
+            ]
+            fig, axis = plt.subplots(figsize=(8, 5), constrained_layout=True)
+            x = np.arange(len(plotted))
+            axis.bar(x, values, color=colors, alpha=0.85)
+            axis.errorbar(x, values, yerr=np.vstack((lower, upper)), fmt="none", color="black", capsize=4)
+            for index, result in enumerate(plotted):
+                axis.plot(index, result.pair.target_impedance_ohm, marker="D", color="blue")
+            axis.set_xticks(x, labels, rotation=25, ha="right")
+            axis.set_ylabel("Differential impedance (ohm)")
+            axis.set_title("Stackup-aware differential impedance")
+            axis.grid(True, axis="y", alpha=0.3)
+            axis.scatter([], [], marker="D", color="blue", label="Target")
+            axis.legend()
+            return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
+        except Exception as e:
+            if self.debug:
+                print(f"Differential impedance plot error: {e}")
+            return None
+
+    def plot_stackup_profile(self, stackup, as_png=False):
+        """Render an ordered physical stackup cross-section."""
+        try:
+            if stackup is None or not stackup.layers:
+                return None
+            total = sum(max(layer.thickness_mm, 1e-6) for layer in stackup.layers)
+            fig, axis = plt.subplots(figsize=(8, 5), constrained_layout=True)
+            y = 0.0
+            for layer in reversed(stackup.layers):
+                height = max(layer.thickness_mm, total * 0.012 if layer.kind == "COPPER" else 1e-6)
+                color = "#d98c10" if layer.kind == "COPPER" else "#6bbf59"
+                axis.barh(0, height, left=y, height=0.55, color=color, edgecolor="black")
+                label = f"{layer.name}: {layer.thickness_mm:g} mm"
+                if layer.kind != "COPPER":
+                    label += f", Er={layer.epsilon_r:g}"
+                axis.text(y + height / 2, 0, label, rotation=90, va="center", ha="center", fontsize=8)
+                y += height
+            axis.set_xlim(0, max(y, 1e-6))
+            axis.set_ylim(-0.55, 0.55)
+            axis.set_yticks([])
+            axis.set_xlabel("Physical thickness from bottom to top (mm)")
+            axis.set_title(f"PCB stackup — {stackup.source}")
+            return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
+        except Exception as e:
+            if self.debug:
+                print(f"Stackup plot error: {e}")
+            return None
+
     def plot_thermal_3d(self, mesh, result, as_png=False):
         """Render the solved volumetric temperature field."""
         try:
