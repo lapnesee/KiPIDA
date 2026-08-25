@@ -26,6 +26,8 @@ from ui.cfd_analysis_panel import CFDAnalysisPanel
 from ui.differential_analysis_panel import DifferentialAnalysisPanel
 from ui.thermal_analysis_panel import ThermalAnalysisPanel
 from ui.power_tree_panel import PowerTreePanel
+from ui.interactive_views import ZoomableBitmapPanel, install_navigation
+from ui.results_workspace import ResultsWorkspace
 from plotter import Plotter
 
 class KiPIDA_MainDialog(wx.Dialog):
@@ -51,6 +53,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self._cfd_cancel_requested = False
         self._thermal_plot_thread = None
         self._result_generation = 0
+        self._thermal_result_generation = 0
         self._closing = False
         self._plot_lock = threading.Lock()
         
@@ -217,6 +220,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.btn_run_cfd.Bind(wx.EVT_BUTTON, self.on_run_cfd)
         self.btn_cancel.Bind(wx.EVT_BUTTON, self.on_close)
         self.notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.on_notebook_page_changed)
+        install_navigation(self)
         
         # Auto-scan board after UI is ready
         wx.CallAfter(self.power_tree.auto_scan)
@@ -234,47 +238,15 @@ class KiPIDA_MainDialog(wx.Dialog):
     
     def _init_results_tab(self, parent):
         sizer = wx.BoxSizer(wx.VERTICAL)
-        
-        # Splitter: Top=Text Stats, Bottom=Notebook for plots
-        self.result_splitter = wx.SplitterWindow(parent)
-        
-        self.pnl_text = wx.Panel(self.result_splitter)
-        text_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.result_text = wx.TextCtrl(self.pnl_text, style=wx.TE_MULTILINE | wx.TE_READONLY)
-        text_sizer.Add(self.result_text, 1, wx.EXPAND | wx.ALL, 5)
-        self.pnl_text.SetSizer(text_sizer)
-        
-        self.pnl_plots = wx.Panel(self.result_splitter)
-        plot_sizer = wx.BoxSizer(wx.VERTICAL)
-        
-        # Notebook for results (3D, Layer1, Layer2...)
-        self.results_notebook = wx.Notebook(self.pnl_plots)
-        plot_sizer.Add(self.results_notebook, 1, wx.EXPAND | wx.ALL, 0)
-        
-        self.pnl_plots.SetSizer(plot_sizer)
-        
-        self.result_splitter.SplitHorizontally(self.pnl_text, self.pnl_plots, 100)
-        self.result_splitter.SetMinimumPaneSize(50)
-        
-        sizer.Add(self.result_splitter, 1, wx.EXPAND | wx.ALL, 5)
+        self.results_workspace = ResultsWorkspace(parent)
+        sizer.Add(self.results_workspace, 1, wx.EXPAND | wx.ALL, 5)
         parent.SetSizer(sizer)
 
-    def _add_plot_tab(self, title, bitmap):
-        """Helper to add a plot tab securely."""
-        if not bitmap: return
-        
-        # Create a ScrolledWindow for the plot
-        page = wx.ScrolledWindow(self.results_notebook, style=wx.HSCROLL | wx.VSCROLL)
-        page.SetScrollRate(10, 10)
-        
-        img_ctrl = wx.StaticBitmap(page)
-        img_ctrl.SetBitmap(bitmap)
-        
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(img_ctrl, 1, wx.CENTER | wx.ALL, 5)
-        page.SetSizer(sizer)
-        
-        self.results_notebook.AddPage(page, title)
+    def _publish_results(self, analysis_id, report, plots=None):
+        """Publish one analysis without discarding other session results."""
+        page = self.results_workspace.publish(analysis_id, report, plots)
+        self.notebook.SetSelection(self.PAGE_RESULTS)
+        return page
 
 
     def _init_log_tab(self, parent):
@@ -732,16 +704,12 @@ class KiPIDA_MainDialog(wx.Dialog):
             "",
             "Model note: ESR/ESL and distributed inductance may be estimates; review before sign-off.",
         ])
-        self.result_text.SetValue("\n".join(lines))
-
-        self.results_notebook.DeleteAllPages()
         plotter = Plotter(debug=self.chk_debug.GetValue())
         bitmap = plotter.plot_impedance_sweep(
             result,
             optimization.optimized if optimization else None,
         )
-        self._add_plot_tab("AC Impedance", bitmap)
-        self.notebook.SetSelection(self.PAGE_RESULTS)
+        self._publish_results("AC", "\n".join(lines), [("AC Impedance", bitmap)] if bitmap else [])
 
     def _prepare_differential_analysis(self):
         self.differential_panel.refresh(force_scan=not bool(self.differential_panel.settings.pairs))
@@ -844,18 +812,31 @@ class KiPIDA_MainDialog(wx.Dialog):
                 )
             for warning in result.warnings:
                 lines.append(f"  WARNING: {warning}")
+            if result.recommendations:
+                lines.append("  Recommendations:")
+                for recommendation in result.recommendations:
+                    geometry = (
+                        f"w={recommendation.recommended_width_mm:.3f} mm, "
+                        f"gap={recommendation.recommended_gap_mm:.3f} mm"
+                        if recommendation.recommended_width_mm else "geometry unavailable"
+                    )
+                    lines.append(
+                        f"  - {recommendation.action} [{recommendation.feasibility}; "
+                        f"{recommendation.confidence}]: {geometry}; "
+                        f"predicted Zdiff={recommendation.predicted_impedance_ohm:.3f} ohm; "
+                        f"GND clearance >= {recommendation.recommended_ground_clearance_mm:.3f} mm"
+                    )
             lines.append("")
         lines.extend([
             "Model scope: quasi-static coupled microstrip/stripline estimates. ",
             "Vias and reference-plane transitions are reported as discontinuities; this is not a 3D full-wave solver.",
         ])
-        self.result_text.SetValue("\n".join(lines))
-        self.results_notebook.DeleteAllPages()
+        plots = []
         if impedance_png:
-            self._add_plot_tab("Differential Z", Plotter.bitmap_from_png(impedance_png))
+            plots.append(("Differential Z", Plotter.bitmap_from_png(impedance_png)))
         if stackup_png:
-            self._add_plot_tab("Stackup", Plotter.bitmap_from_png(stackup_png))
-        self.notebook.SetSelection(self.PAGE_RESULTS)
+            plots.append(("Stackup", Plotter.bitmap_from_png(stackup_png)))
+        self._publish_results("DIFFERENTIAL", "\n".join(lines), plots)
         self.log("Differential impedance results ready.")
 
     def _fail_differential_analysis(self, exc):
@@ -1002,27 +983,10 @@ class KiPIDA_MainDialog(wx.Dialog):
             "Model scope: steady-state 3D solid conduction with convective boundaries; "
             "this is not a volumetric CFD airflow solution.",
         ])
-        self._result_generation += 1
-        generation = self._result_generation
-        self.result_text.SetValue("\n".join(lines))
-        self.results_notebook.Freeze()
-        try:
-            self.results_notebook.DeleteAllPages()
-            page = wx.Panel(self.results_notebook)
-            sizer = wx.BoxSizer(wx.VERTICAL)
-            sizer.AddStretchSpacer()
-            sizer.Add(
-                wx.StaticText(page, label="Rendering thermal plots in background..."),
-                0,
-                wx.ALIGN_CENTER | wx.ALL,
-                12,
-            )
-            sizer.AddStretchSpacer()
-            page.SetSizer(sizer)
-            self.results_notebook.AddPage(page, "Rendering")
-        finally:
-            self.results_notebook.Thaw()
-        self.notebook.SetSelection(self.PAGE_RESULTS)
+        self._thermal_result_generation += 1
+        generation = self._thermal_result_generation
+        page = self._publish_results("THERMAL", "\n".join(lines), [])
+        page.show_rendering("Rendering thermal plots in background...")
         self.log("Thermal solve complete; rendering plots in background.")
 
         self._thermal_plot_thread = threading.Thread(
@@ -1050,7 +1014,7 @@ class KiPIDA_MainDialog(wx.Dialog):
 
     def _finish_thermal_plots(self, generation, plots):
         self._thermal_plot_thread = None
-        if self._closing or generation != self._result_generation:
+        if self._closing or generation != self._thermal_result_generation:
             return
         available_plots = [(title, data) for title, data in plots if data]
         if not available_plots:
@@ -1059,20 +1023,19 @@ class KiPIDA_MainDialog(wx.Dialog):
                 RuntimeError("Matplotlib did not produce any thermal plot."),
             )
             return
-        self.results_notebook.Freeze()
-        try:
-            self.results_notebook.DeleteAllPages()
-            for title, png_bytes in available_plots:
-                self._add_plot_tab(title, Plotter.bitmap_from_png(png_bytes))
-        finally:
-            self.results_notebook.Thaw()
+        page = self.results_workspace.page_for("THERMAL")
+        page.set_plots([
+            (title, Plotter.bitmap_from_png(png_bytes))
+            for title, png_bytes in available_plots
+        ])
         self.log("Thermal result plots ready.")
 
     def _fail_thermal_plots(self, generation, exc):
         self._thermal_plot_thread = None
-        if self._closing or generation != self._result_generation:
+        if self._closing or generation != self._thermal_result_generation:
             return
-        current_page = self.results_notebook.GetCurrentPage()
+        page = self.results_workspace.page_for("THERMAL")
+        current_page = page.plots.GetCurrentPage()
         if current_page:
             labels = [
                 child for child in current_page.GetChildren()
@@ -1202,24 +1165,23 @@ class KiPIDA_MainDialog(wx.Dialog):
             "conjugate solid-air heat transfer. Fan blades, turbulence, radiation, "
             "and transient effects are outside this Phase 4 solver.",
         ]
-        self.result_text.SetValue("\n".join(lines))
-        self.results_notebook.DeleteAllPages()
         plotter = Plotter(debug=self.chk_debug.GetValue())
-        self._add_plot_tab("CFD 3D", plotter.plot_cfd_3d(mesh, result))
-        self._add_plot_tab("Temperature XY", plotter.plot_cfd_slice(mesh, result, "TEMPERATURE", "XY"))
-        self._add_plot_tab("Temperature XZ", plotter.plot_cfd_slice(mesh, result, "TEMPERATURE", "XZ"))
-        self._add_plot_tab("Velocity XY", plotter.plot_cfd_slice(mesh, result, "VELOCITY", "XY"))
-        self._add_plot_tab("Pressure XY", plotter.plot_cfd_slice(mesh, result, "PRESSURE", "XY"))
-        self._add_plot_tab("Residuals", plotter.plot_cfd_residuals(result))
-        self.notebook.SetSelection(self.PAGE_RESULTS)
+        plots = [
+            ("CFD 3D", plotter.plot_cfd_3d(mesh, result)),
+            ("Temperature XY", plotter.plot_cfd_slice(mesh, result, "TEMPERATURE", "XY")),
+            ("Temperature XZ", plotter.plot_cfd_slice(mesh, result, "TEMPERATURE", "XZ")),
+            ("Velocity XY", plotter.plot_cfd_slice(mesh, result, "VELOCITY", "XY")),
+            ("Pressure XY", plotter.plot_cfd_slice(mesh, result, "PRESSURE", "XY")),
+            ("Residuals", plotter.plot_cfd_residuals(result)),
+        ]
+        self._publish_results("CFD", "\n".join(lines), [(title, bitmap) for title, bitmap in plots if bitmap])
 
     def _debug_plot_geo(self, extractor, geo):
         try:
             buf = extractor.plot_geometry(geo)
             if buf:
                 img = wx.Image(buf, wx.BITMAP_TYPE_PNG)
-                self.results_notebook.DeleteAllPages()
-                self._add_plot_tab("Geometry Debug", wx.Bitmap(img))
+                self._publish_results("DEBUG", "Geometry debug plot", [("Geometry Debug", wx.Bitmap(img))])
         except: pass
 
     def _debug_plot_mesh(self, mesher, mesh, stackup):
@@ -1227,8 +1189,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             plotter = Plotter(debug=self.chk_debug.GetValue())
             bmp = plotter.plot_3d_mesh(mesh, stackup)
             if bmp:
-                self.results_notebook.DeleteAllPages()
-                self._add_plot_tab("Mesh Debug", bmp)
+                self._publish_results("DEBUG", "Mesh debug plot", [("Mesh Debug", bmp)])
         except: pass
 
     def _update_results_ui(self):
@@ -1240,10 +1201,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             txt += f"Rail: {net}\n"
             txt += f"  Range: {vmin:.4f} - {vmax:.4f} V\n"
             txt += f"  Drop:  {drop:.4f} V\n\n"
-        self.result_text.SetValue(txt)
-        
-        # Clear existing plot tabs
-        self.results_notebook.DeleteAllPages()
+        page = self._publish_results("DC", txt, [])
+        results_notebook = page.plots
         
         if not self.system_results:
             return
@@ -1269,7 +1228,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         # Create nested tabs for each rail
         for rail_name, data in self.system_results.items():
             # Create rail-level notebook
-            rail_notebook = wx.Notebook(self.results_notebook)
+            rail_notebook = wx.Notebook(results_notebook)
             
             mesh = data['mesh']
             mesh.results = data['results']
@@ -1282,14 +1241,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             # Add 3D plot tab
             bmp_3d = plotter.plot_3d_mesh(mesh, stackup, vmin=plot_vmin, vmax=vmax)
             if bmp_3d:
-                page_3d = wx.ScrolledWindow(rail_notebook, style=wx.HSCROLL | wx.VSCROLL)
-                page_3d.SetScrollRate(10, 10)
-                img_ctrl_3d = wx.StaticBitmap(page_3d)
-                img_ctrl_3d.SetBitmap(bmp_3d)
-                sizer_3d = wx.BoxSizer(wx.VERTICAL)
-                sizer_3d.Add(img_ctrl_3d, 1, wx.CENTER | wx.ALL, 5)
-                page_3d.SetSizer(sizer_3d)
-                rail_notebook.AddPage(page_3d, "3D View")
+                rail_notebook.AddPage(ZoomableBitmapPanel(rail_notebook, bmp_3d), "3D View")
             
             # Add layer tabs
             unique_layers = list(set(n[2] for n in mesh.node_coords.values()))
@@ -1303,17 +1255,10 @@ class KiPIDA_MainDialog(wx.Dialog):
                 
                 bmp_2d = plotter.plot_layer_2d(mesh, lid, stackup, vmin=plot_vmin, vmax=vmax, layer_name=l_name)
                 if bmp_2d:
-                    page_2d = wx.ScrolledWindow(rail_notebook, style=wx.HSCROLL | wx.VSCROLL)
-                    page_2d.SetScrollRate(10, 10)
-                    img_ctrl_2d = wx.StaticBitmap(page_2d)
-                    img_ctrl_2d.SetBitmap(bmp_2d)
-                    sizer_2d = wx.BoxSizer(wx.VERTICAL)
-                    sizer_2d.Add(img_ctrl_2d, 1, wx.CENTER | wx.ALL, 5)
-                    page_2d.SetSizer(sizer_2d)
-                    rail_notebook.AddPage(page_2d, l_name)
+                    rail_notebook.AddPage(ZoomableBitmapPanel(rail_notebook, bmp_2d), l_name)
             
             # Add rail notebook as a page in the main results notebook
-            self.results_notebook.AddPage(rail_notebook, rail_name)
+            results_notebook.AddPage(rail_notebook, rail_name)
         
         # Switch to Results tab
         self.notebook.SetSelection(self.PAGE_RESULTS)
@@ -1327,4 +1272,5 @@ class KiPIDA_MainDialog(wx.Dialog):
             return
         self._closing = True
         self._result_generation += 1
+        self._thermal_result_generation += 1
         self.EndModal(wx.ID_CANCEL)

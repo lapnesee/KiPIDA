@@ -104,7 +104,7 @@ class TestConfigManager(unittest.TestCase):
             with open(filepath, 'r') as f:
                 data = json.load(f)
             
-            self.assertEqual(data["version"], "1.5")
+            self.assertEqual(data["version"], "1.6")
             self.assertEqual(len(data["rails"]), 3)
             
             # Verify 12V rail
@@ -342,6 +342,9 @@ class TestConfigManager(unittest.TestCase):
                 ],
             ),
             target_tolerance_pct=8.0,
+            minimum_width_mm=0.11,
+            minimum_gap_mm=0.12,
+            minimum_ground_clearance_mm=0.20,
         )
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
             filepath = f.name
@@ -354,6 +357,9 @@ class TestConfigManager(unittest.TestCase):
             self.assertEqual(loaded.stackup_override.source, "IMPORTED")
             self.assertEqual(loaded.stackup_override.layers[2].layer_id, 31)
             self.assertAlmostEqual(loaded.target_tolerance_pct, 8.0)
+            self.assertAlmostEqual(loaded.minimum_width_mm, 0.11)
+            self.assertAlmostEqual(loaded.minimum_gap_mm, 0.12)
+            self.assertAlmostEqual(loaded.minimum_ground_clearance_mm, 0.20)
         finally:
             if Path(filepath).exists():
                 os.unlink(filepath)

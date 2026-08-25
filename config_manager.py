@@ -23,8 +23,8 @@ except (ImportError, ValueError):
         UnifiedSource, VoltageRegulator,
     )
 
-CONFIG_VERSION = "1.5"
-SUPPORTED_CONFIG_VERSIONS = {"1.0", "1.1", "1.2", "1.3", "1.4", CONFIG_VERSION}
+CONFIG_VERSION = "1.6"
+SUPPORTED_CONFIG_VERSIONS = {"1.0", "1.1", "1.2", "1.3", "1.4", "1.5", CONFIG_VERSION}
 
 
 def get_project_config_path(
@@ -359,6 +359,10 @@ def _differential_settings_to_dict(settings: DifferentialAnalysisSettings) -> di
         "include_solder_mask": settings.include_solder_mask,
         "solder_mask_thickness_mm": settings.solder_mask_thickness_mm,
         "solder_mask_epsilon_r": settings.solder_mask_epsilon_r,
+        "fabrication_profile": settings.fabrication_profile,
+        "minimum_width_mm": settings.minimum_width_mm,
+        "minimum_gap_mm": settings.minimum_gap_mm,
+        "minimum_ground_clearance_mm": settings.minimum_ground_clearance_mm,
     }
 
 
@@ -386,6 +390,10 @@ def _dict_to_differential_settings(data: dict) -> DifferentialAnalysisSettings:
         include_solder_mask=bool(data.get("include_solder_mask", True)),
         solder_mask_thickness_mm=float(data.get("solder_mask_thickness_mm", 0.02)),
         solder_mask_epsilon_r=float(data.get("solder_mask_epsilon_r", 3.3)),
+        fabrication_profile=data.get("fabrication_profile", "GENERIC"),
+        minimum_width_mm=float(data.get("minimum_width_mm", 0.10)),
+        minimum_gap_mm=float(data.get("minimum_gap_mm", 0.10)),
+        minimum_ground_clearance_mm=float(data.get("minimum_ground_clearance_mm", 0.15)),
     )
 
 

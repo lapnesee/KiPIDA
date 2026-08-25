@@ -196,6 +196,10 @@ class DifferentialAnalysisSettings:
     include_solder_mask: bool = True
     solder_mask_thickness_mm: float = 0.02
     solder_mask_epsilon_r: float = 3.3
+    fabrication_profile: str = "GENERIC"
+    minimum_width_mm: float = 0.10
+    minimum_gap_mm: float = 0.10
+    minimum_ground_clearance_mm: float = 0.15
 
 
 @dataclass
@@ -212,7 +216,34 @@ class DifferentialSectionResult:
     reference_coverage_pct: float = 0.0
     single_ended_impedance_ohm: float = 0.0
     differential_impedance_ohm: float = 0.0
+    copper_thickness_mm: float = 0.035
+    reference_distance_mm: float = 0.0
+    reference_above_distance_mm: float = 0.0
+    reference_below_distance_mm: float = 0.0
+    reference_epsilon_r: float = 4.4
     trustworthy: bool = False
+    warnings: List[str] = field(default_factory=list)
+
+
+@dataclass
+class DifferentialRecommendation:
+    """A non-destructive geometry suggestion for one differential network."""
+    pair_signature: str
+    pair_name: str
+    layer_name: str = ""
+    topology: str = ""
+    current_width_mm: float = 0.0
+    current_gap_mm: float = 0.0
+    current_impedance_ohm: float = 0.0
+    target_impedance_ohm: float = 0.0
+    recommended_width_mm: float = 0.0
+    recommended_gap_mm: float = 0.0
+    recommended_ground_clearance_mm: float = 0.0
+    reference_distance_mm: float = 0.0
+    predicted_impedance_ohm: float = 0.0
+    action: str = "REVIEW"
+    feasibility: str = "REVIEW"
+    confidence: str = "ESTIMATE"
     warnings: List[str] = field(default_factory=list)
 
 
@@ -229,6 +260,7 @@ class DifferentialPairResult:
     status: str = "NO_DATA"
     trustworthy: bool = False
     warnings: List[str] = field(default_factory=list)
+    recommendations: List[DifferentialRecommendation] = field(default_factory=list)
 
 
 @dataclass
