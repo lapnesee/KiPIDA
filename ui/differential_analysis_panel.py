@@ -4,11 +4,13 @@ import wx
 
 try:
     from differential_discovery import DifferentialPairDiscoverer, INTERFACE_DEFAULTS
+    from differential_recommender import DifferentialRecommendationEngine
     from extractor import GeometryExtractor
     from models import DifferentialAnalysisSettings, DifferentialPairCandidate
     from stackup_io import load_stackup_profile
 except (ImportError, ValueError):
     from ..differential_discovery import DifferentialPairDiscoverer, INTERFACE_DEFAULTS
+    from ..differential_recommender import DifferentialRecommendationEngine
     from ..extractor import GeometryExtractor
     from ..models import DifferentialAnalysisSettings, DifferentialPairCandidate
     from ..stackup_io import load_stackup_profile
@@ -80,6 +82,7 @@ class DifferentialAnalysisPanel(wx.Panel):
         self.extractor = GeometryExtractor(board, log_callback=log_callback)
         self.stackup = None
         self.results = {}
+        self.recommendations = {}
         self._init_ui()
 
     def log(self, message):
@@ -114,7 +117,7 @@ class DifferentialAnalysisPanel(wx.Panel):
         for index, (title, width) in enumerate((
             ("Use", 48), ("Pair", 115), ("Positive net", 145), ("Negative net", 145),
             ("Interface", 85), ("Confidence", 90), ("Target", 70),
-            ("Zdiff", 75), ("Status", 85),
+            ("Zdiff", 75), ("Status", 85), ("Recommendation", 130),
         )):
             self.pair_list.InsertColumn(index, title, width=width)
         pair_box.Add(self.pair_list, 1, wx.EXPAND | wx.ALL, 5)
@@ -130,6 +133,19 @@ class DifferentialAnalysisPanel(wx.Panel):
         pair_box.Add(buttons, 0, wx.ALL, 5)
         main.Add(pair_box, 1, wx.EXPAND | wx.ALL, 5)
 
+        recommendation_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Geometry Recommendations")
+        recommendation_parent = recommendation_box.GetStaticBox()
+        self.recommendation_list = wx.ListCtrl(recommendation_parent, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
+        for index, (title, width) in enumerate((
+            ("Pair", 120), ("Layer", 85), ("Action", 145), ("Current W/G", 105),
+            ("Suggested W/G", 120), ("Predicted Z", 90), ("Ground clearance", 120), ("Confidence", 90),
+        )):
+            self.recommendation_list.InsertColumn(index, title, width=width)
+        recommendation_box.Add(self.recommendation_list, 0, wx.EXPAND | wx.ALL, 5)
+        self.btn_recommend = wx.Button(recommendation_parent, label="Generate Recommendations")
+        recommendation_box.Add(self.btn_recommend, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
+        main.Add(recommendation_box, 0, wx.EXPAND | wx.ALL, 5)
+
         controls = wx.BoxSizer(wx.HORIZONTAL)
         controls.Add(wx.StaticText(self, label="Target tolerance (%):"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         self.txt_tolerance = wx.TextCtrl(self, value="10", size=(65, -1))
@@ -137,6 +153,9 @@ class DifferentialAnalysisPanel(wx.Panel):
         controls.Add(wx.StaticText(self, label="Ground reference nets:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         self.txt_reference_nets = wx.TextCtrl(self, value="GND, AGND, DGND, PGND")
         controls.Add(self.txt_reference_nets, 1)
+        controls.Add(wx.StaticText(self, label="Min W/G/GND (mm):"), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, 8)
+        self.txt_min_geometry = wx.TextCtrl(self, value="0.10 / 0.10 / 0.15", size=(130, -1))
+        controls.Add(self.txt_min_geometry, 0)
         main.Add(controls, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         self.SetSizer(main)
 
@@ -148,6 +167,7 @@ class DifferentialAnalysisPanel(wx.Panel):
         self.btn_ignore.Bind(wx.EVT_BUTTON, self._on_ignore)
         self.btn_stackup_refresh.Bind(wx.EVT_BUTTON, self._on_stackup_refresh)
         self.btn_stackup_import.Bind(wx.EVT_BUTTON, self._on_stackup_import)
+        self.btn_recommend.Bind(wx.EVT_BUTTON, self._on_recommend)
 
     def _selected_pair(self):
         index = self.pair_list.GetFirstSelected()
@@ -165,9 +185,26 @@ class DifferentialAnalysisPanel(wx.Panel):
                 pair.confidence, f"{pair.target_impedance_ohm:g}",
                 f"{result.weighted_impedance_ohm:.2f}" if result else "-",
                 result.status if result else "Not run",
+                (result.recommendations[0].action if result and result.recommendations else "Not run"),
             )
             for column, value in enumerate(values, start=1):
                 self.pair_list.SetItem(row, column, str(value))
+
+    def _update_recommendation_list(self):
+        self.recommendation_list.DeleteAllItems()
+        for result in self.results.values():
+            for recommendation in result.recommendations:
+                row = self.recommendation_list.InsertItem(self.recommendation_list.GetItemCount(), recommendation.pair_name)
+                values = (
+                    recommendation.layer_name or "-", recommendation.action,
+                    f"{recommendation.current_width_mm:.3f}/{recommendation.current_gap_mm:.3f}",
+                    f"{recommendation.recommended_width_mm:.3f}/{recommendation.recommended_gap_mm:.3f}" if recommendation.recommended_width_mm else "-",
+                    f"{recommendation.predicted_impedance_ohm:.2f}" if recommendation.predicted_impedance_ohm else "-",
+                    f"{recommendation.recommended_ground_clearance_mm:.3f}" if recommendation.recommended_ground_clearance_mm else "-",
+                    recommendation.confidence,
+                )
+                for column, value in enumerate(values, start=1):
+                    self.recommendation_list.SetItem(row, column, value)
 
     def _update_stackup_list(self):
         self.stackup_list.DeleteAllItems()
@@ -194,7 +231,9 @@ class DifferentialAnalysisPanel(wx.Panel):
                 ignored_signatures=self.settings.ignored_pair_signatures,
             )
             self.results = {}
+            self.recommendations = {}
         self._update_pair_list()
+        self._update_recommendation_list()
 
     def _on_add(self, event):
         dialog = DifferentialPairDialog(self)
@@ -207,6 +246,7 @@ class DifferentialAnalysisPanel(wx.Panel):
             self.settings.pairs.append(pair)
             self.settings.pairs.sort(key=lambda item: (item.interface, item.name))
             self._update_pair_list()
+            self._update_recommendation_list()
         except ValueError as exc:
             wx.MessageBox(str(exc), "Invalid Differential Pair", wx.OK | wx.ICON_ERROR)
         finally:
@@ -219,6 +259,7 @@ class DifferentialAnalysisPanel(wx.Panel):
             if "user-confirmed" not in pair.evidence:
                 pair.evidence.append("user-confirmed")
             self._update_pair_list()
+            self._update_recommendation_list()
 
     def _on_edit(self, event):
         pair = self._selected_pair()
@@ -242,7 +283,9 @@ class DifferentialAnalysisPanel(wx.Panel):
             edited.confidence = "CONFIRMED"
             self.settings.pairs[index] = edited
             self.results = {}
+            self.recommendations = {}
             self._update_pair_list()
+            self._update_recommendation_list()
         except ValueError as exc:
             wx.MessageBox(str(exc), "Invalid Differential Pair", wx.OK | wx.ICON_ERROR)
         finally:
@@ -262,6 +305,7 @@ class DifferentialAnalysisPanel(wx.Panel):
             self.settings.pairs.remove(pair)
             self.results.pop(pair.signature, None)
             self._update_pair_list()
+            self._update_recommendation_list()
 
     def _on_stackup_refresh(self, event):
         try:
@@ -296,6 +340,13 @@ class DifferentialAnalysisPanel(wx.Panel):
         if tolerance <= 0:
             raise ValueError("Target tolerance must be positive.")
         self.settings.target_tolerance_pct = tolerance
+        try:
+            minimums = [float(value.strip()) for value in self.txt_min_geometry.GetValue().split("/")]
+            if len(minimums) != 3 or min(minimums) <= 0:
+                raise ValueError
+        except ValueError:
+            raise ValueError("Min W/G/GND must contain three positive mm values, e.g. 0.10 / 0.10 / 0.15.")
+        self.settings.minimum_width_mm, self.settings.minimum_gap_mm, self.settings.minimum_ground_clearance_mm = minimums
         self.settings.reference_net_names = [
             item.strip() for item in self.txt_reference_nets.GetValue().split(",") if item.strip()
         ]
@@ -309,7 +360,11 @@ class DifferentialAnalysisPanel(wx.Panel):
         self.stackup = self.settings.stackup_override
         self.txt_tolerance.SetValue(f"{self.settings.target_tolerance_pct:g}")
         self.txt_reference_nets.SetValue(", ".join(self.settings.reference_net_names))
+        self.txt_min_geometry.SetValue(
+            f"{self.settings.minimum_width_mm:g} / {self.settings.minimum_gap_mm:g} / {self.settings.minimum_ground_clearance_mm:g}"
+        )
         self.results = {}
+        self.recommendations = {}
         if settings is not None:
             self.refresh(force_scan=False)
         else:
@@ -323,4 +378,17 @@ class DifferentialAnalysisPanel(wx.Panel):
 
     def apply_results(self, results):
         self.results = {result.pair.signature: result for result in results}
+        DifferentialRecommendationEngine(self.settings).recommend(results)
+        self.recommendations = {
+            result.pair.signature: list(result.recommendations) for result in results
+        }
         self._update_pair_list()
+        self._update_recommendation_list()
+
+    def _on_recommend(self, event):
+        if not self.results:
+            wx.MessageBox("Run differential impedance analysis first.", "Recommendations", wx.OK | wx.ICON_INFORMATION)
+            return
+        DifferentialRecommendationEngine(self.settings).recommend(self.results.values())
+        self._update_pair_list()
+        self._update_recommendation_list()

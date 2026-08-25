@@ -188,6 +188,8 @@ class DifferentialImpedanceSolver:
         )
         warnings = list(context.warnings)
         z0 = zdiff = 0.0
+        reference_distance = 0.0
+        reference_epsilon = 4.4
         try:
             if context.topology in {"MICROSTRIP", "EMBEDDED_MICROSTRIP"}:
                 if context.reference_above and context.coverage_above_pct >= 90.0:
@@ -196,8 +198,10 @@ class DifferentialImpedanceSolver:
                 else:
                     height = context.distance_below_mm
                     epsilon = context.epsilon_r_below
+                reference_distance = height
                 if context.topology == "MICROSTRIP":
                     epsilon = self._mask_adjusted_epsilon(epsilon, height)
+                reference_epsilon = epsilon
                 z0, zdiff = self._microstrip(width, gap_mm, thickness, height, epsilon)
             elif context.topology in {"STRIPLINE", "ASYMMETRIC_STRIPLINE"}:
                 total = context.distance_above_mm + context.distance_below_mm
@@ -205,6 +209,8 @@ class DifferentialImpedanceSolver:
                     context.epsilon_r_above * context.distance_above_mm
                     + context.epsilon_r_below * context.distance_below_mm
                 ) / max(total, 1e-12)
+                reference_distance = min(context.distance_above_mm, context.distance_below_mm)
+                reference_epsilon = epsilon
                 z0, zdiff = self._stripline(
                     width, gap_mm, thickness,
                     context.distance_above_mm, context.distance_below_mm, epsilon,
@@ -226,6 +232,11 @@ class DifferentialImpedanceSolver:
             reference_coverage_pct=context.coverage_pct,
             single_ended_impedance_ohm=z0,
             differential_impedance_ohm=zdiff,
+            copper_thickness_mm=thickness,
+            reference_distance_mm=reference_distance,
+            reference_above_distance_mm=context.distance_above_mm,
+            reference_below_distance_mm=context.distance_below_mm,
+            reference_epsilon_r=reference_epsilon,
             trustworthy=bool(context.trustworthy and zdiff > 0),
             warnings=warnings,
         )

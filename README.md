@@ -159,9 +159,14 @@ The Phase 4 solver is a steady, incompressible, laminar engineering model. It us
 4. To use a fabrication profile without modifying the board, choose **Import JSON**. The file contains an ordered `layers` list; copper entries require their KiCad `layer_id`, while dielectric entries require thickness and `epsilon_r`.
 5. Enter the ground nets that may act as reference planes. The analyzer checks actual filled-zone coverage on the physically adjacent copper layers above and below every matched route section.
 6. Choose **Run Differential Z**. Review the length-weighted impedance, section range, layer topology, upper/lower references, plane coverage, and length mismatch in **Results**.
-7. Save the project configuration to retain confirmed/manual pairs, ignored candidates, targets, ground-net aliases, and any imported stackup in `<project>.kipida.json`.
+7. Review **Geometry Recommendations** for each network. Ki-PIDA proposes an editable width/gap combination using the same quasi-static model, the nearest adjacent reference plane, and your minimum W/G/GND manufacturing limits. It never edits routing or the KiCad stackup.
+8. Save the project configuration to retain confirmed/manual pairs, ignored candidates, targets, ground-net aliases, imported stackup, and the manufacturing limits in `<project>.kipida.json`.
 
-Phase 5 uses quasi-static coupled microstrip and stripline engineering approximations. It analyzes same-layer parallel route sections and reports missing planes or layer transitions. Vias, connector launches and other three-dimensional discontinuities require a field solver or measurement coupon for final sign-off.
+Phase 5/6 uses quasi-static coupled microstrip and stripline engineering approximations. Recommendations remain indicative when the stackup or adjacent-plane coverage is not trusted. Vias, connector launches, coplanar guard geometry, roughness and other three-dimensional discontinuities require a field solver or measurement coupon for final sign-off.
+
+## Phase 6: Result Navigation
+
+Every analysis now retains its own console and plot tabs for the current Ki-PIDA session. Use the mouse wheel over a table, plot, or 3D view to zoom; when zoomed, drag with the left mouse button to pan. In read-only output consoles, use `Ctrl` + mouse wheel or `Ctrl` + `+`/`-` to change the text size (`Ctrl+0` resets it).
 
 ## 🛠️ Technical Overview (For Developers)
 
@@ -185,6 +190,9 @@ Ki-PIDA is built on a modular architecture designed for performance and maintain
 - **Differential Discovery (`differential_discovery.py`):** Combines net-name, pin-function, and short series-passive evidence while retaining user confirmations and exclusions.
 - **Reference Plane Analyzer (`reference_plane_analyzer.py`):** Resolves the nearest physical copper above/below each signal layer and checks local filled-ground-zone coverage.
 - **Differential Impedance (`differential_impedance.py`):** Matches parallel P/N route sections and evaluates coupled microstrip, embedded microstrip, and symmetric/asymmetric stripline estimates.
+- **Differential Recommender (`differential_recommender.py`):** Inverts the measured-section model within editable manufacturing limits to propose non-destructive width/gap/reference-plane actions.
+- **Interactive Views (`ui/interactive_views.py`):** Provides reusable wheel zoom, drag pan, and output-console text zoom for wxPython views.
+- **Results Workspace (`ui/results_workspace.py`):** Keeps DC, AC, differential, thermal, CFD, and debug results isolated during one session.
 - **Stackup Import (`stackup_io.py`):** Validates user-owned JSON stackup profiles without editing the KiCad board.
 - **Visualizer (`visualizer.py`):** Generates heatmaps via Matplotlib and renders them as overlays in KiCad.
 
@@ -199,7 +207,7 @@ Electrical analysis utilizes a **Hybrid 2.5D Finite Difference Method (FDM)**. I
 
 ## � Current State (Alpha)
 
-As of the current version, Ki-PIDA implements end-to-end DC IR drop, AC target-impedance, steady-state 3D board thermal analysis, volumetric enclosure CFD, and stackup-aware differential-pair impedance screening.
+As of the current version, Ki-PIDA implements end-to-end DC IR drop, AC target-impedance, steady-state 3D board thermal analysis, volumetric enclosure CFD, stackup-aware differential-pair impedance screening, and per-network geometry recommendations.
 
 ### Capabilities:
 - **Comprehensive Extraction:** Extracts tracks, pads, and filled zones (respecting thermal reliefs and voids) from KiCad 9.0+ boards.
@@ -224,4 +232,5 @@ As of the current version, Ki-PIDA implements end-to-end DC IR drop, AC target-i
 - **Phase 2:** AC Impedance Analysis ($Z$ vs Frequency) and decoupling capacitor optimization.
 - **Phase 3:** Full 3D board thermal modeling with airflow convection and iterative DC coupling.
 - **Phase 4:** Volumetric enclosure CFD with boundary-patch fans/vents and conjugate PCB-to-air heat transfer.
-- **Phase 5 (Current):** Differential-pair discovery, stackup import, adjacent reference-plane analysis, and routed-pair impedance estimates.
+- **Phase 5:** Differential-pair discovery, stackup import, adjacent reference-plane analysis, and routed-pair impedance estimates.
+- **Phase 6 (Current):** Zoom/pan navigation, persistent per-analysis results, scalable output consoles, and non-destructive differential geometry recommendations.
