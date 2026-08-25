@@ -144,12 +144,101 @@ class ACAnalysisSettings:
 
 
 @dataclass
+class DifferentialPairCandidate:
+    """One differential-pair candidate, independent from power-rail models."""
+    name: str
+    positive_net: str
+    negative_net: str
+    interface: str = "GENERIC"
+    target_impedance_ohm: float = 100.0
+    confidence: str = "SUSPECTED"  # CONFIRMED, LIKELY, SUSPECTED, MANUAL
+    evidence: List[str] = field(default_factory=list)
+    enabled: bool = True
+    source: str = "auto"
+    polarity_swappable: str = "unknown"
+
+    @property
+    def signature(self) -> str:
+        return "|".join(sorted((self.positive_net, self.negative_net)))
+
+
+@dataclass
+class StackupLayerModel:
+    """Ordered physical stackup layer used by transmission-line models."""
+    name: str
+    kind: str  # COPPER, DIELECTRIC, SOLDER_MASK
+    thickness_mm: float
+    layer_id: Optional[int] = None
+    material: str = ""
+    epsilon_r: float = 1.0
+    loss_tangent: float = 0.0
+
+
+@dataclass
+class StackupProfile:
+    """Traceable stackup snapshot or user-imported override."""
+    layers: List[StackupLayerModel] = field(default_factory=list)
+    source: str = "DEFAULT"  # KICAD_IPC, PCB_FILE, IMPORTED, MANUAL, DEFAULT
+    trustworthy: bool = False
+    warnings: List[str] = field(default_factory=list)
+
+
+@dataclass
+class DifferentialAnalysisSettings:
+    """Persisted Phase 5 discovery, stackup, and impedance settings."""
+    pairs: List[DifferentialPairCandidate] = field(default_factory=list)
+    ignored_pair_signatures: List[str] = field(default_factory=list)
+    stackup_override: Optional[StackupProfile] = None
+    reference_net_names: List[str] = field(
+        default_factory=lambda: ["GND", "AGND", "DGND", "PGND"]
+    )
+    target_tolerance_pct: float = 10.0
+    include_solder_mask: bool = True
+    solder_mask_thickness_mm: float = 0.02
+    solder_mask_epsilon_r: float = 3.3
+
+
+@dataclass
+class DifferentialSectionResult:
+    """Impedance result for a same-layer coupled routing section."""
+    layer_id: int
+    layer_name: str
+    length_mm: float
+    width_mm: float
+    gap_mm: float
+    topology: str
+    reference_above: str = ""
+    reference_below: str = ""
+    reference_coverage_pct: float = 0.0
+    single_ended_impedance_ohm: float = 0.0
+    differential_impedance_ohm: float = 0.0
+    trustworthy: bool = False
+    warnings: List[str] = field(default_factory=list)
+
+
+@dataclass
+class DifferentialPairResult:
+    """Aggregated routed-pair result with local section evidence."""
+    pair: DifferentialPairCandidate
+    sections: List[DifferentialSectionResult] = field(default_factory=list)
+    weighted_impedance_ohm: float = 0.0
+    minimum_impedance_ohm: float = 0.0
+    maximum_impedance_ohm: float = 0.0
+    error_pct: float = 0.0
+    length_mismatch_mm: float = 0.0
+    status: str = "NO_DATA"
+    trustworthy: bool = False
+    warnings: List[str] = field(default_factory=list)
+
+
+@dataclass
 class ProjectConfig:
     """Complete persisted Ki-PIDA project configuration."""
     rails: List[PowerRail] = field(default_factory=list)
     ac_profiles: Dict[str, ACAnalysisSettings] = field(default_factory=dict)
     thermal_profile: Optional["ThermalAnalysisSettings"] = None
     cfd_profile: Optional["EnclosureCFDSettings"] = None
+    differential_profile: Optional[DifferentialAnalysisSettings] = None
 
 
 @dataclass

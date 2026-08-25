@@ -7,7 +7,8 @@ try:
         ACAnalysisSettings, ACMeasurementPort, ACSourceModel, CapacitorModel,
         AirflowSettings, CFDBoundaryPatch, CFDSolverSettings, ComponentRef,
         EnclosureCFDSettings, EnclosureGeometrySettings, FluidProperties,
-        PowerRail, ProjectConfig,
+        DifferentialAnalysisSettings, DifferentialPairCandidate,
+        PowerRail, ProjectConfig, StackupLayerModel, StackupProfile,
         ThermalAnalysisSettings, ThermalComponentModel, UnifiedLoad,
         UnifiedSource, VoltageRegulator,
     )
@@ -16,13 +17,14 @@ except (ImportError, ValueError):
         ACAnalysisSettings, ACMeasurementPort, ACSourceModel, CapacitorModel,
         AirflowSettings, CFDBoundaryPatch, CFDSolverSettings, ComponentRef,
         EnclosureCFDSettings, EnclosureGeometrySettings, FluidProperties,
-        PowerRail, ProjectConfig,
+        DifferentialAnalysisSettings, DifferentialPairCandidate,
+        PowerRail, ProjectConfig, StackupLayerModel, StackupProfile,
         ThermalAnalysisSettings, ThermalComponentModel, UnifiedLoad,
         UnifiedSource, VoltageRegulator,
     )
 
-CONFIG_VERSION = "1.4"
-SUPPORTED_CONFIG_VERSIONS = {"1.0", "1.1", "1.2", "1.3", CONFIG_VERSION}
+CONFIG_VERSION = "1.5"
+SUPPORTED_CONFIG_VERSIONS = {"1.0", "1.1", "1.2", "1.3", "1.4", CONFIG_VERSION}
 
 
 def get_project_config_path(
@@ -49,9 +51,9 @@ def get_project_config_path(
 
 def save_config(
     rails: List[PowerRail], filepath: str, ac_profiles=None,
-    thermal_profile=None, cfd_profile=None,
+    thermal_profile=None, cfd_profile=None, differential_profile=None,
 ):
-    """Save the power tree and optional AC, thermal, and CFD profiles."""
+    """Save the power tree and optional analysis profiles."""
     config = {
         "version": CONFIG_VERSION,
         "rails": [_rail_to_dict(rail) for rail in rails],
@@ -63,6 +65,10 @@ def save_config(
             _thermal_settings_to_dict(thermal_profile) if thermal_profile is not None else None
         ),
         "cfd_profile": _cfd_settings_to_dict(cfd_profile) if cfd_profile is not None else None,
+        "differential_profile": (
+            _differential_settings_to_dict(differential_profile)
+            if differential_profile is not None else None
+        ),
     }
     
     with open(filepath, 'w') as f:
@@ -90,11 +96,16 @@ def load_project_config(filepath: str) -> ProjectConfig:
     thermal_profile = _dict_to_thermal_settings(thermal_data) if thermal_data else None
     cfd_data = config.get("cfd_profile")
     cfd_profile = _dict_to_cfd_settings(cfd_data) if cfd_data else None
+    differential_data = config.get("differential_profile")
+    differential_profile = (
+        _dict_to_differential_settings(differential_data) if differential_data else None
+    )
     return ProjectConfig(
         rails=rails,
         ac_profiles=ac_profiles,
         thermal_profile=thermal_profile,
         cfd_profile=cfd_profile,
+        differential_profile=differential_profile,
     )
 
 
@@ -113,6 +124,10 @@ def load_thermal_profile(filepath: str):
 
 def load_cfd_profile(filepath: str):
     return load_project_config(filepath).cfd_profile
+
+
+def load_differential_profile(filepath: str):
+    return load_project_config(filepath).differential_profile
 
 def _rail_to_dict(rail: PowerRail) -> dict:
     """Convert PowerRail to dictionary."""
@@ -283,6 +298,94 @@ def _dict_to_ac_settings(data: dict) -> ACAnalysisSettings:
             "optimizer_values_f", [10e-9, 47e-9, 100e-9, 470e-9, 1e-6, 4.7e-6, 10e-6]
         )],
         optimizer_max_additions=int(data.get("optimizer_max_additions", 8)),
+    )
+
+
+def _stackup_to_dict(profile: StackupProfile) -> dict:
+    return {
+        "source": profile.source,
+        "trustworthy": profile.trustworthy,
+        "warnings": list(profile.warnings),
+        "layers": [{
+            "name": layer.name,
+            "kind": layer.kind,
+            "thickness_mm": layer.thickness_mm,
+            "layer_id": layer.layer_id,
+            "material": layer.material,
+            "epsilon_r": layer.epsilon_r,
+            "loss_tangent": layer.loss_tangent,
+        } for layer in profile.layers],
+    }
+
+
+def _dict_to_stackup(data: dict) -> StackupProfile:
+    return StackupProfile(
+        source=data.get("source", "IMPORTED"),
+        trustworthy=bool(data.get("trustworthy", False)),
+        warnings=list(data.get("warnings", [])),
+        layers=[StackupLayerModel(
+            name=layer.get("name", ""),
+            kind=layer.get("kind", "DIELECTRIC").upper(),
+            thickness_mm=float(layer.get("thickness_mm", 0.0)),
+            layer_id=(int(layer["layer_id"]) if layer.get("layer_id") is not None else None),
+            material=layer.get("material", ""),
+            epsilon_r=float(layer.get("epsilon_r", 1.0)),
+            loss_tangent=float(layer.get("loss_tangent", 0.0)),
+        ) for layer in data.get("layers", [])],
+    )
+
+
+def _differential_settings_to_dict(settings: DifferentialAnalysisSettings) -> dict:
+    return {
+        "pairs": [{
+            "name": pair.name,
+            "positive_net": pair.positive_net,
+            "negative_net": pair.negative_net,
+            "interface": pair.interface,
+            "target_impedance_ohm": pair.target_impedance_ohm,
+            "confidence": pair.confidence,
+            "evidence": list(pair.evidence),
+            "enabled": pair.enabled,
+            "source": pair.source,
+            "polarity_swappable": pair.polarity_swappable,
+        } for pair in settings.pairs],
+        "ignored_pair_signatures": list(settings.ignored_pair_signatures),
+        "stackup_override": (
+            _stackup_to_dict(settings.stackup_override)
+            if settings.stackup_override is not None else None
+        ),
+        "reference_net_names": list(settings.reference_net_names),
+        "target_tolerance_pct": settings.target_tolerance_pct,
+        "include_solder_mask": settings.include_solder_mask,
+        "solder_mask_thickness_mm": settings.solder_mask_thickness_mm,
+        "solder_mask_epsilon_r": settings.solder_mask_epsilon_r,
+    }
+
+
+def _dict_to_differential_settings(data: dict) -> DifferentialAnalysisSettings:
+    stackup_data = data.get("stackup_override")
+    return DifferentialAnalysisSettings(
+        pairs=[DifferentialPairCandidate(
+            name=pair.get("name", "Differential pair"),
+            positive_net=pair.get("positive_net", ""),
+            negative_net=pair.get("negative_net", ""),
+            interface=pair.get("interface", "GENERIC"),
+            target_impedance_ohm=float(pair.get("target_impedance_ohm", 100.0)),
+            confidence=pair.get("confidence", "SUSPECTED"),
+            evidence=list(pair.get("evidence", [])),
+            enabled=bool(pair.get("enabled", True)),
+            source=pair.get("source", "auto"),
+            polarity_swappable=pair.get("polarity_swappable", "unknown"),
+        ) for pair in data.get("pairs", [])],
+        ignored_pair_signatures=list(data.get("ignored_pair_signatures", [])),
+        stackup_override=_dict_to_stackup(stackup_data) if stackup_data else None,
+        reference_net_names=list(data.get(
+            "reference_net_names", ["GND", "AGND", "DGND", "PGND"]
+        )),
+        target_tolerance_pct=float(data.get("target_tolerance_pct", 10.0)),
+        include_solder_mask=bool(data.get("include_solder_mask", True)),
+        solder_mask_thickness_mm=float(data.get("solder_mask_thickness_mm", 0.02)),
+        solder_mask_epsilon_r=float(data.get("solder_mask_epsilon_r", 3.3)),
     )
 
 

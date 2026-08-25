@@ -29,6 +29,9 @@ class GeometryExtractor:
         self.debug = debug
         self.log_callback = log_callback
         self.logger = logging.getLogger('KiPIDA.GeometryExtractor')
+        # Stackup data belongs to one live board. A class-level cache can leak
+        # data between projects opened in the same KiCad process.
+        self._stackup_cache = None
         if debug:
             self.logger.setLevel(logging.DEBUG)
             # Clear any existing handlers to avoid duplicates
@@ -76,8 +79,33 @@ class GeometryExtractor:
             except: pass
         return []
 
+    def _item_matches_net(self, item, net_name):
+        """Match kipy net objects with a small legacy numeric-net fallback."""
+        net = self._get_val(item, 'net')
+        item_name = self._get_val(net, 'name', '')
+        if item_name:
+            return item_name == net_name
+        item_code = self._get_val(item, 'net_code', self._get_val(item, 'net_number', None))
+        if item_code is None:
+            return False
+        finder = getattr(self.board, 'FindNet', None) or getattr(self.board, 'find_net', None)
+        if not callable(finder):
+            return False
+        try:
+            target = finder(net_name)
+            target_code = self._get_val(target, 'code', self._get_val(target, 'number', None))
+            if target_code is None and hasattr(target, 'GetNetCode'):
+                target_code = target.GetNetCode()
+            return int(item_code) == int(target_code)
+        except Exception:
+            return False
+
     # Cache for stackup data
     _stackup_cache = None
+
+    def invalidate_stackup_cache(self):
+        """Force the next stackup request to query the live KiCad board."""
+        self._stackup_cache = None
 
     def get_board_stackup(self):
         """
@@ -190,7 +218,10 @@ class GeometryExtractor:
                 'copper': copper_data,
                 'layer_order': layer_order,
                 'substrate': substrates,
-                'resistivity': rho_copper
+                'resistivity': rho_copper,
+                'source': 'KICAD_IPC',
+                'trustworthy': bool(copper_data and substrates),
+                'warnings': [],
             }
             
             if self.debug:
@@ -244,11 +275,143 @@ class GeometryExtractor:
             'copper': copper_data,
             'layer_order': layer_order,
             'substrate': substrates,
-            'resistivity': rho_copper
+            'resistivity': rho_copper,
+            'source': 'DEFAULT',
+            'trustworthy': False,
+            'warnings': [
+                'KiCad stackup unavailable; using a generic 2-layer FR4 profile.',
+                'Differential impedance values from this profile are estimates only.',
+            ],
         }
         
         self._stackup_cache = result
         return result
+
+    def get_stackup_profile(self):
+        """Return the legacy stackup dictionary as an ordered typed profile."""
+        try:
+            from .models import StackupLayerModel, StackupProfile
+        except (ImportError, ValueError):
+            from models import StackupLayerModel, StackupProfile
+
+        data = self.get_board_stackup()
+        copper = data.get('copper', {})
+        substrates = data.get('substrate', [])
+        order = list(data.get('layer_order', [])) or sorted(copper)
+        substrate_by_pair = {
+            tuple(item.get('between', [])): item for item in substrates
+            if len(item.get('between', [])) == 2
+        }
+        layers = []
+        for index, layer_id in enumerate(order):
+            layer = copper.get(layer_id, {})
+            layers.append(StackupLayerModel(
+                name=layer.get('name', str(layer_id)),
+                kind='COPPER',
+                thickness_mm=float(layer.get('thickness_mm', 0.035)),
+                layer_id=int(layer_id),
+                material='Copper',
+                epsilon_r=1.0,
+            ))
+            if index + 1 < len(order):
+                next_id = order[index + 1]
+                dielectric = substrate_by_pair.get((layer_id, next_id))
+                if dielectric is None and index < len(substrates):
+                    dielectric = substrates[index]
+                dielectric = dielectric or {}
+                layers.append(StackupLayerModel(
+                    name=f'Dielectric {index + 1}',
+                    kind='DIELECTRIC',
+                    thickness_mm=float(dielectric.get('thickness_mm', 0.0)),
+                    material=dielectric.get('material', 'FR4'),
+                    epsilon_r=float(dielectric.get('epsilon_r', 4.4)),
+                    loss_tangent=float(dielectric.get('loss_tangent', 0.0)),
+                ))
+        warnings = list(data.get('warnings', []))
+        if any(layer.kind == 'DIELECTRIC' and layer.thickness_mm <= 0 for layer in layers):
+            warnings.append('One or more dielectric thicknesses are missing.')
+        return StackupProfile(
+            layers=layers,
+            source=data.get('source', 'DEFAULT'),
+            trustworthy=bool(data.get('trustworthy', False)) and not warnings,
+            warnings=warnings,
+        )
+
+    def get_net_tracks(self, net_name):
+        """Extract immutable same-net route segments for Phase 5 analysis."""
+        result = []
+        for track in self._get_board_items('tracks'):
+            if not self._item_matches_net(track, net_name):
+                continue
+            start = self._get_val(track, 'start')
+            end = self._get_val(track, 'end')
+            if start is None or end is None:
+                continue
+            x0 = to_mm(self._get_val(start, 'x', 0))
+            y0 = to_mm(self._get_val(start, 'y', 0))
+            x1 = to_mm(self._get_val(end, 'x', 0))
+            y1 = to_mm(self._get_val(end, 'y', 0))
+            width = to_mm(self._get_val(track, 'width', 0))
+            if width <= 0:
+                continue
+            result.append({
+                'start': (x0, y0),
+                'end': (x1, y1),
+                'width_mm': width,
+                'layer_id': int(self._get_val(track, 'layer', -1)),
+                'length_mm': math.hypot(x1 - x0, y1 - y0),
+            })
+        return result
+
+    def get_zone_geometry(self, net_name):
+        """Return actual filled-zone copper only, grouped by copper layer."""
+        if Polygon is None or unary_union is None:
+            return {}
+        shapes = {}
+        for zone in self._get_board_items('zones'):
+            net = self._get_val(zone, 'net')
+            if self._get_val(net, 'name', '') != net_name:
+                continue
+            filled = self._get_val(zone, 'filled_polygons', {})
+            if not isinstance(filled, dict):
+                continue
+            for layer_id, polygons in filled.items():
+                if not isinstance(polygons, (list, tuple)):
+                    polygons = [polygons]
+                for polygon in polygons:
+                    outline = self._get_val(polygon, 'outline')
+                    nodes = self._get_val(outline, 'nodes') or self._get_val(outline, 'points', [])
+                    points = []
+                    for node in nodes or []:
+                        point = self._get_val(node, 'point', node)
+                        if point is not None:
+                            points.append((
+                                to_mm(self._get_val(point, 'x', 0)),
+                                to_mm(self._get_val(point, 'y', 0)),
+                            ))
+                    if len(points) < 3:
+                        continue
+                    shape = Polygon(points)
+                    if not shape.is_valid:
+                        shape = shape.buffer(0)
+                    for hole in self._get_val(polygon, 'holes', []) or []:
+                        hole_nodes = self._get_val(hole, 'nodes') or self._get_val(hole, 'points', [])
+                        hole_points = []
+                        for node in hole_nodes or []:
+                            point = self._get_val(node, 'point', node)
+                            if point is not None:
+                                hole_points.append((
+                                    to_mm(self._get_val(point, 'x', 0)),
+                                    to_mm(self._get_val(point, 'y', 0)),
+                                ))
+                        if len(hole_points) >= 3:
+                            shape = shape.difference(Polygon(hole_points))
+                    if not shape.is_empty:
+                        shapes.setdefault(int(layer_id), []).append(shape)
+        return {
+            layer_id: unary_union(layer_shapes)
+            for layer_id, layer_shapes in shapes.items() if layer_shapes
+        }
 
     def get_net_geometry(self, net_name):
         """
@@ -275,10 +438,7 @@ class GeometryExtractor:
         safety_buffer = 0.05 
         
         for track in tracks:
-            net = self._get_val(track, 'net')
-            t_net_name = self._get_val(net, 'name', "")
-            
-            if t_net_name != net_name:
+            if not self._item_matches_net(track, net_name):
                 continue
                     
             start = self._get_val(track, 'start')

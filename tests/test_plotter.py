@@ -86,6 +86,24 @@ class TestPlotter(unittest.TestCase):
 
         self.assertIsNotNone(bitmap)
 
+    def test_plot_differential_impedance_and_stackup(self):
+        pair = SimpleNamespace(name="USB", target_impedance_ohm=90.0)
+        result = SimpleNamespace(
+            pair=pair, weighted_impedance_ohm=92.0,
+            minimum_impedance_ohm=88.0, maximum_impedance_ohm=96.0,
+            status="PASS",
+        )
+        stackup = SimpleNamespace(
+            source="IMPORTED",
+            layers=[
+                SimpleNamespace(name="F.Cu", kind="COPPER", thickness_mm=0.035, epsilon_r=1.0),
+                SimpleNamespace(name="Core", kind="DIELECTRIC", thickness_mm=1.5, epsilon_r=4.2),
+                SimpleNamespace(name="B.Cu", kind="COPPER", thickness_mm=0.035, epsilon_r=1.0),
+            ],
+        )
+        self.assertIsNotNone(self.plotter.plot_differential_impedance([result]))
+        self.assertIsNotNone(self.plotter.plot_stackup_profile(stackup))
+
     def test_plot_thermal_views(self):
         thermal_mesh = SimpleNamespace(
             nodes=[0, 1, 2, 3],

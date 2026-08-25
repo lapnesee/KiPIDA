@@ -21,7 +21,9 @@ class TestPluginStructure(unittest.TestCase):
             import extractor
             import mesh
             import solver
-            import plugin
+            import differential_discovery
+            import differential_impedance
+            import reference_plane_analyzer
         except ImportError as e:
             self.fail(f"Failed to import Core Modules: {e}")
         
@@ -29,6 +31,9 @@ class TestPluginStructure(unittest.TestCase):
         """test that the UI modules can be imported (requires wx)"""
         try:
             import wx
+            import wx.dataview
+            if not hasattr(wx, "Panel"):
+                self.skipTest("A complete wxPython runtime is not available")
         except ImportError:
             self.skipTest("wxPython not available")
 

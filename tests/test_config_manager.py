@@ -14,7 +14,9 @@ from models import (
     ACAnalysisSettings, ACMeasurementPort, ACSourceModel, AirflowSettings, CapacitorModel,
     CFDBoundaryPatch, CFDSolverSettings, EnclosureCFDSettings, EnclosureGeometrySettings,
     FluidProperties,
+    DifferentialAnalysisSettings, DifferentialPairCandidate,
     PowerRail, UnifiedSource, UnifiedLoad, VoltageRegulator, ComponentRef,
+    StackupLayerModel, StackupProfile,
     ThermalAnalysisSettings, ThermalComponentModel,
 )
 
@@ -102,7 +104,7 @@ class TestConfigManager(unittest.TestCase):
             with open(filepath, 'r') as f:
                 data = json.load(f)
             
-            self.assertEqual(data["version"], "1.4")
+            self.assertEqual(data["version"], "1.5")
             self.assertEqual(len(data["rails"]), 3)
             
             # Verify 12V rail
@@ -319,6 +321,53 @@ class TestConfigManager(unittest.TestCase):
         try:
             project = load_project_config(filepath)
             self.assertIsNone(project.thermal_profile)
+        finally:
+            if Path(filepath).exists():
+                os.unlink(filepath)
+
+    def test_differential_profile_round_trip(self):
+        profile = DifferentialAnalysisSettings(
+            pairs=[DifferentialPairCandidate(
+                name="USB", positive_net="USB_DP", negative_net="USB_DM",
+                interface="USB", target_impedance_ohm=90.0,
+                confidence="CONFIRMED", evidence=["user-confirmed"],
+            )],
+            ignored_pair_signatures=["CLK_N|CLK_P"],
+            stackup_override=StackupProfile(
+                source="IMPORTED", trustworthy=True,
+                layers=[
+                    StackupLayerModel("F.Cu", "COPPER", 0.035, layer_id=0),
+                    StackupLayerModel("Core", "DIELECTRIC", 1.5, epsilon_r=4.2),
+                    StackupLayerModel("B.Cu", "COPPER", 0.035, layer_id=31),
+                ],
+            ),
+            target_tolerance_pct=8.0,
+        )
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
+            filepath = f.name
+        try:
+            save_config(self.rails, filepath, differential_profile=profile)
+            loaded = load_project_config(filepath).differential_profile
+            self.assertIsNotNone(loaded)
+            self.assertEqual(loaded.pairs[0].positive_net, "USB_DP")
+            self.assertEqual(loaded.pairs[0].confidence, "CONFIRMED")
+            self.assertEqual(loaded.stackup_override.source, "IMPORTED")
+            self.assertEqual(loaded.stackup_override.layers[2].layer_id, 31)
+            self.assertAlmostEqual(loaded.target_tolerance_pct, 8.0)
+        finally:
+            if Path(filepath).exists():
+                os.unlink(filepath)
+
+    def test_legacy_v14_config_migrates_without_differential_profile(self):
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
+            filepath = f.name
+            json.dump({
+                "version": "1.4", "rails": [], "ac_profiles": {},
+                "thermal_profile": None, "cfd_profile": None,
+            }, f)
+        try:
+            project = load_project_config(filepath)
+            self.assertIsNone(project.differential_profile)
         finally:
             if Path(filepath).exists():
                 os.unlink(filepath)

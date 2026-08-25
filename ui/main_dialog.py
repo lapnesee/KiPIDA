@@ -15,6 +15,7 @@ from solver import Solver
 from ac_model import ACModelBuilder, format_capacitance
 from ac_solver import ACSolver
 from decoupling_optimizer import DecouplingOptimizer
+from differential_impedance import DifferentialGeometrySnapshot, DifferentialImpedanceSolver
 from conjugate_heat_transfer import ConjugateHeatTransferSolver
 from electrothermal import ElectroThermalSolver
 from thermal_mesh import ThermalMesher
@@ -22,11 +23,20 @@ from thermal_model import CopperLossPoint, ThermalModelBuilder
 from thermal_solver import ThermalSolver
 from ui.ac_analysis_panel import ACAnalysisPanel
 from ui.cfd_analysis_panel import CFDAnalysisPanel
+from ui.differential_analysis_panel import DifferentialAnalysisPanel
 from ui.thermal_analysis_panel import ThermalAnalysisPanel
 from ui.power_tree_panel import PowerTreePanel
 from plotter import Plotter
 
 class KiPIDA_MainDialog(wx.Dialog):
+    PAGE_CONFIG = 0
+    PAGE_AC = 1
+    PAGE_DIFFERENTIAL = 2
+    PAGE_THERMAL = 3
+    PAGE_CFD = 4
+    PAGE_RESULTS = 5
+    PAGE_LOG = 6
+
     def __init__(self, parent, board_adapter, project=None):
         super(KiPIDA_MainDialog, self).__init__(parent, title="Ki-PIDA: Power Integrity Analyzer", 
                                                 style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
@@ -37,6 +47,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.board = board_adapter
         self.project = project
         self._cfd_thread = None
+        self._differential_thread = None
         self._cfd_cancel_requested = False
         self._thermal_plot_thread = None
         self._result_generation = 0
@@ -120,7 +131,21 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.power_tree.ac_profiles_provider = self.ac_panel.get_profiles
         self.power_tree.ac_profiles_consumer = self.ac_panel.set_profiles
 
-        # Tab 3: 3D Thermal Configuration
+        # Tab 3: Differential-pair / signal-integrity configuration
+        self.tab_differential = wx.Panel(self.notebook)
+        differential_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.differential_panel = DifferentialAnalysisPanel(
+            self.tab_differential,
+            self.board,
+            log_callback=self.log,
+        )
+        differential_sizer.Add(self.differential_panel, 1, wx.EXPAND | wx.ALL, 5)
+        self.tab_differential.SetSizer(differential_sizer)
+        self.notebook.AddPage(self.tab_differential, "Differential Pairs")
+        self.power_tree.differential_profile_provider = self.differential_panel.get_settings
+        self.power_tree.differential_profile_consumer = self.differential_panel.set_settings
+
+        # Tab 4: 3D Thermal Configuration
         self.tab_thermal = wx.Panel(self.notebook)
         thermal_sizer = wx.BoxSizer(wx.VERTICAL)
         self.thermal_panel = ThermalAnalysisPanel(
@@ -134,7 +159,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.power_tree.thermal_profile_provider = self.thermal_panel.get_settings
         self.power_tree.thermal_profile_consumer = self.thermal_panel.set_settings
 
-        # Tab 4: Enclosure CFD Configuration
+        # Tab 5: Enclosure CFD Configuration
         self.tab_cfd = wx.Panel(self.notebook)
         cfd_sizer = wx.BoxSizer(wx.VERTICAL)
         self.cfd_panel = CFDAnalysisPanel(self.tab_cfd, log_callback=self.log)
@@ -144,12 +169,12 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.power_tree.cfd_profile_provider = self.cfd_panel.get_settings
         self.power_tree.cfd_profile_consumer = self.cfd_panel.set_settings
 
-        # Tab 5: Results
+        # Tab 6: Results
         self.tab_results = wx.Panel(self.notebook)
         self._init_results_tab(self.tab_results)
         self.notebook.AddPage(self.tab_results, "Results")
         
-        # Tab 6: Log/Debug
+        # Tab 7: Log/Debug
         self.tab_log = wx.Panel(self.notebook)
         self._init_log_tab(self.tab_log)
         self.notebook.AddPage(self.tab_log, "Log")
@@ -162,6 +187,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.btn_run = wx.Button(self, label="Run DC Simulation")
         self.btn_run_ac = wx.Button(self, label="Run AC Analysis")
         self.btn_optimize = wx.Button(self, label="Optimize Decoupling")
+        self.btn_run_differential = wx.Button(self, label="Run Differential Z")
         self.btn_run_thermal = wx.Button(self, label="Run Thermal")
         self.btn_run_coupled = wx.Button(self, label="Run Coupled")
         self.btn_run_cfd = wx.Button(self, label="Run Enclosure CFD")
@@ -171,6 +197,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         btn_sizer.Add(self.btn_run, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_run_ac, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_optimize, 0, wx.ALL, 5)
+        btn_sizer.Add(self.btn_run_differential, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_run_thermal, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_run_coupled, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_run_cfd, 0, wx.ALL, 5)
@@ -184,6 +211,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.btn_run.Bind(wx.EVT_BUTTON, self.on_run)
         self.btn_run_ac.Bind(wx.EVT_BUTTON, self.on_run_ac)
         self.btn_optimize.Bind(wx.EVT_BUTTON, self.on_optimize_decoupling)
+        self.btn_run_differential.Bind(wx.EVT_BUTTON, self.on_run_differential)
         self.btn_run_thermal.Bind(wx.EVT_BUTTON, self.on_run_thermal)
         self.btn_run_coupled.Bind(wx.EVT_BUTTON, self.on_run_coupled_thermal)
         self.btn_run_cfd.Bind(wx.EVT_BUTTON, self.on_run_cfd)
@@ -194,11 +222,13 @@ class KiPIDA_MainDialog(wx.Dialog):
         wx.CallAfter(self.power_tree.auto_scan)
 
     def on_notebook_page_changed(self, event):
-        if event.GetSelection() == 1:
+        if event.GetSelection() == self.PAGE_AC:
             wx.CallAfter(self.ac_panel.refresh)
-        elif event.GetSelection() == 2 and not self.thermal_panel.settings.components:
+        elif event.GetSelection() == self.PAGE_DIFFERENTIAL:
+            wx.CallAfter(self.differential_panel.refresh)
+        elif event.GetSelection() == self.PAGE_THERMAL and not self.thermal_panel.settings.components:
             wx.CallAfter(self.thermal_panel.refresh_components)
-        elif event.GetSelection() == 3:
+        elif event.GetSelection() == self.PAGE_CFD:
             wx.CallAfter(self.cfd_panel._update_estimate)
         event.Skip()
     
@@ -441,7 +471,7 @@ class KiPIDA_MainDialog(wx.Dialog):
              wx.MessageBox("No power rails defined.")
              return
              
-        self.notebook.SetSelection(5) # Switch to Log
+        self.notebook.SetSelection(self.PAGE_LOG) # Switch to Log
         self.log(f"--- Starting System Simulation ({len(system_rails)} rails) ---")
         
         try:
@@ -644,7 +674,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             wx.SafeYield()
 
     def on_run_ac(self, event):
-        self.notebook.SetSelection(5)
+        self.notebook.SetSelection(self.PAGE_LOG)
         self.log("--- Starting AC Impedance Analysis ---")
         try:
             settings, network = self._prepare_ac_analysis()
@@ -658,7 +688,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             wx.MessageBox(str(exc), "AC Analysis Error", wx.OK | wx.ICON_ERROR)
 
     def on_optimize_decoupling(self, event):
-        self.notebook.SetSelection(5)
+        self.notebook.SetSelection(self.PAGE_LOG)
         self.log("--- Starting Decoupling Optimization ---")
         try:
             settings, network = self._prepare_ac_analysis()
@@ -711,7 +741,128 @@ class KiPIDA_MainDialog(wx.Dialog):
             optimization.optimized if optimization else None,
         )
         self._add_plot_tab("AC Impedance", bitmap)
-        self.notebook.SetSelection(4)
+        self.notebook.SetSelection(self.PAGE_RESULTS)
+
+    def _prepare_differential_analysis(self):
+        self.differential_panel.refresh(force_scan=not bool(self.differential_panel.settings.pairs))
+        settings = self.differential_panel.get_settings()
+        pairs = [pair for pair in settings.pairs if pair.enabled]
+        if not pairs:
+            raise ValueError("No enabled differential pairs are available. Scan or add a pair first.")
+        stackup = self.differential_panel.get_stackup()
+        if stackup is None or not stackup.layers:
+            raise ValueError("No PCB stackup is available for differential impedance analysis.")
+        extractor = GeometryExtractor(
+            self.board,
+            debug=self.chk_debug.GetValue(),
+            log_callback=self.log,
+        )
+        snapshot = DifferentialGeometrySnapshot.capture(
+            extractor, pairs, settings.reference_net_names
+        )
+        return settings, pairs, stackup, snapshot
+
+    def _differential_progress(self, completed, total, detail):
+        wx.CallAfter(self.log, f"Differential progress: {completed}/{total} ({detail})")
+
+    def on_run_differential(self, event):
+        if self._differential_thread is not None and self._differential_thread.is_alive():
+            return
+        self.notebook.SetSelection(self.PAGE_LOG)
+        self.log("--- Starting Differential Pair Impedance Analysis ---")
+        try:
+            settings, pairs, stackup, snapshot = self._prepare_differential_analysis()
+        except Exception as exc:
+            self.log(f"Differential Setup Error: {exc}")
+            wx.MessageBox(str(exc), "Differential Setup Error", wx.OK | wx.ICON_ERROR)
+            return
+        self.btn_run_differential.Disable()
+        self._differential_thread = threading.Thread(
+            target=self._run_differential_worker,
+            args=(settings, pairs, stackup, snapshot, self.chk_debug.GetValue()),
+            name="KiPIDA-Differential-Impedance",
+            daemon=True,
+        )
+        self._differential_thread.start()
+
+    def _run_differential_worker(self, settings, pairs, stackup, snapshot, debug_mode):
+        try:
+            solver = DifferentialImpedanceSolver(
+                snapshot, stackup, settings,
+                log_callback=lambda message: wx.CallAfter(self.log, message),
+            )
+            results = solver.solve(pairs, progress_callback=self._differential_progress)
+            with self._plot_lock:
+                plotter = Plotter(debug=debug_mode)
+                impedance_png = plotter.plot_differential_impedance(results, as_png=True)
+                stackup_png = plotter.plot_stackup_profile(stackup, as_png=True)
+            if not self._closing:
+                wx.CallAfter(
+                    self._finish_differential_analysis,
+                    results, stackup, impedance_png, stackup_png,
+                )
+        except Exception as exc:
+            if not self._closing:
+                wx.CallAfter(self._fail_differential_analysis, exc)
+
+    def _finish_differential_analysis(self, results, stackup, impedance_png, stackup_png):
+        self._differential_thread = None
+        self.btn_run_differential.Enable()
+        self.differential_panel.apply_results(results)
+        lines = [
+            "Differential Pair Impedance Results",
+            "===================================",
+            f"Stackup: {stackup.source} ({'trusted' if stackup.trustworthy else 'estimate only'})",
+            "",
+        ]
+        if stackup.warnings:
+            lines.append("Stackup warnings:")
+            lines.extend(f"  - {warning}" for warning in stackup.warnings)
+            lines.append("")
+        for result in results:
+            pair = result.pair
+            lines.append(
+                f"{pair.name}: {pair.positive_net} / {pair.negative_net} "
+                f"[{pair.interface}; {pair.confidence}]"
+            )
+            lines.append(
+                f"  Status: {result.status}; Zdiff={result.weighted_impedance_ohm:.3f} ohm; "
+                f"target={pair.target_impedance_ohm:g} ohm; error={result.error_pct:+.2f}%"
+            )
+            lines.append(
+                f"  Range: {result.minimum_impedance_ohm:.3f} .. "
+                f"{result.maximum_impedance_ohm:.3f} ohm; "
+                f"length mismatch={result.length_mismatch_mm:.3f} mm"
+            )
+            for section in result.sections:
+                lines.append(
+                    f"  - {section.layer_name}: {section.topology}, "
+                    f"w={section.width_mm:.3f} mm, gap={section.gap_mm:.3f} mm, "
+                    f"Zdiff={section.differential_impedance_ohm:.3f} ohm, "
+                    f"refs={section.reference_above or '-'} / {section.reference_below or '-'}, "
+                    f"coverage={section.reference_coverage_pct:.1f}%"
+                )
+            for warning in result.warnings:
+                lines.append(f"  WARNING: {warning}")
+            lines.append("")
+        lines.extend([
+            "Model scope: quasi-static coupled microstrip/stripline estimates. ",
+            "Vias and reference-plane transitions are reported as discontinuities; this is not a 3D full-wave solver.",
+        ])
+        self.result_text.SetValue("\n".join(lines))
+        self.results_notebook.DeleteAllPages()
+        if impedance_png:
+            self._add_plot_tab("Differential Z", Plotter.bitmap_from_png(impedance_png))
+        if stackup_png:
+            self._add_plot_tab("Stackup", Plotter.bitmap_from_png(stackup_png))
+        self.notebook.SetSelection(self.PAGE_RESULTS)
+        self.log("Differential impedance results ready.")
+
+    def _fail_differential_analysis(self, exc):
+        self._differential_thread = None
+        self.btn_run_differential.Enable()
+        self.log(f"Differential Analysis Error: {exc}")
+        wx.MessageBox(str(exc), "Differential Analysis Error", wx.OK | wx.ICON_ERROR)
 
     def _dc_copper_loss_points(self):
         losses = []
@@ -773,7 +924,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         return settings, mesh
 
     def on_run_thermal(self, event):
-        self.notebook.SetSelection(5)
+        self.notebook.SetSelection(self.PAGE_LOG)
         self.log("--- Starting 3D Thermal Analysis ---")
         try:
             settings, mesh = self._prepare_thermal_analysis(coupled=False)
@@ -791,7 +942,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             wx.MessageBox(str(exc), "Thermal Analysis Error", wx.OK | wx.ICON_ERROR)
 
     def on_run_coupled_thermal(self, event):
-        self.notebook.SetSelection(5)
+        self.notebook.SetSelection(self.PAGE_LOG)
         self.log("--- Starting Coupled DC / 3D Thermal Analysis ---")
         try:
             settings, mesh = self._prepare_thermal_analysis(coupled=True)
@@ -871,7 +1022,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.results_notebook.AddPage(page, "Rendering")
         finally:
             self.results_notebook.Thaw()
-        self.notebook.SetSelection(4)
+        self.notebook.SetSelection(self.PAGE_RESULTS)
         self.log("Thermal solve complete; rendering plots in background.")
 
         self._thermal_plot_thread = threading.Thread(
@@ -975,7 +1126,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.log("Cancellation requested for enclosure CFD.")
             return
 
-        self.notebook.SetSelection(5)
+        self.notebook.SetSelection(self.PAGE_LOG)
         self.log("--- Starting Phase 4 Enclosure CFD Analysis ---")
         try:
             settings, board_model = self._prepare_cfd_analysis()
@@ -1060,7 +1211,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self._add_plot_tab("Velocity XY", plotter.plot_cfd_slice(mesh, result, "VELOCITY", "XY"))
         self._add_plot_tab("Pressure XY", plotter.plot_cfd_slice(mesh, result, "PRESSURE", "XY"))
         self._add_plot_tab("Residuals", plotter.plot_cfd_residuals(result))
-        self.notebook.SetSelection(4)
+        self.notebook.SetSelection(self.PAGE_RESULTS)
 
     def _debug_plot_geo(self, extractor, geo):
         try:
@@ -1165,7 +1316,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.results_notebook.AddPage(rail_notebook, rail_name)
         
         # Switch to Results tab
-        self.notebook.SetSelection(4)
+        self.notebook.SetSelection(self.PAGE_RESULTS)
 
     def on_close(self, event):
         if self._cfd_thread is not None and self._cfd_thread.is_alive():

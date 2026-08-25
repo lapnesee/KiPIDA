@@ -114,7 +114,13 @@ class TestGeometryExtractor(unittest.TestCase):
         self.assertIn(0, geo)
         poly = geo[0]
         
-        self.assertAlmostEqual(poly.area, 5.0 + math.pi * (0.25**2), delta=0.01)
+        # Geometry extraction deliberately adds a 0.05 mm rasterization safety
+        # buffer around the physical 0.25 mm track radius.
+        buffered_radius = 0.25 + 0.05
+        self.assertAlmostEqual(
+            poly.area, 10.0 * (2.0 * buffered_radius) + math.pi * buffered_radius**2,
+            delta=0.01,
+        )
 
 if __name__ == '__main__':
     unittest.main()
