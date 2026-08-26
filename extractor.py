@@ -839,7 +839,12 @@ class GeometryExtractor:
         for layer, shapes in layer_shapes.items():
             if not shapes:
                 continue
-            if self.log_callback and (not merge or len(shapes) >= 100):
+            # Bulk thermal extraction visits every net on every copper layer.
+            # Logging each tiny unmerged collection can enqueue thousands of
+            # wx events and make the GUI appear frozen.  Keep only meaningful
+            # geometry summaries; indexing and thermal-layer timings remain
+            # visible in the log.
+            if self.log_callback and len(shapes) >= 100:
                 action = "Merging" if merge else "Collecting"
                 self.log_callback(
                     f"[GEOMETRY] {action} {len(shapes):,} shape(s) for {net_name} "

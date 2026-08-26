@@ -303,7 +303,6 @@ class KiPIDA_MainDialog(wx.Dialog):
             return
         self.log_ctrl.AppendText(msg + "\n")
         self.log_ctrl.ShowPosition(self.log_ctrl.GetLastPosition())
-        wx.SafeYield()
         
     def to_mm(self, val_nm):
         return val_nm / 1e6

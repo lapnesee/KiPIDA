@@ -138,6 +138,7 @@ class TestGeometryExtractor(unittest.TestCase):
         geometry = extractor.get_net_geometry("TestNet", merge=False)
         self.assertIn(0, geometry)
         self.assertTrue(any("Indexed" in message for message in messages))
+        self.assertFalse(any("Collecting" in message for message in messages))
 
 if __name__ == '__main__':
     unittest.main()
