@@ -142,6 +142,14 @@ class TestPlotter(unittest.TestCase):
         self.assertTrue(thermal_3d_png.startswith(b"\x89PNG"))
         self.assertTrue(top_png.startswith(b"\x89PNG"))
 
+        x_edges, y_edges, field = self.plotter._thermal_surface_grid(
+            thermal_mesh, result, target_iz=1,
+        )
+        self.assertEqual(field.shape, (1, 2))
+        self.assertEqual(field.tolist(), [[35.0, 32.0]])
+        self.assertEqual(x_edges.tolist(), [-0.5, 0.5, 1.5])
+        self.assertEqual(y_edges.tolist(), [0.5, 1.5])
+
     def test_plot_cfd_views(self):
         shape = (3, 3, 3)
         count = 27

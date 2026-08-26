@@ -282,15 +282,21 @@ class Plotter:
             if not mesh.node_map:
                 return None
             target_iz = max(key[2] for key in mesh.node_map) if side.upper() == 'TOP' else 0
-            nodes = [node for (ix, iy, iz), node in mesh.node_map.items() if iz == target_iz]
-            if not nodes:
+            surface = self._thermal_surface_grid(mesh, result, target_iz)
+            if surface is None:
                 return None
-            xs = [mesh.node_coords[node][0] for node in nodes]
-            ys = [mesh.node_coords[node][1] for node in nodes]
-            temperatures = [result.temperatures_c[node] for node in nodes]
+            x_edges, y_edges, temperatures = surface
             bounds = board_bounds or getattr(mesh, 'bounds_mm', None)
             fig, axis = plt.subplots(figsize=self._figsize(bounds), constrained_layout=True)
-            plot = axis.scatter(xs, ys, c=temperatures, cmap='inferno', marker='s', s=18)
+            # A scatter plot of square markers leaves pixel-sized gaps between
+            # cells, which looks like a black grid at normal GUI zoom.  The
+            # thermal mesh is already a regular finite-volume grid: render
+            # its cells directly, without visible marker borders.
+            plot = axis.pcolormesh(
+                x_edges, y_edges, temperatures,
+                cmap='inferno', shading='flat', edgecolors='none',
+                linewidth=0.0, antialiased=False, rasterized=True,
+            )
             self._fit_xy(axis, bounds)
             axis.set_xlabel('X (mm)')
             axis.set_ylabel('Y (mm)')
@@ -301,6 +307,47 @@ class Plotter:
             if self.debug:
                 print(f"Thermal surface plot error: {e}")
             return None
+
+    @staticmethod
+    def _thermal_surface_grid(mesh, result, target_iz):
+        """Return cell edges and a temperature field for one mesh surface."""
+        cells = [
+            (ix, iy, node)
+            for (ix, iy, iz), node in mesh.node_map.items()
+            if iz == target_iz and node in result.temperatures_c
+        ]
+        if not cells:
+            return None
+        x_indices = sorted({ix for ix, _, _ in cells})
+        y_indices = sorted({iy for _, iy, _ in cells})
+        x_positions = {
+            ix: mesh.node_coords[node][0]
+            for ix, _, node in cells
+        }
+        y_positions = {
+            iy: mesh.node_coords[node][1]
+            for _, iy, node in cells
+        }
+        x_centers = np.asarray([x_positions[ix] for ix in x_indices], dtype=float)
+        y_centers = np.asarray([y_positions[iy] for iy in y_indices], dtype=float)
+        temperatures = np.full((len(y_indices), len(x_indices)), np.nan, dtype=float)
+        x_offset = {ix: index for index, ix in enumerate(x_indices)}
+        y_offset = {iy: index for index, iy in enumerate(y_indices)}
+        for ix, iy, node in cells:
+            temperatures[y_offset[iy], x_offset[ix]] = result.temperatures_c[node]
+
+        def cell_edges(centers):
+            if len(centers) > 1:
+                step = float(np.median(np.diff(centers)))
+            else:
+                step = float(getattr(mesh, 'grid_size_mm', 1.0) or 1.0)
+            return np.concatenate((
+                [centers[0] - step / 2.0],
+                (centers[:-1] + centers[1:]) / 2.0,
+                [centers[-1] + step / 2.0],
+            ))
+
+        return cell_edges(x_centers), cell_edges(y_centers), temperatures
 
     def _cfd_field(self, mesh, result, field):
         shape = mesh.shape
