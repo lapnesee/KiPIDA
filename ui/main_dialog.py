@@ -4,6 +4,7 @@ import sys
 import os
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 # Ensure plugin dir is in path to import modules
@@ -301,7 +302,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             if not self._closing:
                 wx.CallAfter(self.log, msg)
             return
-        self.log_ctrl.AppendText(msg + "\n")
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.log_ctrl.AppendText(f"[{timestamp}] {msg}\n")
         self.log_ctrl.ShowPosition(self.log_ctrl.GetLastPosition())
         
     def to_mm(self, val_nm):
@@ -1033,11 +1035,12 @@ class KiPIDA_MainDialog(wx.Dialog):
 
         self.btn_run_thermal.Disable()
         self.btn_run_coupled.Disable()
+        started_at = time.perf_counter()
         self._thermal_thread = threading.Thread(
             target=self._thermal_pipeline_worker,
             args=(
                 settings, coupled, compute_settings, debug_mode, rails,
-                dc_grid_size, board_file_path,
+                dc_grid_size, board_file_path, started_at,
             ),
             name="KiPIDA-Thermal-Pipeline",
             daemon=True,
@@ -1061,6 +1064,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         rails,
         dc_grid_size,
         board_file_path,
+        started_at,
     ):
         try:
             system_results = {}
@@ -1135,12 +1139,15 @@ class KiPIDA_MainDialog(wx.Dialog):
                     coupled,
                     solved,
                     system_results,
+                    time.perf_counter() - started_at,
                 )
         except Exception as exc:
             if not self._closing:
                 wx.CallAfter(self._fail_thermal_worker, coupled, exc)
 
-    def _finish_thermal_worker(self, mesh, result, coupled, coupled_result, system_results):
+    def _finish_thermal_worker(
+        self, mesh, result, coupled, coupled_result, system_results, elapsed_seconds,
+    ):
         self._thermal_thread = None
         self.btn_run_thermal.Enable()
         self.btn_run_coupled.Enable()
@@ -1150,7 +1157,10 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.thermal_result = result
         if coupled_result is not None:
             self.electrothermal_result = coupled_result
-        self._update_thermal_results_ui(mesh, result, coupled=coupled)
+        self._update_thermal_results_ui(
+            mesh, result, coupled=coupled, elapsed_seconds=elapsed_seconds,
+        )
+        self.log(f"Thermal analysis completed in {elapsed_seconds:.3f} s.")
 
     def _fail_thermal_worker(self, coupled, exc):
         self._thermal_thread = None
@@ -1160,7 +1170,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.log(f"{label} Analysis Error: {exc}")
         wx.MessageBox(str(exc), f"{label} Analysis Error", wx.OK | wx.ICON_ERROR)
 
-    def _update_thermal_results_ui(self, mesh, result, coupled=False):
+    def _update_thermal_results_ui(self, mesh, result, coupled=False, elapsed_seconds=None):
         hotspot = result.hotspot
         lines = [
             "3D Thermal Analysis Results",
@@ -1184,9 +1194,10 @@ class KiPIDA_MainDialog(wx.Dialog):
             f"(transfer {result.compute_transfer_seconds:.4g} s)",
             f"Linear residual: {result.compute_relative_residual:.4g} "
             f"({result.compute_iterations} iteration(s))",
-            "",
-            "Component junction estimates:",
         ]
+        if elapsed_seconds is not None:
+            lines.append(f"Total elapsed time: {float(elapsed_seconds):.3f} s")
+        lines.extend(["", "Component junction estimates:"])
         if result.component_results:
             for component in result.component_results:
                 status = "OK" if component.margin_c >= 0 else "OVER LIMIT"

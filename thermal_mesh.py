@@ -298,7 +298,12 @@ class ThermalMesher:
             z_cursor += spec.thickness_mm
 
         node_id = 0
-        configured_workers = self._worker_count()
+        # GUI/configuration values may be deserialised as floats (for example
+        # 16.0).  ThreadPoolExecutor accepts them loosely, whereas range() for
+        # row bands does not; normalise once at this boundary.
+        configured_workers = max(1, int(self._worker_count()))
+        nx = max(1, int(nx))
+        ny = max(1, int(ny))
         workers = min(configured_workers, max(1, len(specs)))
         outline = model.outline.wkb if from_wkb is not None else model.outline
         sample_inputs = [
@@ -323,6 +328,7 @@ class ThermalMesher:
                 band_counts[index % len(specs)] += 1
             work_items = []
             for layer_index, (sample_input, bands) in enumerate(zip(sample_inputs, band_counts)):
+                bands = max(1, int(bands))
                 outline_arg, copper_arg, min_x_arg, min_y_arg, nx_arg, _, grid_arg = sample_input
                 for band in range(bands):
                     row_start = (ny * band) // bands
