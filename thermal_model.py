@@ -303,6 +303,10 @@ class ThermalModelBuilder:
 
         copper_by_layer = self._extract_copper(extractor)
         outline, bounds = self._outline_and_bounds(copper_by_layer, placements)
+        live_bounds = extractor.get_board_bounds()
+        if live_bounds is not None:
+            bounds = live_bounds
+            outline = box(*bounds) if box is not None else outline
 
         vias = []
         for via in self._items("vias"):

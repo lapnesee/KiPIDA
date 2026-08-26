@@ -107,6 +107,36 @@ class GeometryExtractor:
         """Force the next stackup request to query the live KiCad board."""
         self._stackup_cache = None
 
+    def get_board_bounds(self, margin_mm=1.0):
+        """Return live full-board XY bounds, not just the currently analysed net."""
+        points = []
+        def point(value):
+            if value is None:
+                return
+            x = self._get_val(value, 'x', None)
+            y = self._get_val(value, 'y', None)
+            if x is not None and y is not None:
+                points.append((to_mm(x), to_mm(y)))
+        for collection in ('drawings', 'graphic_items', 'tracks', 'vias', 'footprints'):
+            for item in self._get_board_items(collection) or []:
+                point(self._get_val(item, 'start'))
+                point(self._get_val(item, 'end'))
+                point(self._get_val(item, 'position'))
+                point(self._get_val(item, 'center'))
+                for pad in self._get_val(item, 'pads', []) or []:
+                    point(self._get_val(pad, 'position'))
+        for zone in self._get_board_items('zones') or []:
+            for polygon_list in (self._get_val(zone, 'filled_polygons', {}) or {}).values():
+                for polygon in polygon_list if isinstance(polygon_list, (list, tuple)) else [polygon_list]:
+                    outline = self._get_val(polygon, 'outline')
+                    for node in self._get_val(outline, 'nodes', self._get_val(outline, 'points', [])) or []:
+                        point(self._get_val(node, 'point', node))
+        if not points:
+            return None
+        min_x, min_y = min(x for x, _ in points), min(y for _, y in points)
+        max_x, max_y = max(x for x, _ in points), max(y for _, y in points)
+        return (min_x - margin_mm, min_y - margin_mm, max_x + margin_mm, max_y + margin_mm)
+
     def get_board_stackup(self):
         """
         Extracts physical stackup properties.

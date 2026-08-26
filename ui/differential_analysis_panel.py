@@ -5,12 +5,14 @@ import wx
 try:
     from differential_discovery import DifferentialPairDiscoverer, INTERFACE_DEFAULTS
     from differential_recommender import DifferentialRecommendationEngine
+    from design_rule_injector import DifferentialRuleInjector
     from extractor import GeometryExtractor
     from models import DifferentialAnalysisSettings, DifferentialPairCandidate
     from stackup_io import load_stackup_profile
 except (ImportError, ValueError):
     from ..differential_discovery import DifferentialPairDiscoverer, INTERFACE_DEFAULTS
     from ..differential_recommender import DifferentialRecommendationEngine
+    from ..design_rule_injector import DifferentialRuleInjector
     from ..extractor import GeometryExtractor
     from ..models import DifferentialAnalysisSettings, DifferentialPairCandidate
     from ..stackup_io import load_stackup_profile
@@ -73,9 +75,10 @@ class DifferentialPairDialog(wx.Dialog):
 class DifferentialAnalysisPanel(wx.Panel):
     """Separate detected-pair and stackup configuration surface."""
 
-    def __init__(self, parent, board, log_callback=None):
+    def __init__(self, parent, board, project=None, log_callback=None):
         super().__init__(parent)
         self.board = board
+        self.project = project
         self.log_callback = log_callback
         self.settings = DifferentialAnalysisSettings()
         self.discoverer = DifferentialPairDiscoverer(board, log_callback=log_callback)
@@ -83,6 +86,7 @@ class DifferentialAnalysisPanel(wx.Panel):
         self.stackup = None
         self.results = {}
         self.recommendations = {}
+        self._recommendation_rows = []
         self._init_ui()
 
     def log(self, message):
@@ -135,15 +139,19 @@ class DifferentialAnalysisPanel(wx.Panel):
 
         recommendation_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Geometry Recommendations")
         recommendation_parent = recommendation_box.GetStaticBox()
-        self.recommendation_list = wx.ListCtrl(recommendation_parent, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
+        self.recommendation_list = wx.ListCtrl(recommendation_parent, style=wx.LC_REPORT | wx.LC_MULTIPLE_SEL)
         for index, (title, width) in enumerate((
             ("Pair", 120), ("Layer", 85), ("Action", 145), ("Current W/G", 105),
             ("Suggested W/G", 120), ("Predicted Z", 90), ("Ground clearance", 120), ("Confidence", 90),
         )):
             self.recommendation_list.InsertColumn(index, title, width=width)
         recommendation_box.Add(self.recommendation_list, 0, wx.EXPAND | wx.ALL, 5)
+        recommendation_buttons = wx.BoxSizer(wx.HORIZONTAL)
         self.btn_recommend = wx.Button(recommendation_parent, label="Generate Recommendations")
-        recommendation_box.Add(self.btn_recommend, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
+        self.btn_apply_rules = wx.Button(recommendation_parent, label="Apply Selected to KiCad Rules")
+        recommendation_buttons.Add(self.btn_recommend, 0, wx.RIGHT, 5)
+        recommendation_buttons.Add(self.btn_apply_rules, 0)
+        recommendation_box.Add(recommendation_buttons, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
         main.Add(recommendation_box, 0, wx.EXPAND | wx.ALL, 5)
 
         controls = wx.BoxSizer(wx.HORIZONTAL)
@@ -168,6 +176,7 @@ class DifferentialAnalysisPanel(wx.Panel):
         self.btn_stackup_refresh.Bind(wx.EVT_BUTTON, self._on_stackup_refresh)
         self.btn_stackup_import.Bind(wx.EVT_BUTTON, self._on_stackup_import)
         self.btn_recommend.Bind(wx.EVT_BUTTON, self._on_recommend)
+        self.btn_apply_rules.Bind(wx.EVT_BUTTON, self._on_apply_rules)
 
     def _selected_pair(self):
         index = self.pair_list.GetFirstSelected()
@@ -192,6 +201,7 @@ class DifferentialAnalysisPanel(wx.Panel):
 
     def _update_recommendation_list(self):
         self.recommendation_list.DeleteAllItems()
+        self._recommendation_rows = []
         for result in self.results.values():
             for recommendation in result.recommendations:
                 row = self.recommendation_list.InsertItem(self.recommendation_list.GetItemCount(), recommendation.pair_name)
@@ -205,6 +215,7 @@ class DifferentialAnalysisPanel(wx.Panel):
                 )
                 for column, value in enumerate(values, start=1):
                     self.recommendation_list.SetItem(row, column, value)
+                self._recommendation_rows.append(recommendation)
 
     def _update_stackup_list(self):
         self.stackup_list.DeleteAllItems()
@@ -392,3 +403,49 @@ class DifferentialAnalysisPanel(wx.Panel):
         DifferentialRecommendationEngine(self.settings).recommend(self.results.values())
         self._update_pair_list()
         self._update_recommendation_list()
+
+    def _selected_recommendations(self):
+        selected = []
+        row = self.recommendation_list.GetFirstSelected()
+        while row >= 0:
+            if row < len(self._recommendation_rows):
+                selected.append(self._recommendation_rows[row])
+            row = self.recommendation_list.GetNextSelected(row)
+        return selected
+
+    def _on_apply_rules(self, event):
+        recommendations = self._selected_recommendations()
+        if not recommendations:
+            wx.MessageBox("Select one or more geometry recommendations first.", "KiCad Rules", wx.OK | wx.ICON_INFORMATION)
+            return
+        project_path = getattr(self.project, "path", None)
+        if not project_path:
+            wx.MessageBox("KiCad project path is unavailable; rules were not changed.", "KiCad Rules", wx.OK | wx.ICON_ERROR)
+            return
+        preview = "\n".join(
+            f"- {item.pair_name}: {item.recommended_width_mm:.3f} mm / {item.recommended_gap_mm:.3f} mm"
+            for item in recommendations
+        )
+        if wx.MessageBox(
+            "Create/update KiPIDA_DIFF net classes and predefined differential sizes in this project?\n\n" + preview,
+            "Apply KiCad Design Rules", wx.YES_NO | wx.ICON_QUESTION,
+        ) != wx.YES:
+            return
+        try:
+            applied = DifferentialRuleInjector(project_path).apply(recommendations)
+            self.log("Applied KiCad differential classes: " + ", ".join(name for _, name, _, _ in applied))
+            wx.MessageBox(
+                "KiCad project rules were updated. Open Board Setup or rerun DRC to inspect the new KiPIDA_DIFF classes.\n"
+                "The current Ki-PIDA session can continue analysing immediately.",
+                "KiCad Rules Applied", wx.OK | wx.ICON_INFORMATION,
+            )
+        except Exception as exc:
+            self.log(f"Failed to apply KiCad differential rules: {exc}")
+            wx.MessageBox(str(exc), "KiCad Rules", wx.OK | wx.ICON_ERROR)
+
+    def refresh_live_board(self):
+        """Drop derived live-board caches while retaining user confirmation and overrides."""
+        self.extractor.invalidate_stackup_cache()
+        if self.settings.stackup_override is None:
+            self.stackup = None
+        self.refresh(force_scan=True)

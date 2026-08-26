@@ -140,6 +140,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.differential_panel = DifferentialAnalysisPanel(
             self.tab_differential,
             self.board,
+            project=self.project,
             log_callback=self.log,
         )
         differential_sizer.Add(self.differential_panel, 1, wx.EXPAND | wx.ALL, 5)
@@ -235,6 +236,16 @@ class KiPIDA_MainDialog(wx.Dialog):
         elif event.GetSelection() == self.PAGE_CFD:
             wx.CallAfter(self.cfd_panel._update_estimate)
         event.Skip()
+
+    def _refresh_live_board_state(self):
+        """Re-read KiCad's live IPC board data before a new analysis run."""
+        try:
+            self.ac_panel.refresh(force_discovery=True)
+            self.differential_panel.refresh_live_board()
+            self.thermal_panel.refresh_components(preserve_user=True)
+            self.log("Refreshed live PCB geometry and component discovery.")
+        except Exception as exc:
+            self.log(f"Live PCB refresh warning: {exc}")
     
     def _init_results_tab(self, parent):
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -437,6 +448,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         return [rail_map[name] for name in result]
 
     def on_run(self, event, update_results=True):
+        self._refresh_live_board_state()
         # 1. Collect Rails
         system_rails = self.power_tree.rails
         if not system_rails:
@@ -616,6 +628,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             traceback.print_exc()
 
     def _prepare_ac_analysis(self):
+        self._refresh_live_board_state()
         if self.ac_panel.choice_rail.GetCount() == 0:
             self.ac_panel.refresh(force_discovery=True)
         settings = self.ac_panel.get_settings()
@@ -712,7 +725,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self._publish_results("AC", "\n".join(lines), [("AC Impedance", bitmap)] if bitmap else [])
 
     def _prepare_differential_analysis(self):
-        self.differential_panel.refresh(force_scan=not bool(self.differential_panel.settings.pairs))
+        self._refresh_live_board_state()
         settings = self.differential_panel.get_settings()
         pairs = [pair for pair in settings.pairs if pair.enabled]
         if not pairs:
@@ -872,6 +885,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         wx.SafeYield()
 
     def _prepare_thermal_analysis(self, coupled=False):
+        self._refresh_live_board_state()
         if not self.thermal_panel.settings.components:
             self.thermal_panel.refresh_components(preserve_user=True)
         settings = self.thermal_panel.get_settings()
@@ -1048,6 +1062,7 @@ class KiPIDA_MainDialog(wx.Dialog):
 
     def _prepare_cfd_analysis(self):
         """Extract all KiCad-dependent data before starting the worker thread."""
+        self._refresh_live_board_state()
         settings = self.cfd_panel.get_settings()
         if not self.thermal_panel.settings.components:
             self.thermal_panel.refresh_components(preserve_user=True)
@@ -1211,8 +1226,10 @@ class KiPIDA_MainDialog(wx.Dialog):
         try:
             extractor = GeometryExtractor(self.board)
             stackup = extractor.get_board_stackup()
+            board_bounds = extractor.get_board_bounds()
         except: 
             stackup = None
+            board_bounds = None
         
         # Get Drop % from UI for coloring scale
         try:
@@ -1239,7 +1256,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             plot_vmin = nominal * (1.0 - drop_pct_ui / 100.0)
             
             # Add 3D plot tab
-            bmp_3d = plotter.plot_3d_mesh(mesh, stackup, vmin=plot_vmin, vmax=vmax)
+            bmp_3d = plotter.plot_3d_mesh(mesh, stackup, vmin=plot_vmin, vmax=vmax, board_bounds=board_bounds)
             if bmp_3d:
                 rail_notebook.AddPage(ZoomableBitmapPanel(rail_notebook, bmp_3d), "3D View")
             
@@ -1253,7 +1270,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                 if stackup and 'copper' in stackup and lid in stackup['copper']:
                     l_name = stackup['copper'][lid].get('name', str(lid))
                 
-                bmp_2d = plotter.plot_layer_2d(mesh, lid, stackup, vmin=plot_vmin, vmax=vmax, layer_name=l_name)
+                bmp_2d = plotter.plot_layer_2d(mesh, lid, stackup, vmin=plot_vmin, vmax=vmax, layer_name=l_name, board_bounds=board_bounds)
                 if bmp_2d:
                     rail_notebook.AddPage(ZoomableBitmapPanel(rail_notebook, bmp_2d), l_name)
             

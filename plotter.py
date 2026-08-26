@@ -12,13 +12,30 @@ class Plotter:
     def __init__(self, debug=False):
         self.debug = debug
 
-    def plot_3d_mesh(self, mesh, stackup=None, vmin=None, vmax=None):
+    @staticmethod
+    def _fit_xy(axis, bounds, invert_y=False):
+        if not bounds:
+            axis.set_aspect('equal', adjustable='box')
+            return
+        min_x, min_y, max_x, max_y = bounds
+        pad = max(1.0, 0.025 * max(max_x - min_x, max_y - min_y))
+        axis.set_xlim(min_x - pad, max_x + pad)
+        axis.set_ylim((-max_y - pad, -min_y + pad) if invert_y else (min_y - pad, max_y + pad))
+
+    @staticmethod
+    def _figsize(bounds, base=8.5):
+        if not bounds:
+            return (base, 6.5)
+        width, height = max(bounds[2] - bounds[0], 1.0), max(bounds[3] - bounds[1], 1.0)
+        return (base, max(4.8, min(8.0, base * height / width)))
+
+    def plot_3d_mesh(self, mesh, stackup=None, vmin=None, vmax=None, board_bounds=None):
         """
         Generates a 3D scatter plot of the mesh nodes.
         Returns a wx.Bitmap.
         """
         try:
-            fig = plt.figure(figsize=(7, 5), constrained_layout=True)
+            fig = plt.figure(figsize=self._figsize(board_bounds), constrained_layout=True)
             ax = fig.add_subplot(111, projection='3d')
             
             xs, ys, zs, c = [], [], [], []
@@ -57,8 +74,8 @@ class Plotter:
             ax.set_xlabel('X (mm)'); ax.set_ylabel('Y (mm)'); ax.set_zlabel('L (pseudo)')
             
             # Equal aspect ratio
-            x_limits = ax.get_xlim3d()
-            y_limits = ax.get_ylim3d()
+            x_limits = (board_bounds[0], board_bounds[2]) if board_bounds else ax.get_xlim3d()
+            y_limits = (-board_bounds[3], -board_bounds[1]) if board_bounds else ax.get_ylim3d()
             x_range = x_limits[1] - x_limits[0]
             y_range = y_limits[1] - y_limits[0]
             max_range = max(x_range, y_range)
@@ -72,13 +89,13 @@ class Plotter:
             if self.debug: print(f"Plotter 3D Error: {e}")
             return None
 
-    def plot_layer_2d(self, mesh, layer_id, stackup=None, vmin=None, vmax=None, layer_name=None):
+    def plot_layer_2d(self, mesh, layer_id, stackup=None, vmin=None, vmax=None, layer_name=None, board_bounds=None):
         """
         Generates a 2D plot (heatmap) for a specific layer.
         Returns a wx.Bitmap.
         """
         try:
-            fig, ax = plt.subplots(figsize=(7, 5), constrained_layout=True)
+            fig, ax = plt.subplots(figsize=self._figsize(board_bounds), constrained_layout=True)
             
             xs, ys, vs = [], [], []
             has_results = hasattr(mesh, 'results') and mesh.results
@@ -125,6 +142,7 @@ class Plotter:
             ax.set_xlabel('X (mm)')
             ax.set_ylabel('Y (mm)')
             ax.set_aspect('equal', 'box')
+            self._fit_xy(ax, board_bounds, invert_y=True)
             
             return self._fig_to_bitmap(fig)
 
@@ -389,7 +407,7 @@ class Plotter:
         """Render a figure to immutable PNG bytes without touching wx."""
         buf = io.BytesIO()
         try:
-            fig.savefig(buf, format='png', dpi=100)
+            fig.savefig(buf, format='png', dpi=160)
             return buf.getvalue()
         finally:
             plt.close(fig)

@@ -168,6 +168,8 @@ Phase 5/6 uses quasi-static coupled microstrip and stripline engineering approxi
 
 Every analysis now retains its own console and plot tabs for the current Ki-PIDA session. Use the mouse wheel over a table, plot, or 3D view to zoom; when zoomed, drag with the left mouse button to pan. In read-only output consoles, use `Ctrl` + mouse wheel or `Ctrl` + `+`/`-` to change the text size (`Ctrl+0` resets it).
 
+Selected differential recommendations can be applied from **Differential Pairs** with **Apply Selected to KiCad Rules**. Ki-PIDA creates or updates only its named `KiPIDA_DIFF_*` net classes, assigns their two exact nets, and adds the suggested width/gap to KiCad's predefined routing sizes. Each new run refreshes live IPC board geometry, components, and differential discovery; saving a PCB modification no longer requires restarting KiCad or Ki-PIDA before re-analysing.
+
 ## 🛠️ Technical Overview (For Developers)
 
 Ki-PIDA is built on a modular architecture designed for performance and maintainability.
