@@ -279,9 +279,23 @@ class KiPIDA_MainDialog(wx.Dialog):
     
     def _init_results_tab(self, parent):
         sizer = wx.BoxSizer(wx.VERTICAL)
-        self.results_workspace = ResultsWorkspace(parent)
+        self.results_workspace = ResultsWorkspace(
+            parent,
+            history_directory=self._results_history_directory(),
+            log_callback=self.log,
+        )
         sizer.Add(self.results_workspace, 1, wx.EXPAND | wx.ALL, 5)
         parent.SetSizer(sizer)
+
+    def _results_history_directory(self):
+        """Keep analysis archives alongside the active KiCad board/project."""
+        board_path = self._board_file_path()
+        if board_path:
+            return Path(board_path).parent / "KiPIDA-results"
+        project_path = getattr(self.project, "path", "") if self.project else ""
+        if project_path:
+            return Path(project_path).parent / "KiPIDA-results"
+        return None
 
     def _publish_results(self, analysis_id, report, plots=None):
         """Publish one analysis without discarding other session results."""
@@ -1263,10 +1277,12 @@ class KiPIDA_MainDialog(wx.Dialog):
             )
             return
         page = self.results_workspace.page_for("THERMAL")
-        page.set_plots([
+        bitmaps = [
             (title, Plotter.bitmap_from_png(png_bytes))
             for title, png_bytes in available_plots
-        ])
+        ]
+        page.set_plots(bitmaps)
+        self.results_workspace.update_history_plots("THERMAL", bitmaps)
         self.log("Thermal result plots ready.")
 
     def _fail_thermal_plots(self, generation, exc):
