@@ -30,6 +30,7 @@ class ThermalSolver:
             settings=self.compute_settings,
             log_callback=self.log_callback,
         )
+        self._matrix_cache = {}
         if np is None or scipy is None:
             raise ImportError("NumPy and SciPy are required for 3D thermal analysis.")
 
@@ -44,7 +45,6 @@ class ThermalSolver:
             raise ValueError("At least one exposed convective surface is required.")
 
         count = len(mesh.nodes)
-        rhs = np.zeros(count, dtype=float)
         identity_nodes = (
             count > 0 and mesh.nodes[0] == 0 and mesh.nodes[-1] == count - 1
         )
@@ -53,42 +53,54 @@ class ThermalSolver:
         }
         translate = (lambda node: int(node)) if identity_nodes else node_to_index.get
 
-        self._log(
-            f"Assembling CSR matrix from {len(mesh.branches):,} branches and "
-            f"{len(mesh.boundaries):,} boundaries."
-        )
-        branch_a = np.fromiter(
-            (translate(branch.node_a) for branch in mesh.branches),
-            dtype=np.int64, count=len(mesh.branches),
-        )
-        branch_b = np.fromiter(
-            (translate(branch.node_b) for branch in mesh.branches),
-            dtype=np.int64, count=len(mesh.branches),
-        )
-        conductance = np.fromiter(
-            (float(branch.conductance_w_k) for branch in mesh.branches),
-            dtype=np.float64, count=len(mesh.branches),
-        )
-        valid = (branch_a >= 0) & (branch_b >= 0) & (conductance > 0)
-        branch_a, branch_b, conductance = branch_a[valid], branch_b[valid], conductance[valid]
+        cache_key = id(mesh)
+        cached = self._matrix_cache.get(cache_key)
+        if cached is not None and cached[0] is mesh and cached[3] == float(ambient_c):
+            matrix = cached[1]
+            rhs = cached[2].copy()
+            self._log(
+                f"Reusing cached {matrix.nnz:,}-entry thermal COO matrix; "
+                "CUDA keeps its CSR workspace resident in VRAM."
+            )
+        else:
+            rhs = np.zeros(count, dtype=float)
+            self._log(
+                f"Assembling COO matrix from {len(mesh.branches):,} branches and "
+                f"{len(mesh.boundaries):,} boundaries."
+            )
+            branch_a = np.fromiter(
+                (translate(branch.node_a) for branch in mesh.branches),
+                dtype=np.int64, count=len(mesh.branches),
+            )
+            branch_b = np.fromiter(
+                (translate(branch.node_b) for branch in mesh.branches),
+                dtype=np.int64, count=len(mesh.branches),
+            )
+            conductance = np.fromiter(
+                (float(branch.conductance_w_k) for branch in mesh.branches),
+                dtype=np.float64, count=len(mesh.branches),
+            )
+            valid = (branch_a >= 0) & (branch_b >= 0) & (conductance > 0)
+            branch_a, branch_b, conductance = branch_a[valid], branch_b[valid], conductance[valid]
 
-        boundary_index = np.fromiter(
-            (translate(boundary.node_id) for boundary in mesh.boundaries),
-            dtype=np.int64, count=len(mesh.boundaries),
-        )
-        boundary_g = np.fromiter(
-            (float(boundary.conductance_w_k) for boundary in mesh.boundaries),
-            dtype=np.float64, count=len(mesh.boundaries),
-        )
-        boundary_valid = (boundary_index >= 0) & (boundary_g > 0)
-        boundary_index, boundary_g = boundary_index[boundary_valid], boundary_g[boundary_valid]
-        np.add.at(rhs, boundary_index, boundary_g * float(ambient_c))
+            boundary_index = np.fromiter(
+                (translate(boundary.node_id) for boundary in mesh.boundaries),
+                dtype=np.int64, count=len(mesh.boundaries),
+            )
+            boundary_g = np.fromiter(
+                (float(boundary.conductance_w_k) for boundary in mesh.boundaries),
+                dtype=np.float64, count=len(mesh.boundaries),
+            )
+            boundary_valid = (boundary_index >= 0) & (boundary_g > 0)
+            boundary_index, boundary_g = boundary_index[boundary_valid], boundary_g[boundary_valid]
+            np.add.at(rhs, boundary_index, boundary_g * float(ambient_c))
 
-        rows = np.concatenate((branch_a, branch_b, branch_a, branch_b, boundary_index))
-        cols = np.concatenate((branch_a, branch_b, branch_b, branch_a, boundary_index))
-        values = np.concatenate((conductance, conductance, -conductance, -conductance, boundary_g))
-        csr = scipy.sparse.coo_matrix((values, (rows, cols)), shape=(count, count)).tocsr()
-        del rows, cols, values, branch_a, branch_b, conductance, boundary_index, boundary_g
+            rows = np.concatenate((branch_a, branch_b, branch_a, branch_b, boundary_index))
+            cols = np.concatenate((branch_a, branch_b, branch_b, branch_a, boundary_index))
+            values = np.concatenate((conductance, conductance, -conductance, -conductance, boundary_g))
+            matrix = scipy.sparse.coo_matrix((values, (rows, cols)), shape=(count, count))
+            self._matrix_cache = {cache_key: (mesh, matrix, rhs.copy(), float(ambient_c))}
+            del rows, cols, values, branch_a, branch_b, conductance, boundary_index, boundary_g
 
         for node, power in mesh.heat_sources_w.items():
             index = translate(node)
@@ -98,7 +110,7 @@ class ThermalSolver:
         if progress_callback:
             progress_callback(1, 3, "matrix")
         compute = self.compute_backend.solve(
-            csr, rhs, system_kind="SPD",
+            matrix, rhs, system_kind="SPD",
             cache_key=("thermal", id(mesh)), matrix_values_static=True,
         )
         temperatures = compute.values
@@ -170,4 +182,5 @@ class ThermalSolver:
             compute_iterations=compute.metadata.iterations,
             compute_cpu_threads=compute.metadata.cpu_threads,
             compute_fallback_reason=compute.metadata.fallback_reason,
+            compute_matrix_assembly=compute.metadata.matrix_assembly,
         )

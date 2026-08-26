@@ -7,6 +7,7 @@ if plugin_dir not in sys.path:
     sys.path.insert(0, plugin_dir)
 
 try:
+    import scipy.sparse
     from shapely.geometry import box
     from thermal_mesh import ThermalMesher
     from thermal_model import ThermalBoardModel, ThermalPlacement, ThermalVia
@@ -81,6 +82,18 @@ class TestThermalSolver(unittest.TestCase):
             result.component_results[0].junction_temperature_c,
             result.component_results[0].board_temperature_c + 5.0,
         )
+
+    def test_reuses_same_host_coo_matrix_between_coupled_iterations(self):
+        mesh = ThermalMesher().generate_mesh(self._model(), self._settings())
+        solver = ThermalSolver()
+        first = solver.solve(mesh, ambient_c=25.0)
+        matrix = solver._matrix_cache[id(mesh)][1]
+        mesh.heat_sources_w[next(iter(mesh.heat_sources_w))] += 0.1
+        second = solver.solve(mesh, ambient_c=25.0)
+
+        self.assertTrue(scipy.sparse.isspmatrix_coo(matrix))
+        self.assertIs(solver._matrix_cache[id(mesh)][1], matrix)
+        self.assertGreater(second.hotspot.temperature_c, first.hotspot.temperature_c)
 
     def test_forced_air_reduces_hotspot(self):
         model = self._model()

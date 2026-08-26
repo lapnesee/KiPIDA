@@ -1175,6 +1175,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                 if mesh.adaptive_grid else ""
             ),
             f"Compute backend: {result.compute_backend} ({result.compute_device})",
+            f"Sparse matrix path: {result.compute_matrix_assembly}",
             f"CPU threads: {result.compute_cpu_threads}",
             f"Solve time: {result.compute_solve_seconds:.4g} s "
             f"(transfer {result.compute_transfer_seconds:.4g} s)",

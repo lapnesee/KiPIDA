@@ -197,8 +197,12 @@ matrices use BiCGSTAB. All CUDA results are computed in float64 and validated
 before publication.
 
 Large DC planes are rasterized only inside their per-layer geometry bounds and
-in bounded point chunks. When a requested DC resolution would exceed 400,000
-nodes for one rail, Ki-PIDA automatically retries that rail with the smallest
+in bounded row chunks. Shapely 2's vector point-in-polygon engine releases the
+Python GIL, so a single large copper layer is split across the configured CPU
+worker count instead of limiting parallelism to the number of PCB layers. A
+bounded in-flight queue keeps peak RAM controlled, and older Shapely releases
+retain the compatible Matplotlib fallback. When a requested DC resolution would
+exceed 400,000 nodes for one rail, Ki-PIDA automatically retries that rail with the smallest
 safe grid step, reports the adaptation in the log, and records both requested
 and effective grid sizes in the DC result. Coupled-analysis worker logs are
 marshalled back to wxPython's GUI thread.
@@ -211,9 +215,12 @@ completion now emit elapsed-time or progress messages even outside Debug mode.
 
 CUDA-enabled thermal runs accept up to 1.25 million projected nodes; CPU-only
 runs retain a 500,000-node safety budget and automatically increase the grid
-step when necessary. Million-node thermal conductance systems are assembled
-directly as vectorized COO/CSR matrices rather than through SciPy LIL row
-updates. The Results tab records an adapted thermal grid when one was required.
+step when necessary. Million-node thermal conductance systems are assembled as
+vectorized COO matrices rather than through SciPy LIL row updates. CUDA runs
+transfer the COO arrays and perform COO-to-CSR assembly on the GPU; coupled
+iterations reuse both the host COO representation and the CSR matrix and
+preconditioner kept resident in VRAM. The Results tab reports this sparse-matrix
+path and records an adapted thermal grid when one was required.
 
 The **3D Thermal** tab provides a 0.1–5 mm spin control, Fast/Normal/Fine presets,
 and the relative XY cell cost. Halving the grid step creates approximately four

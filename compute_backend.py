@@ -37,6 +37,7 @@ class ComputeMetadata:
     fallback_reason: str = ""
     cache_hit: bool = False
     matrix_reused: bool = False
+    matrix_assembly: str = "CPU_CSR"
 
 
 @dataclass
@@ -125,8 +126,11 @@ class SparseComputeBackend:
 
     def solve(self, matrix, rhs, system_kind="SPD", cache_key=None, matrix_values_static=False):
         dtype = np.complex128 if (np.iscomplexobj(matrix.data) or np.iscomplexobj(rhs)) else np.float64
-        matrix = scipy.sparse.csr_matrix(matrix, dtype=dtype)
-        matrix.sort_indices()
+        if scipy.sparse.isspmatrix_coo(matrix):
+            matrix = matrix.astype(dtype, copy=False)
+        else:
+            matrix = scipy.sparse.csr_matrix(matrix, dtype=dtype)
+            matrix.sort_indices()
         rhs = np.asarray(rhs, dtype=dtype)
         selected = self._select(matrix.shape[0])
         if selected == "CUDA":
@@ -145,6 +149,8 @@ class SparseComputeBackend:
         return self._solve_cpu(matrix, rhs)
 
     def _solve_cpu(self, matrix, rhs):
+        matrix = scipy.sparse.csr_matrix(matrix, dtype=matrix.dtype)
+        matrix.sort_indices()
         threads = self._cpu_threads()
         context = threadpool_limits(limits=threads) if threadpool_limits else nullcontext()
         started = time.perf_counter()
@@ -174,10 +180,12 @@ class SparseComputeBackend:
         device_index = self.settings.cuda_device
         with cp.cuda.Device(device_index):
             free_bytes, _ = cp.cuda.runtime.memGetInfo()
-            estimated_bytes = int(
-                matrix.data.nbytes + matrix.indices.nbytes + matrix.indptr.nbytes +
-                rhs.nbytes * 8
-            )
+            is_coo = scipy.sparse.isspmatrix_coo(matrix)
+            if is_coo:
+                host_matrix_bytes = matrix.data.nbytes + matrix.row.nbytes + matrix.col.nbytes
+            else:
+                host_matrix_bytes = matrix.data.nbytes + matrix.indices.nbytes + matrix.indptr.nbytes
+            estimated_bytes = int(host_matrix_bytes * 2 + rhs.nbytes * 8)
             if estimated_bytes > 0.75 * free_bytes:
                 raise MemoryError(
                     f"CUDA solve needs an estimated {estimated_bytes / (1024 ** 3):.2f} GiB "
@@ -188,18 +196,40 @@ class SparseComputeBackend:
                 device_index, cache_key, matrix.shape, matrix.dtype.str, str(system_kind).upper()
             )
             workspace = self._cuda_workspaces.get(workspace_key) if workspace_key is not None else None
-            structure_matches = bool(
-                workspace is not None and
-                np.array_equal(workspace["indices"], matrix.indices) and
-                np.array_equal(workspace["indptr"], matrix.indptr)
+            same_cached_source = bool(
+                workspace is not None and matrix_values_static and
+                workspace.get("source_identity") == id(matrix)
             )
+            structure_matches = same_cached_source
+            if workspace is not None and not is_coo and not same_cached_source:
+                structure_matches = bool(
+                    workspace.get("indices") is not None and
+                    workspace.get("indptr") is not None and
+                    np.array_equal(workspace["indices"], matrix.indices) and
+                    np.array_equal(workspace["indptr"], matrix.indptr)
+                )
             matrix_reused = bool(structure_matches and matrix_values_static)
             if structure_matches:
                 gpu_matrix = workspace["matrix"]
                 if not matrix_values_static:
                     gpu_matrix.data.set(matrix.data)
             else:
-                gpu_matrix = cpx_sparse.csr_matrix(matrix)
+                if is_coo:
+                    gpu_matrix = cpx_sparse.coo_matrix(
+                        (
+                            cp.asarray(matrix.data),
+                            (cp.asarray(matrix.row), cp.asarray(matrix.col)),
+                        ),
+                        shape=matrix.shape,
+                    ).tocsr()
+                    matrix_assembly = "CUDA_COO_TO_CSR"
+                else:
+                    gpu_matrix = cpx_sparse.csr_matrix(matrix)
+                    matrix_assembly = "CUDA_CSR_TRANSFER"
+            if matrix_reused:
+                matrix_assembly = "CUDA_CSR_REUSED"
+            elif structure_matches:
+                matrix_assembly = "CUDA_CSR_VALUES_UPDATED"
             gpu_rhs = cp.asarray(rhs)
             props = cp.cuda.runtime.getDeviceProperties(device_index)
             device_name = props.get("name", f"CUDA {device_index}")
@@ -219,8 +249,9 @@ class SparseComputeBackend:
                 self._cuda_workspaces[workspace_key] = {
                     "matrix": gpu_matrix,
                     "preconditioner": preconditioner,
-                    "indices": matrix.indices.copy(),
-                    "indptr": matrix.indptr.copy(),
+                    "indices": None if is_coo else matrix.indices.copy(),
+                    "indptr": None if is_coo else matrix.indptr.copy(),
+                    "source_identity": id(matrix),
                 }
             transfer_seconds = time.perf_counter() - transfer_started
             iterations = [0]
@@ -261,6 +292,7 @@ class SparseComputeBackend:
                 cpu_threads=self._cpu_threads(),
                 cache_hit=structure_matches,
                 matrix_reused=matrix_reused,
+                matrix_assembly=matrix_assembly,
             ))
 
     def clear_cache(self):

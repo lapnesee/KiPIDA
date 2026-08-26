@@ -2,7 +2,7 @@
 import sys
 import math
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 try:
     from .models import MeshBranch
@@ -22,6 +22,11 @@ except ImportError:
     np = None
     Point = box = prep = None
     matplotlib = None
+
+try:
+    from shapely import intersects_xy, prepare as prepare_geometry
+except ImportError:
+    intersects_xy = prepare_geometry = None
 
 class Mesh:
     def __init__(self):
@@ -126,27 +131,31 @@ class Mesher:
         return max(1, configured or (os.cpu_count() or 1))
 
     @staticmethod
-    def _rasterize_polygon(poly, x_coords, y_coords, shape, chunk_points=250000):
-        def polygons(geometry):
-            if geometry.geom_type == 'Polygon':
-                yield geometry
-            elif hasattr(geometry, 'geoms'):
-                for child in geometry.geoms:
-                    yield from polygons(child)
+    def _polygons(geometry):
+        if geometry.geom_type == 'Polygon':
+            yield geometry
+        elif hasattr(geometry, 'geoms'):
+            for child in geometry.geoms:
+                yield from Mesher._polygons(child)
 
-        polys = list(polygons(poly))
-        layer_mask = np.zeros(shape, dtype=bool)
-        for polygon in polys:
+    @classmethod
+    def _raster_chunks(cls, layer_id, poly, x_coords, y_coords, chunk_points=150000):
+        """Yield bounded, independent raster jobs for one copper layer."""
+        for polygon in cls._polygons(poly):
             buffered = polygon.buffer(1e-5)
-            codes, vertices = [], []
-            rings = [buffered.exterior] + list(buffered.interiors)
-            for ring in rings:
-                coords = list(ring.coords)
-                vertices.extend(coords)
-                codes.append(matplotlib.path.Path.MOVETO)
-                codes.extend([matplotlib.path.Path.LINETO] * (len(coords) - 2))
-                codes.append(matplotlib.path.Path.CLOSEPOLY)
-            path = matplotlib.path.Path(vertices, codes)
+            if intersects_xy is not None:
+                prepare_geometry(buffered)
+                raster_geometry = buffered
+            else:
+                codes, vertices = [], []
+                rings = [buffered.exterior] + list(buffered.interiors)
+                for ring in rings:
+                    coords = list(ring.coords)
+                    vertices.extend(coords)
+                    codes.append(matplotlib.path.Path.MOVETO)
+                    codes.extend([matplotlib.path.Path.LINETO] * (len(coords) - 2))
+                    codes.append(matplotlib.path.Path.CLOSEPOLY)
+                raster_geometry = matplotlib.path.Path(vertices, codes)
             min_px, min_py, max_px, max_py = buffered.bounds
             x0 = max(0, int(np.searchsorted(x_coords, min_px, side="left")) - 1)
             x1 = min(len(x_coords), int(np.searchsorted(x_coords, max_px, side="right")) + 1)
@@ -156,13 +165,85 @@ class Mesher:
             rows_per_chunk = max(1, int(chunk_points) // width)
             for row_start in range(y0, y1, rows_per_chunk):
                 row_stop = min(y1, row_start + rows_per_chunk)
-                xv, yv = np.meshgrid(x_coords[x0:x1], y_coords[row_start:row_stop])
-                points = np.column_stack((xv.ravel(), yv.ravel()))
-                local = path.contains_points(points, radius=1e-9).reshape(
-                    (row_stop - row_start, x1 - x0)
-                )
-                layer_mask[row_start:row_stop, x0:x1] |= local
+                yield layer_id, raster_geometry, row_start, row_stop, x0, x1
+
+    @staticmethod
+    def _rasterize_chunk(raster_geometry, x_coords, y_coords, row_start, row_stop, x0, x1):
+        xv, yv = np.meshgrid(x_coords[x0:x1], y_coords[row_start:row_stop])
+        if intersects_xy is not None and hasattr(raster_geometry, "geom_type"):
+            return np.asarray(intersects_xy(raster_geometry, xv, yv), dtype=bool)
+        points = np.column_stack((xv.ravel(), yv.ravel()))
+        return raster_geometry.contains_points(points, radius=1e-9).reshape(
+            (row_stop - row_start, x1 - x0)
+        )
+
+    @classmethod
+    def _rasterize_polygon(cls, poly, x_coords, y_coords, shape, chunk_points=150000):
+        layer_mask = np.zeros(shape, dtype=bool)
+        for _, raster_geometry, row_start, row_stop, x0, x1 in cls._raster_chunks(
+            None, poly, x_coords, y_coords, chunk_points=chunk_points,
+        ):
+            local = cls._rasterize_chunk(
+                raster_geometry, x_coords, y_coords, row_start, row_stop, x0, x1,
+            )
+            layer_mask[row_start:row_stop, x0:x1] |= local
         return layer_mask
+
+    def _rasterize_layers(self, geometry_by_layer, sorted_layers, x_coords, y_coords, shape, workers):
+        """Rasterize polygon row bands concurrently with bounded memory usage."""
+        layer_masks = {layer_id: np.zeros(shape, dtype=bool) for layer_id in sorted_layers}
+        jobs = (
+            job
+            for layer_id in sorted_layers
+            for job in self._raster_chunks(
+                layer_id, geometry_by_layer[layer_id], x_coords, y_coords,
+            )
+        )
+        completed_chunks = 0
+
+        def merge_chunk(job, local):
+            nonlocal completed_chunks
+            layer_id, _, row_start, row_stop, x0, x1 = job
+            layer_masks[layer_id][row_start:row_stop, x0:x1] |= local
+            completed_chunks += 1
+
+        if workers <= 1:
+            for job in jobs:
+                layer_id, raster_geometry, row_start, row_stop, x0, x1 = job
+                local = self._rasterize_chunk(
+                    raster_geometry, x_coords, y_coords, row_start, row_stop, x0, x1,
+                )
+                merge_chunk(job, local)
+            return layer_masks, completed_chunks
+
+        max_in_flight = max(workers * 2, 2)
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="KiPIDA-Mesh") as pool:
+            pending = {}
+
+            def fill_queue():
+                while len(pending) < max_in_flight:
+                    try:
+                        job = next(jobs)
+                    except StopIteration:
+                        break
+                    layer_id, raster_geometry, row_start, row_stop, x0, x1 = job
+                    future = pool.submit(
+                        self._rasterize_chunk, raster_geometry, x_coords, y_coords,
+                        row_start, row_stop, x0, x1,
+                    )
+                    pending[future] = job
+
+            fill_queue()
+            report_every = max(16, workers * 4)
+            while pending:
+                done, _ = wait(tuple(pending), return_when=FIRST_COMPLETED)
+                for future in done:
+                    job = pending.pop(future)
+                    merge_chunk(job, future.result())
+                if completed_chunks % report_every < len(done):
+                    self._status(f"Rasterized {completed_chunks:,} copper grid chunks...")
+                fill_queue()
+        return layer_masks, completed_chunks
 
     def generate_mesh(
         self, net_name, geometry_by_layer, stackup, grid_size_mm=0.5,
@@ -225,38 +306,33 @@ class Mesher:
         sorted_layers = sorted(valid_layers)
         node_counter = 0
 
-        workers = min(self._worker_count(), len(sorted_layers))
+        workers = self._worker_count()
         grid_point_count = (ny + 1) * (nx + 1)
-        if grid_point_count >= 1000000:
-            workers = min(workers, 2)
         if workers > 1 and grid_point_count >= 10000:
             self._status(
-                f"Rasterizing {len(sorted_layers)} electrical layers with {workers} CPU workers "
-                f"({grid_point_count:,} envelope points per layer)."
+                f"Rasterizing {len(sorted_layers)} electrical layers in bounded row chunks with "
+                f"{workers} CPU workers ({grid_point_count:,} envelope points per layer; "
+                f"{'Shapely vector engine' if intersects_xy is not None else 'Matplotlib fallback'})."
             )
-            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="KiPIDA-Mesh") as pool:
-                future_layers = {
-                    pool.submit(
-                        self._rasterize_polygon, geometry_by_layer[lid], x_coords, y_coords,
-                        (ny + 1, nx + 1),
-                    ): lid for lid in sorted_layers
-                }
-                layer_masks = {}
-                for completed, future in enumerate(as_completed(future_layers), 1):
-                    lid = future_layers[future]
-                    layer_masks[lid] = future.result()
-                    self._status(f"Rasterized electrical layer {lid} ({completed}/{len(sorted_layers)}).")
+            layer_masks, chunk_count = self._rasterize_layers(
+                geometry_by_layer, sorted_layers, x_coords, y_coords,
+                (ny + 1, nx + 1), workers,
+            )
+            self._status(
+                f"Rasterized {len(sorted_layers)} electrical layers in {chunk_count:,} chunks."
+            )
         else:
             self._status(
                 f"Rasterizing {len(sorted_layers)} electrical layer(s) "
                 f"({grid_point_count:,} envelope points per layer)."
             )
-            layer_masks = {}
-            for completed, lid in enumerate(sorted_layers, 1):
-                layer_masks[lid] = self._rasterize_polygon(
-                    geometry_by_layer[lid], x_coords, y_coords, (ny + 1, nx + 1)
-                )
-                self._status(f"Rasterized electrical layer {lid} ({completed}/{len(sorted_layers)}).")
+            layer_masks, chunk_count = self._rasterize_layers(
+                geometry_by_layer, sorted_layers, x_coords, y_coords,
+                (ny + 1, nx + 1), 1,
+            )
+            self._status(
+                f"Rasterized {len(sorted_layers)} electrical layers in {chunk_count:,} chunks."
+            )
 
         projected_nodes = sum(int(np.count_nonzero(mask)) for mask in layer_masks.values())
         self._status(f"Rasterization selected about {projected_nodes:,} copper nodes.")

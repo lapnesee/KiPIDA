@@ -396,6 +396,7 @@ class ThermalResult:
     compute_iterations: int = 1
     compute_cpu_threads: int = 1
     compute_fallback_reason: str = ""
+    compute_matrix_assembly: str = "CPU_CSR"
 
 
 @dataclass

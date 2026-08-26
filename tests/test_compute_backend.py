@@ -4,7 +4,7 @@ from unittest.mock import patch
 import numpy as np
 import scipy.sparse
 
-from compute_backend import SparseComputeBackend
+from compute_backend import ComputeMetadata, ComputeSolution, SparseComputeBackend
 from runtime_config import RuntimeComputeSettings
 
 
@@ -58,6 +58,19 @@ class ComputeBackendTests(unittest.TestCase):
             result = backend.solve(self.matrix, self.rhs)
         self.assertTrue(result.metadata.backend.startswith("CPU_"))
         self.assertEqual(result.metadata.fallback_reason, "GPU OOM")
+
+    @patch("compute_backend.cuda_diagnostics")
+    def test_cuda_receives_coo_for_device_side_csr_assembly(self, diagnostics):
+        diagnostics.return_value = {"available": True, "devices": [{}], "error": ""}
+        settings = RuntimeComputeSettings(
+            backend="CUDA", cuda_enabled=True, cuda_min_nodes=1,
+        )
+        backend = SparseComputeBackend(settings)
+        coo = self.matrix.tocoo()
+        expected = ComputeSolution(self.rhs.copy(), ComputeMetadata("CUDA_CUPY"))
+        with patch.object(backend, "_solve_cuda", return_value=expected) as solve_cuda:
+            backend.solve(coo, self.rhs, cache_key="thermal", matrix_values_static=True)
+        self.assertTrue(scipy.sparse.isspmatrix_coo(solve_cuda.call_args.args[0]))
 
 
 if __name__ == "__main__":
