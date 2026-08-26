@@ -139,7 +139,8 @@ class DifferentialAnalysisPanel(wx.Panel):
 
         recommendation_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Geometry Recommendations")
         recommendation_parent = recommendation_box.GetStaticBox()
-        self.recommendation_list = wx.ListCtrl(recommendation_parent, style=wx.LC_REPORT | wx.LC_MULTIPLE_SEL)
+        # wx.ListCtrl permits multiple selections unless LC_SINGLE_SEL is set.
+        self.recommendation_list = wx.ListCtrl(recommendation_parent, style=wx.LC_REPORT)
         for index, (title, width) in enumerate((
             ("Pair", 120), ("Layer", 85), ("Action", 145), ("Current W/G", 105),
             ("Suggested W/G", 120), ("Predicted Z", 90), ("Ground clearance", 120), ("Confidence", 90),
