@@ -122,5 +122,14 @@ class TestGeometryExtractor(unittest.TestCase):
             delta=0.01,
         )
 
+    def test_unmerged_geometry_collection_for_dc_rasterization(self):
+        self.board.tracks.extend([
+            MockTrack(1, 0, (0, 0), (10000000, 0), 500000),
+            MockTrack(1, 0, (0, 1000000), (10000000, 1000000), 500000),
+        ])
+        geometry = self.extractor.get_net_geometry("TestNet", merge=False)
+        self.assertEqual(geometry[0].geom_type, "GeometryCollection")
+        self.assertEqual(len(geometry[0].geoms), 2)
+
 if __name__ == '__main__':
     unittest.main()

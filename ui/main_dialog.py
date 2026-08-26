@@ -3,6 +3,7 @@ import wx.dataview
 import sys
 import os
 import threading
+import time
 from pathlib import Path
 
 # Ensure plugin dir is in path to import modules
@@ -539,7 +540,13 @@ class KiPIDA_MainDialog(wx.Dialog):
                 rail_total_current[rail.net_name] = sum(load.total_current for load in rail.loads)
                 
                 # A. Get Geometry & Mesh
-                geo = extractor.get_net_geometry(rail.net_name)
+                geometry_started = time.perf_counter()
+                emit(f"  Extracting copper geometry for {rail.net_name}...")
+                geo = extractor.get_net_geometry(rail.net_name, merge=False)
+                emit(
+                    f"  Geometry ready for {rail.net_name}: {len(geo)} layer(s) in "
+                    f"{time.perf_counter() - geometry_started:.3f} s."
+                )
                 if not geo:
                     emit(f"  Skipping {rail.net_name}: No geometry.")
                     continue
@@ -548,7 +555,12 @@ class KiPIDA_MainDialog(wx.Dialog):
                     self.board, debug=debug_mode, log_callback=emit,
                     compute_settings=compute_settings,
                 )
+                mesh_started = time.perf_counter()
                 mesh = mesher.generate_mesh(rail.net_name, geo, stackup, grid_size_mm=grid_size)
+                emit(
+                    f"  Mesh ready for {rail.net_name}: {len(mesh.nodes):,} nodes in "
+                    f"{time.perf_counter() - mesh_started:.3f} s."
+                )
                 
                 if len(mesh.nodes) == 0:
                      emit(f"  Skipping {rail.net_name}: Mesh empty.")

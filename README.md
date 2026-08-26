@@ -203,6 +203,12 @@ safe grid step, reports the adaptation in the log, and records both requested
 and effective grid sizes in the DC result. Coupled-analysis worker logs are
 marshalled back to wxPython's GUI thread.
 
+For multi-rail DC and coupled runs, Ki-PIDA indexes tracks, vias, pads, and zones
+by net once per live-board snapshot. The DC rasterizer consumes unmerged shape
+collections, avoiding an expensive GEOS union of large filled planes such as
+`+3V3_MAIN`. Geometry extraction, rasterization, layer construction, and mesh
+completion now emit elapsed-time or progress messages even outside Debug mode.
+
 The **3D Thermal** tab provides a 0.1–5 mm spin control, Fast/Normal/Fine presets,
 and the relative XY cell cost. Halving the grid step creates approximately four
 times as many XY cells. The existing 500,000-node safety guard remains active.

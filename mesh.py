@@ -114,6 +114,10 @@ class Mesher:
         if self.debug and self.log_callback:
             self.log_callback(f"[MESH] {msg}")
 
+    def _status(self, msg):
+        if self.log_callback:
+            self.log_callback(f"[MESH] {msg}")
+
     def _worker_count(self):
         settings = self.compute_settings
         if settings is not None and not settings.cpu_multithread:
@@ -123,7 +127,14 @@ class Mesher:
 
     @staticmethod
     def _rasterize_polygon(poly, x_coords, y_coords, shape, chunk_points=250000):
-        polys = [poly] if poly.geom_type == 'Polygon' else list(poly.geoms)
+        def polygons(geometry):
+            if geometry.geom_type == 'Polygon':
+                yield geometry
+            elif hasattr(geometry, 'geoms'):
+                for child in geometry.geoms:
+                    yield from polygons(child)
+
+        polys = list(polygons(poly))
         layer_mask = np.zeros(shape, dtype=bool)
         for polygon in polys:
             buffered = polygon.buffer(1e-5)
@@ -219,7 +230,10 @@ class Mesher:
         if grid_point_count >= 1000000:
             workers = min(workers, 2)
         if workers > 1 and grid_point_count >= 10000:
-            self._log(f"Rasterizing {len(sorted_layers)} electrical layers with {workers} CPU workers.")
+            self._status(
+                f"Rasterizing {len(sorted_layers)} electrical layers with {workers} CPU workers "
+                f"({grid_point_count:,} envelope points per layer)."
+            )
             with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="KiPIDA-Mesh") as pool:
                 future_layers = {
                     pool.submit(
@@ -231,16 +245,21 @@ class Mesher:
                 for completed, future in enumerate(as_completed(future_layers), 1):
                     lid = future_layers[future]
                     layer_masks[lid] = future.result()
-                    self._log(f"Rasterized electrical layer {lid} ({completed}/{len(sorted_layers)}).")
+                    self._status(f"Rasterized electrical layer {lid} ({completed}/{len(sorted_layers)}).")
         else:
+            self._status(
+                f"Rasterizing {len(sorted_layers)} electrical layer(s) "
+                f"({grid_point_count:,} envelope points per layer)."
+            )
             layer_masks = {}
             for completed, lid in enumerate(sorted_layers, 1):
                 layer_masks[lid] = self._rasterize_polygon(
                     geometry_by_layer[lid], x_coords, y_coords, (ny + 1, nx + 1)
                 )
-                self._log(f"Rasterized electrical layer {lid} ({completed}/{len(sorted_layers)}).")
+                self._status(f"Rasterized electrical layer {lid} ({completed}/{len(sorted_layers)}).")
 
         projected_nodes = sum(int(np.count_nonzero(mask)) for mask in layer_masks.values())
+        self._status(f"Rasterization selected about {projected_nodes:,} copper nodes.")
         if projected_nodes > self.MAX_ELECTRICAL_NODES:
             scale = math.sqrt(projected_nodes / float(self.MAX_ELECTRICAL_NODES)) * 1.05
             safer_grid = min(5.0, max(grid_size_mm + 0.01, grid_size_mm * scale))
@@ -344,6 +363,7 @@ class Mesher:
 
             if self.debug:
                 self._log(f"  Layer {lid} vectorized mesh: {count_on_layer} nodes.")
+            self._status(f"Built electrical layer {lid}: {count_on_layer:,} nodes.")
 
         # 5. Vertical Connections (Vias & PTH)
         if self.log_callback:
