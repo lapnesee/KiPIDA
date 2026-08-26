@@ -222,9 +222,18 @@ iterations reuse both the host COO representation and the CSR matrix and
 preconditioner kept resident in VRAM. The Results tab reports this sparse-matrix
 path and records an adapted thermal grid when one was required.
 
+Each raster worker reconstructs and prepares its own GEOS geometry from WKB;
+native GEOS objects are never shared between worker threads. This avoids an
+access-violation crash that can otherwise close KiCad without a Python traceback.
+The **Runtime & Acceleration** panel also exposes a machine-local thermal RAM
+ceiling. `0 GiB` retains the conservative defaults (500,000 CPU or 1,250,000
+CUDA thermal nodes); an explicit ceiling can raise the limit up to 2,000,000
+CPU or 4,000,000 CUDA nodes, subject to conservative peak-memory estimates.
+
 The **3D Thermal** tab provides a 0.1–5 mm spin control, Fast/Normal/Fine presets,
 and the relative XY cell cost. Halving the grid step creates approximately four
-times as many XY cells. The existing 500,000-node safety guard remains active.
+times as many XY cells. The conservative default safety guard remains active
+until an explicit runtime RAM ceiling is configured.
 
 ## 🛠️ Technical Overview (For Developers)
 

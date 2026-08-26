@@ -192,14 +192,18 @@ class ThermalAnalysisPanel(wx.Panel):
             size = max(0.1, float(self.txt_grid.GetValue()))
             context = self.mesh_context_provider() if self.mesh_context_provider else {}
             estimate = estimate_thermal_mesh_cost(context, size)
-            node_limit = 1250000 if context.get("cuda_available") else 500000
             mib = 1024 ** 2
+            ceiling = (
+                f", RAM ceiling {estimate['memory_budget_bytes'] / (1024 ** 3):g} GiB"
+                if estimate["memory_budget_bytes"] else ""
+            )
             self.lbl_mesh_cost.SetLabel(
                 f"~{estimate['nodes']:,} nodes / {estimate['branches']:,} branches — "
-                f"CPU {estimate['cpu_bytes']/mib:.0f} MiB, GPU {estimate['gpu_bytes']/mib:.0f} MiB — "
-                f"recommended: {estimate['backend']}"
+                f"host peak {estimate['cpu_bytes']/mib:.0f} MiB, GPU {estimate['gpu_bytes']/mib:.0f} MiB — "
+                f"limit {estimate['node_limit']:,} nodes{ceiling} — recommended: {estimate['backend']}"
             )
-            colour = wx.Colour(190, 35, 35) if estimate["nodes"] > node_limit else (
+            node_limit = estimate["node_limit"]
+            colour = wx.Colour(190, 35, 35) if estimate["exceeds_memory_limit"] else (
                 wx.Colour(190, 105, 0) if estimate["nodes"] > node_limit * 0.7 else wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOWTEXT)
             )
             self.lbl_mesh_cost.SetForegroundColour(colour)

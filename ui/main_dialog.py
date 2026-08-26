@@ -500,6 +500,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                     runtime and runtime.cuda_enabled and getattr(self.runtime_panel, "_devices", [])
                 ),
                 "cuda_min_nodes": runtime.cuda_min_nodes if runtime else 100000,
+                "memory_limit_gib": runtime.memory_limit_gib if runtime else 0.0,
             })
         except Exception:
             return {}

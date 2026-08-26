@@ -3,7 +3,7 @@
     "identifier": "com.github.kbralten.kipida",
     "name": "Ki-PIDA",
     "description": "DC/AC PI, differential impedance, 3D thermal and enclosure CFD analyzer for KiCad",
-    "version": "0.12.5",
+    "version": "0.12.6",
     "kicad_version": "9.99",
     "status": "stable",
     "runtime": {

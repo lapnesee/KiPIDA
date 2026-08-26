@@ -130,6 +130,12 @@ class TestThermalSolver(unittest.TestCase):
         self.assertEqual(cpu._node_limit(), (500000, False))
         self.assertEqual(cuda._node_limit(), (1250000, True))
 
+    def test_explicit_ram_ceiling_can_extend_cuda_mesh_budget(self):
+        mesher = ThermalMesher(compute_settings=RuntimeComputeSettings(
+            backend="CUDA", cuda_enabled=True, memory_limit_gib=32.0,
+        ))
+        self.assertEqual(mesher._node_limit(), (4000000, True))
+
 
 if __name__ == "__main__":
     unittest.main()

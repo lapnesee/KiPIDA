@@ -12,11 +12,11 @@ import wx
 
 try:
     from compute_backend import SparseComputeBackend, cuda_diagnostics
-    from runtime_config import load_runtime_settings, save_runtime_settings
+    from runtime_config import load_runtime_settings, save_runtime_settings, system_memory_info
     from runtime_environment import install_cuda_environment, plugin_version, runtime_summary
 except (ImportError, ValueError):
     from ..compute_backend import SparseComputeBackend, cuda_diagnostics
-    from ..runtime_config import load_runtime_settings, save_runtime_settings
+    from ..runtime_config import load_runtime_settings, save_runtime_settings, system_memory_info
     from ..runtime_environment import install_cuda_environment, plugin_version, runtime_summary
 
 
@@ -54,6 +54,8 @@ class RuntimeSettingsPanel(wx.Panel):
         self.chk_cuda = wx.CheckBox(parent, label="Enable CUDA acceleration")
         self.choice_device = wx.Choice(parent, choices=[])
         self.spin_cuda_threshold = wx.SpinCtrl(parent, min=1000, max=10000000, initial=100000)
+        self.spin_memory_limit = wx.SpinCtrlDouble(parent, min=0.0, max=256.0, initial=0.0, inc=1.0)
+        self.spin_memory_limit.SetDigits(1)
         for label, control in (
             ("Preferred backend:", self.choice_backend),
             ("CPU multithreading:", self.chk_cpu_threads),
@@ -61,6 +63,7 @@ class RuntimeSettingsPanel(wx.Panel):
             ("CUDA:", self.chk_cuda),
             ("CUDA device:", self.choice_device),
             ("AUTO CUDA threshold (nodes):", self.spin_cuda_threshold),
+            ("Thermal RAM limit GiB (0 = conservative default):", self.spin_memory_limit),
         ):
             grid.Add(wx.StaticText(parent, label=label), 0, wx.ALIGN_CENTER_VERTICAL)
             grid.Add(control, 1, wx.EXPAND)
@@ -100,6 +103,7 @@ class RuntimeSettingsPanel(wx.Panel):
         self.spin_cpu_threads.SetValue(settings.cpu_threads)
         self.chk_cuda.SetValue(settings.cuda_enabled)
         self.spin_cuda_threshold.SetValue(settings.cuda_min_nodes)
+        self.spin_memory_limit.SetValue(settings.memory_limit_gib)
 
     def get_settings(self, persist=False):
         self.settings.backend = self.choice_backend.GetStringSelection() or "AUTO"
@@ -107,6 +111,7 @@ class RuntimeSettingsPanel(wx.Panel):
         self.settings.cpu_threads = self.spin_cpu_threads.GetValue()
         self.settings.cuda_enabled = self.chk_cuda.GetValue()
         self.settings.cuda_min_nodes = self.spin_cuda_threshold.GetValue()
+        self.settings.memory_limit_gib = self.spin_memory_limit.GetValue()
         if self.choice_device.GetSelection() != wx.NOT_FOUND and self._devices:
             self.settings.cuda_device = self._devices[self.choice_device.GetSelection()]["index"]
         self.settings.normalized()
@@ -120,6 +125,7 @@ class RuntimeSettingsPanel(wx.Panel):
 
     def refresh_status(self):
         summary = runtime_summary()
+        memory = system_memory_info()
         diagnostics = summary["cuda"]
         self._devices = diagnostics["devices"]
         self.choice_device.Clear()
@@ -137,6 +143,16 @@ class RuntimeSettingsPanel(wx.Panel):
             f"CuPy: {diagnostics['cupy_version']}",
             f"CUDA available: {'Yes' if diagnostics['available'] else 'No'}",
         ]
+        if memory["total_bytes"]:
+            lines.append(
+                f"System RAM: {memory['available_bytes'] / (1024 ** 3):.1f}/"
+                f"{memory['total_bytes'] / (1024 ** 3):.1f} GiB available"
+            )
+        ceiling = self.settings.memory_limit_gib
+        lines.append(
+            "Thermal RAM ceiling: " +
+            (f"{ceiling:g} GiB (expert override)" if ceiling > 0 else "conservative default")
+        )
         if diagnostics["driver_version"] is not None:
             lines.append(f"CUDA driver/runtime: {diagnostics['driver_version']} / {diagnostics['runtime_version']}")
         for device in self._devices:

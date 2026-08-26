@@ -11,7 +11,7 @@ from pathlib import Path
 import tempfile
 
 
-RUNTIME_CONFIG_VERSION = "1.0"
+RUNTIME_CONFIG_VERSION = "1.1"
 
 
 @dataclass
@@ -22,6 +22,7 @@ class RuntimeComputeSettings:
     cuda_enabled: bool = False
     cuda_device: int = 0
     cuda_min_nodes: int = 100000
+    memory_limit_gib: float = 0.0  # 0 = built-in conservative mesh limit
     solver_rtol: float = 1.0e-8
     solver_max_iterations: int = 5000
 
@@ -32,9 +33,37 @@ class RuntimeComputeSettings:
         self.cpu_threads = max(0, int(self.cpu_threads))
         self.cuda_device = max(0, int(self.cuda_device))
         self.cuda_min_nodes = max(1, int(self.cuda_min_nodes))
+        self.memory_limit_gib = min(256.0, max(0.0, float(self.memory_limit_gib)))
         self.solver_rtol = min(1.0e-2, max(1.0e-12, float(self.solver_rtol)))
         self.solver_max_iterations = max(10, int(self.solver_max_iterations))
         return self
+
+
+def system_memory_info():
+    """Return physical RAM totals without adding a runtime dependency."""
+    try:
+        import ctypes
+
+        class MemoryStatus(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        status = MemoryStatus()
+        status.dwLength = ctypes.sizeof(status)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return {"total_bytes": int(status.ullTotalPhys), "available_bytes": int(status.ullAvailPhys)}
+    except (AttributeError, OSError):
+        pass
+    return {"total_bytes": 0, "available_bytes": 0}
 
 
 def runtime_config_path():

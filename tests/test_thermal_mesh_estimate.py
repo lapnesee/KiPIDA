@@ -20,6 +20,15 @@ class ThermalMeshEstimateTests(unittest.TestCase):
         context["cuda_available"] = False
         self.assertEqual(estimate_thermal_mesh_cost(context, 1.0)["backend"], "CPU")
 
+    def test_explicit_ram_ceiling_controls_the_thermal_node_limit(self):
+        context = {
+            "width_mm": 400, "height_mm": 300, "thermal_layers": 11,
+            "cuda_available": True, "memory_limit_gib": 1.0,
+        }
+        estimate = estimate_thermal_mesh_cost(context, 0.5)
+        self.assertLess(estimate["node_limit"], 1250000)
+        self.assertTrue(estimate["exceeds_memory_limit"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -13,6 +13,11 @@ except ImportError:
     Point = prep = None
 
 try:
+    from shapely import from_wkb
+except ImportError:
+    from_wkb = None
+
+try:
     from .models import ThermalAnalysisSettings
 except (ImportError, ValueError):
     from models import ThermalAnalysisSettings
@@ -113,13 +118,24 @@ def estimate_thermal_mesh_cost(context, grid_size_mm):
     nodes = xy_cells * layers
     branches = int(xy_cells * (2 * layers + max(0, layers - 1)))
     nnz = nodes + 2 * branches
-    cpu_bytes = nnz * 12 + nodes * 48 + branches * 32
-    gpu_bytes = nnz * 12 + nodes * 8 * 8
+    # Includes Python mesh objects, vectorized COO assembly and a sparse solve
+    # working set.  It intentionally overestimates rather than risking KiCad.
+    cpu_bytes = nnz * 32 + nodes * 768 + branches * 112
+    gpu_bytes = nnz * 24 + nodes * 128
     cuda_ok = bool(context.get("cuda_available", False))
     threshold = int(context.get("cuda_min_nodes", 100000))
     backend = "CUDA" if cuda_ok and nodes >= threshold else "CPU"
-    return dict(nodes=nodes, branches=branches, cpu_bytes=cpu_bytes,
-                gpu_bytes=gpu_bytes, backend=backend)
+    configured_gib = max(0.0, float(context.get("memory_limit_gib", 0.0) or 0.0))
+    base_limit = ThermalMesher.CUDA_NODE_LIMIT if cuda_ok else ThermalMesher.CPU_NODE_LIMIT
+    hard_limit = ThermalMesher.HARD_CUDA_NODE_LIMIT if cuda_ok else ThermalMesher.HARD_CPU_NODE_LIMIT
+    memory_budget = int(configured_gib * (1024 ** 3))
+    memory_nodes = int(memory_budget // ThermalMesher.HOST_PEAK_BYTES_PER_NODE) if memory_budget else base_limit
+    node_limit = max(10000, min(hard_limit, memory_nodes)) if memory_budget else base_limit
+    return dict(
+        nodes=nodes, branches=branches, cpu_bytes=cpu_bytes, gpu_bytes=gpu_bytes,
+        backend=backend, memory_budget_bytes=memory_budget, node_limit=node_limit,
+        exceeds_memory_limit=nodes > node_limit,
+    )
 
 
 class ThermalMesher:
@@ -129,6 +145,9 @@ class ThermalMesher:
     SIGMA = 5.670374419e-8
     CPU_NODE_LIMIT = 500000
     CUDA_NODE_LIMIT = 1250000
+    HARD_CPU_NODE_LIMIT = 2000000
+    HARD_CUDA_NODE_LIMIT = 4000000
+    HOST_PEAK_BYTES_PER_NODE = 2304
 
     def __init__(self, debug=False, log_callback=None, compute_settings=None):
         self.debug = debug
@@ -152,10 +171,22 @@ class ThermalMesher:
             compute and getattr(compute, "cuda_enabled", False) and
             str(getattr(compute, "backend", "AUTO")).upper() != "CPU"
         )
-        return (self.CUDA_NODE_LIMIT if cuda_requested else self.CPU_NODE_LIMIT), cuda_requested
+        base_limit = self.CUDA_NODE_LIMIT if cuda_requested else self.CPU_NODE_LIMIT
+        hard_limit = self.HARD_CUDA_NODE_LIMIT if cuda_requested else self.HARD_CPU_NODE_LIMIT
+        configured_gib = max(0.0, float(
+            getattr(compute, "memory_limit_gib", 0.0) if compute is not None else 0.0
+        ))
+        if configured_gib <= 0.0:
+            return base_limit, cuda_requested
+        memory_nodes = int(configured_gib * (1024 ** 3) // self.HOST_PEAK_BYTES_PER_NODE)
+        return max(10000, min(hard_limit, memory_nodes)), cuda_requested
 
     @staticmethod
     def _sample_layer(outline, copper, min_x, min_y, nx, ny, grid):
+        if from_wkb is not None and isinstance(outline, bytes):
+            outline = from_wkb(outline)
+        if from_wkb is not None and isinstance(copper, bytes):
+            copper = from_wkb(copper)
         prepared_outline = prep(outline)
         prepared_copper = prep(copper) if copper is not None and not copper.is_empty else None
         cells = []
@@ -244,6 +275,11 @@ class ThermalMesher:
                 f"using {grid:.3g} mm for the {node_limit:,}-node "
                 f"{'CUDA' if cuda_requested else 'CPU'} safety budget."
             )
+        elif getattr(self.compute_settings, "memory_limit_gib", 0.0):
+            self._log(
+                f"Thermal mesh uses the explicit {float(self.compute_settings.memory_limit_gib):g} GiB "
+                f"host-RAM ceiling ({node_limit:,}-node limit)."
+            )
 
         mesh = ThermalMesh(
             grid_size_mm=grid, requested_grid_size_mm=requested_grid,
@@ -258,8 +294,17 @@ class ThermalMesher:
 
         node_id = 0
         workers = min(self._worker_count(), len(specs))
+        outline = model.outline.wkb if from_wkb is not None else model.outline
         sample_args = [
-            (model.outline, model.copper_by_layer.get(spec.layer_id), min_x, min_y, nx, ny, grid)
+            (
+                outline,
+                (
+                    model.copper_by_layer.get(spec.layer_id).wkb
+                    if from_wkb is not None and model.copper_by_layer.get(spec.layer_id) is not None
+                    else model.copper_by_layer.get(spec.layer_id)
+                ),
+                min_x, min_y, nx, ny, grid,
+            )
             for spec in specs
         ]
         if workers > 1 and nx * ny * len(specs) >= 10000:

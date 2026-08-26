@@ -2,6 +2,7 @@
 import sys
 import math
 import os
+import threading
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 try:
@@ -24,9 +25,12 @@ except ImportError:
     matplotlib = None
 
 try:
-    from shapely import intersects_xy, prepare as prepare_geometry
+    from shapely import from_wkb, intersects_xy, prepare as prepare_geometry
 except ImportError:
-    intersects_xy = prepare_geometry = None
+    from_wkb = intersects_xy = prepare_geometry = None
+
+
+_raster_geometry_local = threading.local()
 
 class Mesh:
     def __init__(self):
@@ -144,8 +148,10 @@ class Mesher:
         for polygon in cls._polygons(poly):
             buffered = polygon.buffer(1e-5)
             if intersects_xy is not None:
-                prepare_geometry(buffered)
-                raster_geometry = buffered
+                # GEOS prepared geometries are native objects.  They must not
+                # be shared between worker threads: doing so can terminate the
+                # KiCad Python process instead of raising a Python exception.
+                raster_geometry = buffered.wkb
             else:
                 codes, vertices = [], []
                 rings = [buffered.exterior] + list(buffered.interiors)
@@ -170,8 +176,21 @@ class Mesher:
     @staticmethod
     def _rasterize_chunk(raster_geometry, x_coords, y_coords, row_start, row_stop, x0, x1):
         xv, yv = np.meshgrid(x_coords[x0:x1], y_coords[row_start:row_stop])
-        if intersects_xy is not None and hasattr(raster_geometry, "geom_type"):
-            return np.asarray(intersects_xy(raster_geometry, xv, yv), dtype=bool)
+        if intersects_xy is not None and isinstance(raster_geometry, bytes):
+            cache = getattr(_raster_geometry_local, "prepared_geometries", None)
+            if cache is None:
+                cache = {}
+                _raster_geometry_local.prepared_geometries = cache
+            geometry = cache.get(raster_geometry)
+            if geometry is None:
+                # Bound the cache for serial calls; worker threads are short
+                # lived and release their cache with the executor.
+                if len(cache) >= 64:
+                    cache.clear()
+                geometry = from_wkb(raster_geometry)
+                prepare_geometry(geometry)
+                cache[raster_geometry] = geometry
+            return np.asarray(intersects_xy(geometry, xv, yv), dtype=bool)
         points = np.column_stack((xv.ravel(), yv.ravel()))
         return raster_geometry.contains_points(points, radius=1e-9).reshape(
             (row_stop - row_start, x1 - x0)
