@@ -15,14 +15,21 @@ except ImportError:
 
 try:
     from .models import ComponentThermalResult, ThermalHotspot, ThermalResult
+    from .compute_backend import SparseComputeBackend
 except (ImportError, ValueError):
     from models import ComponentThermalResult, ThermalHotspot, ThermalResult
+    from compute_backend import SparseComputeBackend
 
 
 class ThermalSolver:
-    def __init__(self, debug=False, log_callback=None):
+    def __init__(self, debug=False, log_callback=None, compute_settings=None):
         self.debug = debug
         self.log_callback = log_callback
+        self.compute_settings = compute_settings
+        self.compute_backend = SparseComputeBackend(
+            settings=self.compute_settings,
+            log_callback=self.log_callback,
+        )
         if np is None or scipy is None:
             raise ImportError("NumPy and SciPy are required for 3D thermal analysis.")
 
@@ -68,10 +75,8 @@ class ThermalSolver:
         if progress_callback:
             progress_callback(1, 3, "matrix")
         csr = matrix.tocsr()
-        if pypardiso is not None:
-            temperatures = pypardiso.spsolve(csr, rhs)
-        else:
-            temperatures = scipy.sparse.linalg.spsolve(csr, rhs)
+        compute = self.compute_backend.solve(csr, rhs, system_kind="SPD")
+        temperatures = compute.values
         if progress_callback:
             progress_callback(2, 3, "solve")
 
@@ -121,7 +126,8 @@ class ThermalSolver:
             progress_callback(3, 3, "results")
         self._log(
             f"Solved {count:,} nodes; hotspot {hotspot.temperature_c:.2f} C, "
-            f"energy error {balance_error:.3g}%."
+            f"energy error {balance_error:.3g}%; backend {compute.metadata.backend}, "
+            f"residual {compute.metadata.relative_residual:.3g}."
         )
         return ThermalResult(
             temperatures_c=result_temperatures,
@@ -131,4 +137,12 @@ class ThermalSolver:
             total_boundary_power_w=float(boundary_power),
             energy_balance_error_pct=float(balance_error),
             convection_coefficient_w_m2k=float(mesh.convection_coefficient_w_m2k),
+            compute_backend=compute.metadata.backend,
+            compute_device=compute.metadata.device,
+            compute_solve_seconds=compute.metadata.solve_seconds,
+            compute_transfer_seconds=compute.metadata.transfer_seconds,
+            compute_relative_residual=compute.metadata.relative_residual,
+            compute_iterations=compute.metadata.iterations,
+            compute_cpu_threads=compute.metadata.cpu_threads,
+            compute_fallback_reason=compute.metadata.fallback_reason,
         )

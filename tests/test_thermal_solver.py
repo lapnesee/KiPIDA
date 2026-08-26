@@ -72,6 +72,9 @@ class TestThermalSolver(unittest.TestCase):
 
         self.assertGreater(result.hotspot.temperature_c, 25.0)
         self.assertLess(result.energy_balance_error_pct, 1e-5)
+        self.assertTrue(result.compute_backend.startswith("CPU_"))
+        self.assertLess(result.compute_relative_residual, 1e-10)
+        self.assertGreaterEqual(result.compute_solve_seconds, 0.0)
         self.assertEqual(result.component_results[0].ref_des, "U1")
         self.assertAlmostEqual(
             result.component_results[0].junction_temperature_c,

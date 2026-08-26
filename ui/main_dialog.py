@@ -26,6 +26,7 @@ from ui.ac_analysis_panel import ACAnalysisPanel
 from ui.cfd_analysis_panel import CFDAnalysisPanel
 from ui.differential_analysis_panel import DifferentialAnalysisPanel
 from ui.thermal_analysis_panel import ThermalAnalysisPanel
+from ui.runtime_settings_panel import RuntimeSettingsPanel
 from ui.power_tree_panel import PowerTreePanel
 from ui.interactive_views import ZoomableBitmapPanel, install_navigation
 from ui.results_workspace import ResultsWorkspace
@@ -37,8 +38,9 @@ class KiPIDA_MainDialog(wx.Dialog):
     PAGE_DIFFERENTIAL = 2
     PAGE_THERMAL = 3
     PAGE_CFD = 4
-    PAGE_RESULTS = 5
-    PAGE_LOG = 6
+    PAGE_RUNTIME = 5
+    PAGE_RESULTS = 6
+    PAGE_LOG = 7
 
     def __init__(self, parent, board_adapter, project=None):
         super(KiPIDA_MainDialog, self).__init__(parent, title="Ki-PIDA: Power Integrity Analyzer", 
@@ -53,6 +55,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self._differential_thread = None
         self._cfd_cancel_requested = False
         self._thermal_plot_thread = None
+        self._thermal_thread = None
         self._result_generation = 0
         self._thermal_result_generation = 0
         self._closing = False
@@ -174,12 +177,20 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.power_tree.cfd_profile_provider = self.cfd_panel.get_settings
         self.power_tree.cfd_profile_consumer = self.cfd_panel.set_settings
 
-        # Tab 6: Results
+        # Tab 6: machine-local compute configuration
+        self.tab_runtime = wx.Panel(self.notebook)
+        runtime_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.runtime_panel = RuntimeSettingsPanel(self.tab_runtime, log_callback=self.log)
+        runtime_sizer.Add(self.runtime_panel, 1, wx.EXPAND | wx.ALL, 5)
+        self.tab_runtime.SetSizer(runtime_sizer)
+        self.notebook.AddPage(self.tab_runtime, "Runtime & Acceleration")
+
+        # Tab 7: Results
         self.tab_results = wx.Panel(self.notebook)
         self._init_results_tab(self.tab_results)
         self.notebook.AddPage(self.tab_results, "Results")
         
-        # Tab 7: Log/Debug
+        # Tab 8: Log/Debug
         self.tab_log = wx.Panel(self.notebook)
         self._init_log_tab(self.tab_log)
         self.notebook.AddPage(self.tab_log, "Log")
@@ -236,6 +247,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             wx.CallAfter(self.thermal_panel.refresh_components)
         elif event.GetSelection() == self.PAGE_CFD:
             wx.CallAfter(self.cfd_panel._update_estimate)
+        elif event.GetSelection() == self.PAGE_RUNTIME:
+            wx.CallAfter(self.runtime_panel.refresh_status)
         event.Skip()
 
     def _refresh_live_board_state(self):
@@ -928,24 +941,24 @@ class KiPIDA_MainDialog(wx.Dialog):
         return settings, mesh
 
     def on_run_thermal(self, event):
+        if self._thermal_thread is not None and self._thermal_thread.is_alive():
+            return
         self.notebook.SetSelection(self.PAGE_LOG)
         self.log("--- Starting 3D Thermal Analysis ---")
         try:
             settings, mesh = self._prepare_thermal_analysis(coupled=False)
-            solver = ThermalSolver(debug=self.chk_debug.GetValue(), log_callback=self.log)
-            result = solver.solve(
-                mesh,
-                ambient_c=settings.ambient_c,
-                progress_callback=self._thermal_progress,
+            compute_settings = self.runtime_panel.get_settings(persist=True)
+            self._start_thermal_worker(
+                mesh, settings, coupled=False, rail_contexts=None,
+                compute_settings=compute_settings,
             )
-            self.thermal_mesh = mesh
-            self.thermal_result = result
-            self._update_thermal_results_ui(mesh, result, coupled=False)
         except Exception as exc:
             self.log(f"Thermal Analysis Error: {exc}")
             wx.MessageBox(str(exc), "Thermal Analysis Error", wx.OK | wx.ICON_ERROR)
 
     def on_run_coupled_thermal(self, event):
+        if self._thermal_thread is not None and self._thermal_thread.is_alive():
+            return
         self.notebook.SetSelection(self.PAGE_LOG)
         self.log("--- Starting Coupled DC / 3D Thermal Analysis ---")
         try:
@@ -957,23 +970,83 @@ class KiPIDA_MainDialog(wx.Dialog):
                     "loads": data.get("loads", []),
                 } for name, data in self.system_results.items()
             }
-            solver = ElectroThermalSolver(
-                debug=self.chk_debug.GetValue(),
-                log_callback=self.log,
+            compute_settings = self.runtime_panel.get_settings(persist=True)
+            self._start_thermal_worker(
+                mesh, settings, coupled=True, rail_contexts=rail_contexts,
+                compute_settings=compute_settings,
             )
-            coupled_result = solver.solve(
-                mesh,
-                settings,
-                rail_contexts,
-                progress_callback=self._thermal_progress,
-            )
-            self.thermal_mesh = mesh
-            self.thermal_result = coupled_result.thermal
-            self.electrothermal_result = coupled_result
-            self._update_thermal_results_ui(mesh, coupled_result.thermal, coupled=True)
         except Exception as exc:
             self.log(f"Coupled Thermal Analysis Error: {exc}")
             wx.MessageBox(str(exc), "Coupled Thermal Analysis Error", wx.OK | wx.ICON_ERROR)
+
+    def _start_thermal_worker(self, mesh, settings, coupled, rail_contexts, compute_settings):
+        self.btn_run_thermal.Disable()
+        self.btn_run_coupled.Disable()
+        self.thermal_mesh = mesh
+        debug_mode = self.chk_debug.GetValue()
+        self._thermal_thread = threading.Thread(
+            target=self._thermal_worker,
+            args=(mesh, settings, coupled, rail_contexts, compute_settings, debug_mode),
+            name="KiPIDA-Thermal-Solve",
+            daemon=True,
+        )
+        self._thermal_thread.start()
+
+    def _thermal_worker_log(self, message):
+        if not self._closing:
+            wx.CallAfter(self.log, message)
+
+    def _thermal_worker_progress(self, completed, total, detail):
+        if not self._closing:
+            wx.CallAfter(self.log, f"Thermal progress: {completed}/{total} ({detail})")
+
+    def _thermal_worker(self, mesh, settings, coupled, rail_contexts, compute_settings, debug_mode):
+        try:
+            if coupled:
+                solver = ElectroThermalSolver(
+                    debug=debug_mode,
+                    log_callback=self._thermal_worker_log,
+                    compute_settings=compute_settings,
+                )
+                solved = solver.solve(
+                    mesh, settings, rail_contexts,
+                    progress_callback=self._thermal_worker_progress,
+                )
+                result = solved.thermal
+            else:
+                solver = ThermalSolver(
+                    debug=debug_mode,
+                    log_callback=self._thermal_worker_log,
+                    compute_settings=compute_settings,
+                )
+                solved = None
+                result = solver.solve(
+                    mesh, ambient_c=settings.ambient_c,
+                    progress_callback=self._thermal_worker_progress,
+                )
+            if not self._closing:
+                wx.CallAfter(self._finish_thermal_worker, mesh, result, coupled, solved)
+        except Exception as exc:
+            if not self._closing:
+                wx.CallAfter(self._fail_thermal_worker, coupled, exc)
+
+    def _finish_thermal_worker(self, mesh, result, coupled, coupled_result):
+        self._thermal_thread = None
+        self.btn_run_thermal.Enable()
+        self.btn_run_coupled.Enable()
+        self.thermal_mesh = mesh
+        self.thermal_result = result
+        if coupled_result is not None:
+            self.electrothermal_result = coupled_result
+        self._update_thermal_results_ui(mesh, result, coupled=coupled)
+
+    def _fail_thermal_worker(self, coupled, exc):
+        self._thermal_thread = None
+        self.btn_run_thermal.Enable()
+        self.btn_run_coupled.Enable()
+        label = "Coupled Thermal" if coupled else "Thermal"
+        self.log(f"{label} Analysis Error: {exc}")
+        wx.MessageBox(str(exc), f"{label} Analysis Error", wx.OK | wx.ICON_ERROR)
 
     def _update_thermal_results_ui(self, mesh, result, coupled=False):
         hotspot = result.hotspot
@@ -988,6 +1061,12 @@ class KiPIDA_MainDialog(wx.Dialog):
             f"Energy balance error: {result.energy_balance_error_pct:.4g}%",
             f"Effective h: {result.convection_coefficient_w_m2k:.4g} W/m2K",
             f"Iterations: {result.iterations} ({'converged' if result.converged else 'limit reached'})",
+            f"Compute backend: {result.compute_backend} ({result.compute_device})",
+            f"CPU threads: {result.compute_cpu_threads}",
+            f"Solve time: {result.compute_solve_seconds:.4g} s "
+            f"(transfer {result.compute_transfer_seconds:.4g} s)",
+            f"Linear residual: {result.compute_relative_residual:.4g} "
+            f"({result.compute_iterations} iteration(s))",
             "",
             "Component junction estimates:",
         ]
@@ -1006,6 +1085,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             "Model scope: steady-state 3D solid conduction with convective boundaries; "
             "this is not a volumetric CFD airflow solution.",
         ])
+        if result.compute_fallback_reason:
+            lines.append(f"Compute fallback: {result.compute_fallback_reason}")
         self._thermal_result_generation += 1
         generation = self._thermal_result_generation
         page = self._publish_results("THERMAL", "\n".join(lines), [])
@@ -1133,19 +1214,21 @@ class KiPIDA_MainDialog(wx.Dialog):
         self._cfd_cancel_requested = False
         self.btn_run_cfd.SetLabel("Cancel Enclosure CFD")
         debug_mode = self.chk_debug.GetValue()
+        compute_settings = self.runtime_panel.get_settings(persist=True)
         self._cfd_thread = threading.Thread(
             target=self._run_cfd_worker,
-            args=(board_model, settings, debug_mode),
+            args=(board_model, settings, debug_mode, compute_settings),
             name="KiPIDA-Enclosure-CFD",
             daemon=True,
         )
         self._cfd_thread.start()
 
-    def _run_cfd_worker(self, board_model, settings, debug_mode):
+    def _run_cfd_worker(self, board_model, settings, debug_mode, compute_settings):
         try:
             solver = ConjugateHeatTransferSolver(
                 debug=debug_mode,
                 log_callback=self._cfd_worker_log,
+                compute_settings=compute_settings,
             )
             mesh, result = solver.solve(
                 board_model,
@@ -1192,6 +1275,9 @@ class KiPIDA_MainDialog(wx.Dialog):
             f"Mapped heat: {result.total_heat_w:.6g} W",
             f"Mass balance error: {result.mass_balance_error_pct:.4g}%",
             f"Energy balance error: {result.energy_balance_error_pct:.4g}%",
+            f"Compute backend: {result.compute_backend} ({result.compute_device})",
+            f"Last energy solve: {result.compute_solve_seconds:.4g} s, "
+            f"residual {result.compute_relative_residual:.4g}",
             "",
             "Model scope: structured volumetric CFD, boundary-patch fans/vents, and "
             "conjugate solid-air heat transfer. Fan blades, turbulence, radiation, "

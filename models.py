@@ -381,6 +381,14 @@ class ThermalResult:
     convection_coefficient_w_m2k: float = 0.0
     iterations: int = 1
     converged: bool = True
+    compute_backend: str = "CPU"
+    compute_device: str = "CPU"
+    compute_solve_seconds: float = 0.0
+    compute_transfer_seconds: float = 0.0
+    compute_relative_residual: float = 0.0
+    compute_iterations: int = 1
+    compute_cpu_threads: int = 1
+    compute_fallback_reason: str = ""
 
 
 @dataclass
@@ -482,6 +490,11 @@ class EnclosureCFDResult:
     maximum_air_temperature_c: float = 0.0
     maximum_solid_temperature_c: float = 0.0
     total_heat_w: float = 0.0
+    compute_backend: str = "CPU"
+    compute_device: str = "CPU"
+    compute_solve_seconds: float = 0.0
+    compute_relative_residual: float = 0.0
+    compute_fallback_reason: str = ""
 
 def generate_regulator_name(input_ref_des: str, output_ref_des: str, output_rail_name: str = "") -> str:
     """

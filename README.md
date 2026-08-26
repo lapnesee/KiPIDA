@@ -29,6 +29,7 @@ Ki-PIDA democratizes high-end PI analysis by:
 - **Conjugate Heat Transfer:** Map Phase 3 PCB/component/copper losses into solid obstacles coupled directly to the enclosure air-energy equation.
 - **Differential Pair Discovery:** Detect P/N, +/- and DP/DM pairs from net names and KiCad pin functions, including continuity through two-pin series passives.
 - **Stackup-Aware Differential Impedance:** Estimate routed-pair impedance by layer with adjacent filled-ground-plane coverage checks and imported stackup overrides.
+- **Configurable Compute Backends:** Select automatic, CPU/PARDISO, or optional NVIDIA CUDA sparse solves with residual reporting and safe CPU fallback.
 
 ## 📦 Installation
 
@@ -50,8 +51,11 @@ Ki-PIDA communicates with KiCad via the new IPC-based API.
 2. Download or clone this repository.
 3. Copy the `KiPIDA` folder into the `plugins` directory.
 
-> [!NOTE]
-> Ki-PIDA includes a self-contained dependency manager that will automatically install required libraries (NumPy, SciPy, Shapely, Matplotlib) upon first launch if they are missing from your KiCad Python environment.
+Install the core numerical environment into the Python runtime used to launch the
+plugin with `python -m pip install -r requirements.txt`. The optional CUDA
+environment can then be installed from **Runtime & Acceleration**, or with
+`python -m pip install -r requirements-cuda12.txt`. A compatible NVIDIA driver
+and a KiCad restart are required after installing CuPy.
 
 ---
 
@@ -169,6 +173,27 @@ Phase 5/6 uses quasi-static coupled microstrip and stripline engineering approxi
 Every analysis now retains its own console and plot tabs for the current Ki-PIDA session. Use the mouse wheel over a table, plot, or 3D view to zoom; when zoomed, drag with the left mouse button to pan. In read-only output consoles, use `Ctrl` + mouse wheel or `Ctrl` + `+`/`-` to change the text size (`Ctrl+0` resets it).
 
 Selected differential recommendations can be applied from **Differential Pairs** with **Apply Selected to KiCad Rules**. Ki-PIDA creates or updates only its named `KiPIDA_DIFF_*` net classes, assigns their two exact nets, and adds the suggested width/gap to KiCad's predefined routing sizes. Each new run refreshes live IPC board geometry, components, and differential discovery; saving a PCB modification no longer requires restarting KiCad or Ki-PIDA before re-analysing.
+
+## Phase 7: CPU and CUDA Acceleration
+
+Open **Runtime & Acceleration** to review the installed Ki-PIDA/Python/CuPy
+versions, select `AUTO`, `CPU`, or `CUDA`, limit CPU solver threads, select a GPU,
+and run a numerical backend test. These settings are machine-local and are saved
+to `%LOCALAPPDATA%\KiPIDA\runtime.json`; they are intentionally not stored in the
+PCB project configuration.
+
+`AUTO` uses CUDA only when it is enabled, healthy, and the matrix exceeds the
+configured node threshold. Otherwise it uses PARDISO when available or SciPy as
+the portable fallback. Forced `CUDA` mode reports an error instead of silently
+using the CPU. Every thermal and enclosure-energy result records the backend,
+device, solve time, iteration count, and linear residual. Board thermal matrices
+use preconditioned conjugate gradient on CUDA; non-symmetric enclosure-energy
+matrices use BiCGSTAB. All CUDA results are computed in float64 and validated
+before publication.
+
+The **3D Thermal** tab provides a 0.1–5 mm spin control, Fast/Normal/Fine presets,
+and the relative XY cell cost. Halving the grid step creates approximately four
+times as many XY cells. The existing 500,000-node safety guard remains active.
 
 ## 🛠️ Technical Overview (For Developers)
 

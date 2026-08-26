@@ -40,6 +40,8 @@ class TestEnclosureCFDSolver(unittest.TestCase):
         self.assertAlmostEqual(result.total_heat_w, 0.5)
         self.assertEqual(len(result.residuals.continuity), result.iterations)
         self.assertTrue(math.isfinite(result.energy_balance_error_pct))
+        self.assertTrue(result.compute_backend.startswith("CPU_"))
+        self.assertLess(result.compute_relative_residual, 1e-8)
 
     def test_forced_inlet_produces_a_finite_velocity_field(self):
         settings = self._settings()

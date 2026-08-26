@@ -72,7 +72,10 @@ class ThermalAnalysisPanel(wx.Panel):
         grid.AddGrowableCol(3, 1)
 
         self.txt_ambient = wx.TextCtrl(settings_parent, value="25")
-        self.txt_grid = wx.TextCtrl(settings_parent, value="1.0")
+        self.txt_grid = wx.SpinCtrlDouble(
+            settings_parent, min=0.1, max=5.0, initial=1.0, inc=0.1,
+        )
+        self.txt_grid.SetDigits(2)
         self.choice_airflow = wx.Choice(settings_parent, choices=["NATURAL", "FORCED", "CUSTOM"])
         self.choice_airflow.SetSelection(0)
         self.txt_velocity = wx.TextCtrl(settings_parent, value="0")
@@ -93,6 +96,18 @@ class ThermalAnalysisPanel(wx.Panel):
             grid.Add(wx.StaticText(settings_parent, label=right_label), 0, wx.ALIGN_CENTER_VERTICAL)
             grid.Add(right_control, 1, wx.EXPAND)
         settings_box.Add(grid, 0, wx.EXPAND | wx.ALL, 8)
+
+        mesh_controls = wx.BoxSizer(wx.HORIZONTAL)
+        mesh_controls.Add(wx.StaticText(settings_parent, label="Mesh preset:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self.choice_mesh_preset = wx.Choice(
+            settings_parent,
+            choices=["Fast (1.5 mm)", "Normal (1.0 mm)", "Fine (0.5 mm)", "Expert / custom"],
+        )
+        self.choice_mesh_preset.SetSelection(1)
+        self.lbl_mesh_cost = wx.StaticText(settings_parent, label="Relative XY cells: x1")
+        mesh_controls.Add(self.choice_mesh_preset, 0, wx.RIGHT, 12)
+        mesh_controls.Add(self.lbl_mesh_cost, 0, wx.ALIGN_CENTER_VERTICAL)
+        settings_box.Add(mesh_controls, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
 
         checks = wx.BoxSizer(wx.HORIZONTAL)
         self.chk_top = wx.CheckBox(settings_parent, label="Top exposed")
@@ -135,6 +150,29 @@ class ThermalAnalysisPanel(wx.Panel):
         self.btn_toggle.Bind(wx.EVT_BUTTON, self._on_toggle)
         self.btn_edit.Bind(wx.EVT_BUTTON, self._on_edit)
         self.component_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit)
+        self.choice_mesh_preset.Bind(wx.EVT_CHOICE, self._on_mesh_preset)
+        self.txt_grid.Bind(wx.EVT_SPINCTRLDOUBLE, self._on_grid_changed)
+        self.txt_grid.Bind(wx.EVT_TEXT, self._on_grid_changed)
+
+    def _on_mesh_preset(self, event):
+        values = {0: 1.5, 1: 1.0, 2: 0.5}
+        selected = self.choice_mesh_preset.GetSelection()
+        if selected in values:
+            self.txt_grid.SetValue(values[selected])
+        self._update_mesh_cost()
+
+    def _on_grid_changed(self, event):
+        self._update_mesh_cost()
+        event.Skip()
+
+    def _update_mesh_cost(self):
+        try:
+            size = max(0.1, float(self.txt_grid.GetValue()))
+            factor = 1.0 / (size * size)
+            warning = " — very large" if factor >= 25 else (" — large" if factor >= 4 else "")
+            self.lbl_mesh_cost.SetLabel(f"Relative XY cells: x{factor:.1f}{warning}")
+        except (TypeError, ValueError):
+            self.lbl_mesh_cost.SetLabel("Relative XY cells: invalid")
 
     def refresh_components(self, preserve_user=True):
         saved = {component.ref_des: component for component in self.settings.components}
@@ -206,15 +244,18 @@ class ThermalAnalysisPanel(wx.Panel):
         self.settings.include_dc_copper_losses = self.chk_dc_loss.GetValue()
         self.settings.coupled_iterations = int(self.txt_iterations.GetValue())
         self.settings.convergence_c = float(self.txt_convergence.GetValue())
-        if self.settings.grid_size_mm <= 0 or self.settings.coupled_iterations < 1:
-            raise ValueError("Grid size and coupled iterations must be greater than zero.")
+        if not 0.1 <= self.settings.grid_size_mm <= 5.0 or self.settings.coupled_iterations < 1:
+            raise ValueError("Thermal grid size must be between 0.1 and 5 mm; coupled iterations must be positive.")
         return self.settings
 
     def set_settings(self, settings):
         self.settings = settings or ThermalAnalysisSettings()
         airflow = self.settings.airflow
         self.txt_ambient.SetValue(f"{self.settings.ambient_c:g}")
-        self.txt_grid.SetValue(f"{self.settings.grid_size_mm:g}")
+        self.txt_grid.SetValue(float(self.settings.grid_size_mm))
+        preset = {1.5: 0, 1.0: 1, 0.5: 2}.get(round(float(self.settings.grid_size_mm), 2), 3)
+        self.choice_mesh_preset.SetSelection(preset)
+        self._update_mesh_cost()
         index = self.choice_airflow.FindString(airflow.mode)
         self.choice_airflow.SetSelection(index if index != wx.NOT_FOUND else 0)
         self.txt_velocity.SetValue(f"{airflow.velocity_m_s:g}")
