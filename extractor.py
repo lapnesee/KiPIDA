@@ -130,7 +130,7 @@ class GeometryExtractor:
                     unresolved.append(item)
             cache[None] = unresolved
             self._net_item_caches[attr_name] = cache
-            if self.log_callback and (not merge or len(shapes) >= 100):
+            if self.log_callback:
                 self.log_callback(
                     f"[GEOMETRY] Indexed {len(items):,} {attr_name} in "
                     f"{time.perf_counter() - started:.3f} s."
@@ -839,7 +839,7 @@ class GeometryExtractor:
         for layer, shapes in layer_shapes.items():
             if not shapes:
                 continue
-            if self.log_callback:
+            if self.log_callback and (not merge or len(shapes) >= 100):
                 action = "Merging" if merge else "Collecting"
                 self.log_callback(
                     f"[GEOMETRY] {action} {len(shapes):,} shape(s) for {net_name} "

@@ -131,5 +131,13 @@ class TestGeometryExtractor(unittest.TestCase):
         self.assertEqual(geometry[0].geom_type, "GeometryCollection")
         self.assertEqual(len(geometry[0].geoms), 2)
 
+    def test_geometry_index_logging_does_not_depend_on_merge_scope(self):
+        messages = []
+        extractor = GeometryExtractor(self.board, log_callback=messages.append)
+        self.board.tracks.append(MockTrack(1, 0, (0, 0), (1000000, 0), 500000))
+        geometry = extractor.get_net_geometry("TestNet", merge=False)
+        self.assertIn(0, geometry)
+        self.assertTrue(any("Indexed" in message for message in messages))
+
 if __name__ == '__main__':
     unittest.main()
