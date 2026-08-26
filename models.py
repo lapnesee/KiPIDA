@@ -282,6 +282,13 @@ class ImpedanceSweepResult:
     worst_frequency_hz: float = 0.0
     worst_impedance_ohm: float = 0.0
     meets_target: bool = False
+    compute_backend: str = "CPU"
+    compute_device: str = "CPU"
+    compute_solve_seconds: float = 0.0
+    compute_transfer_seconds: float = 0.0
+    compute_relative_residual: float = 0.0
+    compute_iterations: int = 0
+    compute_cache_hits: int = 0
 
 
 @dataclass

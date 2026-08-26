@@ -3,8 +3,10 @@ import sys
 
 try:
     from .models import DCSolveResult
+    from .compute_backend import SparseComputeBackend
 except (ImportError, ValueError):
     from models import DCSolveResult
+    from compute_backend import SparseComputeBackend
 
 # Try imports, handle if missing (though they should be in KiCad 9)
 try:
@@ -22,9 +24,11 @@ except ImportError:
     pypardiso = None
 
 class Solver:
-    def __init__(self, debug=False, log_callback=None):
+    def __init__(self, debug=False, log_callback=None, compute_settings=None):
         self.debug = debug
         self.log_callback = log_callback
+        self.compute_backend = SparseComputeBackend(compute_settings, log_callback)
+        self.last_compute = None
         if np is None or scipy is None:
             raise ImportError("NumPy and SciPy are required for Solver backend.")
 
@@ -204,17 +208,20 @@ class Solver:
         G_csr = G.tocsr()
         
         try:
-            if pypardiso is not None:
-                if self.debug: self._log("Using high-performance PyPardiso solver.")
-                V_solution = pypardiso.spsolve(G_csr, I)
-            else:
-                if self.debug: self._log("Using standard SciPy spsolve (PyPardiso not found).")
-                V_solution = scipy.sparse.linalg.spsolve(G_csr, I)
+            static_values = branch_resistance_scales is None
+            solved = self.compute_backend.solve(
+                G_csr, I, system_kind="GENERAL",
+                cache_key=("dc", id(mesh)), matrix_values_static=static_values,
+            )
+            self.last_compute = solved.metadata
+            V_solution = solved.values
             
             if np.any(np.isnan(V_solution)):
                 self._log("Warning: Solution contains NaN values.")
         except Exception as e:
             self._log(f"Solver Exception: {e}")
+            if self.compute_backend.settings.backend == "CUDA":
+                raise
             return {}
             
         # 7. Map results back

@@ -1,6 +1,8 @@
 
 import sys
 import math
+import os
+from concurrent.futures import ThreadPoolExecutor
 
 try:
     from .models import MeshBranch
@@ -71,10 +73,11 @@ class Mesh:
         self.G_coo_data.append(-g)
 
 class Mesher:
-    def __init__(self, board, debug=False, log_callback=None):
+    def __init__(self, board, debug=False, log_callback=None, compute_settings=None):
         self.board = board
         self.debug = debug
         self.log_callback = log_callback
+        self.compute_settings = compute_settings
         if np is None or Point is None or matplotlib is None:
             raise ImportError("NumPy, Shapely, and Matplotlib are required for Meshing.")
     
@@ -107,6 +110,31 @@ class Mesher:
         """Helper to log debug messages."""
         if self.debug and self.log_callback:
             self.log_callback(f"[MESH] {msg}")
+
+    def _worker_count(self):
+        settings = self.compute_settings
+        if settings is not None and not settings.cpu_multithread:
+            return 1
+        configured = int(getattr(settings, "cpu_threads", 0) or 0) if settings else 0
+        return max(1, configured or (os.cpu_count() or 1))
+
+    @staticmethod
+    def _rasterize_polygon(poly, grid_points, shape):
+        polys = [poly] if poly.geom_type == 'Polygon' else list(poly.geoms)
+        layer_mask = np.zeros(len(grid_points), dtype=bool)
+        for polygon in polys:
+            buffered = polygon.buffer(1e-5)
+            codes, vertices = [], []
+            rings = [buffered.exterior] + list(buffered.interiors)
+            for ring in rings:
+                coords = list(ring.coords)
+                vertices.extend(coords)
+                codes.append(matplotlib.path.Path.MOVETO)
+                codes.extend([matplotlib.path.Path.LINETO] * (len(coords) - 2))
+                codes.append(matplotlib.path.Path.CLOSEPOLY)
+            path = matplotlib.path.Path(vertices, codes)
+            layer_mask |= path.contains_points(grid_points, radius=1e-9)
+        return layer_mask.reshape(shape)
 
     def generate_mesh(self, net_name, geometry_by_layer, stackup, grid_size_mm=0.5):
         """
@@ -172,6 +200,24 @@ class Mesher:
         node_grid = np.full((len(sorted_layers), ny + 1, nx + 1), -1, dtype=int)
         
         node_counter = 0
+
+        workers = min(self._worker_count(), len(sorted_layers))
+        if workers > 1 and len(grid_points) >= 10000:
+            self._log(f"Rasterizing {len(sorted_layers)} electrical layers with {workers} CPU workers.")
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="KiPIDA-Mesh") as pool:
+                futures = {
+                    lid: pool.submit(
+                        self._rasterize_polygon, geometry_by_layer[lid], grid_points,
+                        (ny + 1, nx + 1),
+                    ) for lid in sorted_layers
+                }
+                layer_masks = {lid: futures[lid].result() for lid in sorted_layers}
+        else:
+            layer_masks = {
+                lid: self._rasterize_polygon(
+                    geometry_by_layer[lid], grid_points, (ny + 1, nx + 1)
+                ) for lid in sorted_layers
+            }
         
         for lid in sorted_layers:
             poly = geometry_by_layer[lid]
@@ -182,44 +228,7 @@ class Mesher:
             # Matplotlib Path uses vertices. 
             # If poly is MultiPolygon, iterate parts.
             
-            polys_to_check = [poly] if poly.geom_type == 'Polygon' else list(poly.geoms)
-            
-            # Create a combined boolean mask for this layer
-            layer_mask = np.zeros(len(grid_points), dtype=bool)
-            
-            for p in polys_to_check:
-                # Buffer slightly to include points on edges
-                pb = p.buffer(1e-5) 
-                
-                # Extract exterior coords
-                
-                codes = []
-                verts = []
-                
-                # Exterior
-                ext_coords = list(pb.exterior.coords)
-                verts.extend(ext_coords)
-                codes.append(matplotlib.path.Path.MOVETO)
-                codes.extend([matplotlib.path.Path.LINETO] * (len(ext_coords) - 2))
-                codes.append(matplotlib.path.Path.CLOSEPOLY)
-                
-                # Interiors (Holes)
-                for interior in pb.interiors:
-                    int_coords = list(interior.coords)
-                    verts.extend(int_coords)
-                    codes.append(matplotlib.path.Path.MOVETO)
-                    codes.extend([matplotlib.path.Path.LINETO] * (len(int_coords) - 2))
-                    codes.append(matplotlib.path.Path.CLOSEPOLY)
-                
-                path = matplotlib.path.Path(verts, codes)
-                
-                # Check points
-                # radius=0 means exact point check. Could use small radius for tolerance.
-                mask = path.contains_points(grid_points, radius=1e-9)
-                layer_mask |= mask
-            
-            # Reshape back to grid
-            mask_2d = layer_mask.reshape((ny + 1, nx + 1))
+            mask_2d = layer_masks[lid]
             
             # Assign Node IDs
             count_on_layer = np.count_nonzero(mask_2d)

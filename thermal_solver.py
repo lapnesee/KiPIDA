@@ -75,7 +75,10 @@ class ThermalSolver:
         if progress_callback:
             progress_callback(1, 3, "matrix")
         csr = matrix.tocsr()
-        compute = self.compute_backend.solve(csr, rhs, system_kind="SPD")
+        compute = self.compute_backend.solve(
+            csr, rhs, system_kind="SPD",
+            cache_key=("thermal", id(mesh)), matrix_values_static=True,
+        )
         temperatures = compute.values
         if progress_callback:
             progress_callback(2, 3, "solve")

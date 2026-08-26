@@ -3,9 +3,11 @@ import wx
 try:
     from models import AirflowSettings, ThermalAnalysisSettings
     from thermal_model import PowerLossEstimator
+    from thermal_mesh import estimate_thermal_mesh_cost
 except (ImportError, ValueError):
     from models import AirflowSettings, ThermalAnalysisSettings
     from thermal_model import PowerLossEstimator
+    from thermal_mesh import estimate_thermal_mesh_cost
 
 
 class ThermalComponentDialog(wx.Dialog):
@@ -56,10 +58,11 @@ class ThermalComponentDialog(wx.Dialog):
 
 
 class ThermalAnalysisPanel(wx.Panel):
-    def __init__(self, parent, rails_provider, log_callback=None):
+    def __init__(self, parent, rails_provider, log_callback=None, mesh_context_provider=None):
         super().__init__(parent)
         self.rails_provider = rails_provider
         self.log_callback = log_callback
+        self.mesh_context_provider = mesh_context_provider
         self.settings = ThermalAnalysisSettings()
         self._init_ui()
 
@@ -104,8 +107,11 @@ class ThermalAnalysisPanel(wx.Panel):
             choices=["Fast (1.5 mm)", "Normal (1.0 mm)", "Fine (0.5 mm)", "Expert / custom"],
         )
         self.choice_mesh_preset.SetSelection(1)
-        self.lbl_mesh_cost = wx.StaticText(settings_parent, label="Relative XY cells: x1")
+        self.txt_expert_grid = wx.TextCtrl(settings_parent, value="1.0", size=(75, -1))
+        self.txt_expert_grid.Hide()
+        self.lbl_mesh_cost = wx.StaticText(settings_parent, label="Estimating mesh...")
         mesh_controls.Add(self.choice_mesh_preset, 0, wx.RIGHT, 12)
+        mesh_controls.Add(self.txt_expert_grid, 0, wx.RIGHT, 12)
         mesh_controls.Add(self.lbl_mesh_cost, 0, wx.ALIGN_CENTER_VERTICAL)
         settings_box.Add(mesh_controls, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
 
@@ -153,13 +159,29 @@ class ThermalAnalysisPanel(wx.Panel):
         self.choice_mesh_preset.Bind(wx.EVT_CHOICE, self._on_mesh_preset)
         self.txt_grid.Bind(wx.EVT_SPINCTRLDOUBLE, self._on_grid_changed)
         self.txt_grid.Bind(wx.EVT_TEXT, self._on_grid_changed)
+        self.txt_expert_grid.Bind(wx.EVT_TEXT, self._on_expert_grid_changed)
 
     def _on_mesh_preset(self, event):
         values = {0: 1.5, 1: 1.0, 2: 0.5}
         selected = self.choice_mesh_preset.GetSelection()
         if selected in values:
             self.txt_grid.SetValue(values[selected])
+        self.txt_expert_grid.Show(selected == 3)
+        if selected == 3:
+            self.txt_expert_grid.SetValue(f"{self.txt_grid.GetValue():g}")
+            self.txt_expert_grid.SetFocus()
+        self.Layout()
         self._update_mesh_cost()
+
+    def _on_expert_grid_changed(self, event):
+        try:
+            value = float(self.txt_expert_grid.GetValue().replace(",", "."))
+            if 0.1 <= value <= 5.0:
+                self.txt_grid.SetValue(value)
+        except ValueError:
+            pass
+        self._update_mesh_cost()
+        event.Skip()
 
     def _on_grid_changed(self, event):
         self._update_mesh_cost()
@@ -168,9 +190,19 @@ class ThermalAnalysisPanel(wx.Panel):
     def _update_mesh_cost(self):
         try:
             size = max(0.1, float(self.txt_grid.GetValue()))
-            factor = 1.0 / (size * size)
-            warning = " — very large" if factor >= 25 else (" — large" if factor >= 4 else "")
-            self.lbl_mesh_cost.SetLabel(f"Relative XY cells: x{factor:.1f}{warning}")
+            context = self.mesh_context_provider() if self.mesh_context_provider else {}
+            estimate = estimate_thermal_mesh_cost(context, size)
+            mib = 1024 ** 2
+            self.lbl_mesh_cost.SetLabel(
+                f"~{estimate['nodes']:,} nodes / {estimate['branches']:,} branches — "
+                f"CPU {estimate['cpu_bytes']/mib:.0f} MiB, GPU {estimate['gpu_bytes']/mib:.0f} MiB — "
+                f"recommended: {estimate['backend']}"
+            )
+            colour = wx.Colour(190, 35, 35) if estimate["nodes"] > 500000 else (
+                wx.Colour(190, 105, 0) if estimate["nodes"] > 250000 else wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOWTEXT)
+            )
+            self.lbl_mesh_cost.SetForegroundColour(colour)
+            self.lbl_mesh_cost.GetParent().Layout()
         except (TypeError, ValueError):
             self.lbl_mesh_cost.SetLabel("Relative XY cells: invalid")
 
@@ -255,6 +287,8 @@ class ThermalAnalysisPanel(wx.Panel):
         self.txt_grid.SetValue(float(self.settings.grid_size_mm))
         preset = {1.5: 0, 1.0: 1, 0.5: 2}.get(round(float(self.settings.grid_size_mm), 2), 3)
         self.choice_mesh_preset.SetSelection(preset)
+        self.txt_expert_grid.SetValue(f"{self.settings.grid_size_mm:g}")
+        self.txt_expert_grid.Show(preset == 3)
         self._update_mesh_cost()
         index = self.choice_airflow.FindString(airflow.mode)
         self.choice_airflow.SetSelection(index if index != wx.NOT_FOUND else 0)

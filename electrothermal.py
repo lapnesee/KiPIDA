@@ -40,7 +40,10 @@ class ElectroThermalSolver:
             log_callback=self.log_callback,
             compute_settings=self.compute_settings,
         )
-        dc_solver = Solver(debug=self.debug, log_callback=self.log_callback)
+        dc_solver = Solver(
+            debug=self.debug, log_callback=self.log_callback,
+            compute_settings=self.compute_settings,
+        )
         base_heat = dict(thermal_mesh.heat_sources_w)
         previous_temperatures = {
             node: float(settings.ambient_c) for node in thermal_mesh.nodes

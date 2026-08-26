@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass, field
 import math
+import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
 
 try:
@@ -98,19 +100,61 @@ class ThermalMesh:
         ))
 
 
+def estimate_thermal_mesh_cost(context, grid_size_mm):
+    """Return a conservative rectangular-board mesh and sparse-memory estimate."""
+    context = context or {}
+    width = max(0.0, float(context.get("width_mm", 0.0)))
+    height = max(0.0, float(context.get("height_mm", 0.0)))
+    layers = max(1, int(context.get("thermal_layers", 3)))
+    grid = max(0.1, float(grid_size_mm))
+    xy_cells = max(1, math.ceil(width / grid)) * max(1, math.ceil(height / grid))
+    nodes = xy_cells * layers
+    branches = int(xy_cells * (2 * layers + max(0, layers - 1)))
+    nnz = nodes + 2 * branches
+    cpu_bytes = nnz * 12 + nodes * 48 + branches * 32
+    gpu_bytes = nnz * 12 + nodes * 8 * 8
+    cuda_ok = bool(context.get("cuda_available", False))
+    threshold = int(context.get("cuda_min_nodes", 100000))
+    backend = "CUDA" if cuda_ok and nodes >= threshold else "CPU"
+    return dict(nodes=nodes, branches=branches, cpu_bytes=cpu_bytes,
+                gpu_bytes=gpu_bytes, backend=backend)
+
+
 class ThermalMesher:
     COPPER_K = 385.0
     FR4_K_XY = 0.8
     FR4_K_Z = 0.3
     SIGMA = 5.670374419e-8
 
-    def __init__(self, debug=False, log_callback=None):
+    def __init__(self, debug=False, log_callback=None, compute_settings=None):
         self.debug = debug
         self.log_callback = log_callback
+        self.compute_settings = compute_settings
 
     def _log(self, message):
         if self.log_callback:
             self.log_callback(f"[THERMAL MESH] {message}")
+
+    def _worker_count(self):
+        settings = self.compute_settings
+        if settings is not None and not settings.cpu_multithread:
+            return 1
+        configured = int(getattr(settings, "cpu_threads", 0) or 0) if settings else 0
+        return max(1, configured or (os.cpu_count() or 1))
+
+    @staticmethod
+    def _sample_layer(outline, copper, min_x, min_y, nx, ny, grid):
+        prepared_outline = prep(outline)
+        prepared_copper = prep(copper) if copper is not None and not copper.is_empty else None
+        cells = []
+        for iy in range(ny):
+            y = min_y + (iy + 0.5) * grid
+            for ix in range(nx):
+                x = min_x + (ix + 0.5) * grid
+                point = Point(x, y)
+                if prepared_outline.covers(point):
+                    cells.append((ix, iy, bool(prepared_copper and prepared_copper.covers(point))))
+        return cells
 
     @staticmethod
     def convection_coefficient(settings: ThermalAnalysisSettings):
@@ -180,11 +224,6 @@ class ThermalMesher:
             )
 
         mesh = ThermalMesh(grid_size_mm=grid, bounds_mm=model.bounds_mm, layer_specs=specs)
-        prepared_outline = prep(model.outline)
-        copper_prepared = {
-            layer: prep(polygon) for layer, polygon in model.copper_by_layer.items()
-            if polygon is not None and not polygon.is_empty
-        }
         material = {}
         z_centers = []
         z_cursor = 0.0
@@ -193,27 +232,32 @@ class ThermalMesher:
             z_cursor += spec.thickness_mm
 
         node_id = 0
+        workers = min(self._worker_count(), len(specs))
+        sample_args = [
+            (model.outline, model.copper_by_layer.get(spec.layer_id), min_x, min_y, nx, ny, grid)
+            for spec in specs
+        ]
+        if workers > 1 and nx * ny * len(specs) >= 10000:
+            self._log(f"Sampling {len(specs)} thermal layers with {workers} CPU workers.")
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="KiPIDA-ThermalMesh") as pool:
+                sampled_layers = list(pool.map(lambda args: self._sample_layer(*args), sample_args))
+        else:
+            sampled_layers = [self._sample_layer(*args) for args in sample_args]
         for iz, spec in enumerate(specs):
-            copper_polygon = copper_prepared.get(spec.layer_id)
-            for iy in range(ny):
+            for ix, iy, is_copper in sampled_layers[iz]:
+                x = min_x + (ix + 0.5) * grid
                 y = min_y + (iy + 0.5) * grid
-                for ix in range(nx):
-                    x = min_x + (ix + 0.5) * grid
-                    point = Point(x, y)
-                    if not prepared_outline.covers(point):
-                        continue
-                    is_copper = bool(copper_polygon and copper_polygon.covers(point))
-                    if spec.material == "copper-layer" and is_copper:
-                        kx = ky = kz = self.COPPER_K
-                    else:
-                        kx = ky = self.FR4_K_XY
-                        kz = self.FR4_K_Z
-                    mesh.nodes.append(node_id)
-                    mesh.node_map[(ix, iy, iz)] = node_id
-                    mesh.node_coords[node_id] = (x, y, z_centers[iz])
-                    mesh.node_layers[node_id] = spec.layer_id
-                    material[node_id] = (kx, ky, kz, spec.thickness_mm)
-                    node_id += 1
+                if spec.material == "copper-layer" and is_copper:
+                    kx = ky = kz = self.COPPER_K
+                else:
+                    kx = ky = self.FR4_K_XY
+                    kz = self.FR4_K_Z
+                mesh.nodes.append(node_id)
+                mesh.node_map[(ix, iy, iz)] = node_id
+                mesh.node_coords[node_id] = (x, y, z_centers[iz])
+                mesh.node_layers[node_id] = spec.layer_id
+                material[node_id] = (kx, ky, kz, spec.thickness_mm)
+                node_id += 1
             if progress_callback:
                 progress_callback(iz + 1, len(specs), spec.name)
 

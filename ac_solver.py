@@ -12,14 +12,17 @@ except ImportError:
 
 try:
     from .models import ACAnalysisSettings, ImpedanceSweepResult
+    from .compute_backend import SparseComputeBackend
 except (ImportError, ValueError):
     from models import ACAnalysisSettings, ImpedanceSweepResult
+    from compute_backend import SparseComputeBackend
 
 
 class ACSolver:
-    def __init__(self, debug=False, log_callback=None):
+    def __init__(self, debug=False, log_callback=None, compute_settings=None):
         self.debug = debug
         self.log_callback = log_callback
+        self.compute_backend = SparseComputeBackend(compute_settings, log_callback)
         if np is None or scipy is None:
             raise ImportError("NumPy and SciPy are required for AC analysis.")
 
@@ -126,6 +129,7 @@ class ACSolver:
             int(settings.frequency_points),
         )
         impedances = []
+        compute_samples = []
 
         for index, frequency in enumerate(frequencies):
             omega = 2.0 * np.pi * frequency
@@ -166,7 +170,12 @@ class ACSolver:
             with warnings.catch_warnings():
                 warnings.simplefilter("error", scipy.sparse.linalg.MatrixRankWarning)
                 try:
-                    voltage = scipy.sparse.linalg.spsolve(matrix.tocsr(), current)
+                    solved = self.compute_backend.solve(
+                        matrix.tocsr(), current, system_kind="GENERAL",
+                        cache_key=("ac", id(network)), matrix_values_static=False,
+                    )
+                    voltage = solved.values
+                    compute_samples.append(solved.metadata)
                 except Exception as exc:
                     raise ValueError(f"AC solve failed at {frequency:g} Hz: {exc}") from exc
 
@@ -194,4 +203,13 @@ class ACSolver:
             worst_frequency_hz=float(frequencies[worst_index]),
             worst_impedance_ohm=float(magnitudes[worst_index]),
             meets_target=meets_target,
+            compute_backend=compute_samples[-1].backend if compute_samples else "CPU",
+            compute_device=compute_samples[-1].device if compute_samples else "CPU",
+            compute_solve_seconds=sum(item.solve_seconds for item in compute_samples),
+            compute_transfer_seconds=sum(item.transfer_seconds for item in compute_samples),
+            compute_relative_residual=max(
+                (item.relative_residual for item in compute_samples), default=0.0
+            ),
+            compute_iterations=sum(item.iterations for item in compute_samples),
+            compute_cache_hits=sum(bool(item.cache_hit) for item in compute_samples),
         )

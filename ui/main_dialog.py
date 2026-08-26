@@ -160,6 +160,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.tab_thermal,
             rails_provider=lambda: self.power_tree.rails,
             log_callback=self.log,
+            mesh_context_provider=self._thermal_mesh_context,
         )
         thermal_sizer.Add(self.thermal_panel, 1, wx.EXPAND | wx.ALL, 5)
         self.tab_thermal.SetSizer(thermal_sizer)
@@ -243,8 +244,10 @@ class KiPIDA_MainDialog(wx.Dialog):
             wx.CallAfter(self.ac_panel.refresh)
         elif event.GetSelection() == self.PAGE_DIFFERENTIAL:
             wx.CallAfter(self.differential_panel.refresh)
-        elif event.GetSelection() == self.PAGE_THERMAL and not self.thermal_panel.settings.components:
-            wx.CallAfter(self.thermal_panel.refresh_components)
+        elif event.GetSelection() == self.PAGE_THERMAL:
+            if not self.thermal_panel.settings.components:
+                wx.CallAfter(self.thermal_panel.refresh_components)
+            wx.CallAfter(self.thermal_panel._update_mesh_cost)
         elif event.GetSelection() == self.PAGE_CFD:
             wx.CallAfter(self.cfd_panel._update_estimate)
         elif event.GetSelection() == self.PAGE_RUNTIME:
@@ -254,6 +257,7 @@ class KiPIDA_MainDialog(wx.Dialog):
     def _refresh_live_board_state(self):
         """Re-read KiCad's live IPC board data before a new analysis run."""
         try:
+            self._thermal_geometry_context = None
             self.ac_panel.refresh(force_discovery=True)
             self.differential_panel.refresh_live_board()
             self.thermal_panel.refresh_components(preserve_user=True)
@@ -472,7 +476,33 @@ class KiPIDA_MainDialog(wx.Dialog):
         rail_map = {r.net_name: r for r in system_rails}
         return [rail_map[name] for name in result]
 
-    def _solve_system(self, system_rails, grid_size, debug_mode):
+    def _thermal_mesh_context(self):
+        try:
+            geometry = getattr(self, "_thermal_geometry_context", None)
+            if geometry is None:
+                extractor = GeometryExtractor(self.board)
+                bounds = extractor.get_board_bounds(board_file_path=self._board_file_path())
+                stackup = extractor.get_board_stackup()
+                if not bounds:
+                    return {}
+                copper_layers = max(1, len(stackup.get("layer_order", [])))
+                geometry = {
+                    "width_mm": bounds[2] - bounds[0],
+                    "height_mm": bounds[3] - bounds[1],
+                    "thermal_layers": copper_layers * 2 - 1,
+                }
+                self._thermal_geometry_context = geometry
+            runtime = self.runtime_panel.get_settings() if hasattr(self, "runtime_panel") else None
+            return dict(geometry, **{
+                "cuda_available": bool(
+                    runtime and runtime.cuda_enabled and getattr(self.runtime_panel, "_devices", [])
+                ),
+                "cuda_min_nodes": runtime.cuda_min_nodes if runtime else 100000,
+            })
+        except Exception:
+            return {}
+
+    def _solve_system(self, system_rails, grid_size, debug_mode, compute_settings=None):
         """Solve configured DC rails without reading or updating wx widgets."""
         self.log(f"--- Starting System Simulation ({len(system_rails)} rails) ---")
         
@@ -509,7 +539,10 @@ class KiPIDA_MainDialog(wx.Dialog):
                     self.log(f"  Skipping {rail.net_name}: No geometry.")
                     continue
                     
-                mesher = Mesher(self.board, debug=debug_mode, log_callback=self.log)
+                mesher = Mesher(
+                    self.board, debug=debug_mode, log_callback=self.log,
+                    compute_settings=compute_settings,
+                )
                 mesh = mesher.generate_mesh(rail.net_name, geo, stackup, grid_size_mm=grid_size)
                 
                 if len(mesh.nodes) == 0:
@@ -607,7 +640,10 @@ class KiPIDA_MainDialog(wx.Dialog):
                     self.log(f"  Warning: No sources for {rail.net_name}. Skipping solve.")
                     continue
                     
-                solver = Solver(debug=debug_mode, log_callback=self.log)
+                solver = Solver(
+                    debug=debug_mode, log_callback=self.log,
+                    compute_settings=compute_settings,
+                )
                 detailed_result = solver.solve_detailed(mesh, solver_sources, solver_loads)
                 results = detailed_result.voltages
                 
@@ -623,6 +659,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                         'sources': solver_sources,
                         'loads': solver_loads,
                         'detailed_result': detailed_result,
+                        'compute_metadata': solver.last_compute,
                     }
                     self.log(f"  Solved {rail.net_name}: Drop {drop:.4f} V")
                 else:
@@ -650,6 +687,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             system_rails,
             grid_size,
             self.chk_debug.GetValue(),
+            self.runtime_panel.get_settings(persist=True),
         )
         if update_results and self.system_results:
             self._update_results_ui()
@@ -690,7 +728,10 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.log("--- Starting AC Impedance Analysis ---")
         try:
             settings, network = self._prepare_ac_analysis()
-            solver = ACSolver(debug=self.chk_debug.GetValue(), log_callback=self.log)
+            solver = ACSolver(
+                debug=self.chk_debug.GetValue(), log_callback=self.log,
+                compute_settings=self.runtime_panel.get_settings(persist=True),
+            )
             result = solver.solve_sweep(network, settings, progress_callback=self._ac_progress)
             self.ac_result = result
             self.ac_optimization_result = None
@@ -704,7 +745,10 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.log("--- Starting Decoupling Optimization ---")
         try:
             settings, network = self._prepare_ac_analysis()
-            solver = ACSolver(debug=self.chk_debug.GetValue(), log_callback=self.log)
+            solver = ACSolver(
+                debug=self.chk_debug.GetValue(), log_callback=self.log,
+                compute_settings=self.runtime_panel.get_settings(persist=True),
+            )
             optimizer = DecouplingOptimizer(
                 solver,
                 debug=self.chk_debug.GetValue(),
@@ -729,6 +773,11 @@ class KiPIDA_MainDialog(wx.Dialog):
             f"Worst |Z|: {final_result.worst_impedance_ohm:.6g} ohm",
             f"Worst frequency: {final_result.worst_frequency_hz:.6g} Hz",
             f"Target: {final_result.target_impedance_ohm:.6g} ohm",
+            f"Compute backend: {final_result.compute_backend} ({final_result.compute_device})",
+            f"Sparse solve time: {final_result.compute_solve_seconds:.4g} s "
+            f"(transfer {final_result.compute_transfer_seconds:.4g} s)",
+            f"Linear residual: {final_result.compute_relative_residual:.4g}; "
+            f"CUDA structure cache hits: {final_result.compute_cache_hits}",
         ]
         if optimization:
             lines.extend(["", "Decoupling recommendations:"])
@@ -988,7 +1037,9 @@ class KiPIDA_MainDialog(wx.Dialog):
                 self._thermal_worker_log(
                     "Running fresh DC analysis for the current live PCB geometry."
                 )
-                system_results = self._solve_system(rails, dc_grid_size, debug_mode)
+                system_results = self._solve_system(
+                    rails, dc_grid_size, debug_mode, compute_settings,
+                )
                 if coupled and not system_results:
                     raise ValueError("Coupled analysis requires a successful DC analysis.")
 
@@ -1006,6 +1057,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             mesher = ThermalMesher(
                 debug=debug_mode,
                 log_callback=self._thermal_worker_log,
+                compute_settings=compute_settings,
             )
             mesh = mesher.generate_mesh(
                 model,
@@ -1347,6 +1399,13 @@ class KiPIDA_MainDialog(wx.Dialog):
             txt += f"Rail: {net}\n"
             txt += f"  Range: {vmin:.4f} - {vmax:.4f} V\n"
             txt += f"  Drop:  {drop:.4f} V\n\n"
+            compute = data.get('compute_metadata')
+            if compute is not None:
+                txt += (
+                    f"  Backend: {compute.backend} ({compute.device}), "
+                    f"solve {compute.solve_seconds:.4g} s, "
+                    f"residual {compute.relative_residual:.3g}\n\n"
+                )
         page = self._publish_results("DC", txt, [])
         results_notebook = page.plots
         

@@ -178,7 +178,12 @@ Selected differential recommendations can be applied from **Differential Pairs**
 
 Open **Runtime & Acceleration** to review the installed Ki-PIDA/Python/CuPy
 versions, select `AUTO`, `CPU`, or `CUDA`, limit CPU solver threads, select a GPU,
-and run a numerical backend test. These settings are machine-local and are saved
+and inspect live thermal-mesh node, branch, CPU/GPU-memory, and backend estimates.
+The common sparse backend is used by thermal, DC, and complex AC solves. CUDA
+keeps compatible CSR structures and constant thermal matrices resident in VRAM
+across iterative sweeps, while multilayer electrical and thermal rasterization
+uses the configured CPU worker count. The panel can also run a numerical backend
+test. These settings are machine-local and are saved
 to `%LOCALAPPDATA%\KiPIDA\runtime.json`; they are intentionally not stored in the
 PCB project configuration.
 

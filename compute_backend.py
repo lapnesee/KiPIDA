@@ -35,6 +35,8 @@ class ComputeMetadata:
     iterations: int = 1
     cpu_threads: int = 1
     fallback_reason: str = ""
+    cache_hit: bool = False
+    matrix_reused: bool = False
 
 
 @dataclass
@@ -82,6 +84,7 @@ class SparseComputeBackend:
         self.settings = (settings or RuntimeComputeSettings()).normalized()
         self.log_callback = log_callback
         self._cuda_info = None
+        self._cuda_workspaces = {}
 
     def _log(self, message):
         if self.log_callback:
@@ -120,13 +123,18 @@ class SparseComputeBackend:
         denominator = max(float(np.linalg.norm(rhs)), 1.0e-30)
         return float(numerator / denominator)
 
-    def solve(self, matrix, rhs, system_kind="SPD"):
-        matrix = scipy.sparse.csr_matrix(matrix, dtype=np.float64)
-        rhs = np.asarray(rhs, dtype=np.float64)
+    def solve(self, matrix, rhs, system_kind="SPD", cache_key=None, matrix_values_static=False):
+        dtype = np.complex128 if (np.iscomplexobj(matrix.data) or np.iscomplexobj(rhs)) else np.float64
+        matrix = scipy.sparse.csr_matrix(matrix, dtype=dtype)
+        matrix.sort_indices()
+        rhs = np.asarray(rhs, dtype=dtype)
         selected = self._select(matrix.shape[0])
         if selected == "CUDA":
             try:
-                return self._solve_cuda(matrix, rhs, system_kind)
+                return self._solve_cuda(
+                    matrix, rhs, system_kind, cache_key=cache_key,
+                    matrix_values_static=matrix_values_static,
+                )
             except Exception as exc:
                 if self.settings.backend == "CUDA":
                     raise
@@ -141,7 +149,7 @@ class SparseComputeBackend:
         context = threadpool_limits(limits=threads) if threadpool_limits else nullcontext()
         started = time.perf_counter()
         with context:
-            if pypardiso is not None:
+            if pypardiso is not None and not np.iscomplexobj(matrix.data):
                 values = pypardiso.spsolve(matrix, rhs)
                 backend_name = "CPU_PARDISO"
                 effective_threads = threads
@@ -150,7 +158,7 @@ class SparseComputeBackend:
                 backend_name = "CPU_SCIPY"
                 effective_threads = 1
         elapsed = time.perf_counter() - started
-        values = np.asarray(values, dtype=float)
+        values = np.asarray(values, dtype=matrix.dtype)
         return ComputeSolution(values, ComputeMetadata(
             backend=backend_name,
             solve_seconds=elapsed,
@@ -158,7 +166,7 @@ class SparseComputeBackend:
             cpu_threads=effective_threads,
         ))
 
-    def _solve_cuda(self, matrix, rhs, system_kind):
+    def _solve_cuda(self, matrix, rhs, system_kind, cache_key=None, matrix_values_static=False):
         import cupy as cp
         import cupyx.scipy.sparse as cpx_sparse
         import cupyx.scipy.sparse.linalg as cpx_linalg
@@ -176,20 +184,45 @@ class SparseComputeBackend:
                     f"but only {free_bytes / (1024 ** 3):.2f} GiB is free."
                 )
             transfer_started = time.perf_counter()
-            gpu_matrix = cpx_sparse.csr_matrix(matrix)
+            workspace_key = None if cache_key is None else (
+                device_index, cache_key, matrix.shape, matrix.dtype.str, str(system_kind).upper()
+            )
+            workspace = self._cuda_workspaces.get(workspace_key) if workspace_key is not None else None
+            structure_matches = bool(
+                workspace is not None and
+                np.array_equal(workspace["indices"], matrix.indices) and
+                np.array_equal(workspace["indptr"], matrix.indptr)
+            )
+            matrix_reused = bool(structure_matches and matrix_values_static)
+            if structure_matches:
+                gpu_matrix = workspace["matrix"]
+                if not matrix_values_static:
+                    gpu_matrix.data.set(matrix.data)
+            else:
+                gpu_matrix = cpx_sparse.csr_matrix(matrix)
             gpu_rhs = cp.asarray(rhs)
-            transfer_seconds = time.perf_counter() - transfer_started
             props = cp.cuda.runtime.getDeviceProperties(device_index)
             device_name = props.get("name", f"CUDA {device_index}")
             if isinstance(device_name, bytes):
                 device_name = device_name.decode(errors="replace")
 
-            diagonal = gpu_matrix.diagonal()
-            safe_diagonal = cp.where(cp.abs(diagonal) > 1.0e-30, diagonal, 1.0)
-            preconditioner = cpx_linalg.LinearOperator(
-                gpu_matrix.shape, matvec=lambda vector: vector / safe_diagonal,
-                dtype=gpu_matrix.dtype,
-            )
+            if matrix_reused:
+                preconditioner = workspace["preconditioner"]
+            else:
+                diagonal = gpu_matrix.diagonal()
+                safe_diagonal = cp.where(cp.abs(diagonal) > 1.0e-30, diagonal, 1.0)
+                preconditioner = cpx_linalg.LinearOperator(
+                    gpu_matrix.shape, matvec=lambda vector: vector / safe_diagonal,
+                    dtype=gpu_matrix.dtype,
+                )
+            if workspace_key is not None:
+                self._cuda_workspaces[workspace_key] = {
+                    "matrix": gpu_matrix,
+                    "preconditioner": preconditioner,
+                    "indices": matrix.indices.copy(),
+                    "indptr": matrix.indptr.copy(),
+                }
+            transfer_seconds = time.perf_counter() - transfer_started
             iterations = [0]
 
             def count_iteration(_):
@@ -226,4 +259,10 @@ class SparseComputeBackend:
                 relative_residual=relative_residual,
                 iterations=max(1, iterations[0]),
                 cpu_threads=self._cpu_threads(),
+                cache_hit=structure_matches,
+                matrix_reused=matrix_reused,
             ))
+
+    def clear_cache(self):
+        """Release persistent CUDA sparse workspaces owned by this backend."""
+        self._cuda_workspaces.clear()

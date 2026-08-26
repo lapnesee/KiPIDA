@@ -29,6 +29,15 @@ class ComputeBackendTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "disabled"):
             SparseComputeBackend(settings).solve(self.matrix, self.rhs)
 
+    def test_cpu_backend_preserves_complex_ac_systems(self):
+        matrix = self.matrix.astype(np.complex128) + scipy.sparse.identity(32) * 0.25j
+        rhs = self.rhs.astype(np.complex128)
+        result = SparseComputeBackend(
+            RuntimeComputeSettings(backend="CPU")
+        ).solve(matrix, rhs, "GENERAL")
+        self.assertTrue(np.iscomplexobj(result.values))
+        self.assertLess(result.metadata.relative_residual, 1.0e-10)
+
     @patch("compute_backend.cuda_diagnostics")
     def test_forced_cuda_reports_unavailable_device(self, diagnostics):
         diagnostics.return_value = {
