@@ -304,9 +304,10 @@ class KiPIDA_MainDialog(wx.Dialog):
     def to_mm(self, val_nm):
         return val_nm / 1e6
 
-    def _get_mesh_nodes(self, mesh, ref_des, pad_names, debug_mode):
+    def _get_mesh_nodes(self, mesh, ref_des, pad_names, debug_mode, log_callback=None):
+        emit = log_callback or self.log
         if debug_mode:
-            self.log(f"  [_get_mesh_nodes] Looking up {ref_des} pads={pad_names}")
+            emit(f"  [_get_mesh_nodes] Looking up {ref_des} pads={pad_names}")
         nodes = []
         
         # Helper to get attribute value (property or getter)
@@ -356,7 +357,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                 break
         
         if not found_fp:
-            if debug_mode: self.log(f"  Warning: Footprint {ref_des} not found.")
+            if debug_mode: emit(f"  Warning: Footprint {ref_des} not found.")
             return []
         
         # Get pads (same logic as discovery.py)
@@ -376,7 +377,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                     target_pads.append(p)
         
         if not target_pads:
-            if debug_mode: self.log(f"  No pads found for {ref_des} matching {pad_names}")
+            if debug_mode: emit(f"  No pads found for {ref_des} matching {pad_names}")
             return []
         
         origin = mesh.grid_origin
@@ -415,7 +416,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                             found_any = True
             
             if not found_any and debug_mode:
-                self.log(f"  Pad {ref_des} at ({px:.2f},{py:.2f}) not on mesh.")
+                emit(f"  Pad {ref_des} at ({px:.2f},{py:.2f}) not on mesh.")
         
         return list(set(nodes))
 
@@ -502,16 +503,20 @@ class KiPIDA_MainDialog(wx.Dialog):
         except Exception:
             return {}
 
-    def _solve_system(self, system_rails, grid_size, debug_mode, compute_settings=None):
+    def _solve_system(
+        self, system_rails, grid_size, debug_mode, compute_settings=None,
+        log_callback=None,
+    ):
         """Solve configured DC rails without reading or updating wx widgets."""
-        self.log(f"--- Starting System Simulation ({len(system_rails)} rails) ---")
+        emit = log_callback or self.log
+        emit(f"--- Starting System Simulation ({len(system_rails)} rails) ---")
         
         try:
-            extractor = GeometryExtractor(self.board, debug=debug_mode, log_callback=self.log)
+            extractor = GeometryExtractor(self.board, debug=debug_mode, log_callback=emit)
             try:
                 stackup = extractor.get_board_stackup()
             except Exception as e:
-                self.log(f"Error extracting stackup: {e}")
+                emit(f"Error extracting stackup: {e}")
                 return {}
             
             system_results = {} # rail_name -> { mesh, results, stats }
@@ -521,14 +526,14 @@ class KiPIDA_MainDialog(wx.Dialog):
             try:
                 sorted_rails = self._topological_sort_rails(system_rails)
                 rail_order = [r.net_name for r in sorted_rails]
-                self.log(f"Rail solve order: {' -> '.join(rail_order)}")
+                emit(f"Rail solve order: {' -> '.join(rail_order)}")
             except ValueError as e:
-                self.log(f"ERROR: {e}")
+                emit(f"ERROR: {e}")
                 return {}
             
             # 3. Solve each rail in topological order
             for rail in sorted_rails:
-                self.log(f"Processing Rail: {rail.net_name} (Sources: {len(rail.sources)}, Loads: {len(rail.loads)})")
+                emit(f"Processing Rail: {rail.net_name} (Sources: {len(rail.sources)}, Loads: {len(rail.loads)})")
                 
                 # Update total current for this rail (starting with direct loads)
                 rail_total_current[rail.net_name] = sum(load.total_current for load in rail.loads)
@@ -536,17 +541,17 @@ class KiPIDA_MainDialog(wx.Dialog):
                 # A. Get Geometry & Mesh
                 geo = extractor.get_net_geometry(rail.net_name)
                 if not geo:
-                    self.log(f"  Skipping {rail.net_name}: No geometry.")
+                    emit(f"  Skipping {rail.net_name}: No geometry.")
                     continue
                     
                 mesher = Mesher(
-                    self.board, debug=debug_mode, log_callback=self.log,
+                    self.board, debug=debug_mode, log_callback=emit,
                     compute_settings=compute_settings,
                 )
                 mesh = mesher.generate_mesh(rail.net_name, geo, stackup, grid_size_mm=grid_size)
                 
                 if len(mesh.nodes) == 0:
-                     self.log(f"  Skipping {rail.net_name}: Mesh empty.")
+                     emit(f"  Skipping {rail.net_name}: Mesh empty.")
                      continue
                      
                 # B. Map Sources & Loads
@@ -555,11 +560,13 @@ class KiPIDA_MainDialog(wx.Dialog):
                 
                 # 1. Standard Sources
                 for src in rail.sources:
-                    nodes = self._get_mesh_nodes(mesh, src.component_ref.ref_des, src.pad_names, debug_mode)
+                    nodes = self._get_mesh_nodes(
+                        mesh, src.component_ref.ref_des, src.pad_names, debug_mode, emit,
+                    )
                     if debug_mode:
-                        self.log(f"  Source {src.component_ref.ref_des} pads {src.pad_names} -> {len(nodes)} nodes")
+                        emit(f"  Source {src.component_ref.ref_des} pads {src.pad_names} -> {len(nodes)} nodes")
                     if not nodes:
-                        self.log(f"  WARNING: Source {src.component_ref.ref_des} pads {src.pad_names} found NO mesh nodes!")
+                        emit(f"  WARNING: Source {src.component_ref.ref_des} pads {src.pad_names} found NO mesh nodes!")
                     v_set = rail.nominal_voltage
                     for nid in nodes:
                         solver_sources.append({'node_id': nid, 'voltage': v_set})
@@ -570,18 +577,22 @@ class KiPIDA_MainDialog(wx.Dialog):
                         if reg.output_rail_name == rail.net_name:
                             # Regulator feeds THIS rail. It is a SOURCE.
                             # Use specific OUTPUT location
-                            nodes = self._get_mesh_nodes(mesh, reg.output_ref_des, reg.output_pad_names, debug_mode)
+                            nodes = self._get_mesh_nodes(
+                                mesh, reg.output_ref_des, reg.output_pad_names, debug_mode, emit,
+                            )
                             if debug_mode:
-                                self.log(f"  Regulator {reg.name} output {reg.output_ref_des} pads {reg.output_pad_names} -> {len(nodes)} nodes")
+                                emit(f"  Regulator {reg.name} output {reg.output_ref_des} pads {reg.output_pad_names} -> {len(nodes)} nodes")
                             if not nodes:
-                                self.log(f"  WARNING: Regulator {reg.name} output {reg.output_ref_des} pads {reg.output_pad_names} found NO mesh nodes!")
+                                emit(f"  WARNING: Regulator {reg.name} output {reg.output_ref_des} pads {reg.output_pad_names} found NO mesh nodes!")
                             v_out = rail.nominal_voltage # Output target IS the rail voltage
                             for nid in nodes:
                                 solver_sources.append({'node_id': nid, 'voltage': v_out})
                                 
                 # 3. Standard Loads
                 for load in rail.loads:
-                    nodes = self._get_mesh_nodes(mesh, load.component_ref.ref_des, load.pad_names, debug_mode)
+                    nodes = self._get_mesh_nodes(
+                        mesh, load.component_ref.ref_des, load.pad_names, debug_mode, emit,
+                    )
                     if not nodes: continue
                     i_per_node = load.total_current / len(nodes)
                     for nid in nodes:
@@ -595,7 +606,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                     
                     if total_output_current == 0:
                         if debug_mode:
-                            self.log(f"  Regulator {reg.name} has no load on output rail {reg.output_rail_name}")
+                            emit(f"  Regulator {reg.name} has no load on output rail {reg.output_rail_name}")
                         continue
                     
                     # Convert to input current based on regulator type
@@ -623,9 +634,11 @@ class KiPIDA_MainDialog(wx.Dialog):
                     rail_total_current[rail.net_name] += input_current
                     
                     # Apply load at regulator input pads
-                    nodes = self._get_mesh_nodes(mesh, reg.input_ref_des, reg.input_pad_names, debug_mode)
+                    nodes = self._get_mesh_nodes(
+                        mesh, reg.input_ref_des, reg.input_pad_names, debug_mode, emit,
+                    )
                     if not nodes:
-                        self.log(f"  WARNING: Regulator {reg.name} input at {reg.input_ref_des} pads {reg.input_pad_names} found NO mesh nodes!")
+                        emit(f"  WARNING: Regulator {reg.name} input at {reg.input_ref_des} pads {reg.input_pad_names} found NO mesh nodes!")
                         continue
                     
                     i_per_node = input_current / len(nodes)
@@ -633,15 +646,15 @@ class KiPIDA_MainDialog(wx.Dialog):
                         solver_loads.append({'node_id': nid, 'current': i_per_node})
                     
                     if debug_mode:
-                        self.log(f"  Regulator {reg.name} draws {input_current:.2f}A from {rail.net_name} ({reg.reg_type})")
+                        emit(f"  Regulator {reg.name} draws {input_current:.2f}A from {rail.net_name} ({reg.reg_type})")
                     
                 # C. Solve
                 if not solver_sources:
-                    self.log(f"  Warning: No sources for {rail.net_name}. Skipping solve.")
+                    emit(f"  Warning: No sources for {rail.net_name}. Skipping solve.")
                     continue
                     
                 solver = Solver(
-                    debug=debug_mode, log_callback=self.log,
+                    debug=debug_mode, log_callback=emit,
                     compute_settings=compute_settings,
                 )
                 detailed_result = solver.solve_detailed(mesh, solver_sources, solver_loads)
@@ -660,16 +673,19 @@ class KiPIDA_MainDialog(wx.Dialog):
                         'loads': solver_loads,
                         'detailed_result': detailed_result,
                         'compute_metadata': solver.last_compute,
+                        'grid_size_mm': mesh.grid_step,
+                        'requested_grid_size_mm': mesh.requested_grid_step,
+                        'adaptive_grid': mesh.adaptive_grid,
                     }
-                    self.log(f"  Solved {rail.net_name}: Drop {drop:.4f} V")
+                    emit(f"  Solved {rail.net_name}: Drop {drop:.4f} V")
                 else:
-                    self.log(f"  Solved {rail.net_name}: No result.")
+                    emit(f"  Solved {rail.net_name}: No result.")
 
             return system_results
         except Exception as e:
-            self.log(f"System Solve Error: {e}")
+            emit(f"System Solve Error: {e}")
             import traceback
-            traceback.print_exc()
+            emit(traceback.format_exc().rstrip())
             return {}
 
     def on_run(self, event, update_results=True):
@@ -1039,6 +1055,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                 )
                 system_results = self._solve_system(
                     rails, dc_grid_size, debug_mode, compute_settings,
+                    log_callback=self._thermal_worker_log,
                 )
                 if coupled and not system_results:
                     raise ValueError("Coupled analysis requires a successful DC analysis.")
@@ -1399,6 +1416,13 @@ class KiPIDA_MainDialog(wx.Dialog):
             txt += f"Rail: {net}\n"
             txt += f"  Range: {vmin:.4f} - {vmax:.4f} V\n"
             txt += f"  Drop:  {drop:.4f} V\n\n"
+            actual_grid = data.get('grid_size_mm')
+            requested_grid = data.get('requested_grid_size_mm', actual_grid)
+            if actual_grid is not None:
+                suffix = " (adapted for mesh safety)" if data.get('adaptive_grid') else ""
+                txt += f"  DC grid: {actual_grid:.4g} mm{suffix}\n"
+                if data.get('adaptive_grid'):
+                    txt += f"  Requested DC grid: {requested_grid:.4g} mm\n"
             compute = data.get('compute_metadata')
             if compute is not None:
                 txt += (

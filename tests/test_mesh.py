@@ -128,6 +128,16 @@ class TestMesher(unittest.TestCase):
         # Vertical conductance is usually large (short) or specific value
         # We can just check that G_coo_data grew
         self.assertTrue(len(mesh.G_coo_data) > 0)
+
+    def test_large_electrical_mesh_adapts_grid_instead_of_exhausting_memory(self):
+        poly = Polygon([(0, 0), (20, 0), (20, 10), (0, 10)])
+        stackup = {'copper': {0: {'thickness_mm': 0.035}}, 'resistivity': 1.7e-5}
+        self.mesher.MAX_ELECTRICAL_NODES = 100
+        mesh = self.mesher.generate_mesh("Plane", {0: poly}, stackup, grid_size_mm=1.0)
+        self.assertTrue(mesh.adaptive_grid)
+        self.assertEqual(mesh.requested_grid_step, 1.0)
+        self.assertGreater(mesh.grid_step, mesh.requested_grid_step)
+        self.assertLessEqual(len(mesh.nodes), self.mesher.MAX_ELECTRICAL_NODES)
         
         # Optionally check that we have some very large values (vertical shorts)
         # self.assertTrue(any(g > 100 for g in mesh.G_coo_data))

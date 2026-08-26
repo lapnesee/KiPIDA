@@ -196,6 +196,13 @@ use preconditioned conjugate gradient on CUDA; non-symmetric enclosure-energy
 matrices use BiCGSTAB. All CUDA results are computed in float64 and validated
 before publication.
 
+Large DC planes are rasterized only inside their per-layer geometry bounds and
+in bounded point chunks. When a requested DC resolution would exceed 400,000
+nodes for one rail, Ki-PIDA automatically retries that rail with the smallest
+safe grid step, reports the adaptation in the log, and records both requested
+and effective grid sizes in the DC result. Coupled-analysis worker logs are
+marshalled back to wxPython's GUI thread.
+
 The **3D Thermal** tab provides a 0.1–5 mm spin control, Fast/Normal/Fine presets,
 and the relative XY cell cost. Halving the grid step creates approximately four
 times as many XY cells. The existing 500,000-node safety guard remains active.

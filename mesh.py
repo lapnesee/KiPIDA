@@ -2,7 +2,7 @@
 import sys
 import math
 import os
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
     from .models import MeshBranch
@@ -31,6 +31,8 @@ class Mesh:
         self.node_map = {} # { (x_idx, y_idx, layer_id): node_id }
         self.grid_origin = (0, 0)
         self.grid_step = 0
+        self.requested_grid_step = 0
+        self.adaptive_grid = False
         
         # New sparse matrix components
         self.G_coo_data = [] # [g, g, -g, -g, ...]
@@ -73,6 +75,7 @@ class Mesh:
         self.G_coo_data.append(-g)
 
 class Mesher:
+    MAX_ELECTRICAL_NODES = 400000
     def __init__(self, board, debug=False, log_callback=None, compute_settings=None):
         self.board = board
         self.debug = debug
@@ -119,9 +122,9 @@ class Mesher:
         return max(1, configured or (os.cpu_count() or 1))
 
     @staticmethod
-    def _rasterize_polygon(poly, grid_points, shape):
+    def _rasterize_polygon(poly, x_coords, y_coords, shape, chunk_points=250000):
         polys = [poly] if poly.geom_type == 'Polygon' else list(poly.geoms)
-        layer_mask = np.zeros(len(grid_points), dtype=bool)
+        layer_mask = np.zeros(shape, dtype=bool)
         for polygon in polys:
             buffered = polygon.buffer(1e-5)
             codes, vertices = [], []
@@ -133,15 +136,36 @@ class Mesher:
                 codes.extend([matplotlib.path.Path.LINETO] * (len(coords) - 2))
                 codes.append(matplotlib.path.Path.CLOSEPOLY)
             path = matplotlib.path.Path(vertices, codes)
-            layer_mask |= path.contains_points(grid_points, radius=1e-9)
-        return layer_mask.reshape(shape)
+            min_px, min_py, max_px, max_py = buffered.bounds
+            x0 = max(0, int(np.searchsorted(x_coords, min_px, side="left")) - 1)
+            x1 = min(len(x_coords), int(np.searchsorted(x_coords, max_px, side="right")) + 1)
+            y0 = max(0, int(np.searchsorted(y_coords, min_py, side="left")) - 1)
+            y1 = min(len(y_coords), int(np.searchsorted(y_coords, max_py, side="right")) + 1)
+            width = max(1, x1 - x0)
+            rows_per_chunk = max(1, int(chunk_points) // width)
+            for row_start in range(y0, y1, rows_per_chunk):
+                row_stop = min(y1, row_start + rows_per_chunk)
+                xv, yv = np.meshgrid(x_coords[x0:x1], y_coords[row_start:row_stop])
+                points = np.column_stack((xv.ravel(), yv.ravel()))
+                local = path.contains_points(points, radius=1e-9).reshape(
+                    (row_stop - row_start, x1 - x0)
+                )
+                layer_mask[row_start:row_stop, x0:x1] |= local
+        return layer_mask
 
-    def generate_mesh(self, net_name, geometry_by_layer, stackup, grid_size_mm=0.5):
+    def generate_mesh(
+        self, net_name, geometry_by_layer, stackup, grid_size_mm=0.5,
+        _adaptive_pass=0, _requested_grid_size=None,
+    ):
         """
         Generates a resistive mesh from the geometry using vectorized operations.
         """
         mesh = Mesh()
         mesh.grid_step = grid_size_mm
+        mesh.requested_grid_step = (
+            float(grid_size_mm) if _requested_grid_size is None
+            else float(_requested_grid_size)
+        )
         
         # 1. Calculate Bounding Box
         min_x, min_y, max_x, max_y = float('inf'), float('inf'), float('-inf'), float('-inf')
@@ -180,12 +204,6 @@ class Mesher:
         x_coords = np.linspace(min_x, min_x + (nx * grid_size_mm), nx + 1)
         y_coords = np.linspace(min_y, min_y + (ny * grid_size_mm), ny + 1)
         
-        xv, yv = np.meshgrid(x_coords, y_coords) # shape (ny+1, nx+1)
-        # Flatten for vectorized checks logic
-        # But we need structure for neighbor identifying.
-        
-        grid_points = np.column_stack((xv.ravel(), yv.ravel()))
-        
         if self.debug:
             self._log(f"Grid setup: {nx+1}x{ny+1} points, bounds ({min_x:.1f},{min_y:.1f}) to ({max_x:.1f},{max_y:.1f})")
 
@@ -194,30 +212,56 @@ class Mesher:
         # But layer IDs are sparse (e.g. 0, 1, 31). So we map them.
         
         sorted_layers = sorted(valid_layers)
-        layer_map = { lid: idx for idx, lid in enumerate(sorted_layers) }
-        
-        # node_indices: [layer, y, x] -> node_id (or -1 if empty)
-        node_grid = np.full((len(sorted_layers), ny + 1, nx + 1), -1, dtype=int)
-        
         node_counter = 0
 
         workers = min(self._worker_count(), len(sorted_layers))
-        if workers > 1 and len(grid_points) >= 10000:
+        grid_point_count = (ny + 1) * (nx + 1)
+        if grid_point_count >= 1000000:
+            workers = min(workers, 2)
+        if workers > 1 and grid_point_count >= 10000:
             self._log(f"Rasterizing {len(sorted_layers)} electrical layers with {workers} CPU workers.")
             with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="KiPIDA-Mesh") as pool:
-                futures = {
-                    lid: pool.submit(
-                        self._rasterize_polygon, geometry_by_layer[lid], grid_points,
+                future_layers = {
+                    pool.submit(
+                        self._rasterize_polygon, geometry_by_layer[lid], x_coords, y_coords,
                         (ny + 1, nx + 1),
-                    ) for lid in sorted_layers
+                    ): lid for lid in sorted_layers
                 }
-                layer_masks = {lid: futures[lid].result() for lid in sorted_layers}
+                layer_masks = {}
+                for completed, future in enumerate(as_completed(future_layers), 1):
+                    lid = future_layers[future]
+                    layer_masks[lid] = future.result()
+                    self._log(f"Rasterized electrical layer {lid} ({completed}/{len(sorted_layers)}).")
         else:
-            layer_masks = {
-                lid: self._rasterize_polygon(
-                    geometry_by_layer[lid], grid_points, (ny + 1, nx + 1)
-                ) for lid in sorted_layers
-            }
+            layer_masks = {}
+            for completed, lid in enumerate(sorted_layers, 1):
+                layer_masks[lid] = self._rasterize_polygon(
+                    geometry_by_layer[lid], x_coords, y_coords, (ny + 1, nx + 1)
+                )
+                self._log(f"Rasterized electrical layer {lid} ({completed}/{len(sorted_layers)}).")
+
+        projected_nodes = sum(int(np.count_nonzero(mask)) for mask in layer_masks.values())
+        if projected_nodes > self.MAX_ELECTRICAL_NODES:
+            scale = math.sqrt(projected_nodes / float(self.MAX_ELECTRICAL_NODES)) * 1.05
+            safer_grid = min(5.0, max(grid_size_mm + 0.01, grid_size_mm * scale))
+            if _adaptive_pass >= 3 or safer_grid <= grid_size_mm:
+                raise ValueError(
+                    f"Electrical mesh for {net_name} still contains about {projected_nodes:,} "
+                    f"nodes at {grid_size_mm:.3g} mm. Increase the DC grid size."
+                )
+            if self.log_callback:
+                self.log_callback(
+                    f"[MESH] {net_name}: requested {grid_size_mm:.3g} mm would create "
+                    f"about {projected_nodes:,} nodes; retrying at {safer_grid:.3g} mm "
+                    f"(safety limit {self.MAX_ELECTRICAL_NODES:,})."
+                )
+            adapted = self.generate_mesh(
+                net_name, geometry_by_layer, stackup, safer_grid,
+                _adaptive_pass=_adaptive_pass + 1,
+                _requested_grid_size=mesh.requested_grid_step,
+            )
+            adapted.adaptive_grid = True
+            return adapted
         
         for lid in sorted_layers:
             poly = geometry_by_layer[lid]
@@ -228,17 +272,18 @@ class Mesher:
             # Matplotlib Path uses vertices. 
             # If poly is MultiPolygon, iterate parts.
             
-            mask_2d = layer_masks[lid]
+            mask_2d = layer_masks.pop(lid)
             
             # Assign Node IDs
             count_on_layer = np.count_nonzero(mask_2d)
             if count_on_layer > 0:
+                node_grid = np.full((ny + 1, nx + 1), -1, dtype=int)
                 # Get indices where mask is true
                 y_idxs, x_idxs = np.nonzero(mask_2d)
                 
                 # Generate new IDs
                 new_ids = np.arange(node_counter, node_counter + count_on_layer)
-                node_grid[layer_map[lid], y_idxs, x_idxs] = new_ids
+                node_grid[y_idxs, x_idxs] = new_ids
                 
                 # Save to mesh.nodes and mesh.node_coords
                 
@@ -278,9 +323,9 @@ class Mesher:
                 if np.any(right_mask):
                     y_r, x_r = np.nonzero(right_mask)
                     # Nodes at (y,x)
-                    u_ids = node_grid[layer_map[lid], y_r, x_r]
+                    u_ids = node_grid[y_r, x_r]
                     # Nodes at (y, x+1)
-                    v_ids = node_grid[layer_map[lid], y_r, x_r + 1]
+                    v_ids = node_grid[y_r, x_r + 1]
                     
                     for u, v in zip(u_ids, v_ids):
                          mesh.add_edge_direct(u, v, g_lat_val, l_lat_val, "lateral")
@@ -290,9 +335,9 @@ class Mesher:
                 if np.any(top_mask):
                     y_t, x_t = np.nonzero(top_mask)
                     # Nodes at (y, x)
-                    u_ids = node_grid[layer_map[lid], y_t, x_t]
+                    u_ids = node_grid[y_t, x_t]
                     # Nodes at (y+1, x)
-                    v_ids = node_grid[layer_map[lid], y_t + 1, x_t]
+                    v_ids = node_grid[y_t + 1, x_t]
                     
                     for u, v in zip(u_ids, v_ids):
                          mesh.add_edge_direct(u, v, g_lat_val, l_lat_val, "lateral")
