@@ -242,7 +242,7 @@ class Plotter:
                 print(f"Stackup plot error: {e}")
             return None
 
-    def plot_thermal_3d(self, mesh, result, as_png=False):
+    def plot_thermal_3d(self, mesh, result, as_png=False, board_bounds=None):
         """Render the solved volumetric temperature field."""
         try:
             nodes = list(mesh.nodes)
@@ -251,7 +251,8 @@ class Plotter:
                 nodes = nodes[::stride]
             coords = np.asarray([mesh.node_coords[node] for node in nodes], dtype=float)
             temperatures = np.asarray([result.temperatures_c[node] for node in nodes], dtype=float)
-            fig = plt.figure(figsize=(8, 6), constrained_layout=True)
+            bounds = board_bounds or getattr(mesh, 'bounds_mm', None)
+            fig = plt.figure(figsize=self._figsize(bounds), constrained_layout=True)
             axis = fig.add_subplot(111, projection='3d')
             scatter = axis.scatter(
                 coords[:, 0], coords[:, 1], coords[:, 2], c=temperatures,
@@ -261,6 +262,13 @@ class Plotter:
             axis.set_ylabel('Y (mm)')
             axis.set_zlabel('Z (mm)')
             axis.set_title('3D board temperature')
+            if bounds:
+                min_x, min_y, max_x, max_y = bounds
+                pad = max(1.0, 0.025 * max(max_x - min_x, max_y - min_y))
+                axis.set_xlim(min_x - pad, max_x + pad)
+                axis.set_ylim(min_y - pad, max_y + pad)
+                z_span = max(float(np.ptp(coords[:, 2])), 0.02 * max(max_x - min_x, max_y - min_y))
+                axis.set_box_aspect((max_x - min_x + 2 * pad, max_y - min_y + 2 * pad, z_span))
             fig.colorbar(scatter, ax=axis, label='Temperature (C)', shrink=0.75)
             return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
         except Exception as e:
@@ -268,7 +276,7 @@ class Plotter:
                 print(f"Thermal 3D plot error: {e}")
             return None
 
-    def plot_thermal_surface(self, mesh, result, side='TOP', as_png=False):
+    def plot_thermal_surface(self, mesh, result, side='TOP', as_png=False, board_bounds=None):
         """Render a top or bottom board temperature map."""
         try:
             if not mesh.node_map:
@@ -280,9 +288,10 @@ class Plotter:
             xs = [mesh.node_coords[node][0] for node in nodes]
             ys = [mesh.node_coords[node][1] for node in nodes]
             temperatures = [result.temperatures_c[node] for node in nodes]
-            fig, axis = plt.subplots(figsize=(8, 5), constrained_layout=True)
+            bounds = board_bounds or getattr(mesh, 'bounds_mm', None)
+            fig, axis = plt.subplots(figsize=self._figsize(bounds), constrained_layout=True)
             plot = axis.scatter(xs, ys, c=temperatures, cmap='inferno', marker='s', s=18)
-            axis.set_aspect('equal', adjustable='box')
+            self._fit_xy(axis, bounds)
             axis.set_xlabel('X (mm)')
             axis.set_ylabel('Y (mm)')
             axis.set_title(f'{side.title()} surface temperature')

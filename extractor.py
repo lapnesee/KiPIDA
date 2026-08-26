@@ -1,5 +1,7 @@
 import logging
 import math
+import re
+from pathlib import Path
 try:
     from shapely.geometry import LineString, Polygon, MultiPolygon, Point, box
     from shapely.ops import unary_union
@@ -107,8 +109,43 @@ class GeometryExtractor:
         """Force the next stackup request to query the live KiCad board."""
         self._stackup_cache = None
 
-    def get_board_bounds(self, margin_mm=1.0):
+    @staticmethod
+    def _edge_cuts_bounds_from_file(board_path):
+        """Read common Edge.Cuts geometry when IPC omits drawing objects."""
+        try:
+            text = Path(board_path).read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError):
+            return None
+        points = []
+        graphic_start = re.compile(r'\(gr_(?:rect|line|arc|poly|curve|circle)\b')
+        coordinate = re.compile(
+            r'\((?:start|end|mid|center|xy)\s+'
+            r'([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)'
+        )
+        for match in graphic_start.finditer(text):
+            depth = 0
+            end = None
+            for index in range(match.start(), len(text)):
+                depth += (text[index] == '(') - (text[index] == ')')
+                if depth == 0:
+                    end = index + 1
+                    break
+            if end is None:
+                continue
+            graphic = text[match.start():end]
+            if not re.search(r'\(layer\s+"Edge\.Cuts"\)', graphic):
+                continue
+            points.extend((float(x), float(y)) for x, y in coordinate.findall(graphic))
+        if not points:
+            return None
+        return min(x for x, _ in points), min(y for _, y in points), max(x for x, _ in points), max(y for _, y in points)
+
+    def get_board_bounds(self, margin_mm=1.0, board_file_path=None):
         """Return live full-board XY bounds, not just the currently analysed net."""
+        file_bounds = self._edge_cuts_bounds_from_file(board_file_path) if board_file_path else None
+        if file_bounds is not None:
+            min_x, min_y, max_x, max_y = file_bounds
+            return (min_x - margin_mm, min_y - margin_mm, max_x + margin_mm, max_y + margin_mm)
         points = []
         def point(value):
             if value is None:

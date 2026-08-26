@@ -3,6 +3,7 @@ import wx.dataview
 import sys
 import os
 import threading
+from pathlib import Path
 
 # Ensure plugin dir is in path to import modules
 plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -246,6 +247,13 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.log("Refreshed live PCB geometry and component discovery.")
         except Exception as exc:
             self.log(f"Live PCB refresh warning: {exc}")
+
+    def _board_file_path(self):
+        project_path = getattr(self.project, "path", "")
+        if not project_path:
+            return None
+        candidate = Path(project_path).with_suffix(".kicad_pcb")
+        return str(candidate) if candidate.exists() else None
     
     def _init_results_tab(self, parent):
         sizer = wx.BoxSizer(wx.VERTICAL)
@@ -905,6 +913,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.board,
             debug=self.chk_debug.GetValue(),
             log_callback=self.log,
+            board_file_path=self._board_file_path(),
         )
         model = builder.build(
             settings,
@@ -1015,10 +1024,17 @@ class KiPIDA_MainDialog(wx.Dialog):
         try:
             with self._plot_lock:
                 plotter = Plotter(debug=False)
+                board_bounds = getattr(mesh, "bounds_mm", None)
                 plots = [
-                    ("Thermal 3D", plotter.plot_thermal_3d(mesh, result, as_png=True)),
-                    ("Top Surface", plotter.plot_thermal_surface(mesh, result, "TOP", as_png=True)),
-                    ("Bottom Surface", plotter.plot_thermal_surface(mesh, result, "BOTTOM", as_png=True)),
+                    ("Thermal 3D", plotter.plot_thermal_3d(
+                        mesh, result, as_png=True, board_bounds=board_bounds,
+                    )),
+                    ("Top Surface", plotter.plot_thermal_surface(
+                        mesh, result, "TOP", as_png=True, board_bounds=board_bounds,
+                    )),
+                    ("Bottom Surface", plotter.plot_thermal_surface(
+                        mesh, result, "BOTTOM", as_png=True, board_bounds=board_bounds,
+                    )),
                 ]
             if not self._closing:
                 wx.CallAfter(self._finish_thermal_plots, generation, plots)
@@ -1079,6 +1095,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.board,
             debug=self.chk_debug.GetValue(),
             log_callback=self.log,
+            board_file_path=self._board_file_path(),
         )
         board_model = builder.build(
             thermal_settings,
@@ -1226,7 +1243,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         try:
             extractor = GeometryExtractor(self.board)
             stackup = extractor.get_board_stackup()
-            board_bounds = extractor.get_board_bounds()
+            board_bounds = extractor.get_board_bounds(board_file_path=self._board_file_path())
         except: 
             stackup = None
             board_bounds = None

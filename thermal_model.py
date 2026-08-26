@@ -145,10 +145,14 @@ class PowerLossEstimator:
 
 
 class ThermalModelBuilder:
-    def __init__(self, board, debug=False, log_callback=None):
+    def __init__(self, board, debug=False, log_callback=None, board_file_path=None):
         self.board = board
         self.debug = debug
         self.log_callback = log_callback
+        # KiCad's IPC board object can omit Edge.Cuts drawings.  Retain the
+        # project board path so thermal plots use the physical board outline
+        # rather than only the copper/footprint extents.
+        self.board_file_path = board_file_path
 
     def _log(self, message):
         if self.log_callback:
@@ -303,7 +307,7 @@ class ThermalModelBuilder:
 
         copper_by_layer = self._extract_copper(extractor)
         outline, bounds = self._outline_and_bounds(copper_by_layer, placements)
-        live_bounds = extractor.get_board_bounds()
+        live_bounds = extractor.get_board_bounds(board_file_path=self.board_file_path)
         if live_bounds is not None:
             bounds = live_bounds
             outline = box(*bounds) if box is not None else outline
