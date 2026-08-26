@@ -1,6 +1,8 @@
 """Build board-level thermal models from KiCad geometry and power-tree data."""
 
 from dataclasses import dataclass, field, replace
+from collections import defaultdict
+import time
 from typing import Dict, List, Optional, Tuple
 
 try:
@@ -145,6 +147,11 @@ class PowerLossEstimator:
 
 
 class ThermalModelBuilder:
+    # The dialog invalidates this cache on every live-board refresh.  Keeping it
+    # here avoids re-unioning all copper when users rerun thermal/CFD analysis
+    # without editing the PCB.
+    _copper_cache = {}
+
     def __init__(self, board, debug=False, log_callback=None, board_file_path=None):
         self.board = board
         self.debug = debug
@@ -153,6 +160,14 @@ class ThermalModelBuilder:
         # project board path so thermal plots use the physical board outline
         # rather than only the copper/footprint extents.
         self.board_file_path = board_file_path
+
+    @classmethod
+    def invalidate_board_cache(cls, board=None):
+        """Drop cached thermal copper, optionally for one live KiCad board."""
+        if board is None:
+            cls._copper_cache.clear()
+            return
+        cls._copper_cache.pop(id(board), None)
 
     def _log(self, message):
         if self.log_callback:
@@ -227,19 +242,45 @@ class ThermalModelBuilder:
         return sorted(names)
 
     def _extract_copper(self, extractor):
-        by_layer = {}
+        cached = self._copper_cache.get(id(self.board))
+        if cached is not None:
+            self._log("Reusing cached merged copper geometry for the live board.")
+            return cached
+
+        shapes_by_layer = defaultdict(list)
         names = self._discover_net_names()
+        started = time.perf_counter()
         for index, net_name in enumerate(names):
-            geometry = extractor.get_net_geometry(net_name)
+            # Keep the inexpensive per-net collections, then union each board
+            # layer exactly once.  Repeated unary_union([previous, next]) work
+            # grew quadratically on boards with many nets.
+            geometry = extractor.get_net_geometry(net_name, merge=False)
             for layer, polygon in geometry.items():
                 if polygon is None or polygon.is_empty:
                     continue
-                if layer in by_layer:
-                    by_layer[layer] = unary_union([by_layer[layer], polygon])
+                if hasattr(polygon, "geoms"):
+                    shapes_by_layer[layer].extend(
+                        shape for shape in polygon.geoms if not shape.is_empty
+                    )
                 else:
-                    by_layer[layer] = polygon
+                    shapes_by_layer[layer].append(polygon)
             if self.debug and (index + 1) % 20 == 0:
                 self._log(f"Aggregated copper for {index + 1}/{len(names)} nets.")
+        by_layer = {}
+        for layer, shapes in shapes_by_layer.items():
+            if not shapes:
+                continue
+            layer_started = time.perf_counter()
+            by_layer[layer] = unary_union(shapes)
+            self._log(
+                f"Merged {len(shapes):,} copper shapes on layer {layer} in "
+                f"{time.perf_counter() - layer_started:.3f} s."
+            )
+        self._copper_cache[id(self.board)] = by_layer
+        self._log(
+            f"Built merged thermal copper for {len(by_layer)} layer(s) in "
+            f"{time.perf_counter() - started:.3f} s."
+        )
         return by_layer
 
     def _outline_and_bounds(self, copper_by_layer, placements):

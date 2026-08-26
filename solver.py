@@ -210,7 +210,7 @@ class Solver:
         try:
             static_values = branch_resistance_scales is None
             solved = self.compute_backend.solve(
-                G_csr, I, system_kind="GENERAL",
+                G_csr, I, system_kind="DC",
                 cache_key=("dc", id(mesh)), matrix_values_static=static_values,
             )
             self.last_compute = solved.metadata

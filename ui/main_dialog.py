@@ -259,6 +259,9 @@ class KiPIDA_MainDialog(wx.Dialog):
         """Re-read KiCad's live IPC board data before a new analysis run."""
         try:
             self._thermal_geometry_context = None
+            # Copper geometry is safe to reuse only until KiCad asks us to
+            # refresh the live board.  This keeps reruns correct after edits.
+            ThermalModelBuilder.invalidate_board_cache(self.board)
             self.ac_panel.refresh(force_discovery=True)
             self.differential_panel.refresh_live_board()
             self.thermal_panel.refresh_components(preserve_user=True)

@@ -128,6 +128,10 @@ class SparseComputeBackend:
         dtype = np.complex128 if (np.iscomplexobj(matrix.data) or np.iscomplexobj(rhs)) else np.float64
         if scipy.sparse.isspmatrix_coo(matrix):
             matrix = matrix.astype(dtype, copy=False)
+        elif scipy.sparse.isspmatrix_csr(matrix) and matrix.dtype == dtype:
+            # Preserve identity for static thermal/DC matrices so their CUDA
+            # workspace can remain resident across coupled iterations.
+            matrix.sort_indices()
         else:
             matrix = scipy.sparse.csr_matrix(matrix, dtype=dtype)
             matrix.sort_indices()
@@ -260,10 +264,16 @@ class SparseComputeBackend:
                 iterations[0] += 1
 
             solve_started = time.perf_counter()
+            # Power meshes with Dirichlet rows are non-symmetric and can be
+            # badly conditioned.  Give CUDA a short, useful BiCGSTAB trial,
+            # then let PARDISO handle the difficult cases instead of spending
+            # thousands of GPU iterations before the automatic CPU fallback.
+            dc_trial = str(system_kind).upper() == "DC"
+            max_iterations = min(self.settings.solver_max_iterations, 750) if dc_trial else self.settings.solver_max_iterations
             kwargs = {
                 "rtol": self.settings.solver_rtol,
                 "atol": 0.0,
-                "maxiter": self.settings.solver_max_iterations,
+                "maxiter": max_iterations,
                 "M": preconditioner,
                 "callback": count_iteration,
             }
@@ -274,7 +284,8 @@ class SparseComputeBackend:
             cp.cuda.get_current_stream().synchronize()
             solve_seconds = time.perf_counter() - solve_started
             if status != 0:
-                raise RuntimeError(f"CUDA iterative solver did not converge (status={status}).")
+                detail = f" after {max_iterations} DC trial iterations" if dc_trial else ""
+                raise RuntimeError(f"CUDA iterative solver did not converge (status={status}){detail}.")
             residual = cp.linalg.norm(gpu_matrix.dot(gpu_values) - gpu_rhs) / cp.maximum(
                 cp.linalg.norm(gpu_rhs), 1.0e-30
             )

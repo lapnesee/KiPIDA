@@ -3,6 +3,7 @@ import sys
 import math
 import os
 import threading
+import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 try:
@@ -17,11 +18,12 @@ def to_mm(val):
 try:
     import numpy as np
     from shapely.geometry import Point, box
+    from shapely.ops import unary_union
     from shapely.prepared import prep
     import matplotlib.path
 except ImportError:
     np = None
-    Point = box = prep = None
+    Point = box = prep = unary_union = None
     matplotlib = None
 
 try:
@@ -133,6 +135,60 @@ class Mesher:
             return 1
         configured = int(getattr(settings, "cpu_threads", 0) or 0) if settings else 0
         return max(1, configured or (os.cpu_count() or 1))
+
+    @staticmethod
+    def _geometry_count(geometry):
+        """Return the number of primitive geometries without flattening coordinates."""
+        if geometry is None or geometry.is_empty:
+            return 0
+        if hasattr(geometry, "geoms"):
+            return len(geometry.geoms)
+        return 1
+
+    def _prepare_raster_geometry(self, geometry_by_layer):
+        """Merge multi-part copper once before rasterisation.
+
+        GeometryExtractor intentionally returns unmerged collections for DC so
+        extraction stays cheap.  Rasterising hundreds of overlapping tracks and
+        pads independently, however, creates thousands of duplicate row jobs.
+        A single union preserves the exact occupied copper area while allowing
+        a reliable node-count preflight below.
+        """
+        prepared = {}
+        for layer_id, geometry in geometry_by_layer.items():
+            if geometry is None or geometry.is_empty:
+                continue
+            shape_count = self._geometry_count(geometry)
+            if shape_count > 1 and unary_union is not None:
+                started = time.perf_counter()
+                geometry = unary_union(geometry.geoms)
+                elapsed = time.perf_counter() - started
+                if shape_count >= 32:
+                    self._status(
+                        f"Merged {shape_count:,} copper shapes on layer {layer_id} in {elapsed:.3f} s "
+                        "for efficient rasterisation."
+                    )
+            prepared[layer_id] = geometry
+        return prepared
+
+    def _preflight_grid_size(self, geometry_by_layer, requested_grid_size):
+        """Estimate a safe grid from exact merged copper area before sampling.
+
+        The prior adaptive path fully rasterised an oversized requested grid,
+        then discarded it.  For planar copper, occupied grid nodes scale with
+        area / step².  The 5% headroom matches the existing adaptive retry and
+        preserves its final accuracy target (~90% of the node budget).
+        """
+        copper_area_mm2 = sum(
+            max(0.0, float(geometry.area))
+            for geometry in geometry_by_layer.values()
+            if geometry is not None and not geometry.is_empty
+        )
+        estimated_nodes = copper_area_mm2 / max(requested_grid_size ** 2, 1.0e-18)
+        if estimated_nodes <= self.MAX_ELECTRICAL_NODES:
+            return requested_grid_size, int(round(estimated_nodes))
+        scale = math.sqrt(estimated_nodes / float(self.MAX_ELECTRICAL_NODES)) * 1.05
+        return min(5.0, max(requested_grid_size + 0.01, requested_grid_size * scale)), int(round(estimated_nodes))
 
     @staticmethod
     def _polygons(geometry):
@@ -266,7 +322,7 @@ class Mesher:
 
     def generate_mesh(
         self, net_name, geometry_by_layer, stackup, grid_size_mm=0.5,
-        _adaptive_pass=0, _requested_grid_size=None,
+        _adaptive_pass=0, _requested_grid_size=None, _raster_prepared=False,
     ):
         """
         Generates a resistive mesh from the geometry using vectorized operations.
@@ -278,6 +334,30 @@ class Mesher:
             else float(_requested_grid_size)
         )
         
+        # Merge once and select a safe resolution before allocating/rasterising
+        # a potentially multi-million-node requested grid.
+        if not _raster_prepared:
+            geometry_by_layer = self._prepare_raster_geometry(geometry_by_layer)
+        if _adaptive_pass == 0:
+            preflight_grid, projected_nodes = self._preflight_grid_size(
+                geometry_by_layer, grid_size_mm,
+            )
+            if preflight_grid > grid_size_mm:
+                mesh.grid_step = preflight_grid
+                mesh.adaptive_grid = True
+                self._status(
+                    f"{net_name}: preflight estimates about {projected_nodes:,} copper nodes at "
+                    f"{grid_size_mm:.3g} mm; using {preflight_grid:.3g} mm before rasterisation "
+                    f"(safety limit {self.MAX_ELECTRICAL_NODES:,})."
+                )
+                adapted = self.generate_mesh(
+                    net_name, geometry_by_layer, stackup, preflight_grid,
+                    _adaptive_pass=1, _requested_grid_size=mesh.requested_grid_step,
+                    _raster_prepared=True,
+                )
+                adapted.adaptive_grid = True
+                return adapted
+
         # 1. Calculate Bounding Box
         min_x, min_y, max_x, max_y = float('inf'), float('inf'), float('-inf'), float('-inf')
         
@@ -373,6 +453,7 @@ class Mesher:
                 net_name, geometry_by_layer, stackup, safer_grid,
                 _adaptive_pass=_adaptive_pass + 1,
                 _requested_grid_size=mesh.requested_grid_step,
+                _raster_prepared=True,
             )
             adapted.adaptive_grid = True
             return adapted

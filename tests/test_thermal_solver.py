@@ -83,7 +83,7 @@ class TestThermalSolver(unittest.TestCase):
             result.component_results[0].board_temperature_c + 5.0,
         )
 
-    def test_reuses_same_host_coo_matrix_between_coupled_iterations(self):
+    def test_reuses_same_host_csr_matrix_between_coupled_iterations(self):
         mesh = ThermalMesher().generate_mesh(self._model(), self._settings())
         solver = ThermalSolver()
         first = solver.solve(mesh, ambient_c=25.0)
@@ -91,7 +91,7 @@ class TestThermalSolver(unittest.TestCase):
         mesh.heat_sources_w[next(iter(mesh.heat_sources_w))] += 0.1
         second = solver.solve(mesh, ambient_c=25.0)
 
-        self.assertTrue(scipy.sparse.isspmatrix_coo(matrix))
+        self.assertTrue(scipy.sparse.isspmatrix_csr(matrix))
         self.assertIs(solver._matrix_cache[id(mesh)][1], matrix)
         self.assertGreater(second.hotspot.temperature_c, first.hotspot.temperature_c)
 

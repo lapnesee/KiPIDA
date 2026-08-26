@@ -59,13 +59,13 @@ class ThermalSolver:
             matrix = cached[1]
             rhs = cached[2].copy()
             self._log(
-                f"Reusing cached {matrix.nnz:,}-entry thermal COO matrix; "
+                f"Reusing cached {matrix.nnz:,}-entry thermal CSR matrix; "
                 "CUDA keeps its CSR workspace resident in VRAM."
             )
         else:
             rhs = np.zeros(count, dtype=float)
             self._log(
-                f"Assembling COO matrix from {len(mesh.branches):,} branches and "
+                f"Assembling sparse thermal matrix from {len(mesh.branches):,} branches and "
                 f"{len(mesh.boundaries):,} boundaries."
             )
             branch_a = np.fromiter(
@@ -98,7 +98,12 @@ class ThermalSolver:
             rows = np.concatenate((branch_a, branch_b, branch_a, branch_b, boundary_index))
             cols = np.concatenate((branch_a, branch_b, branch_b, branch_a, boundary_index))
             values = np.concatenate((conductance, conductance, -conductance, -conductance, boundary_g))
-            matrix = scipy.sparse.coo_matrix((values, (rows, cols)), shape=(count, count))
+            # Compact duplicates on the CPU once.  This is substantially less
+            # data than transferring COO row/column vectors then converting on
+            # the GPU, while retaining the exact same finite-volume matrix.
+            matrix = scipy.sparse.coo_matrix((values, (rows, cols)), shape=(count, count)).tocsr()
+            matrix.sum_duplicates()
+            matrix.sort_indices()
             self._matrix_cache = {cache_key: (mesh, matrix, rhs.copy(), float(ambient_c))}
             del rows, cols, values, branch_a, branch_b, conductance, boundary_index, boundary_g
 

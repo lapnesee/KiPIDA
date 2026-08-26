@@ -140,6 +140,22 @@ class TestMesher(unittest.TestCase):
         self.assertGreater(mesh.grid_step, mesh.requested_grid_step)
         self.assertLessEqual(len(mesh.nodes), self.mesher.MAX_ELECTRICAL_NODES)
 
+    def test_preflight_selects_safe_grid_before_full_raster(self):
+        messages = []
+        self.mesher.log_callback = messages.append
+        self.mesher.MAX_ELECTRICAL_NODES = 100
+        geometry = {0: Polygon([(0, 0), (20, 0), (20, 10), (0, 10)])}
+
+        grid, estimate = self.mesher._preflight_grid_size(geometry, 1.0)
+
+        self.assertGreater(estimate, self.mesher.MAX_ELECTRICAL_NODES)
+        self.assertGreater(grid, 1.0)
+        mesh = self.mesher.generate_mesh("Plane", geometry, {
+            'copper': {0: {'thickness_mm': 0.035}}, 'resistivity': 1.7e-5,
+        }, grid_size_mm=1.0)
+        self.assertTrue(mesh.adaptive_grid)
+        self.assertTrue(any("preflight estimates" in message for message in messages))
+
     def test_large_layer_is_split_into_multiple_parallel_raster_chunks(self):
         settings = RuntimeComputeSettings(cpu_multithread=True, cpu_threads=4)
         mesher = Mesher(self.board, compute_settings=settings)

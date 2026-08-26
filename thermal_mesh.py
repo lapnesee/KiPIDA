@@ -182,7 +182,8 @@ class ThermalMesher:
         return max(10000, min(hard_limit, memory_nodes)), cuda_requested
 
     @staticmethod
-    def _sample_layer(outline, copper, min_x, min_y, nx, ny, grid):
+    def _sample_layer_band(outline, copper, min_x, min_y, nx, row_start, row_stop, grid):
+        """Sample a horizontal layer band; inputs are WKB in worker threads."""
         if from_wkb is not None and isinstance(outline, bytes):
             outline = from_wkb(outline)
         if from_wkb is not None and isinstance(copper, bytes):
@@ -190,7 +191,7 @@ class ThermalMesher:
         prepared_outline = prep(outline)
         prepared_copper = prep(copper) if copper is not None and not copper.is_empty else None
         cells = []
-        for iy in range(ny):
+        for iy in range(row_start, row_stop):
             y = min_y + (iy + 0.5) * grid
             for ix in range(nx):
                 x = min_x + (ix + 0.5) * grid
@@ -198,6 +199,10 @@ class ThermalMesher:
                 if prepared_outline.covers(point):
                     cells.append((ix, iy, bool(prepared_copper and prepared_copper.covers(point))))
         return cells
+
+    @classmethod
+    def _sample_layer(cls, outline, copper, min_x, min_y, nx, ny, grid):
+        return cls._sample_layer_band(outline, copper, min_x, min_y, nx, 0, ny, grid)
 
     @staticmethod
     def convection_coefficient(settings: ThermalAnalysisSettings):
@@ -293,9 +298,10 @@ class ThermalMesher:
             z_cursor += spec.thickness_mm
 
         node_id = 0
-        workers = min(self._worker_count(), len(specs))
+        configured_workers = self._worker_count()
+        workers = min(configured_workers, max(1, len(specs)))
         outline = model.outline.wkb if from_wkb is not None else model.outline
-        sample_args = [
+        sample_inputs = [
             (
                 outline,
                 (
@@ -307,12 +313,46 @@ class ThermalMesher:
             )
             for spec in specs
         ]
-        if workers > 1 and nx * ny * len(specs) >= 10000:
-            self._log(f"Sampling {len(specs)} thermal layers with {workers} CPU workers.")
+        if configured_workers > 1 and nx * ny * len(specs) >= 10000:
+            # With 11 stackup layers a 16-thread workstation previously used
+            # at most 11 workers.  Split the first (equally sized) layers into
+            # row bands so configured threads remain useful without changing
+            # the finite-volume cells or their material assignment.
+            band_counts = [1] * len(specs)
+            for index in range(max(0, configured_workers - len(specs))):
+                band_counts[index % len(specs)] += 1
+            work_items = []
+            for layer_index, (sample_input, bands) in enumerate(zip(sample_inputs, band_counts)):
+                outline_arg, copper_arg, min_x_arg, min_y_arg, nx_arg, _, grid_arg = sample_input
+                for band in range(bands):
+                    row_start = (ny * band) // bands
+                    row_stop = (ny * (band + 1)) // bands
+                    work_items.append((layer_index, (
+                        outline_arg, copper_arg, min_x_arg, min_y_arg, nx_arg,
+                        row_start, row_stop, grid_arg,
+                    )))
+            workers = min(configured_workers, len(work_items))
+            self._log(
+                f"Sampling {len(specs)} thermal layers as {len(work_items)} row-band work items "
+                f"with {workers} CPU workers."
+            )
+            sampled_layers = [[] for _ in specs]
             with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="KiPIDA-ThermalMesh") as pool:
-                sampled_layers = list(pool.map(lambda args: self._sample_layer(*args), sample_args))
+                futures = [
+                    (layer_index, pool.submit(
+                        self._sample_layer_band,
+                        outline, copper, min_x_arg, min_y_arg, nx_arg,
+                        row_start, row_stop, grid_arg,
+                    ))
+                    for layer_index, (
+                        outline, copper, min_x_arg, min_y_arg, nx_arg, grid_arg,
+                        row_start, row_stop,
+                    ) in work_items
+                ]
+                for layer_index, future in futures:
+                    sampled_layers[layer_index].extend(future.result())
         else:
-            sampled_layers = [self._sample_layer(*args) for args in sample_args]
+            sampled_layers = [self._sample_layer(*args) for args in sample_inputs]
         for iz, spec in enumerate(specs):
             for ix, iy, is_copper in sampled_layers[iz]:
                 x = min_x + (ix + 0.5) * grid
