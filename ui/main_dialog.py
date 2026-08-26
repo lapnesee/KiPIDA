@@ -1170,6 +1170,10 @@ class KiPIDA_MainDialog(wx.Dialog):
             f"Energy balance error: {result.energy_balance_error_pct:.4g}%",
             f"Effective h: {result.convection_coefficient_w_m2k:.4g} W/m2K",
             f"Iterations: {result.iterations} ({'converged' if result.converged else 'limit reached'})",
+            f"Thermal grid: {mesh.grid_size_mm:.4g} mm" + (
+                f" (requested {mesh.requested_grid_size_mm:.4g} mm; adapted)"
+                if mesh.adaptive_grid else ""
+            ),
             f"Compute backend: {result.compute_backend} ({result.compute_device})",
             f"CPU threads: {result.compute_cpu_threads}",
             f"Solve time: {result.compute_solve_seconds:.4g} s "

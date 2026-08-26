@@ -130,7 +130,7 @@ class GeometryExtractor:
                     unresolved.append(item)
             cache[None] = unresolved
             self._net_item_caches[attr_name] = cache
-            if self.log_callback:
+            if self.log_callback and (not merge or len(shapes) >= 100):
                 self.log_callback(
                     f"[GEOMETRY] Indexed {len(items):,} {attr_name} in "
                     f"{time.perf_counter() - started:.3f} s."

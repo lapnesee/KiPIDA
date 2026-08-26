@@ -209,6 +209,12 @@ collections, avoiding an expensive GEOS union of large filled planes such as
 `+3V3_MAIN`. Geometry extraction, rasterization, layer construction, and mesh
 completion now emit elapsed-time or progress messages even outside Debug mode.
 
+CUDA-enabled thermal runs accept up to 1.25 million projected nodes; CPU-only
+runs retain a 500,000-node safety budget and automatically increase the grid
+step when necessary. Million-node thermal conductance systems are assembled
+directly as vectorized COO/CSR matrices rather than through SciPy LIL row
+updates. The Results tab records an adapted thermal grid when one was required.
+
 The **3D Thermal** tab provides a 0.1–5 mm spin control, Fast/Normal/Fine presets,
 and the relative XY cell cost. Halving the grid step creates approximately four
 times as many XY cells. The existing 500,000-node safety guard remains active.

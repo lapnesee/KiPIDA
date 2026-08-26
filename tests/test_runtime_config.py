@@ -36,7 +36,7 @@ class RuntimeConfigTests(unittest.TestCase):
 
     def test_plugin_version_is_read_from_manifest(self):
         root = Path(__file__).resolve().parent.parent
-        self.assertEqual(plugin_version(root), "0.12.2")
+        self.assertEqual(plugin_version(root), "0.12.3")
 
     @patch("runtime_environment.subprocess.run")
     def test_cuda_wheel_family_follows_driver_runtime(self, run):

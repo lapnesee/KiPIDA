@@ -43,38 +43,60 @@ class ThermalSolver:
         if not mesh.boundaries:
             raise ValueError("At least one exposed convective surface is required.")
 
-        node_to_index = {node: index for index, node in enumerate(mesh.nodes)}
         count = len(mesh.nodes)
-        matrix = scipy.sparse.lil_matrix((count, count), dtype=float)
         rhs = np.zeros(count, dtype=float)
+        identity_nodes = (
+            count > 0 and mesh.nodes[0] == 0 and mesh.nodes[-1] == count - 1
+        )
+        node_to_index = None if identity_nodes else {
+            node: index for index, node in enumerate(mesh.nodes)
+        }
+        translate = (lambda node: int(node)) if identity_nodes else node_to_index.get
 
-        for branch in mesh.branches:
-            a = node_to_index.get(branch.node_a)
-            b = node_to_index.get(branch.node_b)
-            conductance = float(branch.conductance_w_k)
-            if a is None or b is None or conductance <= 0:
-                continue
-            matrix[a, a] += conductance
-            matrix[b, b] += conductance
-            matrix[a, b] -= conductance
-            matrix[b, a] -= conductance
+        self._log(
+            f"Assembling CSR matrix from {len(mesh.branches):,} branches and "
+            f"{len(mesh.boundaries):,} boundaries."
+        )
+        branch_a = np.fromiter(
+            (translate(branch.node_a) for branch in mesh.branches),
+            dtype=np.int64, count=len(mesh.branches),
+        )
+        branch_b = np.fromiter(
+            (translate(branch.node_b) for branch in mesh.branches),
+            dtype=np.int64, count=len(mesh.branches),
+        )
+        conductance = np.fromiter(
+            (float(branch.conductance_w_k) for branch in mesh.branches),
+            dtype=np.float64, count=len(mesh.branches),
+        )
+        valid = (branch_a >= 0) & (branch_b >= 0) & (conductance > 0)
+        branch_a, branch_b, conductance = branch_a[valid], branch_b[valid], conductance[valid]
 
-        for boundary in mesh.boundaries:
-            index = node_to_index.get(boundary.node_id)
-            conductance = float(boundary.conductance_w_k)
-            if index is None or conductance <= 0:
-                continue
-            matrix[index, index] += conductance
-            rhs[index] += conductance * float(ambient_c)
+        boundary_index = np.fromiter(
+            (translate(boundary.node_id) for boundary in mesh.boundaries),
+            dtype=np.int64, count=len(mesh.boundaries),
+        )
+        boundary_g = np.fromiter(
+            (float(boundary.conductance_w_k) for boundary in mesh.boundaries),
+            dtype=np.float64, count=len(mesh.boundaries),
+        )
+        boundary_valid = (boundary_index >= 0) & (boundary_g > 0)
+        boundary_index, boundary_g = boundary_index[boundary_valid], boundary_g[boundary_valid]
+        np.add.at(rhs, boundary_index, boundary_g * float(ambient_c))
+
+        rows = np.concatenate((branch_a, branch_b, branch_a, branch_b, boundary_index))
+        cols = np.concatenate((branch_a, branch_b, branch_b, branch_a, boundary_index))
+        values = np.concatenate((conductance, conductance, -conductance, -conductance, boundary_g))
+        csr = scipy.sparse.coo_matrix((values, (rows, cols)), shape=(count, count)).tocsr()
+        del rows, cols, values, branch_a, branch_b, conductance, boundary_index, boundary_g
 
         for node, power in mesh.heat_sources_w.items():
-            index = node_to_index.get(node)
+            index = translate(node)
             if index is not None:
                 rhs[index] += float(power)
 
         if progress_callback:
             progress_callback(1, 3, "matrix")
-        csr = matrix.tocsr()
         compute = self.compute_backend.solve(
             csr, rhs, system_kind="SPD",
             cache_key=("thermal", id(mesh)), matrix_values_static=True,
@@ -86,7 +108,7 @@ class ThermalSolver:
         if np.any(~np.isfinite(temperatures)):
             raise ValueError("Thermal solution contains non-finite temperatures.")
         result_temperatures = {
-            node: float(temperatures[index]) for node, index in node_to_index.items()
+            node: float(temperatures[index]) for index, node in enumerate(mesh.nodes)
         }
         hotspot_node = max(result_temperatures, key=result_temperatures.get)
         hotspot_x, hotspot_y, hotspot_z = mesh.node_coords[hotspot_node]

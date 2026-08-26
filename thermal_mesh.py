@@ -56,6 +56,8 @@ class ThermalMesh:
     bounds_mm: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
     layer_specs: List[ThermalLayerSpec] = field(default_factory=list)
     convection_coefficient_w_m2k: float = 0.0
+    requested_grid_size_mm: float = 1.0
+    adaptive_grid: bool = False
 
     def add_heat(self, node_id, power_w):
         self.heat_sources_w[node_id] = self.heat_sources_w.get(node_id, 0.0) + float(power_w)
@@ -125,6 +127,8 @@ class ThermalMesher:
     FR4_K_XY = 0.8
     FR4_K_Z = 0.3
     SIGMA = 5.670374419e-8
+    CPU_NODE_LIMIT = 500000
+    CUDA_NODE_LIMIT = 1250000
 
     def __init__(self, debug=False, log_callback=None, compute_settings=None):
         self.debug = debug
@@ -141,6 +145,14 @@ class ThermalMesher:
             return 1
         configured = int(getattr(settings, "cpu_threads", 0) or 0) if settings else 0
         return max(1, configured or (os.cpu_count() or 1))
+
+    def _node_limit(self):
+        compute = self.compute_settings
+        cuda_requested = bool(
+            compute and getattr(compute, "cuda_enabled", False) and
+            str(getattr(compute, "backend", "AUTO")).upper() != "CPU"
+        )
+        return (self.CUDA_NODE_LIMIT if cuda_requested else self.CPU_NODE_LIMIT), cuda_requested
 
     @staticmethod
     def _sample_layer(outline, copper, min_x, min_y, nx, ny, grid):
@@ -211,19 +223,32 @@ class ThermalMesher:
     def generate_mesh(self, model, settings: ThermalAnalysisSettings, progress_callback=None):
         if Point is None or prep is None:
             raise ImportError("Shapely is required for thermal meshing.")
-        grid = max(0.1, float(settings.grid_size_mm))
+        requested_grid = max(0.1, float(settings.grid_size_mm))
+        grid = requested_grid
         min_x, min_y, max_x, max_y = model.bounds_mm
+        specs = self._layer_specs(model.stackup)
         nx = max(1, int(math.ceil((max_x - min_x) / grid)))
         ny = max(1, int(math.ceil((max_y - min_y) / grid)))
-        specs = self._layer_specs(model.stackup)
         projected_nodes = nx * ny * len(specs)
-        if projected_nodes > 500000:
-            raise ValueError(
-                f"Thermal mesh would contain about {projected_nodes:,} nodes. "
-                "Increase the thermal grid size."
+        requested_projected_nodes = projected_nodes
+        node_limit, cuda_requested = self._node_limit()
+        adaptive_grid = False
+        if projected_nodes > node_limit:
+            grid *= math.sqrt(projected_nodes / float(node_limit)) * 1.02
+            nx = max(1, int(math.ceil((max_x - min_x) / grid)))
+            ny = max(1, int(math.ceil((max_y - min_y) / grid)))
+            projected_nodes = nx * ny * len(specs)
+            adaptive_grid = True
+            self._log(
+                f"Requested {requested_grid:g} mm projects {requested_projected_nodes:,} nodes; "
+                f"using {grid:.3g} mm for the {node_limit:,}-node "
+                f"{'CUDA' if cuda_requested else 'CPU'} safety budget."
             )
 
-        mesh = ThermalMesh(grid_size_mm=grid, bounds_mm=model.bounds_mm, layer_specs=specs)
+        mesh = ThermalMesh(
+            grid_size_mm=grid, requested_grid_size_mm=requested_grid,
+            adaptive_grid=adaptive_grid, bounds_mm=model.bounds_mm, layer_specs=specs,
+        )
         material = {}
         z_centers = []
         z_cursor = 0.0

@@ -12,6 +12,7 @@ try:
     from thermal_model import ThermalBoardModel, ThermalPlacement, ThermalVia
     from thermal_solver import ThermalSolver
     from models import AirflowSettings, ThermalAnalysisSettings, ThermalComponentModel
+    from runtime_config import RuntimeComputeSettings
     THERMAL_AVAILABLE = True
 except ImportError:
     THERMAL_AVAILABLE = False
@@ -107,6 +108,14 @@ class TestThermalSolver(unittest.TestCase):
         downstream = max(top, key=lambda item: mesh.node_coords[item.node_id][0])
 
         self.assertGreater(upstream.conductance_w_k, downstream.conductance_w_k)
+
+    def test_cuda_runtime_has_larger_safe_thermal_mesh_budget(self):
+        cpu = ThermalMesher(compute_settings=RuntimeComputeSettings(backend="CPU"))
+        cuda = ThermalMesher(compute_settings=RuntimeComputeSettings(
+            backend="CUDA", cuda_enabled=True,
+        ))
+        self.assertEqual(cpu._node_limit(), (500000, False))
+        self.assertEqual(cuda._node_limit(), (1250000, True))
 
 
 if __name__ == "__main__":

@@ -192,14 +192,15 @@ class ThermalAnalysisPanel(wx.Panel):
             size = max(0.1, float(self.txt_grid.GetValue()))
             context = self.mesh_context_provider() if self.mesh_context_provider else {}
             estimate = estimate_thermal_mesh_cost(context, size)
+            node_limit = 1250000 if context.get("cuda_available") else 500000
             mib = 1024 ** 2
             self.lbl_mesh_cost.SetLabel(
                 f"~{estimate['nodes']:,} nodes / {estimate['branches']:,} branches — "
                 f"CPU {estimate['cpu_bytes']/mib:.0f} MiB, GPU {estimate['gpu_bytes']/mib:.0f} MiB — "
                 f"recommended: {estimate['backend']}"
             )
-            colour = wx.Colour(190, 35, 35) if estimate["nodes"] > 500000 else (
-                wx.Colour(190, 105, 0) if estimate["nodes"] > 250000 else wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOWTEXT)
+            colour = wx.Colour(190, 35, 35) if estimate["nodes"] > node_limit else (
+                wx.Colour(190, 105, 0) if estimate["nodes"] > node_limit * 0.7 else wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOWTEXT)
             )
             self.lbl_mesh_cost.SetForegroundColour(colour)
             self.lbl_mesh_cost.GetParent().Layout()
