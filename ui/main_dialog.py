@@ -289,6 +289,10 @@ class KiPIDA_MainDialog(wx.Dialog):
 
     def log(self, msg):
         if not hasattr(self, 'log_ctrl'): return
+        if not wx.IsMainThread():
+            if not self._closing:
+                wx.CallAfter(self.log, msg)
+            return
         self.log_ctrl.AppendText(msg + "\n")
         self.log_ctrl.ShowPosition(self.log_ctrl.GetLastPosition())
         wx.SafeYield()
@@ -468,28 +472,19 @@ class KiPIDA_MainDialog(wx.Dialog):
         rail_map = {r.net_name: r for r in system_rails}
         return [rail_map[name] for name in result]
 
-    def on_run(self, event, update_results=True):
-        self._refresh_live_board_state()
-        # 1. Collect Rails
-        system_rails = self.power_tree.rails
-        if not system_rails:
-             wx.MessageBox("No power rails defined.")
-             return
-             
-        self.notebook.SetSelection(self.PAGE_LOG) # Switch to Log
+    def _solve_system(self, system_rails, grid_size, debug_mode):
+        """Solve configured DC rails without reading or updating wx widgets."""
         self.log(f"--- Starting System Simulation ({len(system_rails)} rails) ---")
         
         try:
-            debug_mode = self.chk_debug.GetValue()
-            
             extractor = GeometryExtractor(self.board, debug=debug_mode, log_callback=self.log)
             try:
                 stackup = extractor.get_board_stackup()
             except Exception as e:
                 self.log(f"Error extracting stackup: {e}")
-                return
+                return {}
             
-            self.system_results = {} # rail_name -> { mesh, results, stats }
+            system_results = {} # rail_name -> { mesh, results, stats }
             rail_total_current = {rail.net_name: 0.0 for rail in system_rails}
             
             # 2. Sort rails in dependency order and check for cycles
@@ -499,8 +494,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                 self.log(f"Rail solve order: {' -> '.join(rail_order)}")
             except ValueError as e:
                 self.log(f"ERROR: {e}")
-                wx.MessageBox(str(e), "Power Rail Cycle Detected", wx.OK | wx.ICON_ERROR)
-                return
+                return {}
             
             # 3. Solve each rail in topological order
             for rail in sorted_rails:
@@ -515,13 +509,8 @@ class KiPIDA_MainDialog(wx.Dialog):
                     self.log(f"  Skipping {rail.net_name}: No geometry.")
                     continue
                     
-                try:
-                    gs = float(self.txt_grid_size.GetValue())
-                    if gs < 0.01: gs = 0.01
-                except: gs = 0.1
-                
                 mesher = Mesher(self.board, debug=debug_mode, log_callback=self.log)
-                mesh = mesher.generate_mesh(rail.net_name, geo, stackup, grid_size_mm=gs)
+                mesh = mesher.generate_mesh(rail.net_name, geo, stackup, grid_size_mm=grid_size)
                 
                 if len(mesh.nodes) == 0:
                      self.log(f"  Skipping {rail.net_name}: Mesh empty.")
@@ -627,7 +616,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                 if v_vals:
                     v_min, v_max = min(v_vals), max(v_vals)
                     drop = v_max - v_min
-                    self.system_results[rail.net_name] = {
+                    system_results[rail.net_name] = {
                         'mesh': mesh,
                         'results': results,
                         'stats': (v_min, v_max, drop),
@@ -639,14 +628,31 @@ class KiPIDA_MainDialog(wx.Dialog):
                 else:
                     self.log(f"  Solved {rail.net_name}: No result.")
 
-            # --- 3. Update UI ---
-            if update_results:
-                self._update_results_ui()
-            
+            return system_results
         except Exception as e:
             self.log(f"System Solve Error: {e}")
             import traceback
             traceback.print_exc()
+            return {}
+
+    def on_run(self, event, update_results=True):
+        self._refresh_live_board_state()
+        system_rails = self.power_tree.rails
+        if not system_rails:
+            wx.MessageBox("No power rails defined.")
+            return
+        self.notebook.SetSelection(self.PAGE_LOG)
+        try:
+            grid_size = max(0.01, float(self.txt_grid_size.GetValue()))
+        except ValueError:
+            grid_size = 0.1
+        self.system_results = self._solve_system(
+            system_rails,
+            grid_size,
+            self.chk_debug.GetValue(),
+        )
+        if update_results and self.system_results:
+            self._update_results_ui()
 
     def _prepare_ac_analysis(self):
         self._refresh_live_board_state()
@@ -879,9 +885,10 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.log(f"Differential Analysis Error: {exc}")
         wx.MessageBox(str(exc), "Differential Analysis Error", wx.OK | wx.ICON_ERROR)
 
-    def _dc_copper_loss_points(self):
+    def _dc_copper_loss_points(self, system_results=None):
         losses = []
-        for data in getattr(self, "system_results", {}).values():
+        results = system_results if system_results is not None else getattr(self, "system_results", {})
+        for data in results.values():
             mesh = data.get("mesh")
             detailed = data.get("detailed_result")
             if mesh is None or detailed is None:
@@ -905,53 +912,13 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.log(f"Thermal progress: {completed}/{total} ({detail})")
         wx.SafeYield()
 
-    def _prepare_thermal_analysis(self, coupled=False):
-        self._refresh_live_board_state()
-        if not self.thermal_panel.settings.components:
-            self.thermal_panel.refresh_components(preserve_user=True)
-        settings = self.thermal_panel.get_settings()
-        if settings.include_dc_copper_losses and not getattr(self, "system_results", None):
-            self.log("No current DC result; running DC analysis first.")
-            # Thermal analysis only needs branch losses. Rendering every DC
-            # rail/layer here creates dozens of throwaway bitmaps and can make
-            # wx appear frozen just before thermal results are delivered.
-            self.on_run(None, update_results=False)
-        if coupled and not getattr(self, "system_results", None):
-            raise ValueError("Coupled analysis requires a successful DC analysis.")
-
-        copper_losses = [] if coupled else (
-            self._dc_copper_loss_points() if settings.include_dc_copper_losses else []
-        )
-        builder = ThermalModelBuilder(
-            self.board,
-            debug=self.chk_debug.GetValue(),
-            log_callback=self.log,
-            board_file_path=self._board_file_path(),
-        )
-        model = builder.build(
-            settings,
-            rails=self.power_tree.rails,
-            copper_losses=copper_losses,
-        )
-        mesher = ThermalMesher(
-            debug=self.chk_debug.GetValue(),
-            log_callback=self.log,
-        )
-        mesh = mesher.generate_mesh(model, settings, progress_callback=self._thermal_progress)
-        return settings, mesh
-
     def on_run_thermal(self, event):
         if self._thermal_thread is not None and self._thermal_thread.is_alive():
             return
         self.notebook.SetSelection(self.PAGE_LOG)
         self.log("--- Starting 3D Thermal Analysis ---")
         try:
-            settings, mesh = self._prepare_thermal_analysis(coupled=False)
-            compute_settings = self.runtime_panel.get_settings(persist=True)
-            self._start_thermal_worker(
-                mesh, settings, coupled=False, rail_contexts=None,
-                compute_settings=compute_settings,
-            )
+            self._start_thermal_pipeline(coupled=False)
         except Exception as exc:
             self.log(f"Thermal Analysis Error: {exc}")
             wx.MessageBox(str(exc), "Thermal Analysis Error", wx.OK | wx.ICON_ERROR)
@@ -962,32 +929,37 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.notebook.SetSelection(self.PAGE_LOG)
         self.log("--- Starting Coupled DC / 3D Thermal Analysis ---")
         try:
-            settings, mesh = self._prepare_thermal_analysis(coupled=True)
-            rail_contexts = {
-                name: {
-                    "mesh": data["mesh"],
-                    "sources": data.get("sources", []),
-                    "loads": data.get("loads", []),
-                } for name, data in self.system_results.items()
-            }
-            compute_settings = self.runtime_panel.get_settings(persist=True)
-            self._start_thermal_worker(
-                mesh, settings, coupled=True, rail_contexts=rail_contexts,
-                compute_settings=compute_settings,
-            )
+            self._start_thermal_pipeline(coupled=True)
         except Exception as exc:
             self.log(f"Coupled Thermal Analysis Error: {exc}")
             wx.MessageBox(str(exc), "Coupled Thermal Analysis Error", wx.OK | wx.ICON_ERROR)
 
-    def _start_thermal_worker(self, mesh, settings, coupled, rail_contexts, compute_settings):
+    def _start_thermal_pipeline(self, coupled):
+        """Capture wx settings, then prepare and solve entirely off the GUI thread."""
+        self._refresh_live_board_state()
+        if not self.thermal_panel.settings.components:
+            self.thermal_panel.refresh_components(preserve_user=True)
+        settings = self.thermal_panel.get_settings()
+        compute_settings = self.runtime_panel.get_settings(persist=True)
+        try:
+            dc_grid_size = max(0.01, float(self.txt_grid_size.GetValue()))
+        except ValueError:
+            dc_grid_size = 0.1
+        debug_mode = self.chk_debug.GetValue()
+        rails = list(self.power_tree.rails)
+        board_file_path = self._board_file_path()
+        if coupled and not rails:
+            raise ValueError("Coupled analysis requires at least one configured power rail.")
+
         self.btn_run_thermal.Disable()
         self.btn_run_coupled.Disable()
-        self.thermal_mesh = mesh
-        debug_mode = self.chk_debug.GetValue()
         self._thermal_thread = threading.Thread(
-            target=self._thermal_worker,
-            args=(mesh, settings, coupled, rail_contexts, compute_settings, debug_mode),
-            name="KiPIDA-Thermal-Solve",
+            target=self._thermal_pipeline_worker,
+            args=(
+                settings, coupled, compute_settings, debug_mode, rails,
+                dc_grid_size, board_file_path,
+            ),
+            name="KiPIDA-Thermal-Pipeline",
             daemon=True,
         )
         self._thermal_thread.start()
@@ -1000,9 +972,56 @@ class KiPIDA_MainDialog(wx.Dialog):
         if not self._closing:
             wx.CallAfter(self.log, f"Thermal progress: {completed}/{total} ({detail})")
 
-    def _thermal_worker(self, mesh, settings, coupled, rail_contexts, compute_settings, debug_mode):
+    def _thermal_pipeline_worker(
+        self,
+        settings,
+        coupled,
+        compute_settings,
+        debug_mode,
+        rails,
+        dc_grid_size,
+        board_file_path,
+    ):
         try:
+            system_results = {}
+            if coupled or settings.include_dc_copper_losses:
+                self._thermal_worker_log(
+                    "Running fresh DC analysis for the current live PCB geometry."
+                )
+                system_results = self._solve_system(rails, dc_grid_size, debug_mode)
+                if coupled and not system_results:
+                    raise ValueError("Coupled analysis requires a successful DC analysis.")
+
+            copper_losses = [] if coupled else (
+                self._dc_copper_loss_points(system_results)
+                if settings.include_dc_copper_losses else []
+            )
+            builder = ThermalModelBuilder(
+                self.board,
+                debug=debug_mode,
+                log_callback=self._thermal_worker_log,
+                board_file_path=board_file_path,
+            )
+            model = builder.build(settings, rails=rails, copper_losses=copper_losses)
+            mesher = ThermalMesher(
+                debug=debug_mode,
+                log_callback=self._thermal_worker_log,
+            )
+            mesh = mesher.generate_mesh(
+                model,
+                settings,
+                progress_callback=self._thermal_worker_progress,
+            )
+
             if coupled:
+                rail_contexts = {
+                    name: {
+                        "mesh": data["mesh"],
+                        "sources": data.get("sources", []),
+                        "loads": data.get("loads", []),
+                    }
+                    for name, data in system_results.items()
+                }
                 solver = ElectroThermalSolver(
                     debug=debug_mode,
                     log_callback=self._thermal_worker_log,
@@ -1025,15 +1044,24 @@ class KiPIDA_MainDialog(wx.Dialog):
                     progress_callback=self._thermal_worker_progress,
                 )
             if not self._closing:
-                wx.CallAfter(self._finish_thermal_worker, mesh, result, coupled, solved)
+                wx.CallAfter(
+                    self._finish_thermal_worker,
+                    mesh,
+                    result,
+                    coupled,
+                    solved,
+                    system_results,
+                )
         except Exception as exc:
             if not self._closing:
                 wx.CallAfter(self._fail_thermal_worker, coupled, exc)
 
-    def _finish_thermal_worker(self, mesh, result, coupled, coupled_result):
+    def _finish_thermal_worker(self, mesh, result, coupled, coupled_result, system_results):
         self._thermal_thread = None
         self.btn_run_thermal.Enable()
         self.btn_run_coupled.Enable()
+        if system_results:
+            self.system_results = system_results
         self.thermal_mesh = mesh
         self.thermal_result = result
         if coupled_result is not None:

@@ -5,6 +5,22 @@ import math
 import wx
 
 
+def _copy_font(font):
+    """Return a detached font across the wxPython versions bundled by KiCad.
+
+    wxPython Phoenix accepts a font in the ``wx.Font`` constructor, while
+    some KiCad builds do not expose the convenience ``Font.Copy`` method.
+    Keep a native-info fallback for older wx builds with a narrower overload
+    set.
+    """
+    try:
+        return wx.Font(font)
+    except (TypeError, AttributeError):
+        copied = wx.Font()
+        copied.SetNativeFontInfo(font.GetNativeFontInfo())
+        return copied
+
+
 class ZoomableBitmapPanel(wx.ScrolledWindow):
     """A bitmap viewport with wheel zoom and drag pan.
 
@@ -127,7 +143,7 @@ class ListZoomPanController:
         control.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self._on_capture_lost)
 
     def _apply(self):
-        font = self._font.Copy()
+        font = _copy_font(self._font)
         font.SetPointSize(max(6, int(round(self._font.GetPointSize() * self.scale))))
         self.control.SetFont(font)
         for index, width in enumerate(self._columns):
@@ -195,7 +211,7 @@ class TextZoomController:
 
     def _set_points(self, points):
         self._points = max(self.MIN_POINTS, min(self.MAX_POINTS, points))
-        font = self.control.GetFont().Copy()
+        font = _copy_font(self.control.GetFont())
         font.SetPointSize(self._points)
         self.control.SetFont(font)
         self.control.Refresh()
