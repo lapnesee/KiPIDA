@@ -65,6 +65,9 @@ class ThermalMesh:
     branches: List[ThermalBranch] = field(default_factory=list)
     boundaries: List[ThermalBoundary] = field(default_factory=list)
     heat_sources_w: Dict[int, float] = field(default_factory=dict)
+    # Optional dense source vector used by the coupled solver.  It is faster
+    # than updating a Python dictionary once per electrical branch.
+    heat_vector_w: object = None
     component_nodes: Dict[str, List[int]] = field(default_factory=dict)
     component_models: Dict[str, object] = field(default_factory=dict)
     grid_size_mm: float = 1.0
@@ -467,14 +470,14 @@ class ThermalMesher:
         for via in model.vias:
             ix = int((via.x_mm - min_x) / grid)
             iy = int((via.y_mm - min_y) / grid)
-            bottom = mesh.node_map.get((ix, iy, 0))
-            top = mesh.node_map.get((ix, iy, len(specs) - 1))
+            top = mesh.node_map.get((ix, iy, 0))
+            bottom = mesh.node_map.get((ix, iy, len(specs) - 1))
             if bottom is None or top is None or bottom == top:
                 continue
             plating_mm = 0.025
             area_mm2 = math.pi * max(via.diameter_mm * plating_mm - plating_mm ** 2, 1e-6)
             conductance = self.COPPER_K * area_mm2 * 1e-6 / board_thickness_m
-            mesh.branches.append(ThermalBranch(bottom, top, conductance, "via"))
+            mesh.branches.append(ThermalBranch(top, bottom, conductance, "via"))
 
         convective_h = self.convection_coefficient(settings)
         radiative_h = 0.0
@@ -507,10 +510,10 @@ class ThermalMesher:
 
         for (ix, iy, iz), current in mesh.node_map.items():
             _, _, _, thickness_mm = material[current]
-            if iz == 0 and settings.airflow.expose_bottom:
-                mesh.boundaries.append(ThermalBoundary(current, surface_h(current) * area_xy, "bottom"))
-            if iz == len(specs) - 1 and settings.airflow.expose_top:
+            if iz == 0 and settings.airflow.expose_top:
                 mesh.boundaries.append(ThermalBoundary(current, surface_h(current) * area_xy, "top"))
+            if iz == len(specs) - 1 and settings.airflow.expose_bottom:
+                mesh.boundaries.append(ThermalBoundary(current, surface_h(current) * area_xy, "bottom"))
             if settings.airflow.expose_edges:
                 edge_area_x = dy * thickness_mm * 1e-3
                 edge_area_y = dx * thickness_mm * 1e-3
@@ -529,7 +532,9 @@ class ThermalMesher:
             placement = model.placements.get(component.ref_des)
             if placement is None:
                 continue
-            iz = 0 if placement.side == "BOTTOM" else len(specs) - 1
+            # Stackup specs follow KiCad order from F.Cu to B.Cu: the first
+            # thermal slice is the physical top side.
+            iz = len(specs) - 1 if placement.side == "BOTTOM" else 0
             nodes = []
             # The former implementation scanned every node in the complete
             # 3D mesh for every component.  On a 0.1 mm 11-layer board that

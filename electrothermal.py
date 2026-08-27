@@ -1,5 +1,9 @@
 """Iterative coupling between Ki-PIDA DC meshes and the 3D thermal model."""
 
+import time
+
+import numpy as np
+
 try:
     from .models import ElectroThermalResult
     from .solver import Solver
@@ -32,6 +36,50 @@ class ElectroThermalSolver:
         node = thermal_mesh.nearest_node(x, y, layer)
         return float(temperatures.get(node, ambient_c)) if node is not None else float(ambient_c)
 
+    @staticmethod
+    def _thermal_node_index(thermal_mesh, node_id, identity_nodes, node_to_index):
+        if node_id is None:
+            return -1
+        return int(node_id) if identity_nodes else int(node_to_index.get(node_id, -1))
+
+    def _prepare_branch_thermal_indices(self, thermal_mesh, rail_contexts):
+        """Map each electrical branch midpoint to a thermal cell once.
+
+        Copper geometry does not move during electro-thermal convergence.  The
+        legacy implementation performed this spatial lookup twice per branch
+        and per iteration: once to scale resistance and once to inject Joule
+        loss.  Caching the thermal-node index is exact for a fixed mesh.
+        """
+        nodes = thermal_mesh.nodes
+        identity_nodes = bool(nodes and nodes[0] == 0 and nodes[-1] == len(nodes) - 1)
+        node_to_index = None if identity_nodes else {node: index for index, node in enumerate(nodes)}
+        mappings = {}
+        started = time.perf_counter()
+        branch_count = 0
+        for rail_name, context in rail_contexts.items():
+            electrical_mesh = context["mesh"]
+            indices = np.full(len(electrical_mesh.branches), -1, dtype=np.int32)
+            for index, branch in enumerate(electrical_mesh.branches):
+                coord_a = electrical_mesh.node_coords.get(branch.node_a)
+                coord_b = electrical_mesh.node_coords.get(branch.node_b)
+                if coord_a is None or coord_b is None:
+                    continue
+                node = thermal_mesh.nearest_node(
+                    (coord_a[0] + coord_b[0]) / 2.0,
+                    (coord_a[1] + coord_b[1]) / 2.0,
+                    coord_a[2],
+                )
+                indices[index] = self._thermal_node_index(
+                    thermal_mesh, node, identity_nodes, node_to_index
+                )
+            mappings[rail_name] = indices
+            branch_count += len(indices)
+        self._log(
+            f"Cached {branch_count:,} electrical-branch to thermal-cell mappings in "
+            f"{time.perf_counter() - started:.3f} s."
+        )
+        return mappings, identity_nodes, node_to_index
+
     def solve(self, thermal_mesh, settings, rail_contexts, progress_callback=None):
         if not rail_contexts:
             raise ValueError("Run a DC analysis before coupled electro-thermal analysis.")
@@ -44,27 +92,50 @@ class ElectroThermalSolver:
             debug=self.debug, log_callback=self.log_callback,
             compute_settings=self.compute_settings,
         )
+        node_count = len(thermal_mesh.nodes)
         base_heat = dict(thermal_mesh.heat_sources_w)
-        previous_temperatures = {
-            node: float(settings.ambient_c) for node in thermal_mesh.nodes
+        base_heat_vector = np.zeros(node_count, dtype=float)
+        identity_nodes = bool(
+            thermal_mesh.nodes and thermal_mesh.nodes[0] == 0 and
+            thermal_mesh.nodes[-1] == node_count - 1
+        )
+        node_to_index = None if identity_nodes else {
+            node: index for index, node in enumerate(thermal_mesh.nodes)
         }
+        for node, power in base_heat.items():
+            index = self._thermal_node_index(thermal_mesh, node, identity_nodes, node_to_index)
+            if index >= 0:
+                base_heat_vector[index] += float(power)
+        branch_mappings, _, _ = self._prepare_branch_thermal_indices(thermal_mesh, rail_contexts)
+        previous_temperatures = np.full(node_count, float(settings.ambient_c), dtype=float)
         dc_results = {}
         converged = False
         thermal_result = None
         iterations = max(1, int(settings.coupled_iterations))
 
         for iteration in range(iterations):
-            thermal_mesh.heat_sources_w = dict(base_heat)
+            iteration_started = time.perf_counter()
+            # Dense injection avoids millions of dictionary lookups on a fine
+            # mesh.  ThermalSolver consumes this vector directly.
+            heat_vector = base_heat_vector.copy()
+            thermal_mesh.heat_sources_w = base_heat
+            thermal_mesh.heat_vector_w = heat_vector
             dc_results = {}
             for rail_name, context in rail_contexts.items():
                 electrical_mesh = context["mesh"]
-                scales = []
-                for branch in electrical_mesh.branches:
-                    temperature = self._branch_temperature(
-                        thermal_mesh, previous_temperatures, electrical_mesh, branch, settings.ambient_c
-                    )
-                    scale = 1.0 + settings.copper_temp_coefficient_per_c * (temperature - 20.0)
-                    scales.append(max(0.2, min(3.0, scale)))
+                thermal_indices = branch_mappings[rail_name]
+                branch_temperatures = np.full(
+                    len(thermal_indices), float(settings.ambient_c), dtype=float
+                )
+                valid_indices = thermal_indices >= 0
+                branch_temperatures[valid_indices] = previous_temperatures[
+                    thermal_indices[valid_indices]
+                ]
+                scales = np.clip(
+                    1.0 + float(settings.copper_temp_coefficient_per_c) *
+                    (branch_temperatures - 20.0),
+                    0.2, 3.0,
+                )
                 detailed = dc_solver.solve_detailed(
                     electrical_mesh,
                     context.get("sources", []),
@@ -72,33 +143,26 @@ class ElectroThermalSolver:
                     branch_resistance_scales=scales,
                 )
                 dc_results[rail_name] = detailed
-                for branch, power in zip(electrical_mesh.branches, detailed.branch_losses_w):
-                    if power <= 0:
-                        continue
-                    coord_a = electrical_mesh.node_coords.get(branch.node_a)
-                    coord_b = electrical_mesh.node_coords.get(branch.node_b)
-                    if coord_a is None or coord_b is None:
-                        continue
-                    x = (coord_a[0] + coord_b[0]) / 2.0
-                    y = (coord_a[1] + coord_b[1]) / 2.0
-                    node = thermal_mesh.nearest_node(x, y, coord_a[2])
-                    if node is not None:
-                        thermal_mesh.add_heat(node, power)
+                losses = np.asarray(detailed.branch_losses_w, dtype=float)
+                deposit = valid_indices & (losses > 0.0)
+                if np.any(deposit):
+                    np.add.at(heat_vector, thermal_indices[deposit], losses[deposit])
 
+            dc_phase_seconds = time.perf_counter() - iteration_started
             thermal_result = thermal_solver.solve(thermal_mesh, settings.ambient_c)
-            max_delta = max(
-                abs(thermal_result.temperatures_c[node] - previous_temperatures.get(node, settings.ambient_c))
-                for node in thermal_mesh.nodes
-            )
+            current_temperatures = thermal_result.temperature_vector_c
+            if current_temperatures is None:
+                current_temperatures = np.fromiter(
+                    (thermal_result.temperatures_c[node] for node in thermal_mesh.nodes),
+                    dtype=float, count=node_count,
+                )
+            max_delta = float(np.max(np.abs(current_temperatures - previous_temperatures)))
             relaxation = max(0.05, min(1.0, float(settings.relaxation)))
-            previous_temperatures = {
-                node: previous_temperatures.get(node, settings.ambient_c) + relaxation * (
-                    thermal_result.temperatures_c[node] - previous_temperatures.get(node, settings.ambient_c)
-                ) for node in thermal_mesh.nodes
-            }
+            previous_temperatures += relaxation * (current_temperatures - previous_temperatures)
             self._log(
                 f"Iteration {iteration + 1}/{iterations}: max delta {max_delta:.4g} C, "
-                f"copper loss {sum(result.total_loss_w for result in dc_results.values()):.4g} W."
+                f"copper loss {sum(result.total_loss_w for result in dc_results.values()):.4g} W; "
+                f"DC/map {dc_phase_seconds:.3f} s, total {time.perf_counter() - iteration_started:.3f} s."
             )
             if progress_callback:
                 progress_callback(iteration + 1, iterations, f"delta={max_delta:.3g} C")

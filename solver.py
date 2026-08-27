@@ -29,6 +29,7 @@ class Solver:
         self.log_callback = log_callback
         self.compute_backend = SparseComputeBackend(compute_settings, log_callback)
         self.last_compute = None
+        self._topology_cache = {}
         if np is None or scipy is None:
             raise ImportError("NumPy and SciPy are required for Solver backend.")
 
@@ -60,21 +61,36 @@ class Solver:
         
         # 2. Build Matrix G
         if branch_resistance_scales is not None and getattr(mesh, 'branches', None):
-            G = scipy.sparse.lil_matrix((N, N))
-            scales = list(branch_resistance_scales)
+            scales = np.asarray(branch_resistance_scales, dtype=float).reshape(-1)
             if len(scales) != len(mesh.branches):
                 raise ValueError("One resistance scale is required for every mesh branch.")
-            for branch, scale in zip(mesh.branches, scales):
-                resistance = max(branch.resistance_ohm * max(float(scale), 1e-9), 1e-15)
-                conductance = 1.0 / resistance
-                u = id_to_idx.get(branch.node_a)
-                v = id_to_idx.get(branch.node_b)
-                if u is None or v is None:
-                    continue
-                G[u, u] += conductance
-                G[v, v] += conductance
-                G[u, v] -= conductance
-                G[v, u] -= conductance
+            # Resistance changes during electro-thermal coupling, but branch
+            # endpoints never do.  COO assembly retains the same Laplacian as
+            # the legacy LIL inserts while removing millions of Python sparse
+            # writes from the repeated DC path.
+            branch_a = np.fromiter(
+                (id_to_idx.get(branch.node_a, -1) for branch in mesh.branches),
+                dtype=np.int64, count=len(mesh.branches),
+            )
+            branch_b = np.fromiter(
+                (id_to_idx.get(branch.node_b, -1) for branch in mesh.branches),
+                dtype=np.int64, count=len(mesh.branches),
+            )
+            base_resistance = np.fromiter(
+                (float(branch.resistance_ohm) for branch in mesh.branches),
+                dtype=float, count=len(mesh.branches),
+            )
+            conductance = 1.0 / np.maximum(
+                base_resistance * np.maximum(scales, 1.0e-9), 1.0e-15
+            )
+            valid = (branch_a >= 0) & (branch_b >= 0)
+            branch_a, branch_b, conductance = (
+                branch_a[valid], branch_b[valid], conductance[valid]
+            )
+            rows = np.concatenate((branch_a, branch_b, branch_a, branch_b))
+            cols = np.concatenate((branch_a, branch_b, branch_b, branch_a))
+            values = np.concatenate((conductance, conductance, -conductance, -conductance))
+            G = scipy.sparse.coo_matrix((values, (rows, cols)), shape=(N, N)).tolil()
         elif hasattr(mesh, 'G_coo_data') and len(mesh.G_coo_data) > 0:
             if self.debug:
                 self._log(f"Using pre-computed sparse matrix ({len(mesh.G_coo_data)} entries).")
@@ -122,54 +138,68 @@ class Solver:
         # leaves genuinely floating copper islands in a singular system.
         valid_node_mask = np.ones(N, dtype=bool)
         floating_representatives = []
-        try:
-            from scipy.sparse.csgraph import connected_components
-
-            connectivity_matrix = G.tocsr()
-            n_components, component_labels = connected_components(
-                csgraph=connectivity_matrix,
-                directed=False,
-                return_labels=True,
+        topology_key = (
+            id(mesh), N,
+            tuple(sorted(str(source.get('node_id')) for source in sources)),
+            tuple(sorted(str(load.get('node_id')) for load in loads if abs(float(load.get('current', 0.0))) > 0.0)),
+        )
+        cached_topology = self._topology_cache.get(topology_key)
+        if cached_topology is not None:
+            valid_node_mask, floating_representatives = (
+                cached_topology[0].copy(), list(cached_topology[1])
             )
-            source_components = set()
-            for source in sources:
-                idx = id_to_idx.get(source.get('node_id'))
-                if idx is not None:
-                    source_components.add(int(component_labels[idx]))
+        else:
+            try:
+                from scipy.sparse.csgraph import connected_components
 
-            valid_node_mask = np.array(
-                [int(label) in source_components for label in component_labels],
-                dtype=bool,
-            )
-            if n_components > 1:
-                self._log(f"Detected {n_components} copper islands before source constraints.")
+                connectivity_matrix = G.tocsr()
+                n_components, component_labels = connected_components(
+                    csgraph=connectivity_matrix,
+                    directed=False,
+                    return_labels=True,
+                )
+                source_components = set()
+                for source in sources:
+                    idx = id_to_idx.get(source.get('node_id'))
+                    if idx is not None:
+                        source_components.add(int(component_labels[idx]))
 
-            for component in range(n_components):
-                if component in source_components:
-                    continue
-                component_indices = np.flatnonzero(component_labels == component)
-                if len(component_indices) == 0:
-                    continue
-                floating_representatives.append(int(component_indices[0]))
-                load_nodes = {
-                    load.get('node_id') for load in loads
-                    if load.get('node_id') in id_to_idx
-                    and int(component_labels[id_to_idx[load.get('node_id')]]) == component
-                    and abs(float(load.get('current', 0.0))) > 0.0
-                }
-                if load_nodes:
-                    self._log(
-                        f"ERROR: Island #{component} ({len(component_indices)} nodes) has "
-                        f"{len(load_nodes)} load node(s) but no voltage source; "
-                        "its loads and voltages are excluded."
-                    )
-                else:
-                    self._log(
-                        f"Ignoring floating island #{component} ({len(component_indices)} nodes): "
-                        "no voltage source or load."
-                    )
-        except Exception as e:
-            self._log(f"Connectivity diagnostic failed: {e}")
+                valid_node_mask = np.array(
+                    [int(label) in source_components for label in component_labels],
+                    dtype=bool,
+                )
+                if n_components > 1:
+                    self._log(f"Detected {n_components} copper islands before source constraints.")
+
+                for component in range(n_components):
+                    if component in source_components:
+                        continue
+                    component_indices = np.flatnonzero(component_labels == component)
+                    if len(component_indices) == 0:
+                        continue
+                    floating_representatives.append(int(component_indices[0]))
+                    load_nodes = {
+                        load.get('node_id') for load in loads
+                        if load.get('node_id') in id_to_idx
+                        and int(component_labels[id_to_idx[load.get('node_id')]]) == component
+                        and abs(float(load.get('current', 0.0))) > 0.0
+                    }
+                    if load_nodes:
+                        self._log(
+                            f"ERROR: Island #{component} ({len(component_indices)} nodes) has "
+                            f"{len(load_nodes)} load node(s) but no voltage source; "
+                            "its loads and voltages are excluded."
+                        )
+                    else:
+                        self._log(
+                            f"Ignoring floating island #{component} ({len(component_indices)} nodes): "
+                            "no voltage source or load."
+                        )
+                self._topology_cache[topology_key] = (
+                    valid_node_mask.copy(), tuple(floating_representatives)
+                )
+            except Exception as e:
+                self._log(f"Connectivity diagnostic failed: {e}")
 
         # Initialize Vector I
         I = np.zeros(N)
@@ -243,9 +273,9 @@ class Solver:
             branch_resistance_scales=branch_resistance_scales,
         )
         scales = (
-            list(branch_resistance_scales)
+            np.asarray(branch_resistance_scales, dtype=float).reshape(-1)
             if branch_resistance_scales is not None
-            else [1.0] * len(getattr(mesh, 'branches', []))
+            else np.ones(len(getattr(mesh, 'branches', [])), dtype=float)
         )
         if len(scales) != len(getattr(mesh, 'branches', [])):
             raise ValueError("One resistance scale is required for every mesh branch.")

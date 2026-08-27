@@ -254,8 +254,13 @@ class Plotter:
             bounds = board_bounds or getattr(mesh, 'bounds_mm', None)
             fig = plt.figure(figsize=self._figsize(bounds), constrained_layout=True)
             axis = fig.add_subplot(111, projection='3d')
+            # Thermal layer specs are stored in KiCad stackup order: F.Cu is
+            # generated first at z=0 and B.Cu last.  Display the physical view
+            # convention instead, with the top side above the bottom side.
+            z_top = float(np.max(coords[:, 2]))
+            display_z = z_top - coords[:, 2]
             scatter = axis.scatter(
-                coords[:, 0], coords[:, 1], coords[:, 2], c=temperatures,
+                coords[:, 0], coords[:, 1], display_z, c=temperatures,
                 cmap='inferno', s=5, alpha=0.8,
             )
             axis.set_xlabel('X (mm)')
@@ -281,7 +286,9 @@ class Plotter:
         try:
             if not mesh.node_map:
                 return None
-            target_iz = max(key[2] for key in mesh.node_map) if side.upper() == 'TOP' else 0
+            # Thermal slices follow the KiCad stackup order: F.Cu / TOP is
+            # index 0 and B.Cu / BOTTOM is the final slice.
+            target_iz = 0 if side.upper() == 'TOP' else max(key[2] for key in mesh.node_map)
             surface = self._thermal_surface_grid(mesh, result, target_iz)
             if surface is None:
                 return None

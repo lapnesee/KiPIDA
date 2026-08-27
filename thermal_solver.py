@@ -107,10 +107,19 @@ class ThermalSolver:
             self._matrix_cache = {cache_key: (mesh, matrix, rhs.copy(), float(ambient_c))}
             del rows, cols, values, branch_a, branch_b, conductance, boundary_index, boundary_g
 
-        for node, power in mesh.heat_sources_w.items():
-            index = translate(node)
-            if index is not None:
-                rhs[index] += float(power)
+        heat_vector = getattr(mesh, "heat_vector_w", None)
+        if heat_vector is not None:
+            heat_vector = np.asarray(heat_vector, dtype=float).reshape(-1)
+            if heat_vector.size != count:
+                raise ValueError("Thermal heat vector does not match thermal mesh nodes.")
+            rhs += heat_vector
+            input_power = float(np.sum(heat_vector))
+        else:
+            for node, power in mesh.heat_sources_w.items():
+                index = translate(node)
+                if index is not None:
+                    rhs[index] += float(power)
+            input_power = float(sum(mesh.heat_sources_w.values()))
 
         if progress_callback:
             progress_callback(1, 3, "matrix")
@@ -161,7 +170,6 @@ class ThermalSolver:
             (result_temperatures[boundary.node_id] - float(ambient_c))
             for boundary in mesh.boundaries
         )
-        input_power = float(sum(mesh.heat_sources_w.values()))
         denominator = max(abs(input_power), 1e-12)
         balance_error = abs(boundary_power - input_power) / denominator * 100.0
         if progress_callback:
@@ -173,6 +181,7 @@ class ThermalSolver:
         )
         return ThermalResult(
             temperatures_c=result_temperatures,
+            temperature_vector_c=temperatures,
             hotspot=hotspot,
             component_results=component_results,
             total_input_power_w=input_power,

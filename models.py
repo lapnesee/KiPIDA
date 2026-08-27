@@ -380,6 +380,10 @@ class ComponentThermalResult:
 @dataclass
 class ThermalResult:
     temperatures_c: Dict[int, float] = field(default_factory=dict)
+    # Kept alongside the public node dictionary for fast electro-thermal
+    # coupling.  Values follow ``mesh.nodes`` order and avoid rebuilding a
+    # multi-million-entry Python mapping between coupled iterations.
+    temperature_vector_c: object = None
     hotspot: Optional[ThermalHotspot] = None
     component_results: List[ComponentThermalResult] = field(default_factory=list)
     total_input_power_w: float = 0.0
