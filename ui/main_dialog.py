@@ -24,6 +24,7 @@ from electrothermal import ElectroThermalSolver
 from thermal_mesh import ThermalMesher
 from thermal_model import CopperLossPoint, ThermalModelBuilder
 from thermal_solver import ThermalSolver
+from thermal_overlay import ThermalOverlayManager
 from ui.ac_analysis_panel import ACAnalysisPanel
 from ui.cfd_analysis_panel import CFDAnalysisPanel
 from ui.differential_analysis_panel import DifferentialAnalysisPanel
@@ -62,6 +63,11 @@ class KiPIDA_MainDialog(wx.Dialog):
         self._thermal_result_generation = 0
         self._closing = False
         self._plot_lock = threading.Lock()
+        # Kept only for the dialog lifetime.  Mesh and CSR reuse is guarded by
+        # a live-board fingerprint, so unsaved edits in PCB Editor invalidate
+        # it without requiring a KiCad/plugin restart.
+        self._thermal_session_cache = {}
+        self._thermal_board_signature = None
         
         self._init_ui()
         self.Center()
@@ -163,6 +169,9 @@ class KiPIDA_MainDialog(wx.Dialog):
             rails_provider=lambda: self.power_tree.rails,
             log_callback=self.log,
             mesh_context_provider=self._thermal_mesh_context,
+            inject_overlay_callback=self._inject_thermal_overlay,
+            clear_overlay_callback=self._clear_thermal_overlay,
+            clear_cache_callback=self._clear_thermal_session_cache,
         )
         thermal_sizer.Add(self.thermal_panel, 1, wx.EXPAND | wx.ALL, 5)
         self.tab_thermal.SetSizer(thermal_sizer)
@@ -260,15 +269,80 @@ class KiPIDA_MainDialog(wx.Dialog):
         """Re-read KiCad's live IPC board data before a new analysis run."""
         try:
             self._thermal_geometry_context = None
-            # Copper geometry is safe to reuse only until KiCad asks us to
-            # refresh the live board.  This keeps reruns correct after edits.
-            ThermalModelBuilder.invalidate_board_cache(self.board)
+            signature = ThermalModelBuilder.board_geometry_signature(self.board)
+            board_changed = signature != self._thermal_board_signature
+            if board_changed:
+                ThermalModelBuilder.invalidate_board_cache(self.board)
+                self._thermal_session_cache.clear()
+                self._thermal_board_signature = signature
+                self.log("Live PCB geometry changed; invalidated thermal mesh/CSR cache.")
+            else:
+                self.log("Live PCB geometry unchanged; thermal mesh/CSR cache remains eligible.")
             self.ac_panel.refresh(force_discovery=True)
             self.differential_panel.refresh_live_board()
             self.thermal_panel.refresh_components(preserve_user=True)
             self.log("Refreshed live PCB geometry and component discovery.")
         except Exception as exc:
             self.log(f"Live PCB refresh warning: {exc}")
+
+    @staticmethod
+    def _thermal_cache_key(settings, compute_settings, coupled, copper_losses):
+        airflow = settings.airflow
+        components = tuple(sorted(
+            (
+                component.ref_des, float(component.power_w), float(component.width_mm),
+                float(component.depth_mm), float(component.height_mm),
+                float(component.theta_jb_c_per_w), float(component.max_junction_c),
+                bool(component.enabled), str(component.model_source),
+            )
+            for component in settings.components
+        ))
+        losses = tuple(sorted(
+            (float(loss.x_mm), float(loss.y_mm), int(loss.layer_id), float(loss.power_w))
+            for loss in copper_losses
+        ))
+        thermal = (
+            float(settings.grid_size_mm), float(settings.ambient_c), bool(settings.include_radiation),
+            float(settings.emissivity), bool(settings.include_dc_copper_losses),
+            str(airflow.mode), float(airflow.velocity_m_s), float(airflow.direction_deg),
+            float(airflow.custom_h_w_m2k), bool(airflow.expose_top),
+            bool(airflow.expose_bottom), bool(airflow.expose_edges), components, losses,
+        )
+        runtime = (
+            str(getattr(compute_settings, "backend", "AUTO")),
+            bool(getattr(compute_settings, "cuda_enabled", False)),
+            int(getattr(compute_settings, "cuda_device", 0) or 0),
+            int(getattr(compute_settings, "cpu_threads", 0) or 0),
+        )
+        return bool(coupled), thermal, runtime
+
+    def _clear_thermal_session_cache(self):
+        self._thermal_session_cache.clear()
+        ThermalModelBuilder.invalidate_board_cache(self.board)
+        self.log("Cleared the in-session thermal mesh, CSR, CUDA workspace and copper-geometry cache.")
+
+    def _inject_thermal_overlay(self):
+        if getattr(self, "thermal_mesh", None) is None or getattr(self, "thermal_result", None) is None:
+            message = "Run a thermal analysis before injecting its KiCad heat overlay."
+            self.log(message)
+            wx.MessageBox(message, "Thermal overlay", wx.OK | wx.ICON_INFORMATION)
+            return
+        try:
+            manager = ThermalOverlayManager(self.board, log_callback=self.log)
+            manager.inject(self.thermal_mesh, self.thermal_result)
+            self.log("KiCad thermal overlay injection completed.")
+        except Exception as exc:
+            self.log(f"Thermal overlay injection error: {exc}")
+            wx.MessageBox(str(exc), "Thermal overlay", wx.OK | wx.ICON_ERROR)
+
+    def _clear_thermal_overlay(self):
+        try:
+            manager = ThermalOverlayManager(self.board, log_callback=self.log)
+            removed = manager.clear()
+            self.log(f"KiCad thermal overlay clear completed ({removed} image(s)).")
+        except Exception as exc:
+            self.log(f"Thermal overlay clear error: {exc}")
+            wx.MessageBox(str(exc), "Thermal overlay", wx.OK | wx.ICON_ERROR)
 
     def _board_file_path(self):
         project_path = getattr(self.project, "path", "")
@@ -1097,23 +1171,43 @@ class KiPIDA_MainDialog(wx.Dialog):
                 self._dc_copper_loss_points(system_results)
                 if settings.include_dc_copper_losses else []
             )
-            builder = ThermalModelBuilder(
-                self.board,
-                debug=debug_mode,
-                log_callback=self._thermal_worker_log,
-                board_file_path=board_file_path,
+            cache_key = (
+                self._thermal_board_signature,
+                self._thermal_cache_key(settings, compute_settings, coupled, copper_losses),
             )
-            model = builder.build(settings, rails=rails, copper_losses=copper_losses)
-            mesher = ThermalMesher(
-                debug=debug_mode,
-                log_callback=self._thermal_worker_log,
-                compute_settings=compute_settings,
-            )
-            mesh = mesher.generate_mesh(
-                model,
-                settings,
-                progress_callback=self._thermal_worker_progress,
-            )
+            cached = self._thermal_session_cache.get(cache_key)
+            if cached is not None:
+                mesh, thermal_solver = cached
+                self._thermal_worker_log(
+                    f"Reusing in-session thermal mesh ({len(mesh.nodes):,} nodes) and cached CSR/CUDA workspace."
+                )
+            else:
+                builder = ThermalModelBuilder(
+                    self.board,
+                    debug=debug_mode,
+                    log_callback=self._thermal_worker_log,
+                    board_file_path=board_file_path,
+                )
+                model = builder.build(settings, rails=rails, copper_losses=copper_losses)
+                mesher = ThermalMesher(
+                    debug=debug_mode,
+                    log_callback=self._thermal_worker_log,
+                    compute_settings=compute_settings,
+                )
+                mesh = mesher.generate_mesh(
+                    model,
+                    settings,
+                    progress_callback=self._thermal_worker_progress,
+                )
+                thermal_solver = ThermalSolver(
+                    debug=debug_mode,
+                    log_callback=self._thermal_worker_log,
+                    compute_settings=compute_settings,
+                )
+                self._thermal_session_cache = {cache_key: (mesh, thermal_solver)}
+                self._thermal_worker_log(
+                    "Cached thermal mesh and sparse solver workspace for unchanged-session reruns."
+                )
 
             if coupled:
                 rail_contexts = {
@@ -1128,6 +1222,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                     debug=debug_mode,
                     log_callback=self._thermal_worker_log,
                     compute_settings=compute_settings,
+                    thermal_solver=thermal_solver,
                 )
                 solved = solver.solve(
                     mesh, settings, rail_contexts,
@@ -1135,13 +1230,8 @@ class KiPIDA_MainDialog(wx.Dialog):
                 )
                 result = solved.thermal
             else:
-                solver = ThermalSolver(
-                    debug=debug_mode,
-                    log_callback=self._thermal_worker_log,
-                    compute_settings=compute_settings,
-                )
                 solved = None
-                result = solver.solve(
+                result = thermal_solver.solve(
                     mesh, ambient_c=settings.ambient_c,
                     progress_callback=self._thermal_worker_progress,
                 )

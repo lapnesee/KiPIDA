@@ -58,11 +58,17 @@ class ThermalComponentDialog(wx.Dialog):
 
 
 class ThermalAnalysisPanel(wx.Panel):
-    def __init__(self, parent, rails_provider, log_callback=None, mesh_context_provider=None):
+    def __init__(
+        self, parent, rails_provider, log_callback=None, mesh_context_provider=None,
+        inject_overlay_callback=None, clear_overlay_callback=None, clear_cache_callback=None,
+    ):
         super().__init__(parent)
         self.rails_provider = rails_provider
         self.log_callback = log_callback
         self.mesh_context_provider = mesh_context_provider
+        self.inject_overlay_callback = inject_overlay_callback
+        self.clear_overlay_callback = clear_overlay_callback
+        self.clear_cache_callback = clear_cache_callback
         self.settings = ThermalAnalysisSettings()
         self._init_ui()
 
@@ -125,6 +131,19 @@ class ThermalAnalysisPanel(wx.Panel):
             check.SetValue(True)
             checks.Add(check, 0, wx.RIGHT, 14)
         settings_box.Add(checks, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+
+        overlay_controls = wx.BoxSizer(wx.HORIZONTAL)
+        self.btn_inject_overlay = wx.Button(settings_parent, label="Inject KiCad Heat Overlay")
+        self.btn_clear_overlay = wx.Button(settings_parent, label="Clear KiCad Heat Overlay")
+        self.btn_clear_mesh_cache = wx.Button(settings_parent, label="Clear Thermal Cache")
+        overlay_controls.Add(self.btn_inject_overlay, 0, wx.RIGHT, 6)
+        overlay_controls.Add(self.btn_clear_overlay, 0, wx.RIGHT, 14)
+        overlay_controls.Add(self.btn_clear_mesh_cache, 0)
+        overlay_controls.Add(wx.StaticText(
+            settings_parent,
+            label="Top: User.Drawings; Bottom: User.Comments (non-electrical layers).",
+        ), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+        settings_box.Add(overlay_controls, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         main.Add(settings_box, 0, wx.EXPAND | wx.ALL, 5)
 
         component_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Component Heat Sources")
@@ -160,6 +179,21 @@ class ThermalAnalysisPanel(wx.Panel):
         self.txt_grid.Bind(wx.EVT_SPINCTRLDOUBLE, self._on_grid_changed)
         self.txt_grid.Bind(wx.EVT_TEXT, self._on_grid_changed)
         self.txt_expert_grid.Bind(wx.EVT_TEXT, self._on_expert_grid_changed)
+        self.btn_inject_overlay.Bind(wx.EVT_BUTTON, self._on_inject_overlay)
+        self.btn_clear_overlay.Bind(wx.EVT_BUTTON, self._on_clear_overlay)
+        self.btn_clear_mesh_cache.Bind(wx.EVT_BUTTON, self._on_clear_mesh_cache)
+
+    def _on_inject_overlay(self, _event):
+        if self.inject_overlay_callback:
+            self.inject_overlay_callback()
+
+    def _on_clear_overlay(self, _event):
+        if self.clear_overlay_callback:
+            self.clear_overlay_callback()
+
+    def _on_clear_mesh_cache(self, _event):
+        if self.clear_cache_callback:
+            self.clear_cache_callback()
 
     def _on_mesh_preset(self, event):
         values = {0: 1.5, 1: 1.0, 2: 0.5}

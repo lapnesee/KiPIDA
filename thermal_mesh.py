@@ -1,6 +1,7 @@
 """Finite-volume 3D thermal mesh for Ki-PIDA boards."""
 
 from dataclasses import dataclass, field
+from array import array
 import math
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -56,14 +57,128 @@ class ThermalBoundary:
     kind: str = "convection"
 
 
+class PackedThermalBranches:
+    """Compact branch storage for large thermal meshes.
+
+    A 0.1 mm board can have several million finite-volume branches.  Keeping
+    one Python dataclass for each connection consumed more memory and spent a
+    significant portion of the run in object allocation.  This container
+    keeps the exact same data in contiguous primitive arrays.  It deliberately
+    retains a small sequence-compatible interface for existing diagnostics and
+    tests, while the solver consumes :meth:`arrays` without recreating objects.
+    """
+
+    _KIND_CODES = {"solid": 0, "lateral": 1, "vertical": 2, "via": 3}
+    _KIND_NAMES = ("solid", "lateral", "vertical", "via")
+
+    def __init__(self):
+        self.node_a = array("i")
+        self.node_b = array("i")
+        self.conductance = array("d")
+        self.kind = bytearray()
+
+    def __len__(self):
+        return len(self.node_a)
+
+    def __bool__(self):
+        return bool(self.node_a)
+
+    def append_values(self, node_a, node_b, conductance_w_k, kind="solid"):
+        self.node_a.append(int(node_a))
+        self.node_b.append(int(node_b))
+        self.conductance.append(float(conductance_w_k))
+        self.kind.append(self._KIND_CODES.get(str(kind), 0))
+
+    def append(self, branch):
+        self.append_values(
+            branch.node_a, branch.node_b, branch.conductance_w_k,
+            getattr(branch, "kind", "solid"),
+        )
+
+    def _item(self, index):
+        code = self.kind[index]
+        return ThermalBranch(
+            self.node_a[index], self.node_b[index], self.conductance[index],
+            self._KIND_NAMES[code] if code < len(self._KIND_NAMES) else "solid",
+        )
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return [self._item(item) for item in range(*index.indices(len(self)))]
+        return self._item(index)
+
+    def __iter__(self):
+        for index in range(len(self)):
+            yield self._item(index)
+
+    def arrays(self):
+        """Return zero-copy NumPy views suitable for sparse assembly."""
+        return (
+            np.frombuffer(self.node_a, dtype=np.int32),
+            np.frombuffer(self.node_b, dtype=np.int32),
+            np.frombuffer(self.conductance, dtype=np.float64),
+        )
+
+
+class PackedThermalBoundaries:
+    """Compact convective-boundary storage matching ``PackedThermalBranches``."""
+
+    _KIND_CODES = {"convection": 0, "top": 1, "bottom": 2, "edge": 3}
+    _KIND_NAMES = ("convection", "top", "bottom", "edge")
+
+    def __init__(self):
+        self.node_id = array("i")
+        self.conductance = array("d")
+        self.kind = bytearray()
+
+    def __len__(self):
+        return len(self.node_id)
+
+    def __bool__(self):
+        return bool(self.node_id)
+
+    def append_values(self, node_id, conductance_w_k, kind="convection"):
+        self.node_id.append(int(node_id))
+        self.conductance.append(float(conductance_w_k))
+        self.kind.append(self._KIND_CODES.get(str(kind), 0))
+
+    def append(self, boundary):
+        self.append_values(
+            boundary.node_id, boundary.conductance_w_k,
+            getattr(boundary, "kind", "convection"),
+        )
+
+    def _item(self, index):
+        code = self.kind[index]
+        return ThermalBoundary(
+            self.node_id[index], self.conductance[index],
+            self._KIND_NAMES[code] if code < len(self._KIND_NAMES) else "convection",
+        )
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return [self._item(item) for item in range(*index.indices(len(self)))]
+        return self._item(index)
+
+    def __iter__(self):
+        for index in range(len(self)):
+            yield self._item(index)
+
+    def arrays(self):
+        return (
+            np.frombuffer(self.node_id, dtype=np.int32),
+            np.frombuffer(self.conductance, dtype=np.float64),
+        )
+
+
 @dataclass
 class ThermalMesh:
     nodes: List[int] = field(default_factory=list)
     node_coords: Dict[int, Tuple[float, float, float]] = field(default_factory=dict)
     node_layers: Dict[int, Optional[int]] = field(default_factory=dict)
     node_map: Dict[Tuple[int, int, int], int] = field(default_factory=dict)
-    branches: List[ThermalBranch] = field(default_factory=list)
-    boundaries: List[ThermalBoundary] = field(default_factory=list)
+    branches: PackedThermalBranches = field(default_factory=PackedThermalBranches)
+    boundaries: PackedThermalBoundaries = field(default_factory=PackedThermalBoundaries)
     heat_sources_w: Dict[int, float] = field(default_factory=dict)
     # Optional dense source vector used by the coupled solver.  It is faster
     # than updating a Python dictionary once per electrical branch.
@@ -79,6 +194,12 @@ class ThermalMesh:
 
     def add_heat(self, node_id, power_w):
         self.heat_sources_w[node_id] = self.heat_sources_w.get(node_id, 0.0) + float(power_w)
+
+    def add_branch(self, node_a, node_b, conductance_w_k, kind="solid"):
+        self.branches.append_values(node_a, node_b, conductance_w_k, kind)
+
+    def add_boundary(self, node_id, conductance_w_k, kind="convection"):
+        self.boundaries.append_values(node_id, conductance_w_k, kind)
 
     def nearest_node(self, x_mm, y_mm, layer_id=None):
         """Return the closest cell without scanning the full 3D mesh in normal use."""
@@ -131,9 +252,10 @@ def estimate_thermal_mesh_cost(context, grid_size_mm):
     nodes = xy_cells * layers
     branches = int(xy_cells * (2 * layers + max(0, layers - 1)))
     nnz = nodes + 2 * branches
-    # Includes Python mesh objects, vectorized COO assembly and a sparse solve
-    # working set.  It intentionally overestimates rather than risking KiCad.
-    cpu_bytes = nnz * 32 + nodes * 768 + branches * 112
+    # Packed branch/boundary storage avoids per-connection Python objects.  The
+    # estimate still includes COO/CSR assembly and solver workspace and remains
+    # deliberately conservative.
+    cpu_bytes = nnz * 32 + nodes * 512 + branches * 24
     gpu_bytes = nnz * 24 + nodes * 128
     cuda_ok = bool(context.get("cuda_available", False))
     threshold = int(context.get("cuda_min_nodes", 100000))
@@ -160,7 +282,7 @@ class ThermalMesher:
     CUDA_NODE_LIMIT = 1250000
     HARD_CPU_NODE_LIMIT = 2000000
     HARD_CUDA_NODE_LIMIT = 4000000
-    HOST_PEAK_BYTES_PER_NODE = 2304
+    HOST_PEAK_BYTES_PER_NODE = 1280
 
     def __init__(self, debug=False, log_callback=None, compute_settings=None):
         self.debug = debug
@@ -458,13 +580,13 @@ class ThermalMesher:
                 conductivity = self._harmonic(kx, nkx) if axis == "x" else self._harmonic(ky, nky)
                 area = (dy if axis == "x" else dx) * dz
                 distance = dx if axis == "x" else dy
-                mesh.branches.append(ThermalBranch(current, neighbor, conductivity * area / distance, "lateral"))
+                mesh.add_branch(current, neighbor, conductivity * area / distance, "lateral")
             upper = mesh.node_map.get((ix, iy, iz + 1))
             if upper is not None:
                 _, _, upper_kz, upper_thickness_mm = material[upper]
                 area = dx * dy
                 resistance = (dz / 2.0) / kz + (upper_thickness_mm * 1e-3 / 2.0) / upper_kz
-                mesh.branches.append(ThermalBranch(current, upper, area / max(resistance, 1e-30), "vertical"))
+                mesh.add_branch(current, upper, area / max(resistance, 1e-30), "vertical")
 
         board_thickness_m = max(z_cursor * 1e-3, 1e-6)
         for via in model.vias:
@@ -477,7 +599,7 @@ class ThermalMesher:
             plating_mm = 0.025
             area_mm2 = math.pi * max(via.diameter_mm * plating_mm - plating_mm ** 2, 1e-6)
             conductance = self.COPPER_K * area_mm2 * 1e-6 / board_thickness_m
-            mesh.branches.append(ThermalBranch(bottom, top, conductance, "via"))
+            mesh.add_branch(bottom, top, conductance, "via")
 
         convective_h = self.convection_coefficient(settings)
         radiative_h = 0.0
@@ -511,20 +633,20 @@ class ThermalMesher:
         for (ix, iy, iz), current in mesh.node_map.items():
             _, _, _, thickness_mm = material[current]
             if iz == 0 and settings.airflow.expose_bottom:
-                mesh.boundaries.append(ThermalBoundary(current, surface_h(current) * area_xy, "bottom"))
+                mesh.add_boundary(current, surface_h(current) * area_xy, "bottom")
             if iz == len(specs) - 1 and settings.airflow.expose_top:
-                mesh.boundaries.append(ThermalBoundary(current, surface_h(current) * area_xy, "top"))
+                mesh.add_boundary(current, surface_h(current) * area_xy, "top")
             if settings.airflow.expose_edges:
                 edge_area_x = dy * thickness_mm * 1e-3
                 edge_area_y = dx * thickness_mm * 1e-3
                 if mesh.node_map.get((ix - 1, iy, iz)) is None:
-                    mesh.boundaries.append(ThermalBoundary(current, h * edge_area_x, "edge"))
+                    mesh.add_boundary(current, h * edge_area_x, "edge")
                 if mesh.node_map.get((ix + 1, iy, iz)) is None:
-                    mesh.boundaries.append(ThermalBoundary(current, h * edge_area_x, "edge"))
+                    mesh.add_boundary(current, h * edge_area_x, "edge")
                 if mesh.node_map.get((ix, iy - 1, iz)) is None:
-                    mesh.boundaries.append(ThermalBoundary(current, h * edge_area_y, "edge"))
+                    mesh.add_boundary(current, h * edge_area_y, "edge")
                 if mesh.node_map.get((ix, iy + 1, iz)) is None:
-                    mesh.boundaries.append(ThermalBoundary(current, h * edge_area_y, "edge"))
+                    mesh.add_boundary(current, h * edge_area_y, "edge")
 
         for component in model.components:
             if not component.enabled or component.power_w <= 0:

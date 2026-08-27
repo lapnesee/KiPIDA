@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field, replace
 from collections import defaultdict
+import hashlib
 import time
 from typing import Dict, List, Optional, Tuple
 
@@ -168,6 +169,58 @@ class ThermalModelBuilder:
             cls._copper_cache.clear()
             return
         cls._copper_cache.pop(id(board), None)
+
+    @classmethod
+    def board_geometry_signature(cls, board):
+        """Return a lightweight signature of live geometry relevant to heat.
+
+        The IPC board does not expose a portable dirty/revision counter.  This
+        fingerprint lets the dialog retain a thermal mesh/CSR between unchanged
+        reruns while still invalidating it immediately after track, via, zone,
+        footprint or outline edits made in the PCB editor.
+        """
+        helper = cls(board)
+        digest = hashlib.blake2b(digest_size=16)
+
+        def value(item, name):
+            current = helper._get_val(item, name, "")
+            if current is None:
+                return ""
+            if name in {"position", "start", "end", "mid"}:
+                position = helper._position(item) if name == "position" else current
+                if position is not None and name != "position":
+                    position = (
+                        helper._to_mm(helper._get_val(current, "x", 0.0)),
+                        helper._to_mm(helper._get_val(current, "y", 0.0)),
+                    )
+                return position or ""
+            if name == "net":
+                return helper._get_val(current, "name", "")
+            return current
+
+        fields = ("position", "start", "mid", "end", "layer", "width", "diameter", "net")
+        for collection in ("tracks", "vias", "zones", "footprints", "shapes"):
+            try:
+                items = list(helper._items(collection))
+            except Exception:
+                # A missing optional IPC collection is safe; the next refresh
+                # remains conservative if the board adapter cannot enumerate it.
+                items = []
+            digest.update(f"{collection}:{len(items)}|".encode("utf-8"))
+            for item in items:
+                values = [str(value(item, field)) for field in fields]
+                # Graphic shapes include Edge.Cuts.  Their geometry is exposed
+                # consistently in the wrapper representation even when they do
+                # not have a generic ``position`` field.
+                if collection == "shapes":
+                    values.append(repr(item))
+                if collection == "footprints":
+                    values.append(str(helper._reference(item)))
+                    for pad in helper._pads(item):
+                        values.extend(str(value(pad, field)) for field in fields)
+                digest.update(";".join(values).encode("utf-8", "replace"))
+                digest.update(b"\n")
+        return digest.hexdigest()
 
     def _log(self, message):
         if self.log_callback:

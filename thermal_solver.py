@@ -68,29 +68,48 @@ class ThermalSolver:
                 f"Assembling sparse thermal matrix from {len(mesh.branches):,} branches and "
                 f"{len(mesh.boundaries):,} boundaries."
             )
-            branch_a = np.fromiter(
-                (translate(branch.node_a) for branch in mesh.branches),
-                dtype=np.int64, count=len(mesh.branches),
-            )
-            branch_b = np.fromiter(
-                (translate(branch.node_b) for branch in mesh.branches),
-                dtype=np.int64, count=len(mesh.branches),
-            )
-            conductance = np.fromiter(
-                (float(branch.conductance_w_k) for branch in mesh.branches),
-                dtype=np.float64, count=len(mesh.branches),
-            )
+            # Fine meshes store thermal connections in packed primitive arrays.
+            # This avoids recreating millions of ``ThermalBranch`` objects and
+            # then immediately converting them back to NumPy for COO/CSR.
+            if hasattr(mesh.branches, "arrays"):
+                branch_a, branch_b, conductance = mesh.branches.arrays()
+                branch_a = branch_a.astype(np.int64, copy=False)
+                branch_b = branch_b.astype(np.int64, copy=False)
+            else:
+                branch_a = np.fromiter(
+                    (translate(branch.node_a) for branch in mesh.branches),
+                    dtype=np.int64, count=len(mesh.branches),
+                )
+                branch_b = np.fromiter(
+                    (translate(branch.node_b) for branch in mesh.branches),
+                    dtype=np.int64, count=len(mesh.branches),
+                )
+                conductance = np.fromiter(
+                    (float(branch.conductance_w_k) for branch in mesh.branches),
+                    dtype=np.float64, count=len(mesh.branches),
+                )
+            if not identity_nodes:
+                branch_a = np.fromiter((translate(node) for node in branch_a), dtype=np.int64)
+                branch_b = np.fromiter((translate(node) for node in branch_b), dtype=np.int64)
             valid = (branch_a >= 0) & (branch_b >= 0) & (conductance > 0)
             branch_a, branch_b, conductance = branch_a[valid], branch_b[valid], conductance[valid]
 
-            boundary_index = np.fromiter(
-                (translate(boundary.node_id) for boundary in mesh.boundaries),
-                dtype=np.int64, count=len(mesh.boundaries),
-            )
-            boundary_g = np.fromiter(
-                (float(boundary.conductance_w_k) for boundary in mesh.boundaries),
-                dtype=np.float64, count=len(mesh.boundaries),
-            )
+            if hasattr(mesh.boundaries, "arrays"):
+                boundary_index, boundary_g = mesh.boundaries.arrays()
+                boundary_index = boundary_index.astype(np.int64, copy=False)
+            else:
+                boundary_index = np.fromiter(
+                    (translate(boundary.node_id) for boundary in mesh.boundaries),
+                    dtype=np.int64, count=len(mesh.boundaries),
+                )
+                boundary_g = np.fromiter(
+                    (float(boundary.conductance_w_k) for boundary in mesh.boundaries),
+                    dtype=np.float64, count=len(mesh.boundaries),
+                )
+            if not identity_nodes:
+                boundary_index = np.fromiter(
+                    (translate(node) for node in boundary_index), dtype=np.int64,
+                )
             boundary_valid = (boundary_index >= 0) & (boundary_g > 0)
             boundary_index, boundary_g = boundary_index[boundary_valid], boundary_g[boundary_valid]
             np.add.at(rhs, boundary_index, boundary_g * float(ambient_c))
@@ -165,11 +184,21 @@ class ThermalSolver:
             ))
         component_results.sort(key=lambda item: item.junction_temperature_c, reverse=True)
 
-        boundary_power = sum(
-            boundary.conductance_w_k *
-            (result_temperatures[boundary.node_id] - float(ambient_c))
-            for boundary in mesh.boundaries
-        )
+        if hasattr(mesh.boundaries, "arrays"):
+            boundary_ids, boundary_g = mesh.boundaries.arrays()
+            if not identity_nodes:
+                boundary_ids = np.fromiter(
+                    (translate(node) for node in boundary_ids), dtype=np.int64,
+                )
+            boundary_power = float(np.sum(
+                boundary_g * (temperatures[boundary_ids] - float(ambient_c))
+            ))
+        else:
+            boundary_power = sum(
+                boundary.conductance_w_k *
+                (result_temperatures[boundary.node_id] - float(ambient_c))
+                for boundary in mesh.boundaries
+            )
         denominator = max(abs(input_power), 1e-12)
         balance_error = abs(boundary_power - input_power) / denominator * 100.0
         if progress_callback:

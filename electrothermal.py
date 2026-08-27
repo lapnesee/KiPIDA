@@ -15,10 +15,14 @@ except (ImportError, ValueError):
 
 
 class ElectroThermalSolver:
-    def __init__(self, debug=False, log_callback=None, compute_settings=None):
+    def __init__(self, debug=False, log_callback=None, compute_settings=None, thermal_solver=None):
         self.debug = debug
         self.log_callback = log_callback
         self.compute_settings = compute_settings
+        # A dialog-level solver retains the matrix and CUDA CSR workspace for
+        # an unchanged thermal mesh across runs.  Falling back preserves the
+        # public standalone solver behaviour.
+        self.thermal_solver = thermal_solver
 
     def _log(self, message):
         if self.log_callback:
@@ -83,7 +87,7 @@ class ElectroThermalSolver:
     def solve(self, thermal_mesh, settings, rail_contexts, progress_callback=None):
         if not rail_contexts:
             raise ValueError("Run a DC analysis before coupled electro-thermal analysis.")
-        thermal_solver = ThermalSolver(
+        thermal_solver = self.thermal_solver or ThermalSolver(
             debug=self.debug,
             log_callback=self.log_callback,
             compute_settings=self.compute_settings,
