@@ -418,7 +418,7 @@ class ThermalMesher:
                     ))
                     for layer_index, (
                         outline, copper, min_x_arg, min_y_arg, nx_arg,
-                        row_start, row_stop, grid_arg,
+                        row_start, row_stop, grid_arg, rectangular_arg,
                     ) in work_items
                 ]
                 for layer_index, future in futures:
