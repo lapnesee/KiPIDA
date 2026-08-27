@@ -1203,6 +1203,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             ),
             f"Compute backend: {result.compute_backend} ({result.compute_device})",
             f"Sparse matrix path: {result.compute_matrix_assembly}",
+            "CUDA warm start: device-resident previous thermal solution" if result.compute_warm_start_used else
+            "CUDA warm start: unavailable (first solve or CPU backend)",
             f"CPU threads: {result.compute_cpu_threads}",
             f"Solve time: {result.compute_solve_seconds:.4g} s "
             f"(transfer {result.compute_transfer_seconds:.4g} s)",

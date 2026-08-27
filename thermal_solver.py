@@ -188,4 +188,5 @@ class ThermalSolver:
             compute_cpu_threads=compute.metadata.cpu_threads,
             compute_fallback_reason=compute.metadata.fallback_reason,
             compute_matrix_assembly=compute.metadata.matrix_assembly,
+            compute_warm_start_used=compute.metadata.warm_start_used,
         )

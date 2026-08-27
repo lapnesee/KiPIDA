@@ -38,6 +38,7 @@ class ComputeMetadata:
     cache_hit: bool = False
     matrix_reused: bool = False
     matrix_assembly: str = "CPU_CSR"
+    warm_start_used: bool = False
 
 
 @dataclass
@@ -234,7 +235,6 @@ class SparseComputeBackend:
                 matrix_assembly = "CUDA_CSR_REUSED"
             elif structure_matches:
                 matrix_assembly = "CUDA_CSR_VALUES_UPDATED"
-            gpu_rhs = cp.asarray(rhs)
             props = cp.cuda.runtime.getDeviceProperties(device_index)
             device_name = props.get("name", f"CUDA {device_index}")
             if isinstance(device_name, bytes):
@@ -249,14 +249,35 @@ class SparseComputeBackend:
                     gpu_matrix.shape, matvec=lambda vector: vector / safe_diagonal,
                     dtype=gpu_matrix.dtype,
                 )
+            # Keep the matrix, Jacobi preconditioner, RHS buffer and previous
+            # solution resident.  In electro-thermal coupling the matrix is
+            # constant while the heat RHS changes only slightly between two
+            # iterations, making this a very effective CG warm start.
             if workspace_key is not None:
-                self._cuda_workspaces[workspace_key] = {
-                    "matrix": gpu_matrix,
-                    "preconditioner": preconditioner,
-                    "indices": None if is_coo else matrix.indices.copy(),
-                    "indptr": None if is_coo else matrix.indptr.copy(),
-                    "source_identity": id(matrix),
-                }
+                if workspace is None or not structure_matches:
+                    workspace = {
+                        "matrix": gpu_matrix,
+                        "preconditioner": preconditioner,
+                        "indices": None if is_coo else matrix.indices.copy(),
+                        "indptr": None if is_coo else matrix.indptr.copy(),
+                        "source_identity": id(matrix),
+                        "rhs": None,
+                        "last_solution": None,
+                    }
+                    self._cuda_workspaces[workspace_key] = workspace
+                else:
+                    workspace["matrix"] = gpu_matrix
+                    workspace["preconditioner"] = preconditioner
+                    workspace["source_identity"] = id(matrix)
+            # Updating an existing device-side RHS avoids a fresh allocation
+            # and preserves the CUDA workspace through all coupled passes.
+            gpu_rhs = workspace.get("rhs") if workspace is not None else None
+            if gpu_rhs is None or gpu_rhs.shape != rhs.shape or gpu_rhs.dtype != rhs.dtype:
+                gpu_rhs = cp.asarray(rhs)
+                if workspace is not None:
+                    workspace["rhs"] = gpu_rhs
+            else:
+                gpu_rhs.set(rhs)
             transfer_seconds = time.perf_counter() - transfer_started
             iterations = [0]
 
@@ -277,6 +298,15 @@ class SparseComputeBackend:
                 "M": preconditioner,
                 "callback": count_iteration,
             }
+            warm_start_used = False
+            previous_solution = workspace.get("last_solution") if matrix_reused and workspace else None
+            if (
+                previous_solution is not None and
+                previous_solution.shape == gpu_rhs.shape and
+                previous_solution.dtype == gpu_matrix.dtype
+            ):
+                kwargs["x0"] = previous_solution
+                warm_start_used = True
             if str(system_kind).upper() == "SPD":
                 gpu_values, status = cpx_linalg.cg(gpu_matrix, gpu_rhs, **kwargs)
             else:
@@ -286,6 +316,10 @@ class SparseComputeBackend:
             if status != 0:
                 detail = f" after {max_iterations} DC trial iterations" if dc_trial else ""
                 raise RuntimeError(f"CUDA iterative solver did not converge (status={status}){detail}.")
+            if workspace is not None:
+                # Deliberately keep this CuPy array on the device.  The host
+                # copy below is only for Ki-PIDA result/report generation.
+                workspace["last_solution"] = gpu_values
             residual = cp.linalg.norm(gpu_matrix.dot(gpu_values) - gpu_rhs) / cp.maximum(
                 cp.linalg.norm(gpu_rhs), 1.0e-30
             )
@@ -304,6 +338,7 @@ class SparseComputeBackend:
                 cache_hit=structure_matches,
                 matrix_reused=matrix_reused,
                 matrix_assembly=matrix_assembly,
+                warm_start_used=warm_start_used,
             ))
 
     def clear_cache(self):

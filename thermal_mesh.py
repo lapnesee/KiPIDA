@@ -6,16 +6,26 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
+
 try:
-    from shapely.geometry import Point
+    from shapely.geometry import Point, box
     from shapely.prepared import prep
 except ImportError:
-    Point = prep = None
+    Point = prep = box = None
 
 try:
     from shapely import from_wkb
 except ImportError:
     from_wkb = None
+
+try:
+    # Shapely 2 evaluates coordinate arrays inside GEOS.  This replaces one
+    # Python Point allocation and two Python->GEOS calls for every thermal
+    # cell, which dominates fine (0.1 mm) mesh construction time.
+    from shapely import intersects_xy
+except ImportError:
+    intersects_xy = None
 
 try:
     from .models import ThermalAnalysisSettings
@@ -182,12 +192,44 @@ class ThermalMesher:
         return max(10000, min(hard_limit, memory_nodes)), cuda_requested
 
     @staticmethod
-    def _sample_layer_band(outline, copper, min_x, min_y, nx, row_start, row_stop, grid):
+    def _sample_layer_band(outline, copper, min_x, min_y, nx, row_start, row_stop, grid,
+                           outline_is_rectangular=False):
         """Sample a horizontal layer band; inputs are WKB in worker threads."""
         if from_wkb is not None and isinstance(outline, bytes):
             outline = from_wkb(outline)
         if from_wkb is not None and isinstance(copper, bytes):
             copper = from_wkb(copper)
+
+        # Vectorised Shapely 2 path.  ``intersects_xy`` retains the historical
+        # ``covers(Point(...))`` boundary behaviour, unlike ``contains_xy``.
+        # It is intentionally optional so KiCad installations carrying
+        # Shapely 1 retain the proven scalar fallback below.
+        if intersects_xy is not None:
+            row_count = max(0, int(row_stop) - int(row_start))
+            if not row_count:
+                return []
+            x_values = min_x + (np.arange(int(nx), dtype=np.float64) + 0.5) * grid
+            y_values = min_y + (np.arange(int(row_start), int(row_stop), dtype=np.float64) + 0.5) * grid
+            x_grid = np.tile(x_values, row_count)
+            y_grid = np.repeat(y_values, int(nx))
+            if outline_is_rectangular:
+                inside = np.ones(x_grid.size, dtype=bool)
+            else:
+                inside = np.asarray(intersects_xy(outline, x_grid, y_grid), dtype=bool)
+            if copper is None or copper.is_empty:
+                copper_mask = np.zeros(x_grid.size, dtype=bool)
+            else:
+                copper_mask = np.asarray(intersects_xy(copper, x_grid, y_grid), dtype=bool)
+            active = np.flatnonzero(inside)
+            # Return the same compact, deterministic cell tuples consumed by
+            # the finite-volume builder.  Geometry classification is now done
+            # in bulk; the remaining tuple creation is unavoidable because the
+            # existing mesh API stores sparse board cells explicitly.
+            return [
+                (int(index % nx), int(row_start + index // nx), bool(copper_mask[index]))
+                for index in active
+            ]
+
         prepared_outline = prep(outline)
         prepared_copper = prep(copper) if copper is not None and not copper.is_empty else None
         cells = []
@@ -201,8 +243,11 @@ class ThermalMesher:
         return cells
 
     @classmethod
-    def _sample_layer(cls, outline, copper, min_x, min_y, nx, ny, grid):
-        return cls._sample_layer_band(outline, copper, min_x, min_y, nx, 0, ny, grid)
+    def _sample_layer(cls, outline, copper, min_x, min_y, nx, ny, grid,
+                      outline_is_rectangular=False):
+        return cls._sample_layer_band(
+            outline, copper, min_x, min_y, nx, 0, ny, grid, outline_is_rectangular
+        )
 
     @staticmethod
     def convection_coefficient(settings: ThermalAnalysisSettings):
@@ -305,7 +350,28 @@ class ThermalMesher:
         nx = max(1, int(nx))
         ny = max(1, int(ny))
         workers = min(configured_workers, max(1, len(specs)))
+        # A rectangular outline is very common.  Identifying it once lets all
+        # layers skip the otherwise dominant board-outline point query while
+        # preserving exact sampling for cut-outs and non-rectangular boards.
+        outline_is_rectangular = False
+        try:
+            outline_bounds = tuple(float(value) for value in model.outline.bounds)
+            outline_is_rectangular = bool(
+                box is not None and model.outline.covers(box(*outline_bounds)) and
+                all(math.isclose(a, b, abs_tol=1.0e-9) for a, b in zip(
+                    (min_x, min_y, max_x, max_y), outline_bounds
+                )) and
+                math.isclose((max_x - min_x) / grid, round((max_x - min_x) / grid), abs_tol=1.0e-9) and
+                math.isclose((max_y - min_y) / grid, round((max_y - min_y) / grid), abs_tol=1.0e-9)
+            )
+        except (AttributeError, TypeError, ValueError):
+            pass
         outline = model.outline.wkb if from_wkb is not None else model.outline
+        if intersects_xy is not None:
+            self._log(
+                "Using vectorized GEOS coordinate sampling" +
+                (" with rectangular-outline fast path." if outline_is_rectangular else ".")
+            )
         sample_inputs = [
             (
                 outline,
@@ -314,7 +380,7 @@ class ThermalMesher:
                     if from_wkb is not None and model.copper_by_layer.get(spec.layer_id) is not None
                     else model.copper_by_layer.get(spec.layer_id)
                 ),
-                min_x, min_y, nx, ny, grid,
+                min_x, min_y, nx, ny, grid, outline_is_rectangular,
             )
             for spec in specs
         ]
@@ -329,13 +395,13 @@ class ThermalMesher:
             work_items = []
             for layer_index, (sample_input, bands) in enumerate(zip(sample_inputs, band_counts)):
                 bands = max(1, int(bands))
-                outline_arg, copper_arg, min_x_arg, min_y_arg, nx_arg, _, grid_arg = sample_input
+                outline_arg, copper_arg, min_x_arg, min_y_arg, nx_arg, _, grid_arg, rectangular_arg = sample_input
                 for band in range(bands):
                     row_start = (ny * band) // bands
                     row_stop = (ny * (band + 1)) // bands
                     work_items.append((layer_index, (
                         outline_arg, copper_arg, min_x_arg, min_y_arg, nx_arg,
-                        row_start, row_stop, grid_arg,
+                        row_start, row_stop, grid_arg, rectangular_arg,
                     )))
             workers = min(configured_workers, len(work_items))
             self._log(
@@ -348,7 +414,7 @@ class ThermalMesher:
                     (layer_index, pool.submit(
                         self._sample_layer_band,
                         outline, copper, min_x_arg, min_y_arg, nx_arg,
-                        row_start, row_stop, grid_arg,
+                        row_start, row_stop, grid_arg, rectangular_arg,
                     ))
                     for layer_index, (
                         outline, copper, min_x_arg, min_y_arg, nx_arg,
@@ -465,13 +531,26 @@ class ThermalMesher:
                 continue
             iz = 0 if placement.side == "BOTTOM" else len(specs) - 1
             nodes = []
-            for (ix, iy, node_iz), candidate in mesh.node_map.items():
-                if node_iz != iz:
-                    continue
-                x, y, _ = mesh.node_coords[candidate]
-                if (abs(x - placement.x_mm) <= placement.width_mm / 2.0 and
-                        abs(y - placement.y_mm) <= placement.depth_mm / 2.0):
-                    nodes.append(candidate)
+            # The former implementation scanned every node in the complete
+            # 3D mesh for every component.  On a 0.1 mm 11-layer board that
+            # is millions of dictionary entries per component.  Restrict the
+            # exact same centre-point test to the component's grid window.
+            left = float(placement.x_mm) - float(placement.width_mm) / 2.0
+            right = float(placement.x_mm) + float(placement.width_mm) / 2.0
+            bottom = float(placement.y_mm) - float(placement.depth_mm) / 2.0
+            top = float(placement.y_mm) + float(placement.depth_mm) / 2.0
+            ix_start = max(0, int(math.ceil((left - min_x) / grid - 0.5)))
+            ix_stop = min(nx - 1, int(math.floor((right - min_x) / grid - 0.5)))
+            iy_start = max(0, int(math.ceil((bottom - min_y) / grid - 0.5)))
+            iy_stop = min(ny - 1, int(math.floor((top - min_y) / grid - 0.5)))
+            if ix_start <= ix_stop and iy_start <= iy_stop:
+                for iy in range(iy_start, iy_stop + 1):
+                    y = min_y + (iy + 0.5) * grid
+                    for ix in range(ix_start, ix_stop + 1):
+                        x = min_x + (ix + 0.5) * grid
+                        candidate = mesh.node_map.get((ix, iy, iz))
+                        if candidate is not None and left <= x <= right and bottom <= y <= top:
+                            nodes.append(candidate)
             if not nodes:
                 nearest = mesh.nearest_node(placement.x_mm, placement.y_mm, specs[iz].layer_id)
                 nodes = [nearest] if nearest is not None else []
