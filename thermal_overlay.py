@@ -380,6 +380,36 @@ class ThermalOverlayManager:
         self._log(f"Removed {len(images)} Ki-PIDA thermal overlay image(s).")
         return len(images)
 
+    def _ensure_ungrouped(self, items):
+        """Remove newly created overlays from any active KiCad group.
+
+        Reference images have no parent/group field themselves, but some KiCad
+        10 builds add newly created items to the currently active group.  A
+        thermal overlay must remain a board-level annotation: moving a group
+        that contains U4 or any other footprint must never move the heat map.
+        """
+        groups_api = getattr(self.board, "groups", None)
+        if groups_api is None:
+            return 0
+        try:
+            created_ids = {str(item.id) for item in items if getattr(item, "id", None) is not None}
+            if not created_ids:
+                return 0
+            removed = 0
+            for group in groups_api.get_all():
+                members = list(groups_api.get_members(group))
+                owned = [member for member in members if str(getattr(member, "id", "")) in created_ids]
+                if owned:
+                    removed += int(groups_api.remove_items(group, owned) or len(owned))
+            if removed:
+                self._log(f"Detached {removed} overlay image(s) from active KiCad group(s).")
+            return removed
+        except Exception as exc:
+            # Group support is optional in early KiCad 10 IPC builds.  Never
+            # fail a successful overlay injection merely because it is absent.
+            self._log(f"Could not verify KiCad group membership: {exc}")
+            return 0
+
     @staticmethod
     def _reference_image(ReferenceImage, layer, png, center_x_mm, center_y_mm):
         from kipy.geometry import Vector2
@@ -434,6 +464,7 @@ class ThermalOverlayManager:
         # Only remove an old overlay after both new surfaces were generated.
         self.clear()
         created = self.board.create_items(prepared)
+        self._ensure_ungrouped(created or prepared)
         self._log(
             "Injected thermal overlays and colour scales on X.Thermal.Top and "
             "X.Thermal.Bottom. Toggle those layers in Appearance to inspect each side."

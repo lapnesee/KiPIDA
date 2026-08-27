@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 
 from kipy.board_types import BoardLayer
 
@@ -22,6 +23,33 @@ class _LegacyLayerBoard:
         self.set_calls.append((copper_count, set(layers)))
         self.enabled = set(layers) | {BoardLayer.BL_F_Cu, BoardLayer.BL_B_Cu}
         return list(self.enabled)
+
+
+class _GroupOperations:
+    """Minimal KiCad group API double for overlay ownership tests."""
+
+    def __init__(self, members):
+        self.group = SimpleNamespace(id="group-u4")
+        self.members = list(members)
+        self.removed = []
+
+    def get_all(self):
+        return [self.group]
+
+    def get_members(self, group):
+        self.assert_group(group)
+        return list(self.members)
+
+    def remove_items(self, group, items):
+        self.assert_group(group)
+        self.removed.extend(items)
+        removed_ids = {item.id for item in items}
+        self.members = [item for item in self.members if item.id not in removed_ids]
+        return len(items)
+
+    def assert_group(self, group):
+        if group is not self.group:
+            raise AssertionError("unexpected group")
 
 
 class TestThermalOverlayLayers(unittest.TestCase):
@@ -68,6 +96,20 @@ class TestThermalOverlayLayers(unittest.TestCase):
         self.assertGreater(height, 0.0)
         self.assertIn(b"KiPIDA-Thermal-Overlay-v1", heat)
         self.assertIn(b"KiPIDA-Thermal-Overlay-v1", scale)
+
+    def test_new_overlay_images_are_detached_from_active_groups(self):
+        u4 = SimpleNamespace(id="u4")
+        top = SimpleNamespace(id="thermal-top")
+        bottom = SimpleNamespace(id="thermal-bottom")
+        messages = []
+        board = SimpleNamespace(groups=_GroupOperations([u4, top, bottom]))
+
+        removed = ThermalOverlayManager(board, messages.append)._ensure_ungrouped([top, bottom])
+
+        self.assertEqual(removed, 2)
+        self.assertEqual([member.id for member in board.groups.members], ["u4"])
+        self.assertEqual([member.id for member in board.groups.removed], ["thermal-top", "thermal-bottom"])
+        self.assertTrue(any("Detached 2 overlay" in message for message in messages))
 
 
 if __name__ == "__main__":
