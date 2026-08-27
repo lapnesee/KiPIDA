@@ -144,7 +144,11 @@ class ThermalAnalysisPanel(wx.Panel):
         self.chk_edges = wx.CheckBox(settings_parent, label="Edges exposed")
         self.chk_radiation = wx.CheckBox(settings_parent, label="Include radiation")
         self.chk_dc_loss = wx.CheckBox(settings_parent, label="Include DC copper losses")
-        for check in (self.chk_top, self.chk_bottom, self.chk_edges, self.chk_radiation, self.chk_dc_loss):
+        self.chk_internal_layers = wx.CheckBox(settings_parent, label="Show internal copper maps in Results")
+        for check in (
+            self.chk_top, self.chk_bottom, self.chk_edges, self.chk_radiation,
+            self.chk_dc_loss, self.chk_internal_layers,
+        ):
             check.SetValue(True)
             checks.Add(check, 0, wx.RIGHT, 14)
         settings_box.Add(checks, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
@@ -334,6 +338,7 @@ class ThermalAnalysisPanel(wx.Panel):
         self.settings.color_map = THERMAL_COLOR_MAPS[
             selected if selected != wx.NOT_FOUND else 0
         ][1]
+        self.settings.show_internal_copper_layers = self.chk_internal_layers.GetValue()
         self.settings.coupled_iterations = int(self.txt_iterations.GetValue())
         self.settings.convergence_c = float(self.txt_convergence.GetValue())
         if not 0.1 <= self.settings.grid_size_mm <= 5.0 or self.settings.coupled_iterations < 1:
@@ -362,6 +367,9 @@ class ThermalAnalysisPanel(wx.Panel):
         self.chk_edges.SetValue(airflow.expose_edges)
         self.chk_radiation.SetValue(self.settings.include_radiation)
         self.chk_dc_loss.SetValue(self.settings.include_dc_copper_losses)
+        self.chk_internal_layers.SetValue(
+            bool(getattr(self.settings, "show_internal_copper_layers", True))
+        )
         colour_map = str(getattr(self.settings, "color_map", "inferno")).lower()
         colour_index = next(
             (index for index, (_, value) in enumerate(THERMAL_COLOR_MAPS) if value == colour_map),

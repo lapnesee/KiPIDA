@@ -351,6 +351,7 @@ class ThermalAnalysisSettings:
     emissivity: float = 0.9
     include_dc_copper_losses: bool = True
     color_map: str = "inferno"
+    show_internal_copper_layers: bool = True
     coupled_iterations: int = 10
     convergence_c: float = 0.1
     relaxation: float = 0.6

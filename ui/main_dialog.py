@@ -1246,13 +1246,15 @@ class KiPIDA_MainDialog(wx.Dialog):
                     system_results,
                     time.perf_counter() - started_at,
                     settings.color_map,
+                    settings.show_internal_copper_layers,
                 )
         except Exception as exc:
             if not self._closing:
                 wx.CallAfter(self._fail_thermal_worker, coupled, exc)
 
     def _finish_thermal_worker(
-        self, mesh, result, coupled, coupled_result, system_results, elapsed_seconds, color_map,
+        self, mesh, result, coupled, coupled_result, system_results, elapsed_seconds,
+        color_map, show_internal_copper_layers,
     ):
         self._thermal_thread = None
         self.btn_run_thermal.Enable()
@@ -1265,6 +1267,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.electrothermal_result = coupled_result
         self._update_thermal_results_ui(
             mesh, result, coupled=coupled, elapsed_seconds=elapsed_seconds, color_map=color_map,
+            show_internal_copper_layers=show_internal_copper_layers,
         )
         self.log(f"Thermal analysis completed in {elapsed_seconds:.3f} s.")
 
@@ -1278,6 +1281,7 @@ class KiPIDA_MainDialog(wx.Dialog):
 
     def _update_thermal_results_ui(
         self, mesh, result, coupled=False, elapsed_seconds=None, color_map="inferno",
+        show_internal_copper_layers=True,
     ):
         hotspot = result.hotspot
         lines = [
@@ -1296,6 +1300,8 @@ class KiPIDA_MainDialog(wx.Dialog):
                 if mesh.adaptive_grid else ""
             ),
             f"Thermal colors: {str(color_map).title()}",
+            "Internal copper maps: enabled" if show_internal_copper_layers else
+            "Internal copper maps: disabled",
             f"Compute backend: {result.compute_backend} ({result.compute_device})",
             f"Sparse matrix path: {result.compute_matrix_assembly}",
             "CUDA warm start: device-resident previous thermal solution" if result.compute_warm_start_used else
@@ -1334,13 +1340,25 @@ class KiPIDA_MainDialog(wx.Dialog):
 
         self._thermal_plot_thread = threading.Thread(
             target=self._render_thermal_plots_worker,
-            args=(mesh, result, generation, color_map),
+            args=(mesh, result, generation, color_map, show_internal_copper_layers),
             name="KiPIDA-Thermal-Plots",
             daemon=True,
         )
         self._thermal_plot_thread.start()
 
-    def _render_thermal_plots_worker(self, mesh, result, generation, color_map):
+    @staticmethod
+    def _internal_copper_slices(mesh):
+        """Return internal copper thermal slices in physical stackup order."""
+        specs = list(getattr(mesh, "layer_specs", []) or [])
+        return [
+            (index, spec) for index, spec in enumerate(specs)
+            if getattr(spec, "material", "") == "copper-layer"
+            and index not in (0, len(specs) - 1)
+        ]
+
+    def _render_thermal_plots_worker(
+        self, mesh, result, generation, color_map, show_internal_copper_layers,
+    ):
         try:
             with self._plot_lock:
                 plotter = Plotter(debug=False)
@@ -1352,10 +1370,18 @@ class KiPIDA_MainDialog(wx.Dialog):
                     ("Top Surface", plotter.plot_thermal_surface(
                         mesh, result, "TOP", as_png=True, board_bounds=board_bounds, color_map=color_map,
                     )),
-                    ("Bottom Surface", plotter.plot_thermal_surface(
-                        mesh, result, "BOTTOM", as_png=True, board_bounds=board_bounds, color_map=color_map,
-                    )),
                 ]
+                if show_internal_copper_layers:
+                    plots.extend(
+                        (str(spec.name), plotter.plot_thermal_layer(
+                            mesh, result, index, str(spec.name), as_png=True,
+                            board_bounds=board_bounds, color_map=color_map,
+                        ))
+                        for index, spec in self._internal_copper_slices(mesh)
+                    )
+                plots.append(("Bottom Surface", plotter.plot_thermal_surface(
+                    mesh, result, "BOTTOM", as_png=True, board_bounds=board_bounds, color_map=color_map,
+                )))
             if not self._closing:
                 wx.CallAfter(self._finish_thermal_plots, generation, plots)
         except Exception as exc:
