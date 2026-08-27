@@ -200,12 +200,16 @@ class ThermalOverlayManager:
         except (ImportError, AttributeError) as exc:
             raise RuntimeError("This KiCad IPC API does not expose user drawing layers.") from exc
 
-        layers_api = getattr(self.board, "layers", None)
-        if layers_api is None:
-            raise RuntimeError("This KiCad IPC API cannot configure dedicated user layers.")
+        # KiCad 10 IPC has shipped both forms: recent builds expose a
+        # ``board.layers`` operation group whereas earlier 10.x builds expose
+        # the same methods directly on ``Board``.  Prefer the former but keep
+        # the overlay usable on the latter.
+        layers_api = getattr(self.board, "layers", None) or self.board
         try:
-            info = list(layers_api.get_layers_info())
+            get_info = getattr(layers_api, "get_layers_info", None)
+            info = list(get_info()) if callable(get_info) else []
             enabled = set(layers_api.get_enabled_layers())
+            copper_count = layers_api.get_copper_layer_count()
         except Exception as exc:
             raise RuntimeError("KiCad could not query the board user-layer configuration.") from exc
 
@@ -228,18 +232,40 @@ class ThermalOverlayManager:
                 # KiCad's IPC setter takes the copper count separately and
                 # expects *only* enabled non-copper layer IDs in ``layers``.
                 # ``get_enabled_layers`` also contains F/B/inner copper IDs.
-                non_copper = {
-                    item["layer"] for item in info
-                    if not str(item.get("layer_name", "")).endswith("_Cu")
-                }
+                if info:
+                    non_copper = {
+                        item["layer"] for item in info
+                        if not str(item.get("layer_name", "")).endswith("_Cu")
+                    }
+                else:
+                    # Older IPC builds cannot provide layer metadata.  Their
+                    # enabled-layer list still contains copper, so remove the
+                    # complete fixed KiCad copper-layer enum range ourselves.
+                    copper_layers = {
+                        getattr(BoardLayer, name) for name in ("BL_F_Cu", "BL_B_Cu")
+                        if hasattr(BoardLayer, name)
+                    }
+                    copper_layers.update(
+                        getattr(BoardLayer, f"BL_In{index}_Cu")
+                        for index in range(1, 31)
+                        if hasattr(BoardLayer, f"BL_In{index}_Cu")
+                    )
+                    non_copper = enabled - copper_layers
                 layers_api.set_enabled_layers(
-                    layers_api.get_copper_layer_count(), list(non_copper | set(selected)),
+                    copper_count, list(non_copper | set(selected)),
                 )
+                set_name = getattr(layers_api, "set_layer_name", None)
                 for name, layer in zip(needed, selected):
-                    layers_api.set_layer_name(layer, name)
+                    if callable(set_name):
+                        set_name(layer, name)
                     assigned[name] = layer
             except Exception as exc:
                 raise RuntimeError("KiCad could not create the dedicated X.Thermal user layers.") from exc
+            if not callable(getattr(layers_api, "set_layer_name", None)):
+                self._log(
+                    "This KiCad IPC version cannot rename User layers; reserved "
+                    "User.n layers remain dedicated to X.Thermal for this board."
+                )
             self._log(
                 "Reserved non-electrical layers " + ", ".join(
                     f"{name} ({layer})" for name, layer in assigned.items()
