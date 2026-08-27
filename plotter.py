@@ -254,13 +254,12 @@ class Plotter:
             bounds = board_bounds or getattr(mesh, 'bounds_mm', None)
             fig = plt.figure(figsize=self._figsize(bounds), constrained_layout=True)
             axis = fig.add_subplot(111, projection='3d')
-            # Thermal layer specs are stored in KiCad stackup order: F.Cu is
-            # generated first at z=0 and B.Cu last.  Display the physical view
-            # convention instead, with the top side above the bottom side.
-            z_top = float(np.max(coords[:, 2]))
-            display_z = z_top - coords[:, 2]
+            # KiCad's board-space Y axis grows downwards.  Matplotlib's view
+            # grows upwards, so negate Y to retain the PCB's screen/cardinal
+            # orientation: KiCad's upper-right stays upper-right in 3D.
+            display_y = -coords[:, 1]
             scatter = axis.scatter(
-                coords[:, 0], coords[:, 1], display_z, c=temperatures,
+                coords[:, 0], display_y, coords[:, 2], c=temperatures,
                 cmap='inferno', s=5, alpha=0.8,
             )
             axis.set_xlabel('X (mm)')
@@ -271,7 +270,7 @@ class Plotter:
                 min_x, min_y, max_x, max_y = bounds
                 pad = max(1.0, 0.025 * max(max_x - min_x, max_y - min_y))
                 axis.set_xlim(min_x - pad, max_x + pad)
-                axis.set_ylim(min_y - pad, max_y + pad)
+                axis.set_ylim(-max_y - pad, -min_y + pad)
                 z_span = max(float(np.ptp(coords[:, 2])), 0.02 * max(max_x - min_x, max_y - min_y))
                 axis.set_box_aspect((max_x - min_x + 2 * pad, max_y - min_y + 2 * pad, z_span))
             fig.colorbar(scatter, ax=axis, label='Temperature (C)', shrink=0.75)
@@ -286,9 +285,7 @@ class Plotter:
         try:
             if not mesh.node_map:
                 return None
-            # Thermal slices follow the KiCad stackup order: F.Cu / TOP is
-            # index 0 and B.Cu / BOTTOM is the final slice.
-            target_iz = 0 if side.upper() == 'TOP' else max(key[2] for key in mesh.node_map)
+            target_iz = max(key[2] for key in mesh.node_map) if side.upper() == 'TOP' else 0
             surface = self._thermal_surface_grid(mesh, result, target_iz)
             if surface is None:
                 return None
