@@ -282,6 +282,27 @@ class ThermalModelBuilder:
             return max(default_width, width + 0.5), max(default_depth, depth + 0.5)
         return default_width, default_depth
 
+    @staticmethod
+    def _layer_matches(first, second):
+        """Compare IPC layer enums across KiCad 9/10 wrapper variants."""
+        try:
+            return int(first) == int(second)
+        except (TypeError, ValueError):
+            return str(first).upper() == str(second).upper()
+
+    @classmethod
+    def _is_bottom_layer(cls, layer, bottom_layer_id=None):
+        if bottom_layer_id is not None and cls._layer_matches(layer, bottom_layer_id):
+            return True
+        # Legacy pcbnew exposed B.Cu as 31; KiCad 10 IPC uses 34.  Keep the
+        # fallback only for incomplete/no-stackup board adapters.
+        text = str(layer).upper().replace(" ", "")
+        try:
+            numeric = int(layer)
+        except (TypeError, ValueError):
+            numeric = None
+        return text in {"B.CU", "B_CU", "BL_B_CU"} or numeric in {31, 34}
+
     def _discover_net_names(self):
         names = set()
         for collection in ("tracks", "vias", "zones", "footprints"):
@@ -371,6 +392,8 @@ class ThermalModelBuilder:
             raise ImportError("Shapely is required for 3D thermal model extraction.")
         extractor = GeometryExtractor(self.board, debug=self.debug, log_callback=self.log_callback)
         stackup = extractor.get_board_stackup()
+        layer_order = list(stackup.get("layer_order", []))
+        bottom_layer_id = layer_order[-1] if layer_order else None
 
         saved_components = {component.ref_des: replace(component) for component in settings.components}
         if not saved_components and rails:
@@ -393,11 +416,19 @@ class ThermalModelBuilder:
                 y_mm=position[1],
                 width_mm=width,
                 depth_mm=depth,
-                side="BOTTOM" if str(layer) in {"31", "B_Cu", "B.Cu"} else "TOP",
+                side="BOTTOM" if self._is_bottom_layer(layer, bottom_layer_id) else "TOP",
             )
             if ref_des in saved_components:
                 saved_components[ref_des].width_mm = width
                 saved_components[ref_des].depth_mm = depth
+
+        if placements:
+            top_count = sum(item.side == "TOP" for item in placements.values())
+            self._log(
+                f"Mapped {top_count} Top / {len(placements) - top_count} Bottom footprint placements "
+                f"(F.Cu={layer_order[0] if layer_order else 'auto'}, "
+                f"B.Cu={bottom_layer_id if bottom_layer_id is not None else 'auto'})."
+            )
 
         copper_by_layer = self._extract_copper(extractor)
         outline, bounds = self._outline_and_bounds(copper_by_layer, placements)

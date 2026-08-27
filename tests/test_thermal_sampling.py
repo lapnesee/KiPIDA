@@ -115,6 +115,18 @@ class TestVectorizedThermalSampling(unittest.TestCase):
                     cuda_enabled=False, backend="CPU", memory_limit_gib=0.0,
                 ),
             ).generate_mesh(model, settings)
+
+            # Stackup order is F.Cu -> B.Cu.  Component heat and the named
+            # convective surfaces must follow that physical order, not the old
+            # inverted z-index convention.
+            top_component = SimpleNamespace(ref_des="TOP", enabled=True, power_w=1.0)
+            bottom_component = SimpleNamespace(ref_des="BOTTOM", enabled=True, power_w=1.0)
+            model.components = [top_component, bottom_component]
+            model.placements = {
+                "TOP": SimpleNamespace(x_mm=10.0, y_mm=10.0, width_mm=2.0, depth_mm=2.0, side="TOP"),
+                "BOTTOM": SimpleNamespace(x_mm=50.0, y_mm=50.0, width_mm=2.0, depth_mm=2.0, side="BOTTOM"),
+            }
+            face_mesh = thermal_mesh.ThermalMesher().generate_mesh(model, settings)
         finally:
             thermal_mesh.intersects_xy = original["intersects_xy"]
             thermal_mesh.Point = original["point"]
@@ -128,6 +140,11 @@ class TestVectorizedThermalSampling(unittest.TestCase):
         self.assertEqual(len(mesh.branches), 28_440)
         self.assertEqual(len(mesh.boundaries), 7_920)
         self.assertTrue(any("4 row-band work items with 4 CPU workers" in message for message in messages))
+
+        self.assertEqual(face_mesh.node_layers[face_mesh.component_nodes["TOP"][0]], 0)
+        self.assertEqual(face_mesh.node_layers[face_mesh.component_nodes["BOTTOM"][0]], 31)
+        self.assertTrue(all(face_mesh.node_layers[item.node_id] == 0 for item in face_mesh.boundaries if item.kind == "top"))
+        self.assertTrue(all(face_mesh.node_layers[item.node_id] == 31 for item in face_mesh.boundaries if item.kind == "bottom"))
 
 
 if __name__ == "__main__":

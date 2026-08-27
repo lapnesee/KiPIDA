@@ -285,7 +285,8 @@ class Plotter:
         try:
             if not mesh.node_map:
                 return None
-            target_iz = max(key[2] for key in mesh.node_map) if side.upper() == 'TOP' else 0
+            # Thermal stackup order follows KiCad's F.Cu -> B.Cu order.
+            target_iz = 0 if side.upper() == 'TOP' else max(key[2] for key in mesh.node_map)
             surface = self._thermal_surface_grid(mesh, result, target_iz)
             if surface is None:
                 return None

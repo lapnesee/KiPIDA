@@ -108,7 +108,8 @@ def _surface_field(mesh, result, side, max_dimension=1800):
     grid = float(mesh.grid_size_mm)
     nx = max(1, int(math.ceil((max_x - min_x) / grid)))
     ny = max(1, int(math.ceil((max_y - min_y) / grid)))
-    iz = len(mesh.layer_specs) - 1 if str(side).upper() == "TOP" else 0
+    # Thermal stackup order follows KiCad's F.Cu -> B.Cu order.
+    iz = 0 if str(side).upper() == "TOP" else len(mesh.layer_specs) - 1
     temperatures = result.temperature_vector_c
     if temperatures is None:
         temperatures = np.fromiter(
@@ -171,8 +172,8 @@ def heatmap_png(mesh, result, side):
 class ThermalOverlayManager:
     """Inject/remove the two KiCad user-layer images owned by Ki-PIDA."""
 
-    TOP_LAYER_NAME = "User.Drawings"
-    BOTTOM_LAYER_NAME = "User.Comments"
+    TOP_LAYER_NAME = "X.Thermal.Top"
+    BOTTOM_LAYER_NAME = "X.Thermal.Bottom"
 
     def __init__(self, board, log_callback=None):
         self.board = board
@@ -182,13 +183,69 @@ class ThermalOverlayManager:
         if self.log_callback:
             self.log_callback(f"[THERMAL OVERLAY] {message}")
 
-    @staticmethod
-    def _layers():
+    def _layers(self):
+        """Reserve two unused KiCad user layers for the overlay.
+
+        KiCad has a fixed set of non-electrical User.1..User.45 layers; it
+        does not create arbitrary layer IDs.  We enable two unused ones and
+        assign their user-visible names to X.Thermal.Top/Bottom, without ever
+        repurposing User.Drawings, User.Comments or an already enabled layer.
+        """
         try:
             from kipy.board_types import BoardLayer
-            return BoardLayer.BL_Dwgs_User, BoardLayer.BL_Cmts_User
+            candidates = [
+                getattr(BoardLayer, f"BL_User_{index}") for index in range(1, 46)
+                if hasattr(BoardLayer, f"BL_User_{index}")
+            ]
         except (ImportError, AttributeError) as exc:
             raise RuntimeError("This KiCad IPC API does not expose user drawing layers.") from exc
+
+        layers_api = getattr(self.board, "layers", None)
+        if layers_api is None:
+            raise RuntimeError("This KiCad IPC API cannot configure dedicated user layers.")
+        try:
+            info = list(layers_api.get_layers_info())
+            enabled = set(layers_api.get_enabled_layers())
+        except Exception as exc:
+            raise RuntimeError("KiCad could not query the board user-layer configuration.") from exc
+
+        named = {}
+        for item in info:
+            name = str(item.get("user_name") or item.get("name") or "")
+            if name in {self.TOP_LAYER_NAME, self.BOTTOM_LAYER_NAME}:
+                named[name] = item["layer"]
+        needed = [name for name in (self.TOP_LAYER_NAME, self.BOTTOM_LAYER_NAME) if name not in named]
+        available = [layer for layer in candidates if layer not in enabled and layer not in named.values()]
+        if len(available) < len(needed):
+            raise RuntimeError(
+                "No unused KiCad User layer is available for X.Thermal. "
+                "Free two User.n layers or remove a previous custom layer assignment."
+            )
+        assigned = dict(named)
+        if needed:
+            selected = available[:len(needed)]
+            try:
+                # KiCad's IPC setter takes the copper count separately and
+                # expects *only* enabled non-copper layer IDs in ``layers``.
+                # ``get_enabled_layers`` also contains F/B/inner copper IDs.
+                non_copper = {
+                    item["layer"] for item in info
+                    if not str(item.get("layer_name", "")).endswith("_Cu")
+                }
+                layers_api.set_enabled_layers(
+                    layers_api.get_copper_layer_count(), list(non_copper | set(selected)),
+                )
+                for name, layer in zip(needed, selected):
+                    layers_api.set_layer_name(layer, name)
+                    assigned[name] = layer
+            except Exception as exc:
+                raise RuntimeError("KiCad could not create the dedicated X.Thermal user layers.") from exc
+            self._log(
+                "Reserved non-electrical layers " + ", ".join(
+                    f"{name} ({layer})" for name, layer in assigned.items()
+                ) + "."
+            )
+        return assigned[self.TOP_LAYER_NAME], assigned[self.BOTTOM_LAYER_NAME]
 
     def _owned_images(self):
         _reference_image_type()
@@ -240,7 +297,7 @@ class ThermalOverlayManager:
         self.clear()
         created = self.board.create_items(prepared)
         self._log(
-            "Injected thermal overlays on User.Drawings (Top) and User.Comments (Bottom). "
+            "Injected thermal overlays on X.Thermal.Top and X.Thermal.Bottom. "
             "Toggle those layers in Appearance to inspect each side."
         )
         return created

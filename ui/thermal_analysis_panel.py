@@ -141,7 +141,7 @@ class ThermalAnalysisPanel(wx.Panel):
         overlay_controls.Add(self.btn_clear_mesh_cache, 0)
         overlay_controls.Add(wx.StaticText(
             settings_parent,
-            label="Top: User.Drawings; Bottom: User.Comments (non-electrical layers).",
+            label="Dedicated non-electrical layers: X.Thermal.Top / X.Thermal.Bottom.",
         ), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
         settings_box.Add(overlay_controls, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         main.Add(settings_box, 0, wx.EXPAND | wx.ALL, 5)

@@ -700,21 +700,23 @@ class ThermalMesher:
         else:
             surface_conductance = h * area_xy
 
-        if settings.airflow.expose_bottom:
-            bottom_nodes = layer_grids[0][0]
-            valid = bottom_nodes >= 0
-            mesh.add_boundary_batch(
-                bottom_nodes[valid],
-                surface_conductance[valid] if isinstance(surface_conductance, np.ndarray) else surface_conductance,
-                "bottom",
-            )
+        # ``layer_order`` is physically F.Cu -> B.Cu.  Thus the first thermal
+        # slice is the PCB Top and the final slice is the PCB Bottom.
         if settings.airflow.expose_top:
-            top_nodes = layer_grids[-1][0]
+            top_nodes = layer_grids[0][0]
             valid = top_nodes >= 0
             mesh.add_boundary_batch(
                 top_nodes[valid],
                 surface_conductance[valid] if isinstance(surface_conductance, np.ndarray) else surface_conductance,
                 "top",
+            )
+        if settings.airflow.expose_bottom:
+            bottom_nodes = layer_grids[-1][0]
+            valid = bottom_nodes >= 0
+            mesh.add_boundary_batch(
+                bottom_nodes[valid],
+                surface_conductance[valid] if isinstance(surface_conductance, np.ndarray) else surface_conductance,
+                "bottom",
             )
         if settings.airflow.expose_edges:
             for node_grid, _, _, thickness_mm in layer_grids:
@@ -747,7 +749,9 @@ class ThermalMesher:
             placement = model.placements.get(component.ref_des)
             if placement is None:
                 continue
-            iz = 0 if placement.side == "BOTTOM" else len(specs) - 1
+            # Stackup order is F.Cu -> B.Cu; component heat must therefore be
+            # injected into the first slice for Top and the last for Bottom.
+            iz = len(specs) - 1 if placement.side == "BOTTOM" else 0
             nodes = []
             # The former implementation scanned every node in the complete
             # 3D mesh for every component.  On a 0.1 mm 11-layer board that
