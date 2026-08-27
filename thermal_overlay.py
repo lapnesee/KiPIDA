@@ -15,6 +15,20 @@ import numpy as np
 OVERLAY_MARKER = b"KiPIDA-Thermal-Overlay-v1"
 
 
+_COLOR_STOPS = {
+    "inferno": ((0.00, (0, 0, 4)), (0.20, (87, 15, 109)), (0.40, (188, 55, 84)),
+                (0.60, (249, 142, 8)), (0.80, (249, 201, 50)), (1.00, (252, 255, 164))),
+    "viridis": ((0.00, (68, 1, 84)), (0.25, (59, 82, 139)), (0.50, (33, 145, 140)),
+                (0.75, (94, 201, 98)), (1.00, (253, 231, 37))),
+    "turbo": ((0.00, (48, 18, 59)), (0.20, (50, 98, 141)), (0.40, (32, 190, 172)),
+              (0.60, (164, 252, 60)), (0.80, (250, 136, 25)), (1.00, (122, 4, 3))),
+    "plasma": ((0.00, (13, 8, 135)), (0.25, (126, 3, 168)), (0.50, (204, 71, 120)),
+               (0.75, (248, 149, 64)), (1.00, (240, 249, 33))),
+    "cividis": ((0.00, (0, 32, 76)), (0.25, (40, 67, 105)), (0.50, (102, 105, 113)),
+                (0.75, (170, 145, 95)), (1.00, (255, 233, 69))),
+}
+
+
 def _reference_image_type():
     """Return a ReferenceImage wrapper, including support for older kipy.
 
@@ -137,36 +151,110 @@ def _surface_field(mesh, result, side, max_dimension=1800):
     return field, min_x, min_y, max_x, max_y
 
 
-def heatmap_png(mesh, result, side):
+def _temperature_limits(result):
+    """Return one stable scale shared by every thermal surface overlay."""
+    temperatures = result.temperature_vector_c
+    if temperatures is None:
+        temperatures = list(result.temperatures_c.values())
+    values = np.asarray(temperatures, dtype=float)
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        raise ValueError("No thermal temperatures are available for an overlay scale.")
+    low = float(np.min(values))
+    high = float(np.max(values))
+    return (low, high if high - low >= 1.0e-9 else low + 1.0)
+
+
+def _colorize(values, name):
+    """Map normalized values to portable RGBA colours without Matplotlib."""
+    name = str(name or "inferno").lower()
+    stops = _COLOR_STOPS.get(name, _COLOR_STOPS["inferno"])
+    positions = np.asarray([position for position, _ in stops], dtype=float)
+    colours = np.asarray([colour for _, colour in stops], dtype=float)
+    values = np.clip(np.asarray(values, dtype=float), 0.0, 1.0)
+    channels = [np.interp(values, positions, colours[:, channel]) for channel in range(3)]
+    rgb = np.stack(channels, axis=-1).astype(np.uint8)
+    return rgb
+
+
+def _png_info(**values):
+    try:
+        from PIL import PngImagePlugin
+    except ImportError as exc:
+        raise RuntimeError("Pillow is required to create a KiCad heat overlay.") from exc
+    info = PngImagePlugin.PngInfo()
+    info.add_text("KiPIDA", OVERLAY_MARKER.decode("ascii"))
+    for key, value in values.items():
+        info.add_text(str(key), str(value))
+    return info
+
+
+def heatmap_png(mesh, result, side, color_map="inferno", temperature_limits=None):
     """Build a transparent, embedded-PNG heat map and its native DPI."""
     try:
-        from matplotlib import colormaps
-        from matplotlib import image as mpl_image
+        from PIL import Image
     except ImportError as exc:
-        raise RuntimeError("Matplotlib is required to create a KiCad heat overlay.") from exc
+        raise RuntimeError("Pillow is required to create a KiCad heat overlay.") from exc
 
     field, min_x, min_y, max_x, max_y = _surface_field(mesh, result, side)
     valid = np.isfinite(field)
     if not np.any(valid):
         raise ValueError(f"No {str(side).lower()} thermal surface cells are available.")
-    low = float(np.nanmin(field))
-    high = float(np.nanmax(field))
-    if high - low < 1.0e-9:
-        high = low + 1.0
+    low, high = temperature_limits or _temperature_limits(result)
     normalized = np.clip((field - low) / (high - low), 0.0, 1.0)
-    rgba = colormaps["inferno"](np.nan_to_num(normalized, nan=0.0))
-    rgba[..., 3] = np.where(valid, 0.72, 0.0)
+    rgb = _colorize(np.nan_to_num(normalized, nan=0.0), color_map)
+    rgba = np.empty((*rgb.shape[:2], 4), dtype=np.uint8)
+    rgba[..., :3] = rgb
+    rgba[..., 3] = np.where(valid, 184, 0)
 
     # The physical image dimensions follow the board aspect ratio.  KiCad
     # reads the PNG pHYs/DPI metadata when image_scale=1.0.
     width_mm = max(1.0e-6, max_x - min_x)
     dpi = max(25.4, 25.4 * float(rgba.shape[1]) / width_mm)
     stream = BytesIO()
-    mpl_image.imsave(
-        stream, rgba, format="png", dpi=dpi,
-        metadata={"KiPIDA": OVERLAY_MARKER.decode("ascii"), "Surface": str(side).upper()},
+    Image.fromarray(rgba, mode="RGBA").save(
+        stream, format="PNG", dpi=(dpi, dpi), pnginfo=_png_info(
+            Surface=str(side).upper(), ColorMap=str(color_map),
+            TemperatureRange=f"{low:.4g},{high:.4g}",
+        ),
     )
     return stream.getvalue(), (min_x, min_y), dpi
+
+
+def heatmap_scale_png(side, color_map, temperature_limits):
+    """Build a compact transparent colour scale for a KiCad reference image."""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError as exc:
+        raise RuntimeError("Pillow is required to create a KiCad heat overlay scale.") from exc
+
+    low, high = temperature_limits
+    width_mm, height_mm, dpi = 20.0, 52.0, 180.0
+    width_px = max(1, int(round(width_mm / 25.4 * dpi)))
+    height_px = max(1, int(round(height_mm / 25.4 * dpi)))
+    image = Image.new("RGBA", (width_px, height_px), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(image, "RGBA")
+    margin = max(4, width_px // 20)
+    draw.rectangle((margin, margin, width_px - margin, height_px - margin), fill=(255, 255, 255, 220))
+    font = ImageFont.load_default()
+    draw.text((2 * margin, 2 * margin), f"Ki-PIDA {str(side).title()}", fill=(0, 0, 0, 255), font=font)
+    bar_left, bar_right = 2 * margin, max(2 * margin + 8, width_px // 2)
+    bar_top, bar_bottom = height_px // 5, height_px - height_px // 5
+    gradient = _colorize(np.linspace(1.0, 0.0, bar_bottom - bar_top + 1)[:, None], color_map)
+    gradient = np.repeat(gradient, bar_right - bar_left + 1, axis=1)
+    image.paste(Image.fromarray(gradient, mode="RGB"), (bar_left, bar_top))
+    draw.rectangle((bar_left, bar_top, bar_right, bar_bottom), outline=(0, 0, 0, 255), width=1)
+    label_x = bar_right + margin
+    draw.text((label_x, bar_top - 2), f"{high:.1f} °C", fill=(0, 0, 0, 255), font=font)
+    draw.text((label_x, (bar_top + bar_bottom) // 2 - 5), f"{(low + high) / 2.0:.1f}", fill=(0, 0, 0, 255), font=font)
+    draw.text((label_x, bar_bottom - 9), f"{low:.1f} °C", fill=(0, 0, 0, 255), font=font)
+    stream = BytesIO()
+    image.save(
+        stream, format="PNG", dpi=(dpi, dpi), pnginfo=_png_info(
+            Kind="Scale", Surface=str(side).upper(), ColorMap=str(color_map),
+        ),
+    )
+    return stream.getvalue(), width_mm, height_mm, dpi
 
 
 class ThermalOverlayManager:
@@ -292,38 +380,62 @@ class ThermalOverlayManager:
         self._log(f"Removed {len(images)} Ki-PIDA thermal overlay image(s).")
         return len(images)
 
-    def inject(self, mesh, result):
+    @staticmethod
+    def _reference_image(ReferenceImage, layer, png, center_x_mm, center_y_mm):
+        from kipy.geometry import Vector2
+        image = ReferenceImage()
+        image.layer = layer
+        image.position = Vector2.from_xy_mm(center_x_mm, center_y_mm)
+        image.transform_origin_offset = Vector2.from_xy_mm(0.0, 0.0)
+        image.image_scale = 1.0
+        image.image_data = png
+        image.locked = True
+        return image
+
+    def inject(self, mesh, result, color_map="inferno"):
         ReferenceImage = _reference_image_type()
         top_layer, bottom_layer = self._layers()
         try:
-            from kipy.geometry import Vector2
+            from kipy.geometry import Vector2  # noqa: F401 - capability check
         except ImportError as exc:
             raise RuntimeError("KiCad IPC geometry bindings are not available.") from exc
 
+        color_map = str(color_map or "inferno").lower()
+        limits = _temperature_limits(result)
+        min_x, min_y, max_x, max_y = mesh.bounds_mm
         prepared = []
         for side, layer in (("TOP", top_layer), ("BOTTOM", bottom_layer)):
-            png, (x_mm, y_mm), dpi = heatmap_png(mesh, result, side)
-            min_x, min_y, max_x, max_y = mesh.bounds_mm
-            image = ReferenceImage()
-            image.layer = layer
+            png, (x_mm, y_mm), dpi = heatmap_png(
+                mesh, result, side, color_map=color_map, temperature_limits=limits,
+            )
             # KiCad reference-image position is the image centre, whereas the
             # heat field is expressed from the board's minimum X/Y corner.
-            image.position = Vector2.from_xy_mm(
+            prepared.append(self._reference_image(
+                ReferenceImage, layer, png,
                 x_mm + (max_x - min_x) / 2.0,
                 y_mm + (max_y - min_y) / 2.0,
+            ))
+            scale_png, scale_width_mm, scale_height_mm, scale_dpi = heatmap_scale_png(
+                side, color_map, limits,
             )
-            image.transform_origin_offset = Vector2.from_xy_mm(0.0, 0.0)
-            image.image_scale = 1.0
-            image.image_data = png
-            image.locked = True
-            prepared.append(image)
+            # Place the scale at the upper-right of the drawing area, outside
+            # the PCB, so it remains readable without covering copper or pads.
+            prepared.append(self._reference_image(
+                ReferenceImage, layer, scale_png,
+                max_x + 3.0 + scale_width_mm / 2.0,
+                min_y + 3.0 + scale_height_mm / 2.0,
+            ))
             self._log(f"Prepared {side} heat image ({len(png) / 1024:.0f} KiB, {dpi:.1f} DPI).")
+            self._log(
+                f"Prepared {side} colour scale ({limits[0]:.1f} to {limits[1]:.1f} C, "
+                f"{scale_dpi:.0f} DPI)."
+            )
 
         # Only remove an old overlay after both new surfaces were generated.
         self.clear()
         created = self.board.create_items(prepared)
         self._log(
-            "Injected thermal overlays on X.Thermal.Top and X.Thermal.Bottom. "
-            "Toggle those layers in Appearance to inspect each side."
+            "Injected thermal overlays and colour scales on X.Thermal.Top and "
+            "X.Thermal.Bottom. Toggle those layers in Appearance to inspect each side."
         )
         return created

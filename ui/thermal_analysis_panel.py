@@ -10,6 +10,15 @@ except (ImportError, ValueError):
     from thermal_mesh import estimate_thermal_mesh_cost
 
 
+THERMAL_COLOR_MAPS = (
+    ("Inferno (default)", "inferno"),
+    ("Viridis", "viridis"),
+    ("Turbo", "turbo"),
+    ("Plasma", "plasma"),
+    ("Cividis", "cividis"),
+)
+
+
 class ThermalComponentDialog(wx.Dialog):
     def __init__(self, parent, component):
         super().__init__(parent, title=f"Thermal Model: {component.ref_des}")
@@ -92,12 +101,20 @@ class ThermalAnalysisPanel(wx.Panel):
         self.txt_custom_h = wx.TextCtrl(settings_parent, value="10")
         self.txt_iterations = wx.TextCtrl(settings_parent, value="10")
         self.txt_convergence = wx.TextCtrl(settings_parent, value="0.1")
+        self.choice_color_map = wx.Choice(
+            settings_parent, choices=[label for label, _ in THERMAL_COLOR_MAPS],
+        )
+        self.choice_color_map.SetSelection(0)
+        colour_note = wx.StaticText(
+            settings_parent, label="Applied to results and KiCad overlay",
+        )
 
         rows = [
             ("Ambient (C):", self.txt_ambient, "Grid size (mm):", self.txt_grid),
             ("Airflow mode:", self.choice_airflow, "Air speed (m/s):", self.txt_velocity),
             ("Air direction (deg):", self.txt_direction, "Custom h (W/m2K):", self.txt_custom_h),
             ("Coupled iterations:", self.txt_iterations, "Convergence (C):", self.txt_convergence),
+            ("Thermal colors:", self.choice_color_map, "", colour_note),
         ]
         for left_label, left_control, right_label, right_control in rows:
             grid.Add(wx.StaticText(settings_parent, label=left_label), 0, wx.ALIGN_CENTER_VERTICAL)
@@ -313,6 +330,10 @@ class ThermalAnalysisPanel(wx.Panel):
         )
         self.settings.include_radiation = self.chk_radiation.GetValue()
         self.settings.include_dc_copper_losses = self.chk_dc_loss.GetValue()
+        selected = self.choice_color_map.GetSelection()
+        self.settings.color_map = THERMAL_COLOR_MAPS[
+            selected if selected != wx.NOT_FOUND else 0
+        ][1]
         self.settings.coupled_iterations = int(self.txt_iterations.GetValue())
         self.settings.convergence_c = float(self.txt_convergence.GetValue())
         if not 0.1 <= self.settings.grid_size_mm <= 5.0 or self.settings.coupled_iterations < 1:
@@ -341,6 +362,12 @@ class ThermalAnalysisPanel(wx.Panel):
         self.chk_edges.SetValue(airflow.expose_edges)
         self.chk_radiation.SetValue(self.settings.include_radiation)
         self.chk_dc_loss.SetValue(self.settings.include_dc_copper_losses)
+        colour_map = str(getattr(self.settings, "color_map", "inferno")).lower()
+        colour_index = next(
+            (index for index, (_, value) in enumerate(THERMAL_COLOR_MAPS) if value == colour_map),
+            0,
+        )
+        self.choice_color_map.SetSelection(colour_index)
         # Recompute all automatic entries when loading a project so configs
         # saved by older versions cannot retain V*I connector heat or output-
         # inductor regulator placement. Explicit user models remain untouched.

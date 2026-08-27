@@ -242,7 +242,7 @@ class Plotter:
                 print(f"Stackup plot error: {e}")
             return None
 
-    def plot_thermal_3d(self, mesh, result, as_png=False, board_bounds=None):
+    def plot_thermal_3d(self, mesh, result, as_png=False, board_bounds=None, color_map='inferno'):
         """Render the solved volumetric temperature field."""
         try:
             nodes = list(mesh.nodes)
@@ -258,9 +258,10 @@ class Plotter:
             # grows upwards, so negate Y to retain the PCB's screen/cardinal
             # orientation: KiCad's upper-right stays upper-right in 3D.
             display_y = -coords[:, 1]
+            color_map = color_map if color_map in plt.colormaps() else 'inferno'
             scatter = axis.scatter(
                 coords[:, 0], display_y, coords[:, 2], c=temperatures,
-                cmap='inferno', s=5, alpha=0.8,
+                cmap=color_map, s=5, alpha=0.8,
             )
             axis.set_xlabel('X (mm)')
             axis.set_ylabel('Y (mm)')
@@ -280,7 +281,9 @@ class Plotter:
                 print(f"Thermal 3D plot error: {e}")
             return None
 
-    def plot_thermal_surface(self, mesh, result, side='TOP', as_png=False, board_bounds=None):
+    def plot_thermal_surface(
+        self, mesh, result, side='TOP', as_png=False, board_bounds=None, color_map='inferno',
+    ):
         """Render a top or bottom board temperature map."""
         try:
             if not mesh.node_map:
@@ -297,9 +300,10 @@ class Plotter:
             # cells, which looks like a black grid at normal GUI zoom.  The
             # thermal mesh is already a regular finite-volume grid: render
             # its cells directly, without visible marker borders.
+            color_map = color_map if color_map in plt.colormaps() else 'inferno'
             plot = axis.pcolormesh(
                 x_edges, y_edges, temperatures,
-                cmap='inferno', shading='flat', edgecolors='none',
+                cmap=color_map, shading='flat', edgecolors='none',
                 linewidth=0.0, antialiased=False, rasterized=True,
             )
             self._fit_xy(axis, bounds)

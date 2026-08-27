@@ -329,7 +329,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             return
         try:
             manager = ThermalOverlayManager(self.board, log_callback=self.log)
-            manager.inject(self.thermal_mesh, self.thermal_result)
+            color_map = self.thermal_panel.get_settings().color_map
+            manager.inject(self.thermal_mesh, self.thermal_result, color_map=color_map)
             self.log("KiCad thermal overlay injection completed.")
         except Exception as exc:
             self.log(f"Thermal overlay injection error: {exc}")
@@ -1244,13 +1245,14 @@ class KiPIDA_MainDialog(wx.Dialog):
                     solved,
                     system_results,
                     time.perf_counter() - started_at,
+                    settings.color_map,
                 )
         except Exception as exc:
             if not self._closing:
                 wx.CallAfter(self._fail_thermal_worker, coupled, exc)
 
     def _finish_thermal_worker(
-        self, mesh, result, coupled, coupled_result, system_results, elapsed_seconds,
+        self, mesh, result, coupled, coupled_result, system_results, elapsed_seconds, color_map,
     ):
         self._thermal_thread = None
         self.btn_run_thermal.Enable()
@@ -1262,7 +1264,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         if coupled_result is not None:
             self.electrothermal_result = coupled_result
         self._update_thermal_results_ui(
-            mesh, result, coupled=coupled, elapsed_seconds=elapsed_seconds,
+            mesh, result, coupled=coupled, elapsed_seconds=elapsed_seconds, color_map=color_map,
         )
         self.log(f"Thermal analysis completed in {elapsed_seconds:.3f} s.")
 
@@ -1274,7 +1276,9 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.log(f"{label} Analysis Error: {exc}")
         wx.MessageBox(str(exc), f"{label} Analysis Error", wx.OK | wx.ICON_ERROR)
 
-    def _update_thermal_results_ui(self, mesh, result, coupled=False, elapsed_seconds=None):
+    def _update_thermal_results_ui(
+        self, mesh, result, coupled=False, elapsed_seconds=None, color_map="inferno",
+    ):
         hotspot = result.hotspot
         lines = [
             "3D Thermal Analysis Results",
@@ -1291,6 +1295,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                 f" (requested {mesh.requested_grid_size_mm:.4g} mm; adapted)"
                 if mesh.adaptive_grid else ""
             ),
+            f"Thermal colors: {str(color_map).title()}",
             f"Compute backend: {result.compute_backend} ({result.compute_device})",
             f"Sparse matrix path: {result.compute_matrix_assembly}",
             "CUDA warm start: device-resident previous thermal solution" if result.compute_warm_start_used else
@@ -1329,26 +1334,26 @@ class KiPIDA_MainDialog(wx.Dialog):
 
         self._thermal_plot_thread = threading.Thread(
             target=self._render_thermal_plots_worker,
-            args=(mesh, result, generation),
+            args=(mesh, result, generation, color_map),
             name="KiPIDA-Thermal-Plots",
             daemon=True,
         )
         self._thermal_plot_thread.start()
 
-    def _render_thermal_plots_worker(self, mesh, result, generation):
+    def _render_thermal_plots_worker(self, mesh, result, generation, color_map):
         try:
             with self._plot_lock:
                 plotter = Plotter(debug=False)
                 board_bounds = getattr(mesh, "bounds_mm", None)
                 plots = [
                     ("Thermal 3D", plotter.plot_thermal_3d(
-                        mesh, result, as_png=True, board_bounds=board_bounds,
+                        mesh, result, as_png=True, board_bounds=board_bounds, color_map=color_map,
                     )),
                     ("Top Surface", plotter.plot_thermal_surface(
-                        mesh, result, "TOP", as_png=True, board_bounds=board_bounds,
+                        mesh, result, "TOP", as_png=True, board_bounds=board_bounds, color_map=color_map,
                     )),
                     ("Bottom Surface", plotter.plot_thermal_surface(
-                        mesh, result, "BOTTOM", as_png=True, board_bounds=board_bounds,
+                        mesh, result, "BOTTOM", as_png=True, board_bounds=board_bounds, color_map=color_map,
                     )),
                 ]
             if not self._closing:
