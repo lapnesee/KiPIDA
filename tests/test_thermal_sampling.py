@@ -122,6 +122,11 @@ class TestVectorizedThermalSampling(unittest.TestCase):
             thermal_mesh.box = original["box"]
 
         self.assertEqual(len(mesh.nodes), 10_800)
+        # 3 full 60x60 layers: two lateral directions per layer plus two
+        # vertical interfaces.  This guards the vectorised connectivity path
+        # against dropping or duplicating finite-volume conductances.
+        self.assertEqual(len(mesh.branches), 28_440)
+        self.assertEqual(len(mesh.boundaries), 7_920)
         self.assertTrue(any("4 row-band work items with 4 CPU workers" in message for message in messages))
 
 

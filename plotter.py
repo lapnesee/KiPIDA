@@ -302,6 +302,11 @@ class Plotter:
                 linewidth=0.0, antialiased=False, rasterized=True,
             )
             self._fit_xy(axis, bounds)
+            # KiCad board coordinates grow downwards on screen.  Keep the
+            # field in native board coordinates (so cells retain their exact
+            # locations), then invert only the display axis: the PCB's upper
+            # right corner stays upper right for both surface views.
+            axis.invert_yaxis()
             axis.set_xlabel('X (mm)')
             axis.set_ylabel('Y (mm)')
             axis.set_title(f'{side.title()} surface temperature')

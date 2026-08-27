@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from array import array
 import math
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
 
@@ -95,6 +96,20 @@ class PackedThermalBranches:
             getattr(branch, "kind", "solid"),
         )
 
+    def extend_arrays(self, node_a, node_b, conductance_w_k, kind="solid"):
+        """Append a vectorised branch batch without scalar Python calls."""
+        node_a = np.ascontiguousarray(node_a, dtype=np.int32).reshape(-1)
+        node_b = np.ascontiguousarray(node_b, dtype=np.int32).reshape(-1)
+        conductance_w_k = np.ascontiguousarray(conductance_w_k, dtype=np.float64).reshape(-1)
+        if not (node_a.size == node_b.size == conductance_w_k.size):
+            raise ValueError("Thermal branch arrays must have matching lengths.")
+        if not node_a.size:
+            return
+        self.node_a.frombytes(node_a.tobytes())
+        self.node_b.frombytes(node_b.tobytes())
+        self.conductance.frombytes(conductance_w_k.tobytes())
+        self.kind.extend(bytes((self._KIND_CODES.get(str(kind), 0),)) * node_a.size)
+
     def _item(self, index):
         code = self.kind[index]
         return ThermalBranch(
@@ -148,6 +163,20 @@ class PackedThermalBoundaries:
             getattr(boundary, "kind", "convection"),
         )
 
+    def extend_arrays(self, node_id, conductance_w_k, kind="convection"):
+        """Append a vectorised boundary batch without scalar Python calls."""
+        node_id = np.ascontiguousarray(node_id, dtype=np.int32).reshape(-1)
+        conductance_w_k = np.ascontiguousarray(conductance_w_k, dtype=np.float64).reshape(-1)
+        if conductance_w_k.size == 1 and node_id.size != 1:
+            conductance_w_k = np.full(node_id.size, conductance_w_k.item(), dtype=np.float64)
+        if node_id.size != conductance_w_k.size:
+            raise ValueError("Thermal boundary arrays must have matching lengths.")
+        if not node_id.size:
+            return
+        self.node_id.frombytes(node_id.tobytes())
+        self.conductance.frombytes(conductance_w_k.tobytes())
+        self.kind.extend(bytes((self._KIND_CODES.get(str(kind), 0),)) * node_id.size)
+
     def _item(self, index):
         code = self.kind[index]
         return ThermalBoundary(
@@ -198,8 +227,14 @@ class ThermalMesh:
     def add_branch(self, node_a, node_b, conductance_w_k, kind="solid"):
         self.branches.append_values(node_a, node_b, conductance_w_k, kind)
 
+    def add_branch_batch(self, node_a, node_b, conductance_w_k, kind="solid"):
+        self.branches.extend_arrays(node_a, node_b, conductance_w_k, kind)
+
     def add_boundary(self, node_id, conductance_w_k, kind="convection"):
         self.boundaries.append_values(node_id, conductance_w_k, kind)
+
+    def add_boundary_batch(self, node_id, conductance_w_k, kind="convection"):
+        self.boundaries.extend_arrays(node_id, conductance_w_k, kind)
 
     def nearest_node(self, x_mm, y_mm, layer_id=None):
         """Return the closest cell without scanning the full 3D mesh in normal use."""
@@ -460,7 +495,6 @@ class ThermalMesher:
             grid_size_mm=grid, requested_grid_size_mm=requested_grid,
             adaptive_grid=adaptive_grid, bounds_mm=model.bounds_mm, layer_specs=specs,
         )
-        material = {}
         z_centers = []
         z_cursor = 0.0
         for spec in specs:
@@ -550,7 +584,14 @@ class ThermalMesher:
                     sampled_layers[layer_index].extend(future.result())
         else:
             sampled_layers = [self._sample_layer(*args) for args in sample_inputs]
+        # Regular per-layer grids make the finite-volume connectivity a set of
+        # NumPy slices instead of ~8 million Python dictionary lookups.  The
+        # sparse node maps are retained for component mapping and plotting.
+        layer_grids = []
         for iz, spec in enumerate(specs):
+            node_grid = np.full((ny, nx), -1, dtype=np.int32)
+            kxy_grid = np.zeros((ny, nx), dtype=np.float64)
+            kz_grid = np.zeros((ny, nx), dtype=np.float64)
             for ix, iy, is_copper in sampled_layers[iz]:
                 x = min_x + (ix + 0.5) * grid
                 y = min_y + (iy + 0.5) * grid
@@ -563,38 +604,63 @@ class ThermalMesher:
                 mesh.node_map[(ix, iy, iz)] = node_id
                 mesh.node_coords[node_id] = (x, y, z_centers[iz])
                 mesh.node_layers[node_id] = spec.layer_id
-                material[node_id] = (kx, ky, kz, spec.thickness_mm)
+                node_grid[iy, ix] = node_id
+                kxy_grid[iy, ix] = kx
+                kz_grid[iy, ix] = kz
                 node_id += 1
+            layer_grids.append((node_grid, kxy_grid, kz_grid, spec.thickness_mm))
+            # No later phase needs the Python tuple list; release it before
+            # allocating branch/CSR work arrays on large fine meshes.
+            sampled_layers[iz] = None
             if progress_callback:
                 progress_callback(iz + 1, len(specs), spec.name)
 
         dx = dy = grid * 1e-3
-        for (ix, iy, iz), current in list(mesh.node_map.items()):
-            kx, ky, kz, thickness_mm = material[current]
+        connectivity_started = time.perf_counter()
+        self._log("Building thermal branch/boundary arrays with vectorized grid connectivity.")
+        for node_grid, kxy_grid, _, thickness_mm in layer_grids:
             dz = thickness_mm * 1e-3
-            for delta, axis in (((1, 0, 0), "x"), ((0, 1, 0), "y")):
-                neighbor = mesh.node_map.get((ix + delta[0], iy + delta[1], iz))
-                if neighbor is None:
+            for first, second in (
+                (node_grid[:, :-1], node_grid[:, 1:]),
+                (node_grid[:-1, :], node_grid[1:, :]),
+            ):
+                valid = (first >= 0) & (second >= 0)
+                if not np.any(valid):
                     continue
-                nkx, nky, _, _ = material[neighbor]
-                conductivity = self._harmonic(kx, nkx) if axis == "x" else self._harmonic(ky, nky)
-                area = (dy if axis == "x" else dx) * dz
-                distance = dx if axis == "x" else dy
-                mesh.add_branch(current, neighbor, conductivity * area / distance, "lateral")
-            upper = mesh.node_map.get((ix, iy, iz + 1))
-            if upper is not None:
-                _, _, upper_kz, upper_thickness_mm = material[upper]
-                area = dx * dy
-                resistance = (dz / 2.0) / kz + (upper_thickness_mm * 1e-3 / 2.0) / upper_kz
-                mesh.add_branch(current, upper, area / max(resistance, 1e-30), "vertical")
+                if first.shape[0] == node_grid.shape[0]:
+                    k_first, k_second = kxy_grid[:, :-1], kxy_grid[:, 1:]
+                else:
+                    k_first, k_second = kxy_grid[:-1, :], kxy_grid[1:, :]
+                conductivity = 2.0 * k_first[valid] * k_second[valid] / np.maximum(
+                    k_first[valid] + k_second[valid], 1.0e-30,
+                )
+                # For the square XY cells used here, area / distance is dz.
+                mesh.add_branch_batch(first[valid], second[valid], conductivity * dz, "lateral")
+
+        for lower, upper in zip(layer_grids[:-1], layer_grids[1:]):
+            lower_nodes, _, lower_kz, lower_thickness = lower
+            upper_nodes, _, upper_kz, upper_thickness = upper
+            valid = (lower_nodes >= 0) & (upper_nodes >= 0)
+            if not np.any(valid):
+                continue
+            resistance = (
+                (lower_thickness * 1e-3 / 2.0) / lower_kz[valid] +
+                (upper_thickness * 1e-3 / 2.0) / upper_kz[valid]
+            )
+            mesh.add_branch_batch(
+                lower_nodes[valid], upper_nodes[valid],
+                (dx * dy) / np.maximum(resistance, 1.0e-30), "vertical",
+            )
 
         board_thickness_m = max(z_cursor * 1e-3, 1e-6)
         for via in model.vias:
             ix = int((via.x_mm - min_x) / grid)
             iy = int((via.y_mm - min_y) / grid)
-            bottom = mesh.node_map.get((ix, iy, 0))
-            top = mesh.node_map.get((ix, iy, len(specs) - 1))
-            if bottom is None or top is None or bottom == top:
+            if not (0 <= ix < nx and 0 <= iy < ny):
+                continue
+            bottom = int(layer_grids[0][0][iy, ix])
+            top = int(layer_grids[-1][0][iy, ix])
+            if bottom < 0 or top < 0 or bottom == top:
                 continue
             plating_mm = 0.025
             area_mm2 = math.pi * max(via.diameter_mm * plating_mm - plating_mm ** 2, 1e-6)
@@ -621,32 +687,59 @@ class ThermalMesher:
         flow_min, flow_max = min(projected_corners), max(projected_corners)
         flow_span = max(flow_max - flow_min, 1e-12)
 
-        def surface_h(node):
-            if str(settings.airflow.mode or "").upper() != "FORCED":
-                return h
-            x, y, _ = mesh.node_coords[node]
-            stream_fraction = ((x * flow_x + y * flow_y) - flow_min) / flow_span
-            stream_fraction = max(0.0, min(1.0, stream_fraction))
-            # Compact flat-plate approximation: stronger transfer at the leading edge.
-            return convective_h * (1.25 - 0.5 * stream_fraction) + radiative_h
+        if str(settings.airflow.mode or "").upper() == "FORCED":
+            x_values = min_x + (np.arange(nx, dtype=np.float64) + 0.5) * grid
+            y_values = min_y + (np.arange(ny, dtype=np.float64) + 0.5) * grid
+            stream_fraction = np.clip(
+                ((x_values[None, :] * flow_x + y_values[:, None] * flow_y) - flow_min) / flow_span,
+                0.0, 1.0,
+            )
+            surface_conductance = (
+                convective_h * (1.25 - 0.5 * stream_fraction) + radiative_h
+            ) * area_xy
+        else:
+            surface_conductance = h * area_xy
 
-        for (ix, iy, iz), current in mesh.node_map.items():
-            _, _, _, thickness_mm = material[current]
-            if iz == 0 and settings.airflow.expose_bottom:
-                mesh.add_boundary(current, surface_h(current) * area_xy, "bottom")
-            if iz == len(specs) - 1 and settings.airflow.expose_top:
-                mesh.add_boundary(current, surface_h(current) * area_xy, "top")
-            if settings.airflow.expose_edges:
+        if settings.airflow.expose_bottom:
+            bottom_nodes = layer_grids[0][0]
+            valid = bottom_nodes >= 0
+            mesh.add_boundary_batch(
+                bottom_nodes[valid],
+                surface_conductance[valid] if isinstance(surface_conductance, np.ndarray) else surface_conductance,
+                "bottom",
+            )
+        if settings.airflow.expose_top:
+            top_nodes = layer_grids[-1][0]
+            valid = top_nodes >= 0
+            mesh.add_boundary_batch(
+                top_nodes[valid],
+                surface_conductance[valid] if isinstance(surface_conductance, np.ndarray) else surface_conductance,
+                "top",
+            )
+        if settings.airflow.expose_edges:
+            for node_grid, _, _, thickness_mm in layer_grids:
+                valid = node_grid >= 0
                 edge_area_x = dy * thickness_mm * 1e-3
                 edge_area_y = dx * thickness_mm * 1e-3
-                if mesh.node_map.get((ix - 1, iy, iz)) is None:
-                    mesh.add_boundary(current, h * edge_area_x, "edge")
-                if mesh.node_map.get((ix + 1, iy, iz)) is None:
-                    mesh.add_boundary(current, h * edge_area_x, "edge")
-                if mesh.node_map.get((ix, iy - 1, iz)) is None:
-                    mesh.add_boundary(current, h * edge_area_y, "edge")
-                if mesh.node_map.get((ix, iy + 1, iz)) is None:
-                    mesh.add_boundary(current, h * edge_area_y, "edge")
+                left_missing = np.ones_like(valid, dtype=bool)
+                left_missing[:, 1:] = node_grid[:, :-1] < 0
+                right_missing = np.ones_like(valid, dtype=bool)
+                right_missing[:, :-1] = node_grid[:, 1:] < 0
+                bottom_missing = np.ones_like(valid, dtype=bool)
+                bottom_missing[1:, :] = node_grid[:-1, :] < 0
+                top_missing = np.ones_like(valid, dtype=bool)
+                top_missing[:-1, :] = node_grid[1:, :] < 0
+                for edge_mask, edge_area in (
+                    (valid & left_missing, edge_area_x),
+                    (valid & right_missing, edge_area_x),
+                    (valid & bottom_missing, edge_area_y),
+                    (valid & top_missing, edge_area_y),
+                ):
+                    mesh.add_boundary_batch(node_grid[edge_mask], h * edge_area, "edge")
+        self._log(
+            f"Built {len(mesh.branches):,} branches and {len(mesh.boundaries):,} boundaries "
+            f"in {time.perf_counter() - connectivity_started:.3f} s using vectorized arrays."
+        )
 
         for component in model.components:
             if not component.enabled or component.power_w <= 0:
