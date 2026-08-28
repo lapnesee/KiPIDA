@@ -179,6 +179,7 @@ class ResultsWorkspace(wx.Panel):
         "DC": "DC Power",
         "AC": "AC Impedance",
         "DIFFERENTIAL": "Differential Pairs",
+        "EMC": "EMI / EMC",
         "THERMAL": "3D Thermal",
         "CFD": "Enclosure CFD",
         "DEBUG": "Debug",

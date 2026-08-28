@@ -525,7 +525,11 @@ class ThermalMesher:
             )
         except (AttributeError, TypeError, ValueError):
             pass
-        outline = model.outline.wkb if from_wkb is not None else model.outline
+        outline = (
+            model.outline.wkb
+            if from_wkb is not None and hasattr(model.outline, "wkb")
+            else model.outline
+        )
         if intersects_xy is not None:
             self._log(
                 "Using vectorized GEOS coordinate sampling" +
@@ -536,7 +540,8 @@ class ThermalMesher:
                 outline,
                 (
                     model.copper_by_layer.get(spec.layer_id).wkb
-                    if from_wkb is not None and model.copper_by_layer.get(spec.layer_id) is not None
+                    if (from_wkb is not None and
+                        hasattr(model.copper_by_layer.get(spec.layer_id), "wkb"))
                     else model.copper_by_layer.get(spec.layer_id)
                 ),
                 min_x, min_y, nx, ny, grid, outline_is_rectangular,

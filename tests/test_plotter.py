@@ -104,6 +104,29 @@ class TestPlotter(unittest.TestCase):
         self.assertIsNotNone(self.plotter.plot_differential_impedance([result]))
         self.assertIsNotNone(self.plotter.plot_stackup_profile(stackup))
 
+    def test_plot_emc_risk_map_and_relative_spectrum(self):
+        snapshot = SimpleNamespace(
+            bounds_mm=(0.0, 0.0, 100.0, 80.0),
+            tracks=[SimpleNamespace(
+                start=(5.0, 10.0), end=(95.0, 10.0), width_mm=0.2,
+            )],
+        )
+        finding = SimpleNamespace(
+            severity="HIGH",
+            evidence=[SimpleNamespace(x_mm=50.0, y_mm=10.0)],
+        )
+        result = SimpleNamespace(
+            findings=[finding],
+            frequency_risks=[SimpleNamespace(
+                source_name="CLK", frequency_hz=100e6, level_db=-12.0,
+            )],
+            cavity_resonances_hz=[714e6],
+        )
+        risk = self.plotter.plot_emc_risk_map(snapshot, result, as_png=True)
+        spectrum = self.plotter.plot_emc_spectrum(result, 30e6, 1e9, as_png=True)
+        self.assertTrue(risk.startswith(b"\x89PNG"))
+        self.assertTrue(spectrum.startswith(b"\x89PNG"))
+
     def test_plot_thermal_views(self):
         thermal_mesh = SimpleNamespace(
             nodes=[0, 1, 2, 3],

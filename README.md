@@ -1,6 +1,6 @@
 # Ki-PIDA (KiCad Power Integrity & Delivery Analyzer)
 
-Ki-PIDA is a native KiCad plugin for PCB power-integrity, thermal, airflow, and differential-pair analysis. It works from the live Pcbnew board: configure the design intent, run an analysis, and inspect numerical results and visual maps without exporting the layout to a separate tool.
+Ki-PIDA is a native KiCad plugin for PCB power-integrity, signal-integrity, EMI/EMC, thermal, and airflow analysis. It works from the live Pcbnew board: configure the design intent, run an analysis, and inspect numerical results and visual maps without exporting the layout to a separate tool.
 
 ## 🚀 Why Ki-PIDA?
 
@@ -53,9 +53,19 @@ Power-delivery and thermal issues are often discovered late: an undersized coppe
 - Editable geometry recommendations based on target impedance and manufacturing width/gap/reference-plane constraints.
 - Injection of selected recommendations into dedicated `KiPIDA_DIFF_*` KiCad net classes and predefined routing sizes.
 
+### EMI/EMC pre-compliance
+
+- Automatic discovery and editable modelling of clocks, switching nodes, high-speed interfaces, differential sources, external connectors, and cable lengths.
+- Configurable CISPR 32, FCC Part 15, CISPR 25, and MIL-STD-461G target profiles and analysis frequency band.
+- Traceable checks for ground-plane continuity, fragmented planes, stackup reference spacing, signal paths crossing voids, layer transitions without return vias, sparse stitching, and board-edge routing.
+- Clock, switching-node area, differential skew/reference changes, long parallel-route crosstalk, decoupling, connector filtering, ESD-return, and shield-return risk checks.
+- Reuse of the latest AC impedance, differential-pair, and thermal results when available, with explicit confidence levels when only geometric evidence exists.
+- Severity-ranked findings with stable rule identifiers, per-net scores, board-coordinate evidence, a PCB risk map, relative harmonic/cavity-resonance plot, and a near-field pre-compliance test plan.
+- Results are engineering risk estimates rather than a compliance certificate; absolute emissions, immunity, enclosure seams, and real cable behaviour still require measurement.
+
 ### Results and interaction
 
-- Independent result workspaces for DC, AC, differential, thermal, CFD, and debug analyses: a new analysis does not erase another analysis type.
+- Independent result workspaces for DC, AC, differential, EMI/EMC, thermal, CFD, and debug analyses: a new analysis does not erase another analysis type.
 - Persistent result history stored in `KiPIDA-results` beside the board/project, selectable from the Results tab and removable from the GUI.
 - Live thermal probing on Top, Bottom, and internal-copper maps: hover a solved map to read the nearest mesh-node temperature, X/Y/Z coordinate, and layer in the lower-left corner.
 - Wheel zoom and left-drag panning for tables, plots, and 3D representations; output consoles support `Ctrl` + wheel, `Ctrl` + `+`/`-`, and `Ctrl+0` for text scaling.
@@ -159,11 +169,22 @@ The enclosure solver is a steady, incompressible, laminar engineering model. It 
 
 Differential impedance uses quasi-static transmission-line approximations. Vias, connector launches, coplanar structures, copper roughness, discontinuities, and fabrication variation need a field solver, test coupon, or measurement for final validation.
 
+## 📖 EMI/EMC Pre-compliance
+
+1. Open **EMI / EMC** and select the target standard, market, and frequency band.
+2. Click **Scan Live PCB** and review the detected clocks, switching nodes, fast interfaces, and differential sources.
+3. Edit their fundamental frequency and rise time; add manual sources and cable information where detection cannot infer the design intent.
+4. Check the ground-net aliases and enable the relevant rule families.
+5. Click **Run EMI/EMC**.
+6. In **Results**, review critical/high findings first, then inspect the board risk map, relative source spectrum, per-net scores, and suggested near-field probe points.
+
+Each finding records its rule ID, confidence, affected nets/components, board coordinates when available, and a concrete correction. Geometry checks are refreshed from the live PCB before every run. The relative spectrum ranks frequencies for investigation but does not plot or predict an absolute regulatory limit.
+
 ## 🧭 Results and Saved History
 
 The **Results** tab keeps each analysis type separate for the current session. Result snapshots are also saved under `KiPIDA-results` beside the PCB/project. Select a previous snapshot from the history menu to inspect it, or use the deletion control to remove stored results from the GUI.
 
-The project configuration is saved as `<project>.kipida.json` beside the `.kicad_pro` file. It stores project-scoped settings such as rails, loads, AC profiles, thermal configuration, CFD settings, and differential-pair choices. Runtime acceleration settings intentionally remain machine-local.
+The project configuration is saved as `<project>.kipida.json` beside the `.kicad_pro` file. It stores project-scoped settings such as rails, loads, AC profiles, thermal configuration, CFD settings, differential-pair choices, and EMI/EMC sources and target profile. Runtime acceleration settings intentionally remain machine-local.
 
 ## 🛠️ Technical Overview
 
@@ -176,9 +197,10 @@ Ki-PIDA is built as a modular Python application around KiCad's IPC API.
 | Thermal | `thermal_model.py`, `thermal_mesh.py`, `thermal_solver.py`, `electrothermal.py`, `thermal_overlay.py` | 3D board conduction, coupling, plots, and KiCad overlays |
 | CFD | `cfd_model.py`, `cfd_mesh.py`, `cfd_solver.py`, `conjugate_heat_transfer.py` | Enclosure airflow and conjugate heat transfer |
 | Differential pairs | `differential_discovery.py`, `reference_plane_analyzer.py`, `differential_impedance.py`, `differential_recommender.py` | Discovery, stackup/reference-plane checks, impedance, recommendations |
+| EMI/EMC | `emc_analyzer.py`, `ui/emc_analysis_panel.py` | Source discovery, geometric rules, coupled-analysis reuse, risk scoring, spectrum and test plan |
 | Runtime and UI | `compute_backend.py`, `runtime_config.py`, `ui/` | CPU/CUDA selection, controls, history, and interactive views |
 
-Electrical analysis uses a hybrid 2.5D finite-difference mesh: each copper layer is a 2D grid with vertical via/PTH connections. Thermal analysis uses a separate 3D finite-volume solid mesh through the physical stackup. Enclosure CFD adds a structured volumetric air mesh and conjugate energy equation. These models are intended for design guidance and comparison; they are not full-wave electromagnetic, turbulent CFD, or sign-off solvers.
+Electrical analysis uses a hybrid 2.5D finite-difference mesh: each copper layer is a 2D grid with vertical via/PTH connections. EMI/EMC analysis combines deterministic geometric rules with relative analytical source/resonance estimates. Thermal analysis uses a separate 3D finite-volume solid mesh through the physical stackup. Enclosure CFD adds a structured volumetric air mesh and conjugate energy equation. These models are intended for design guidance and comparison; they are not full-wave electromagnetic, turbulent CFD, or sign-off solvers.
 
 ## 🔧 Development
 

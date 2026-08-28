@@ -19,6 +19,7 @@ from ac_model import ACModelBuilder, format_capacitance
 from ac_solver import ACSolver
 from decoupling_optimizer import DecouplingOptimizer
 from differential_impedance import DifferentialGeometrySnapshot, DifferentialImpedanceSolver
+from emc_analyzer import EMCAnalyzer, EMCGeometrySnapshot
 from conjugate_heat_transfer import ConjugateHeatTransferSolver
 from electrothermal import ElectroThermalSolver
 from thermal_mesh import ThermalMesher
@@ -28,6 +29,7 @@ from thermal_overlay import ThermalOverlayManager
 from ui.ac_analysis_panel import ACAnalysisPanel
 from ui.cfd_analysis_panel import CFDAnalysisPanel
 from ui.differential_analysis_panel import DifferentialAnalysisPanel
+from ui.emc_analysis_panel import EMCAnalysisPanel
 from ui.thermal_analysis_panel import ThermalAnalysisPanel
 from ui.runtime_settings_panel import RuntimeSettingsPanel
 from ui.power_tree_panel import PowerTreePanel
@@ -39,11 +41,12 @@ class KiPIDA_MainDialog(wx.Dialog):
     PAGE_CONFIG = 0
     PAGE_AC = 1
     PAGE_DIFFERENTIAL = 2
-    PAGE_THERMAL = 3
-    PAGE_CFD = 4
-    PAGE_RUNTIME = 5
-    PAGE_RESULTS = 6
-    PAGE_LOG = 7
+    PAGE_EMC = 3
+    PAGE_THERMAL = 4
+    PAGE_CFD = 5
+    PAGE_RUNTIME = 6
+    PAGE_RESULTS = 7
+    PAGE_LOG = 8
 
     def __init__(self, parent, board_adapter, project=None):
         super(KiPIDA_MainDialog, self).__init__(parent, title="Ki-PIDA: Power Integrity Analyzer", 
@@ -56,6 +59,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.project = project
         self._cfd_thread = None
         self._differential_thread = None
+        self._emc_thread = None
         self._cfd_cancel_requested = False
         self._thermal_plot_thread = None
         self._thermal_thread = None
@@ -161,7 +165,22 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.power_tree.differential_profile_provider = self.differential_panel.get_settings
         self.power_tree.differential_profile_consumer = self.differential_panel.set_settings
 
-        # Tab 4: 3D Thermal Configuration
+        # Tab 4: EMI/EMC pre-compliance configuration
+        self.tab_emc = wx.Panel(self.notebook)
+        emc_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.emc_panel = EMCAnalysisPanel(
+            self.tab_emc,
+            self.board,
+            differential_pairs_provider=lambda: self.differential_panel.settings.pairs,
+            log_callback=self.log,
+        )
+        emc_sizer.Add(self.emc_panel, 1, wx.EXPAND | wx.ALL, 5)
+        self.tab_emc.SetSizer(emc_sizer)
+        self.notebook.AddPage(self.tab_emc, "EMI / EMC")
+        self.power_tree.emc_profile_provider = self.emc_panel.get_settings
+        self.power_tree.emc_profile_consumer = self.emc_panel.set_settings
+
+        # Tab 5: 3D Thermal Configuration
         self.tab_thermal = wx.Panel(self.notebook)
         thermal_sizer = wx.BoxSizer(wx.VERTICAL)
         self.thermal_panel = ThermalAnalysisPanel(
@@ -216,6 +235,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.btn_run_ac = wx.Button(self, label="Run AC Analysis")
         self.btn_optimize = wx.Button(self, label="Optimize Decoupling")
         self.btn_run_differential = wx.Button(self, label="Run Differential Z")
+        self.btn_run_emc = wx.Button(self, label="Run EMI/EMC")
         self.btn_run_thermal = wx.Button(self, label="Run Thermal")
         self.btn_run_coupled = wx.Button(self, label="Run Coupled")
         self.btn_run_cfd = wx.Button(self, label="Run Enclosure CFD")
@@ -226,6 +246,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         btn_sizer.Add(self.btn_run_ac, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_optimize, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_run_differential, 0, wx.ALL, 5)
+        btn_sizer.Add(self.btn_run_emc, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_run_thermal, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_run_coupled, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_run_cfd, 0, wx.ALL, 5)
@@ -240,6 +261,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.btn_run_ac.Bind(wx.EVT_BUTTON, self.on_run_ac)
         self.btn_optimize.Bind(wx.EVT_BUTTON, self.on_optimize_decoupling)
         self.btn_run_differential.Bind(wx.EVT_BUTTON, self.on_run_differential)
+        self.btn_run_emc.Bind(wx.EVT_BUTTON, self.on_run_emc)
         self.btn_run_thermal.Bind(wx.EVT_BUTTON, self.on_run_thermal)
         self.btn_run_coupled.Bind(wx.EVT_BUTTON, self.on_run_coupled_thermal)
         self.btn_run_cfd.Bind(wx.EVT_BUTTON, self.on_run_cfd)
@@ -255,6 +277,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             wx.CallAfter(self.ac_panel.refresh)
         elif event.GetSelection() == self.PAGE_DIFFERENTIAL:
             wx.CallAfter(self.differential_panel.refresh)
+        elif event.GetSelection() == self.PAGE_EMC:
+            wx.CallAfter(self.emc_panel.refresh_live_board)
         elif event.GetSelection() == self.PAGE_THERMAL:
             if not self.thermal_panel.settings.components:
                 wx.CallAfter(self.thermal_panel.refresh_components)
@@ -280,6 +304,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                 self.log("Live PCB geometry unchanged; thermal mesh/CSR cache remains eligible.")
             self.ac_panel.refresh(force_discovery=True)
             self.differential_panel.refresh_live_board()
+            self.emc_panel.refresh_live_board()
             self.thermal_panel.refresh_components(preserve_user=True)
             self.log("Refreshed live PCB geometry and component discovery.")
         except Exception as exc:
@@ -1059,6 +1084,171 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.btn_run_differential.Enable()
         self.log(f"Differential Analysis Error: {exc}")
         wx.MessageBox(str(exc), "Differential Analysis Error", wx.OK | wx.ICON_ERROR)
+
+    def _prepare_emc_analysis(self):
+        self._refresh_live_board_state()
+        settings = self.emc_panel.get_settings()
+        enabled_sources = [source for source in settings.sources if source.enabled]
+        if not enabled_sources:
+            self.log("EMI/EMC note: no clock or switching source is enabled; geometry-only rules will run.")
+        pairs = [pair for pair in self.differential_panel.settings.pairs if pair.enabled]
+        snapshot = EMCGeometrySnapshot.capture(
+            self.board,
+            settings,
+            rails=self.power_tree.rails,
+            differential_pairs=pairs,
+            board_file_path=self._board_file_path(),
+            log_callback=self.log,
+        )
+        ac_results = []
+        ac_result = getattr(self, "ac_result", None)
+        if ac_result is not None:
+            rail_name = self.ac_panel._selected_text(self.ac_panel.choice_rail) or "Last analysed rail"
+            ac_results.append((rail_name, ac_result))
+        differential_results = dict(self.differential_panel.results)
+        thermal_result = getattr(self, "thermal_result", None)
+        return settings, pairs, snapshot, ac_results, differential_results, thermal_result
+
+    def _emc_progress(self, completed, total, detail):
+        wx.CallAfter(self.log, f"EMI/EMC progress: {completed}/{total} ({detail})")
+
+    def on_run_emc(self, _event):
+        if self._emc_thread is not None and self._emc_thread.is_alive():
+            return
+        self.notebook.SetSelection(self.PAGE_LOG)
+        self.log("--- Starting EMI / EMC Pre-compliance Analysis ---")
+        try:
+            settings, pairs, snapshot, ac_results, differential_results, thermal_result = self._prepare_emc_analysis()
+        except Exception as exc:
+            self.log(f"EMI/EMC Setup Error: {exc}")
+            wx.MessageBox(str(exc), "EMI/EMC Setup Error", wx.OK | wx.ICON_ERROR)
+            return
+        self.btn_run_emc.Disable()
+        self._emc_thread = threading.Thread(
+            target=self._run_emc_worker,
+            args=(
+                settings, pairs, snapshot, ac_results, differential_results,
+                thermal_result, self.chk_debug.GetValue(),
+            ),
+            name="KiPIDA-EMI-EMC",
+            daemon=True,
+        )
+        self._emc_thread.start()
+
+    def _run_emc_worker(
+        self, settings, pairs, snapshot, ac_results, differential_results,
+        thermal_result, debug_mode,
+    ):
+        try:
+            analyzer = EMCAnalyzer(
+                snapshot,
+                settings,
+                differential_pairs=pairs,
+                differential_results=differential_results,
+                ac_results=ac_results,
+                thermal_result=thermal_result,
+                log_callback=lambda message: wx.CallAfter(self.log, message),
+            )
+            result = analyzer.analyze(progress_callback=self._emc_progress)
+            with self._plot_lock:
+                plotter = Plotter(debug=debug_mode)
+                risk_png = plotter.plot_emc_risk_map(snapshot, result, as_png=True)
+                spectrum_png = plotter.plot_emc_spectrum(
+                    result, settings.frequency_start_hz, settings.frequency_stop_hz, as_png=True,
+                )
+            if not self._closing:
+                wx.CallAfter(self._finish_emc_analysis, settings, result, risk_png, spectrum_png)
+        except Exception as exc:
+            if not self._closing:
+                wx.CallAfter(self._fail_emc_analysis, exc)
+
+    @staticmethod
+    def _format_emc_report(settings, result):
+        counts = result.severity_counts
+        lines = [
+            "EMI / EMC Pre-compliance Results",
+            "================================",
+            f"Target: {settings.standard} ({settings.market})",
+            f"Frequency band: {settings.frequency_start_hz / 1e6:g} .. {settings.frequency_stop_hz / 1e6:g} MHz",
+            f"Risk score: {result.risk_score}/100",
+            f"Checks evaluated: {result.total_checks}",
+            f"Findings: {len(result.findings)} — critical {counts.get('CRITICAL', 0)}, "
+            f"high {counts.get('HIGH', 0)}, medium {counts.get('MEDIUM', 0)}, "
+            f"low {counts.get('LOW', 0)}, info {counts.get('INFO', 0)}",
+            f"Total elapsed time: {result.elapsed_seconds:.3f} s",
+            "",
+            "Configured emission sources",
+            "---------------------------",
+        ]
+        enabled_sources = [source for source in settings.sources if source.enabled]
+        if enabled_sources:
+            for source in enabled_sources:
+                lines.append(
+                    f"  - {source.name}: {source.net_name}, {source.kind}, "
+                    f"{source.frequency_hz / 1e6:g} MHz, rise {source.rise_time_ns:g} ns "
+                    f"[{source.source}]"
+                )
+        else:
+            lines.append("  - None; geometry-only analysis.")
+        lines.extend([
+            "",
+            "Findings",
+            "--------",
+        ])
+        if not result.findings:
+            lines.append("No finding was generated by the enabled deterministic checks.")
+        for finding in result.findings:
+            targets = []
+            if finding.nets:
+                targets.append("nets=" + ", ".join(finding.nets))
+            if finding.components:
+                targets.append("components=" + ", ".join(finding.components))
+            lines.append(
+                f"[{finding.severity}] {finding.rule_id} — {finding.title} "
+                f"(confidence {finding.confidence})"
+            )
+            lines.append(f"  {finding.description}")
+            if targets:
+                lines.append("  Evidence targets: " + "; ".join(targets))
+            for evidence in finding.evidence:
+                position = ""
+                if evidence.x_mm is not None and evidence.y_mm is not None:
+                    position = f" at ({evidence.x_mm:.3f}, {evidence.y_mm:.3f}) mm"
+                    if evidence.layer_id is not None:
+                        position += f" on layer {evidence.layer_id}"
+                lines.append(f"  Evidence [{evidence.source}]{position}: {evidence.detail}")
+            lines.append(f"  Recommendation: {finding.recommendation}")
+        lines.extend(["", "Per-net risk scores", "-------------------"])
+        if result.per_net_scores:
+            for net, score in sorted(result.per_net_scores.items(), key=lambda item: (item[1], item[0])):
+                lines.append(f"  - {net}: {score}/100")
+        else:
+            lines.append("  - No net-specific penalty.")
+        lines.extend(["", "Pre-compliance test plan", "------------------------"])
+        lines.extend(f"  - {item}" for item in result.test_plan)
+        lines.extend(["", "Regulatory coverage", "-------------------"])
+        lines.extend(f"  - {item}" for item in result.regulatory_coverage)
+        lines.extend(["", "Model limitations", "-----------------"])
+        lines.extend(f"  - {item}" for item in result.limitations)
+        return "\n".join(lines)
+
+    def _finish_emc_analysis(self, settings, result, risk_png, spectrum_png):
+        self._emc_thread = None
+        self.btn_run_emc.Enable()
+        self.emc_panel.apply_results(result)
+        plots = []
+        if risk_png:
+            plots.append(("Risk Map", Plotter.bitmap_from_png(risk_png)))
+        if spectrum_png:
+            plots.append(("Relative Spectrum", Plotter.bitmap_from_png(spectrum_png)))
+        self._publish_results("EMC", self._format_emc_report(settings, result), plots)
+        self.log("EMI/EMC pre-compliance results ready.")
+
+    def _fail_emc_analysis(self, exc):
+        self._emc_thread = None
+        self.btn_run_emc.Enable()
+        self.log(f"EMI/EMC Analysis Error: {exc}")
+        wx.MessageBox(str(exc), "EMI/EMC Analysis Error", wx.OK | wx.ICON_ERROR)
 
     def _dc_copper_loss_points(self, system_results=None):
         losses = []

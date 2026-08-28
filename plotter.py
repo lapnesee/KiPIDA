@@ -252,6 +252,78 @@ class Plotter:
                 print(f"Stackup plot error: {e}")
             return None
 
+    def plot_emc_risk_map(self, snapshot, result, as_png=False):
+        """Render board-space EMC evidence without implying field strength."""
+        try:
+            bounds = snapshot.bounds_mm
+            fig, axis = plt.subplots(figsize=self._figsize(bounds), constrained_layout=True)
+            for track in snapshot.tracks:
+                axis.plot(
+                    [track.start[0], track.end[0]], [track.start[1], track.end[1]],
+                    color="#b8bec8", linewidth=max(0.35, min(1.2, track.width_mm)), alpha=0.45,
+                )
+            colours = {"CRITICAL": "#7a0019", "HIGH": "#d62728", "MEDIUM": "#ff9800",
+                       "LOW": "#f4d03f", "INFO": "#3498db"}
+            sizes = {"CRITICAL": 130, "HIGH": 100, "MEDIUM": 75, "LOW": 55, "INFO": 40}
+            labelled = set()
+            for finding in result.findings:
+                for evidence in finding.evidence:
+                    if evidence.x_mm is None or evidence.y_mm is None:
+                        continue
+                    label = finding.severity if finding.severity not in labelled else None
+                    axis.scatter(
+                        [evidence.x_mm], [evidence.y_mm], marker="o",
+                        s=sizes.get(finding.severity, 50), color=colours.get(finding.severity, "gray"),
+                        edgecolor="white", linewidth=0.7, alpha=0.9, label=label,
+                    )
+                    labelled.add(finding.severity)
+            self._fit_xy(axis, bounds)
+            axis.invert_yaxis()
+            axis.set_xlabel("X (mm)"); axis.set_ylabel("Y (mm)")
+            axis.set_title("EMI/EMC geometric risk map")
+            axis.grid(True, alpha=0.18)
+            if labelled:
+                handles, labels = axis.get_legend_handles_labels()
+                order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
+                pairs = sorted(zip(handles, labels), key=lambda item: order.get(item[1], 9))
+                axis.legend([item[0] for item in pairs], [item[1] for item in pairs], loc="best")
+            return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
+        except Exception as exc:
+            if self.debug:
+                print(f"EMC risk-map plot error: {exc}")
+            return None
+
+    def plot_emc_spectrum(self, result, frequency_start_hz, frequency_stop_hz, as_png=False):
+        """Plot relative source harmonics and cavity modes for test planning."""
+        try:
+            if not result.frequency_risks and not result.cavity_resonances_hz:
+                return None
+            fig, axis = plt.subplots(figsize=(8.5, 5.2), constrained_layout=True)
+            grouped = {}
+            for marker in result.frequency_risks:
+                grouped.setdefault(marker.source_name, [[], []])
+                grouped[marker.source_name][0].append(marker.frequency_hz)
+                grouped[marker.source_name][1].append(marker.level_db)
+            for name, (frequencies, levels) in grouped.items():
+                axis.scatter(frequencies, levels, s=18, alpha=0.75, label=name)
+            for index, frequency in enumerate(result.cavity_resonances_hz):
+                axis.axvline(
+                    frequency, color="#8e44ad", linestyle="--", alpha=0.55,
+                    label="Board cavity modes" if index == 0 else None,
+                )
+            axis.set_xscale("log")
+            axis.set_xlim(max(float(frequency_start_hz), 1.0), max(float(frequency_stop_hz), frequency_start_hz * 1.01))
+            axis.set_xlabel("Frequency (Hz)")
+            axis.set_ylabel("Relative harmonic envelope (dB)")
+            axis.set_title("Relative EMI source spectrum — not an absolute compliance level")
+            axis.grid(True, which="both", alpha=0.25)
+            axis.legend(fontsize=8, loc="best")
+            return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
+        except Exception as exc:
+            if self.debug:
+                print(f"EMC spectrum plot error: {exc}")
+            return None
+
     def plot_thermal_3d(
         self, mesh, result, as_png=False, board_bounds=None, color_map='inferno',
         color_scale_minimum_c=None,
