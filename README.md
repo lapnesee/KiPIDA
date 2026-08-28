@@ -33,7 +33,7 @@ Power-delivery and thermal issues are often discovered late: an undersized coppe
 - Natural, forced, and custom convection modes with exposed top, bottom, and edge surfaces.
 - Manual or power-tree-derived component heat sources, regulator loss placement, and compact junction-temperature estimates.
 - Electro-thermal coupling: iterates temperature-dependent copper resistance and DC `I²R` loss to convergence.
-- Adjustable thermal mesh from 0.01 to 5 mm, including a 0.01 mm Super preset, projected node/branch/memory estimates, and adaptive safety limits.
+- Adjustable thermal mesh from 0.01 to 5 mm, including a 0.1 mm Super preset, projected node/branch/memory estimates, and adaptive safety limits.
 - 3D, top, bottom, and internal-copper temperature maps with a selectable palette and configurable lower and upper colour bounds. Temperatures above a custom maximum saturate at the hottest colour. The thermal overlay can be injected into dedicated non-electrical KiCad user layers with the same colour scale, then removed from the GUI.
 
 ### Enclosure CFD

@@ -156,7 +156,7 @@ class ThermalAnalysisPanel(wx.Panel):
             settings_parent,
             choices=[
                 "Fast (1.5 mm)", "Normal (1.0 mm)", "Fine (0.5 mm)",
-                "Super (0.01 mm)", "Expert / custom",
+                "Super (0.1 mm)", "Expert / custom",
             ],
         )
         self.choice_mesh_preset.SetSelection(1)
@@ -249,7 +249,7 @@ class ThermalAnalysisPanel(wx.Panel):
             self.clear_cache_callback()
 
     def _on_mesh_preset(self, event):
-        values = {0: 1.5, 1: 1.0, 2: 0.5, 3: 0.01}
+        values = {0: 1.5, 1: 1.0, 2: 0.5, 3: 0.1}
         selected = self.choice_mesh_preset.GetSelection()
         if selected in values:
             self.txt_grid.SetValue(values[selected])
@@ -429,7 +429,7 @@ class ThermalAnalysisPanel(wx.Panel):
         airflow = self.settings.airflow
         self.txt_ambient.SetValue(f"{self.settings.ambient_c:g}")
         self.txt_grid.SetValue(float(self.settings.grid_size_mm))
-        preset = {1.5: 0, 1.0: 1, 0.5: 2, 0.01: 3}.get(
+        preset = {1.5: 0, 1.0: 1, 0.5: 2, 0.1: 3}.get(
             round(float(self.settings.grid_size_mm), 2), 4,
         )
         self.choice_mesh_preset.SetSelection(preset)
