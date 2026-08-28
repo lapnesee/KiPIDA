@@ -242,7 +242,10 @@ class Plotter:
                 print(f"Stackup plot error: {e}")
             return None
 
-    def plot_thermal_3d(self, mesh, result, as_png=False, board_bounds=None, color_map='inferno'):
+    def plot_thermal_3d(
+        self, mesh, result, as_png=False, board_bounds=None, color_map='inferno',
+        color_scale_minimum_c=None,
+    ):
         """Render the solved volumetric temperature field."""
         try:
             nodes = list(mesh.nodes)
@@ -259,7 +262,7 @@ class Plotter:
             # orientation: KiCad's upper-right stays upper-right in 3D.
             display_y = -coords[:, 1]
             color_map = color_map if color_map in plt.colormaps() else 'inferno'
-            vmin, vmax = self._thermal_limits(result)
+            vmin, vmax = self._thermal_limits(result, color_scale_minimum_c)
             scatter = axis.scatter(
                 coords[:, 0], display_y, coords[:, 2], c=temperatures,
                 cmap=color_map, vmin=vmin, vmax=vmax, s=5, alpha=0.8,
@@ -284,6 +287,7 @@ class Plotter:
 
     def plot_thermal_surface(
         self, mesh, result, side='TOP', as_png=False, board_bounds=None, color_map='inferno',
+        color_scale_minimum_c=None,
     ):
         """Render a named exterior board temperature map."""
         if not mesh.node_map:
@@ -292,11 +296,12 @@ class Plotter:
         return self.plot_thermal_layer(
             mesh, result, target_iz, f'{side.title()} surface', as_png=as_png,
             board_bounds=board_bounds, color_map=color_map,
+            color_scale_minimum_c=color_scale_minimum_c,
         )
 
     def plot_thermal_layer(
         self, mesh, result, layer_index, layer_name=None, as_png=False,
-        board_bounds=None, color_map='inferno',
+        board_bounds=None, color_map='inferno', color_scale_minimum_c=None,
     ):
         """Render one physical thermal slice, including an internal copper layer."""
         try:
@@ -314,7 +319,7 @@ class Plotter:
             # thermal mesh is already a regular finite-volume grid: render
             # its cells directly, without visible marker borders.
             color_map = color_map if color_map in plt.colormaps() else 'inferno'
-            vmin, vmax = self._thermal_limits(result)
+            vmin, vmax = self._thermal_limits(result, color_scale_minimum_c)
             plot = axis.pcolormesh(
                 x_edges, y_edges, temperatures,
                 cmap=color_map, vmin=vmin, vmax=vmax, shading='flat', edgecolors='none',
@@ -340,7 +345,7 @@ class Plotter:
             return None
 
     @staticmethod
-    def _thermal_limits(result):
+    def _thermal_limits(result, color_scale_minimum_c=None):
         """Keep every thermal result tab on one comparable colour scale."""
         values = getattr(result, 'temperature_vector_c', None)
         if values is None:
@@ -349,7 +354,11 @@ class Plotter:
         values = values[np.isfinite(values)]
         if values.size == 0:
             return 0.0, 1.0
-        low, high = float(np.min(values)), float(np.max(values))
+        low = (
+            float(np.min(values)) if color_scale_minimum_c is None
+            else float(color_scale_minimum_c)
+        )
+        high = float(np.max(values))
         return low, high if high - low >= 1.0e-9 else low + 1.0
 
     @staticmethod

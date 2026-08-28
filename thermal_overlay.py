@@ -151,7 +151,7 @@ def _surface_field(mesh, result, side, max_dimension=1800):
     return field, min_x, min_y, max_x, max_y
 
 
-def _temperature_limits(result):
+def _temperature_limits(result, color_scale_minimum_c=None):
     """Return one stable scale shared by every thermal surface overlay."""
     temperatures = result.temperature_vector_c
     if temperatures is None:
@@ -160,7 +160,10 @@ def _temperature_limits(result):
     values = values[np.isfinite(values)]
     if values.size == 0:
         raise ValueError("No thermal temperatures are available for an overlay scale.")
-    low = float(np.min(values))
+    low = (
+        float(np.min(values)) if color_scale_minimum_c is None
+        else float(color_scale_minimum_c)
+    )
     high = float(np.max(values))
     return (low, high if high - low >= 1.0e-9 else low + 1.0)
 
@@ -422,7 +425,7 @@ class ThermalOverlayManager:
         image.locked = True
         return image
 
-    def inject(self, mesh, result, color_map="inferno"):
+    def inject(self, mesh, result, color_map="inferno", color_scale_minimum_c=None):
         ReferenceImage = _reference_image_type()
         top_layer, bottom_layer = self._layers()
         try:
@@ -431,7 +434,7 @@ class ThermalOverlayManager:
             raise RuntimeError("KiCad IPC geometry bindings are not available.") from exc
 
         color_map = str(color_map or "inferno").lower()
-        limits = _temperature_limits(result)
+        limits = _temperature_limits(result, color_scale_minimum_c)
         min_x, min_y, max_x, max_y = mesh.bounds_mm
         prepared = []
         for side, layer in (("TOP", top_layer), ("BOTTOM", bottom_layer)):

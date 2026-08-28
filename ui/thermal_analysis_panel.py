@@ -1,3 +1,5 @@
+import math
+
 import wx
 
 try:
@@ -16,6 +18,12 @@ THERMAL_COLOR_MAPS = (
     ("Turbo", "turbo"),
     ("Plasma", "plasma"),
     ("Cividis", "cividis"),
+)
+
+THERMAL_COLOR_MINIMUM_MODES = (
+    ("Ambient temperature", "AMBIENT"),
+    ("Automatic (calculated minimum)", "AUTO"),
+    ("Custom temperature", "CUSTOM"),
 )
 
 
@@ -105,6 +113,12 @@ class ThermalAnalysisPanel(wx.Panel):
             settings_parent, choices=[label for label, _ in THERMAL_COLOR_MAPS],
         )
         self.choice_color_map.SetSelection(0)
+        self.choice_color_minimum = wx.Choice(
+            settings_parent, choices=[label for label, _ in THERMAL_COLOR_MINIMUM_MODES],
+        )
+        self.choice_color_minimum.SetSelection(0)
+        self.txt_color_minimum = wx.TextCtrl(settings_parent, value="25")
+        self.txt_color_minimum.Enable(False)
         colour_note = wx.StaticText(
             settings_parent, label="Applied to results and KiCad overlay",
         )
@@ -115,6 +129,7 @@ class ThermalAnalysisPanel(wx.Panel):
             ("Air direction (deg):", self.txt_direction, "Custom h (W/m2K):", self.txt_custom_h),
             ("Coupled iterations:", self.txt_iterations, "Convergence (C):", self.txt_convergence),
             ("Thermal colors:", self.choice_color_map, "", colour_note),
+            ("Color scale minimum:", self.choice_color_minimum, "Custom minimum (C):", self.txt_color_minimum),
         ]
         for left_label, left_control, right_label, right_control in rows:
             grid.Add(wx.StaticText(settings_parent, label=left_label), 0, wx.ALIGN_CENTER_VERTICAL)
@@ -197,6 +212,7 @@ class ThermalAnalysisPanel(wx.Panel):
         self.btn_edit.Bind(wx.EVT_BUTTON, self._on_edit)
         self.component_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit)
         self.choice_mesh_preset.Bind(wx.EVT_CHOICE, self._on_mesh_preset)
+        self.choice_color_minimum.Bind(wx.EVT_CHOICE, self._on_color_minimum_mode)
         self.txt_grid.Bind(wx.EVT_SPINCTRLDOUBLE, self._on_grid_changed)
         self.txt_grid.Bind(wx.EVT_TEXT, self._on_grid_changed)
         self.txt_expert_grid.Bind(wx.EVT_TEXT, self._on_expert_grid_changed)
@@ -227,6 +243,16 @@ class ThermalAnalysisPanel(wx.Panel):
             self.txt_expert_grid.SetFocus()
         self.Layout()
         self._update_mesh_cost()
+
+    def _on_color_minimum_mode(self, event):
+        selected = self.choice_color_minimum.GetSelection()
+        mode = THERMAL_COLOR_MINIMUM_MODES[
+            selected if selected != wx.NOT_FOUND else 0
+        ][1]
+        self.txt_color_minimum.Enable(mode == "CUSTOM")
+        if mode == "AMBIENT":
+            self.txt_color_minimum.SetValue(self.txt_ambient.GetValue())
+        event.Skip()
 
     def _on_expert_grid_changed(self, event):
         try:
@@ -338,6 +364,17 @@ class ThermalAnalysisPanel(wx.Panel):
         self.settings.color_map = THERMAL_COLOR_MAPS[
             selected if selected != wx.NOT_FOUND else 0
         ][1]
+        minimum_selected = self.choice_color_minimum.GetSelection()
+        minimum_mode = THERMAL_COLOR_MINIMUM_MODES[
+            minimum_selected if minimum_selected != wx.NOT_FOUND else 0
+        ][1]
+        self.settings.color_scale_minimum_mode = minimum_mode
+        self.settings.color_scale_minimum_c = None
+        if minimum_mode == "CUSTOM":
+            minimum = float(self.txt_color_minimum.GetValue())
+            if not math.isfinite(minimum) or minimum <= -273.15:
+                raise ValueError("Custom thermal colour minimum must be above absolute zero.")
+            self.settings.color_scale_minimum_c = minimum
         self.settings.show_internal_copper_layers = self.chk_internal_layers.GetValue()
         self.settings.coupled_iterations = int(self.txt_iterations.GetValue())
         self.settings.convergence_c = float(self.txt_convergence.GetValue())
@@ -376,6 +413,23 @@ class ThermalAnalysisPanel(wx.Panel):
             0,
         )
         self.choice_color_map.SetSelection(colour_index)
+        minimum_mode = str(
+            getattr(self.settings, "color_scale_minimum_mode", "AMBIENT")
+        ).upper()
+        minimum_index = next(
+            (index for index, (_, value) in enumerate(THERMAL_COLOR_MINIMUM_MODES)
+             if value == minimum_mode),
+            0,
+        )
+        self.choice_color_minimum.SetSelection(minimum_index)
+        minimum_value = getattr(self.settings, "color_scale_minimum_c", None)
+        self.txt_color_minimum.SetValue(
+            f"{float(minimum_value):g}" if minimum_value is not None
+            else f"{self.settings.ambient_c:g}"
+        )
+        self.txt_color_minimum.Enable(
+            THERMAL_COLOR_MINIMUM_MODES[minimum_index][1] == "CUSTOM"
+        )
         # Recompute all automatic entries when loading a project so configs
         # saved by older versions cannot retain V*I connector heat or output-
         # inductor regulator placement. Explicit user models remain untouched.

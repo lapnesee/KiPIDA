@@ -141,6 +141,10 @@ class TestPlotter(unittest.TestCase):
         self.assertIsInstance(top_png, bytes)
         self.assertTrue(thermal_3d_png.startswith(b"\x89PNG"))
         self.assertTrue(top_png.startswith(b"\x89PNG"))
+        self.assertEqual(
+            self.plotter._thermal_limits(result, color_scale_minimum_c=25.0),
+            (25.0, 35.0),
+        )
 
         x_edges, y_edges, field = self.plotter._thermal_surface_grid(
             thermal_mesh, result, target_iz=1,
