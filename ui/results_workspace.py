@@ -39,9 +39,13 @@ class AnalysisResultPage(wx.Panel):
         self.plots.Freeze()
         try:
             self.plots.DeleteAllPages()
-            for title, bitmap in plots:
+            for entry in plots:
+                title, bitmap = entry[:2]
+                hover_probe = entry[2] if len(entry) > 2 else None
                 if bitmap and bitmap.IsOk():
-                    self.plots.AddPage(ZoomableBitmapPanel(self.plots, bitmap), title)
+                    self.plots.AddPage(
+                        ZoomableBitmapPanel(self.plots, bitmap, hover_probe=hover_probe), title,
+                    )
         finally:
             self.plots.Thaw()
 

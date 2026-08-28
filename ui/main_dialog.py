@@ -1389,6 +1389,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                     ("Top Surface", plotter.plot_thermal_surface(
                         mesh, result, "TOP", as_png=True, board_bounds=board_bounds, color_map=color_map,
                         color_scale_minimum_c=color_scale_minimum_c,
+                        with_hover_probe=True,
                     )),
                 ]
                 if show_internal_copper_layers:
@@ -1397,12 +1398,14 @@ class KiPIDA_MainDialog(wx.Dialog):
                             mesh, result, index, str(spec.name), as_png=True,
                             board_bounds=board_bounds, color_map=color_map,
                             color_scale_minimum_c=color_scale_minimum_c,
+                            with_hover_probe=True,
                         ))
                         for index, spec in self._internal_copper_slices(mesh)
                     )
                 plots.append(("Bottom Surface", plotter.plot_thermal_surface(
                     mesh, result, "BOTTOM", as_png=True, board_bounds=board_bounds, color_map=color_map,
                     color_scale_minimum_c=color_scale_minimum_c,
+                    with_hover_probe=True,
                 )))
             if not self._closing:
                 wx.CallAfter(self._finish_thermal_plots, generation, plots)
@@ -1422,12 +1425,16 @@ class KiPIDA_MainDialog(wx.Dialog):
             )
             return
         page = self.results_workspace.page_for("THERMAL")
-        bitmaps = [
-            (title, Plotter.bitmap_from_png(png_bytes))
-            for title, png_bytes in available_plots
-        ]
+        bitmaps = []
+        history_bitmaps = []
+        for title, rendered in available_plots:
+            png_bytes = getattr(rendered, "png_bytes", rendered)
+            hover_probe = getattr(rendered, "hover_probe", None)
+            bitmap = Plotter.bitmap_from_png(png_bytes)
+            bitmaps.append((title, bitmap, hover_probe))
+            history_bitmaps.append((title, bitmap))
         page.set_plots(bitmaps)
-        self.results_workspace.update_history_plots("THERMAL", bitmaps)
+        self.results_workspace.update_history_plots("THERMAL", history_bitmaps)
         self.log("Thermal result plots ready.")
 
     def _fail_thermal_plots(self, generation, exc):

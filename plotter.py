@@ -5,8 +5,18 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import io
+from dataclasses import dataclass
 import wx
 import numpy as np
+
+from thermal_probe import ThermalMapProbe
+
+
+@dataclass(frozen=True)
+class ThermalPlotPayload:
+    """PNG data plus optional live-probe mapping for a rendered thermal map."""
+    png_bytes: bytes
+    hover_probe: object = None
 
 class Plotter:
     def __init__(self, debug=False):
@@ -287,7 +297,7 @@ class Plotter:
 
     def plot_thermal_surface(
         self, mesh, result, side='TOP', as_png=False, board_bounds=None, color_map='inferno',
-        color_scale_minimum_c=None,
+        color_scale_minimum_c=None, with_hover_probe=False,
     ):
         """Render a named exterior board temperature map."""
         if not mesh.node_map:
@@ -297,11 +307,13 @@ class Plotter:
             mesh, result, target_iz, f'{side.title()} surface', as_png=as_png,
             board_bounds=board_bounds, color_map=color_map,
             color_scale_minimum_c=color_scale_minimum_c,
+            with_hover_probe=with_hover_probe,
         )
 
     def plot_thermal_layer(
         self, mesh, result, layer_index, layer_name=None, as_png=False,
         board_bounds=None, color_map='inferno', color_scale_minimum_c=None,
+        with_hover_probe=False,
     ):
         """Render one physical thermal slice, including an internal copper layer."""
         try:
@@ -338,6 +350,15 @@ class Plotter:
                 layer_name = specs[layer_index].name if 0 <= layer_index < len(specs) else f'Layer {layer_index}'
             axis.set_title(f'{layer_name} temperature')
             fig.colorbar(plot, ax=axis, label='Temperature (C)')
+            if with_hover_probe:
+                # Resolve constrained-layout positions before storing the
+                # pixel-to-data transform used by the wx bitmap viewport.
+                fig.canvas.draw()
+                probe = ThermalMapProbe(
+                    mesh, result, layer_index, layer_name,
+                    axis.get_position().bounds, axis.get_xlim(), axis.get_ylim(),
+                )
+                return ThermalPlotPayload(self._fig_to_png(fig), probe)
             return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
         except Exception as e:
             if self.debug:
