@@ -11,6 +11,12 @@ class ThermalMeshEstimateTests(unittest.TestCase):
         self.assertEqual(fine["nodes"], normal["nodes"] * 4)
         self.assertGreater(fine["cpu_bytes"], normal["cpu_bytes"] * 3)
 
+    def test_super_resolution_is_estimated_without_clamping_to_point_one(self):
+        context = {"width_mm": 10.0, "height_mm": 10.0, "thermal_layers": 3}
+        super_fine = estimate_thermal_mesh_cost(context, 0.01)
+        legacy_floor = estimate_thermal_mesh_cost(context, 0.1)
+        self.assertEqual(super_fine["nodes"], legacy_floor["nodes"] * 100)
+
     def test_recommends_cuda_only_when_available_and_above_threshold(self):
         context = {
             "width_mm": 200, "height_mm": 100, "thermal_layers": 11,

@@ -368,6 +368,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                 self.thermal_mesh, self.thermal_result,
                 color_map=settings.color_map,
                 color_scale_minimum_c=settings.resolved_color_scale_minimum_c(),
+                color_scale_maximum_c=settings.resolved_color_scale_maximum_c(),
             )
             self.log("KiCad thermal overlay injection completed.")
         except Exception as exc:
@@ -1468,6 +1469,8 @@ class KiPIDA_MainDialog(wx.Dialog):
                     settings.color_map,
                     settings.resolved_color_scale_minimum_c(),
                     settings.color_scale_minimum_mode,
+                    settings.resolved_color_scale_maximum_c(),
+                    settings.color_scale_maximum_mode,
                     settings.show_internal_copper_layers,
                 )
         except Exception as exc:
@@ -1477,6 +1480,7 @@ class KiPIDA_MainDialog(wx.Dialog):
     def _finish_thermal_worker(
         self, mesh, result, coupled, coupled_result, system_results, elapsed_seconds,
         color_map, color_scale_minimum_c, color_scale_minimum_mode,
+        color_scale_maximum_c, color_scale_maximum_mode,
         show_internal_copper_layers,
     ):
         self._thermal_thread = None
@@ -1492,6 +1496,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             mesh, result, coupled=coupled, elapsed_seconds=elapsed_seconds, color_map=color_map,
             color_scale_minimum_c=color_scale_minimum_c,
             color_scale_minimum_mode=color_scale_minimum_mode,
+            color_scale_maximum_c=color_scale_maximum_c,
+            color_scale_maximum_mode=color_scale_maximum_mode,
             show_internal_copper_layers=show_internal_copper_layers,
         )
         self.log(f"Thermal analysis completed in {elapsed_seconds:.3f} s.")
@@ -1507,6 +1513,7 @@ class KiPIDA_MainDialog(wx.Dialog):
     def _update_thermal_results_ui(
         self, mesh, result, coupled=False, elapsed_seconds=None, color_map="inferno",
         color_scale_minimum_c=None, color_scale_minimum_mode="AUTO",
+        color_scale_maximum_c=None, color_scale_maximum_mode="AUTO",
         show_internal_copper_layers=True,
     ):
         hotspot = result.hotspot
@@ -1529,6 +1536,10 @@ class KiPIDA_MainDialog(wx.Dialog):
             "Thermal colour minimum: " + (
                 f"{float(color_scale_minimum_c):.3g} C ({str(color_scale_minimum_mode).lower()})"
                 if color_scale_minimum_c is not None else "calculated minimum"
+            ),
+            "Thermal colour maximum: " + (
+                f"{float(color_scale_maximum_c):.3g} C ({str(color_scale_maximum_mode).lower()})"
+                if color_scale_maximum_c is not None else "calculated hotspot"
             ),
             "Internal copper maps: enabled" if show_internal_copper_layers else
             "Internal copper maps: disabled",
@@ -1572,6 +1583,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             target=self._render_thermal_plots_worker,
             args=(
                 mesh, result, generation, color_map, color_scale_minimum_c,
+                color_scale_maximum_c,
                 show_internal_copper_layers,
             ),
             name="KiPIDA-Thermal-Plots",
@@ -1591,6 +1603,7 @@ class KiPIDA_MainDialog(wx.Dialog):
 
     def _render_thermal_plots_worker(
         self, mesh, result, generation, color_map, color_scale_minimum_c,
+        color_scale_maximum_c,
         show_internal_copper_layers,
     ):
         try:
@@ -1601,10 +1614,12 @@ class KiPIDA_MainDialog(wx.Dialog):
                     ("Thermal 3D", plotter.plot_thermal_3d(
                         mesh, result, as_png=True, board_bounds=board_bounds, color_map=color_map,
                         color_scale_minimum_c=color_scale_minimum_c,
+                        color_scale_maximum_c=color_scale_maximum_c,
                     )),
                     ("Top Surface", plotter.plot_thermal_surface(
                         mesh, result, "TOP", as_png=True, board_bounds=board_bounds, color_map=color_map,
                         color_scale_minimum_c=color_scale_minimum_c,
+                        color_scale_maximum_c=color_scale_maximum_c,
                         with_hover_probe=True,
                     )),
                 ]
@@ -1614,6 +1629,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                             mesh, result, index, str(spec.name), as_png=True,
                             board_bounds=board_bounds, color_map=color_map,
                             color_scale_minimum_c=color_scale_minimum_c,
+                            color_scale_maximum_c=color_scale_maximum_c,
                             with_hover_probe=True,
                         ))
                         for index, spec in self._internal_copper_slices(mesh)
@@ -1621,6 +1637,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                 plots.append(("Bottom Surface", plotter.plot_thermal_surface(
                     mesh, result, "BOTTOM", as_png=True, board_bounds=board_bounds, color_map=color_map,
                     color_scale_minimum_c=color_scale_minimum_c,
+                    color_scale_maximum_c=color_scale_maximum_c,
                     with_hover_probe=True,
                 )))
             if not self._closing:

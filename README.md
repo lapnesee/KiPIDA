@@ -33,8 +33,8 @@ Power-delivery and thermal issues are often discovered late: an undersized coppe
 - Natural, forced, and custom convection modes with exposed top, bottom, and edge surfaces.
 - Manual or power-tree-derived component heat sources, regulator loss placement, and compact junction-temperature estimates.
 - Electro-thermal coupling: iterates temperature-dependent copper resistance and DC `I²R` loss to convergence.
-- Adjustable thermal mesh from 0.1 to 5 mm, practical presets, projected node/branch/memory estimates, and safety limits.
-- 3D, top, bottom, and internal-copper temperature maps with a selectable palette and a lower colour bound set to the ambient temperature, the calculated minimum, or a custom temperature. The thermal overlay can be injected into dedicated non-electrical KiCad user layers with the same colour scale, then removed from the GUI.
+- Adjustable thermal mesh from 0.01 to 5 mm, including a 0.01 mm Super preset, projected node/branch/memory estimates, and adaptive safety limits.
+- 3D, top, bottom, and internal-copper temperature maps with a selectable palette and configurable lower and upper colour bounds. Temperatures above a custom maximum saturate at the hottest colour. The thermal overlay can be injected into dedicated non-electrical KiCad user layers with the same colour scale, then removed from the GUI.
 
 ### Enclosure CFD
 
@@ -68,7 +68,7 @@ Power-delivery and thermal issues are often discovered late: an undersized coppe
 - Independent result workspaces for DC, AC, differential, EMI/EMC, thermal, CFD, and debug analyses: a new analysis does not erase another analysis type.
 - Persistent result history stored in `KiPIDA-results` beside the board/project, selectable from the Results tab and removable from the GUI.
 - Live thermal probing on Top, Bottom, and internal-copper maps: hover a solved map to read the nearest mesh-node temperature, X/Y/Z coordinate, and layer in the persistent status area above the Run buttons.
-- Clickable EMI/EMC map and spectrum observations with rule, severity, confidence, evidence targets, engineering interpretation, and corrective recommendation.
+- Clickable EMI/EMC map and spectrum observations with rule, severity, confidence, evidence targets, engineering interpretation, and corrective recommendation. Click the same point again to close its popup, click another point to replace it, or double-click the popup/point to copy its full contents.
 - Wheel zoom and left-drag panning for tables, plots, and 3D representations; output consoles support `Ctrl` + wheel, `Ctrl` + `+`/`-`, and `Ctrl+0` for text scaling.
 - Timestamped logs and total elapsed time in published reports.
 

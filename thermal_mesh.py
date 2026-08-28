@@ -24,7 +24,7 @@ except ImportError:
 try:
     # Shapely 2 evaluates coordinate arrays inside GEOS.  This replaces one
     # Python Point allocation and two Python->GEOS calls for every thermal
-    # cell, which dominates fine (0.1 mm) mesh construction time.
+    # cell, which dominates fine (0.01 mm) mesh construction time.
     from shapely import intersects_xy
 except ImportError:
     intersects_xy = None
@@ -61,7 +61,7 @@ class ThermalBoundary:
 class PackedThermalBranches:
     """Compact branch storage for large thermal meshes.
 
-    A 0.1 mm board can have several million finite-volume branches.  Keeping
+    A 0.01 mm board can have several million finite-volume branches.  Keeping
     one Python dataclass for each connection consumed more memory and spent a
     significant portion of the run in object allocation.  This container
     keeps the exact same data in contiguous primitive arrays.  It deliberately
@@ -282,7 +282,7 @@ def estimate_thermal_mesh_cost(context, grid_size_mm):
     width = max(0.0, float(context.get("width_mm", 0.0)))
     height = max(0.0, float(context.get("height_mm", 0.0)))
     layers = max(1, int(context.get("thermal_layers", 3)))
-    grid = max(0.1, float(grid_size_mm))
+    grid = max(0.01, float(grid_size_mm))
     xy_cells = max(1, math.ceil(width / grid)) * max(1, math.ceil(height / grid))
     nodes = xy_cells * layers
     branches = int(xy_cells * (2 * layers + max(0, layers - 1)))
@@ -464,7 +464,7 @@ class ThermalMesher:
     def generate_mesh(self, model, settings: ThermalAnalysisSettings, progress_callback=None):
         if Point is None or prep is None:
             raise ImportError("Shapely is required for thermal meshing.")
-        requested_grid = max(0.1, float(settings.grid_size_mm))
+        requested_grid = max(0.01, float(settings.grid_size_mm))
         grid = requested_grid
         min_x, min_y, max_x, max_y = model.bounds_mm
         specs = self._layer_specs(model.stackup)
@@ -759,7 +759,7 @@ class ThermalMesher:
             iz = len(specs) - 1 if placement.side == "BOTTOM" else 0
             nodes = []
             # The former implementation scanned every node in the complete
-            # 3D mesh for every component.  On a 0.1 mm 11-layer board that
+            # 3D mesh for every component.  On a 0.01 mm 11-layer board that
             # is millions of dictionary entries per component.  Restrict the
             # exact same centre-point test to the component's grid window.
             left = float(placement.x_mm) - float(placement.width_mm) / 2.0

@@ -290,6 +290,8 @@ class TestConfigManager(unittest.TestCase):
             color_map="turbo",
             color_scale_minimum_mode="CUSTOM",
             color_scale_minimum_c=30.0,
+            color_scale_maximum_mode="CUSTOM",
+            color_scale_maximum_c=95.0,
             show_internal_copper_layers=False,
             components=[ThermalComponentModel(
                 ref_des="U2", power_w=1.25, width_mm=4.0, depth_mm=4.0,
@@ -312,6 +314,8 @@ class TestConfigManager(unittest.TestCase):
             self.assertEqual(loaded.color_map, "turbo")
             self.assertEqual(loaded.color_scale_minimum_mode, "CUSTOM")
             self.assertEqual(loaded.color_scale_minimum_c, 30.0)
+            self.assertEqual(loaded.color_scale_maximum_mode, "CUSTOM")
+            self.assertEqual(loaded.color_scale_maximum_c, 95.0)
             self.assertFalse(loaded.show_internal_copper_layers)
             self.assertEqual(loaded.components[0].ref_des, "U2")
             self.assertAlmostEqual(loaded.components[0].power_w, 1.25)

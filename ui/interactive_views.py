@@ -21,6 +21,60 @@ def _copy_font(font):
         return copied
 
 
+class ProbePopup(wx.PopupWindow):
+    """Persistent observation popup with click-close and double-click copy."""
+
+    def __init__(self, parent, text, dismiss_callback=None, copy_callback=None):
+        super().__init__(parent, wx.BORDER_SIMPLE)
+        self._text = str(text)
+        self._dismiss_callback = dismiss_callback
+        self._copy_callback = copy_callback
+        self._dismiss_later = None
+        self.SetBackgroundColour(wx.Colour(255, 255, 235))
+        label = wx.StaticText(self, label=self._text)
+        label.SetForegroundColour(wx.Colour(25, 25, 25))
+        label.Wrap(560)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(label, 1, wx.EXPAND | wx.ALL, 10)
+        self.SetSizerAndFit(sizer)
+        for window in (self, label):
+            window.Bind(wx.EVT_LEFT_UP, self._on_left_up)
+            window.Bind(wx.EVT_LEFT_DCLICK, self._on_left_dclick)
+
+    def show_at(self, screen_position):
+        anchor = wx.Point(screen_position.x + 12, screen_position.y + 12)
+        self.Position(anchor, self.GetSize())
+        self.Show()
+        self.Raise()
+
+    def dismiss(self):
+        if self._dismiss_later is not None:
+            self._dismiss_later.Stop()
+            self._dismiss_later = None
+        if self.IsShown():
+            self.Hide()
+        if self._dismiss_callback:
+            self._dismiss_callback(self)
+        wx.CallAfter(self.Destroy)
+
+    def _on_left_up(self, event):
+        # Delay the single-click action until wx has had time to distinguish
+        # it from a native double-click sequence.
+        if self._dismiss_later is not None:
+            self._dismiss_later.Stop()
+        self._dismiss_later = wx.CallLater(600, self.dismiss)
+        event.Skip()
+
+    def _on_left_dclick(self, event):
+        if self._dismiss_later is not None:
+            self._dismiss_later.Stop()
+            self._dismiss_later = None
+        if self._copy_callback:
+            self._copy_callback(self._text)
+        self.dismiss()
+        event.Skip()
+
+
 class ZoomableBitmapPanel(wx.ScrolledWindow):
     """A bitmap viewport with wheel zoom and drag pan.
 
@@ -49,6 +103,8 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
         self._click_probe = click_probe
         self._status_callback = status_callback
         self._tip_window = None
+        self._tip_text = None
+        self._suppress_click_on_left_up = False
         self._image = wx.StaticBitmap(self)
         self._sizer = wx.BoxSizer(wx.VERTICAL)
         self._sizer.Add(self._image, 0, wx.ALL, 5)
@@ -59,6 +115,7 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
         for window in (self, self._image):
             window.Bind(wx.EVT_LEFT_DOWN, self._on_left_down)
             window.Bind(wx.EVT_LEFT_UP, self._on_left_up)
+            window.Bind(wx.EVT_LEFT_DCLICK, self._on_left_dclick)
             window.Bind(wx.EVT_MOTION, self._on_motion)
             window.Bind(wx.EVT_LEAVE_WINDOW, self._on_leave)
             window.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self._on_capture_lost)
@@ -112,7 +169,9 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
         event.Skip()
 
     def _on_left_up(self, event):
-        if not self._was_dragged:
+        if self._suppress_click_on_left_up:
+            self._suppress_click_on_left_up = False
+        elif not self._was_dragged:
             self._show_click_probe(event)
         self._finish_drag()
         event.Skip()
@@ -165,11 +224,53 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
         if reading is None:
             return
         text = reading.label()
+        if self._tip_window is not None:
+            same_observation = text == self._tip_text
+            self._close_probe_popup()
+            if same_observation:
+                return
         self._set_status(text.splitlines()[0])
-        if hasattr(wx, "TipWindow"):
-            self._tip_window = wx.TipWindow(self, text, 620)
+        if hasattr(wx, "PopupWindow"):
+            self._tip_text = text
+            self._tip_window = ProbePopup(
+                self, text, dismiss_callback=self._on_probe_popup_dismissed,
+                copy_callback=self._copy_probe_text,
+            )
+            screen_position = event.GetEventObject().ClientToScreen(event.GetPosition())
+            self._tip_window.show_at(screen_position)
         else:
             wx.MessageBox(text, "EMI/EMC Observation", wx.OK | wx.ICON_INFORMATION)
+
+    def _on_left_dclick(self, event):
+        reading = self._probe_at_event(self._click_probe, event)
+        if reading is not None:
+            self._suppress_click_on_left_up = True
+            self._copy_probe_text(reading.label())
+            self._close_probe_popup()
+        event.Skip()
+
+    def _on_probe_popup_dismissed(self, popup):
+        if popup is self._tip_window:
+            self._tip_window = None
+            self._tip_text = None
+
+    def _close_probe_popup(self):
+        popup = self._tip_window
+        self._tip_window = None
+        self._tip_text = None
+        if popup is not None:
+            popup.dismiss()
+
+    def _copy_probe_text(self, text):
+        data = wx.TextDataObject(str(text))
+        if wx.TheClipboard.Open():
+            try:
+                wx.TheClipboard.SetData(data)
+                if hasattr(wx.TheClipboard, "Flush"):
+                    wx.TheClipboard.Flush()
+                self._set_status("EMI/EMC observation copied to clipboard")
+            finally:
+                wx.TheClipboard.Close()
 
     def _on_leave(self, event):
         self._set_status("")

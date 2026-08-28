@@ -446,10 +446,10 @@ class ThermalAnalysisSettings:
     emissivity: float = 0.9
     include_dc_copper_losses: bool = True
     color_map: str = "inferno"
-    # The thermal colour maximum always follows the solved hotspot.  Only the
-    # low end is configurable so a room-temperature board remains visibly cold.
     color_scale_minimum_mode: str = "AMBIENT"
     color_scale_minimum_c: Optional[float] = None
+    color_scale_maximum_mode: str = "AUTO"
+    color_scale_maximum_c: Optional[float] = None
     show_internal_copper_layers: bool = True
     coupled_iterations: int = 10
     convergence_c: float = 0.1
@@ -465,6 +465,11 @@ class ThermalAnalysisSettings:
         if mode == "CUSTOM":
             return self.color_scale_minimum_c
         return float(self.ambient_c)
+
+    def resolved_color_scale_maximum_c(self) -> Optional[float]:
+        """Return the requested upper colour bound, or None for hotspot auto."""
+        mode = str(self.color_scale_maximum_mode or "AUTO").upper()
+        return self.color_scale_maximum_c if mode == "CUSTOM" else None
 
 
 @dataclass

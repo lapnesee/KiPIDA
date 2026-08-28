@@ -24,6 +24,13 @@ class UICompatibilityTests(unittest.TestCase):
         self.assertNotIn(".Copy(", source)
         self.assertIn("_copy_font", {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)})
 
+    def test_emc_popup_supports_toggle_and_clipboard_copy(self):
+        source = (PLUGIN_ROOT / "ui" / "interactive_views.py").read_text(encoding="utf-8")
+        self.assertIn("class ProbePopup", source)
+        self.assertIn("EVT_LEFT_DCLICK", source)
+        self.assertIn("TheClipboard", source)
+        self.assertIn("same_observation", source)
+
     def test_coupled_analysis_uses_background_pipeline(self):
         source = (PLUGIN_ROOT / "ui" / "main_dialog.py").read_text(encoding="utf-8")
         tree = ast.parse(source)

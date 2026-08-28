@@ -378,7 +378,7 @@ class Plotter:
 
     def plot_thermal_3d(
         self, mesh, result, as_png=False, board_bounds=None, color_map='inferno',
-        color_scale_minimum_c=None,
+        color_scale_minimum_c=None, color_scale_maximum_c=None,
     ):
         """Render the solved volumetric temperature field."""
         try:
@@ -396,7 +396,9 @@ class Plotter:
             # orientation: KiCad's upper-right stays upper-right in 3D.
             display_y = -coords[:, 1]
             color_map = color_map if color_map in plt.colormaps() else 'inferno'
-            vmin, vmax = self._thermal_limits(result, color_scale_minimum_c)
+            vmin, vmax = self._thermal_limits(
+                result, color_scale_minimum_c, color_scale_maximum_c,
+            )
             scatter = axis.scatter(
                 coords[:, 0], display_y, coords[:, 2], c=temperatures,
                 cmap=color_map, vmin=vmin, vmax=vmax, s=5, alpha=0.8,
@@ -421,7 +423,7 @@ class Plotter:
 
     def plot_thermal_surface(
         self, mesh, result, side='TOP', as_png=False, board_bounds=None, color_map='inferno',
-        color_scale_minimum_c=None, with_hover_probe=False,
+        color_scale_minimum_c=None, color_scale_maximum_c=None, with_hover_probe=False,
     ):
         """Render a named exterior board temperature map."""
         if not mesh.node_map:
@@ -431,13 +433,14 @@ class Plotter:
             mesh, result, target_iz, f'{side.title()} surface', as_png=as_png,
             board_bounds=board_bounds, color_map=color_map,
             color_scale_minimum_c=color_scale_minimum_c,
+            color_scale_maximum_c=color_scale_maximum_c,
             with_hover_probe=with_hover_probe,
         )
 
     def plot_thermal_layer(
         self, mesh, result, layer_index, layer_name=None, as_png=False,
         board_bounds=None, color_map='inferno', color_scale_minimum_c=None,
-        with_hover_probe=False,
+        color_scale_maximum_c=None, with_hover_probe=False,
     ):
         """Render one physical thermal slice, including an internal copper layer."""
         try:
@@ -455,7 +458,9 @@ class Plotter:
             # thermal mesh is already a regular finite-volume grid: render
             # its cells directly, without visible marker borders.
             color_map = color_map if color_map in plt.colormaps() else 'inferno'
-            vmin, vmax = self._thermal_limits(result, color_scale_minimum_c)
+            vmin, vmax = self._thermal_limits(
+                result, color_scale_minimum_c, color_scale_maximum_c,
+            )
             plot = axis.pcolormesh(
                 x_edges, y_edges, temperatures,
                 cmap=color_map, vmin=vmin, vmax=vmax, shading='flat', edgecolors='none',
@@ -490,7 +495,9 @@ class Plotter:
             return None
 
     @staticmethod
-    def _thermal_limits(result, color_scale_minimum_c=None):
+    def _thermal_limits(
+        result, color_scale_minimum_c=None, color_scale_maximum_c=None,
+    ):
         """Keep every thermal result tab on one comparable colour scale."""
         values = getattr(result, 'temperature_vector_c', None)
         if values is None:
@@ -503,8 +510,19 @@ class Plotter:
             float(np.min(values)) if color_scale_minimum_c is None
             else float(color_scale_minimum_c)
         )
-        high = float(np.max(values))
-        return low, high if high - low >= 1.0e-9 else low + 1.0
+        high = (
+            float(np.max(values)) if color_scale_maximum_c is None
+            else float(color_scale_maximum_c)
+        )
+        if high <= low:
+            # A custom upper threshold below every solved temperature means
+            # every cell must saturate at the hottest colour. Keep Matplotlib
+            # normalization valid without changing that interpretation.
+            if color_scale_maximum_c is not None and color_scale_minimum_c is None:
+                low = high - max(1.0, abs(high) * 1.0e-6)
+            else:
+                high = low + 1.0
+        return low, high
 
     @staticmethod
     def _thermal_surface_grid(mesh, result, target_iz):
