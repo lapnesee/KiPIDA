@@ -10,6 +10,7 @@ import wx
 import numpy as np
 
 from thermal_probe import ThermalMapProbe
+from emc_probe import EMCProbeReading, capture_axis_points
 
 
 @dataclass(frozen=True)
@@ -17,6 +18,13 @@ class ThermalPlotPayload:
     """PNG data plus optional live-probe mapping for a rendered thermal map."""
     png_bytes: bytes
     hover_probe: object = None
+
+
+@dataclass(frozen=True)
+class EMCPlotPayload:
+    """PNG data plus click-probe metadata for an EMI/EMC plot."""
+    png_bytes: bytes
+    click_probe: object = None
 
 class Plotter:
     def __init__(self, debug=False):
@@ -252,7 +260,7 @@ class Plotter:
                 print(f"Stackup plot error: {e}")
             return None
 
-    def plot_emc_risk_map(self, snapshot, result, as_png=False):
+    def plot_emc_risk_map(self, snapshot, result, as_png=False, with_click_probe=False):
         """Render board-space EMC evidence without implying field strength."""
         try:
             bounds = snapshot.bounds_mm
@@ -266,6 +274,7 @@ class Plotter:
                        "LOW": "#f4d03f", "INFO": "#3498db"}
             sizes = {"CRITICAL": 130, "HIGH": 100, "MEDIUM": 75, "LOW": 55, "INFO": 40}
             labelled = set()
+            probe_points = []
             for finding in result.findings:
                 for evidence in finding.evidence:
                     if evidence.x_mm is None or evidence.y_mm is None:
@@ -277,6 +286,21 @@ class Plotter:
                         edgecolor="white", linewidth=0.7, alpha=0.9, label=label,
                     )
                     labelled.add(finding.severity)
+                    probe_points.append((
+                        evidence.x_mm,
+                        evidence.y_mm,
+                        EMCProbeReading(
+                            title=finding.title,
+                            rule_id=finding.rule_id,
+                            severity=finding.severity,
+                            confidence=finding.confidence,
+                            description=finding.description,
+                            recommendation=finding.recommendation,
+                            nets=tuple(finding.nets),
+                            components=tuple(finding.components),
+                            evidence=f"{evidence.source}: {evidence.detail}",
+                        ),
+                    ))
             self._fit_xy(axis, bounds)
             axis.invert_yaxis()
             axis.set_xlabel("X (mm)"); axis.set_ylabel("Y (mm)")
@@ -287,23 +311,48 @@ class Plotter:
                 order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
                 pairs = sorted(zip(handles, labels), key=lambda item: order.get(item[1], 9))
                 axis.legend([item[0] for item in pairs], [item[1] for item in pairs], loc="best")
+            if with_click_probe:
+                probe = capture_axis_points(fig, axis, probe_points, maximum_distance_px=20.0)
+                return EMCPlotPayload(self._fig_to_png(fig), probe)
             return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
         except Exception as exc:
             if self.debug:
                 print(f"EMC risk-map plot error: {exc}")
             return None
 
-    def plot_emc_spectrum(self, result, frequency_start_hz, frequency_stop_hz, as_png=False):
+    def plot_emc_spectrum(
+        self, result, frequency_start_hz, frequency_stop_hz, as_png=False,
+        with_click_probe=False,
+    ):
         """Plot relative source harmonics and cavity modes for test planning."""
         try:
             if not result.frequency_risks and not result.cavity_resonances_hz:
                 return None
             fig, axis = plt.subplots(figsize=(8.5, 5.2), constrained_layout=True)
             grouped = {}
+            probe_points = []
             for marker in result.frequency_risks:
                 grouped.setdefault(marker.source_name, [[], []])
                 grouped[marker.source_name][0].append(marker.frequency_hz)
                 grouped[marker.source_name][1].append(marker.level_db)
+                probe_points.append((
+                    marker.frequency_hz,
+                    marker.level_db,
+                    EMCProbeReading(
+                        title=f"{marker.source_name} — {getattr(marker, 'kind', 'harmonic').lower()}",
+                        severity="INFO",
+                        confidence="RELATIVE",
+                        description=(
+                            f"Relative spectral marker at {marker.frequency_hz / 1e6:.6g} MHz "
+                            f"with envelope level {marker.level_db:.2f} dB."
+                        ),
+                        recommendation=(
+                            "Inspect this frequency with a near-field probe and receiver; if excessive, "
+                            "reduce the source loop area or edge rate and review filtering and return paths."
+                        ),
+                        evidence="Analytical harmonic envelope; this is not an absolute emission level.",
+                    ),
+                ))
             for name, (frequencies, levels) in grouped.items():
                 axis.scatter(frequencies, levels, s=18, alpha=0.75, label=name)
             for index, frequency in enumerate(result.cavity_resonances_hz):
@@ -318,6 +367,9 @@ class Plotter:
             axis.set_title("Relative EMI source spectrum — not an absolute compliance level")
             axis.grid(True, which="both", alpha=0.25)
             axis.legend(fontsize=8, loc="best")
+            if with_click_probe:
+                probe = capture_axis_points(fig, axis, probe_points, maximum_distance_px=16.0)
+                return EMCPlotPayload(self._fig_to_png(fig), probe)
             return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
         except Exception as exc:
             if self.debug:

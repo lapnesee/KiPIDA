@@ -67,7 +67,8 @@ Power-delivery and thermal issues are often discovered late: an undersized coppe
 
 - Independent result workspaces for DC, AC, differential, EMI/EMC, thermal, CFD, and debug analyses: a new analysis does not erase another analysis type.
 - Persistent result history stored in `KiPIDA-results` beside the board/project, selectable from the Results tab and removable from the GUI.
-- Live thermal probing on Top, Bottom, and internal-copper maps: hover a solved map to read the nearest mesh-node temperature, X/Y/Z coordinate, and layer in the lower-left corner.
+- Live thermal probing on Top, Bottom, and internal-copper maps: hover a solved map to read the nearest mesh-node temperature, X/Y/Z coordinate, and layer in the persistent status area above the Run buttons.
+- Clickable EMI/EMC map and spectrum observations with rule, severity, confidence, evidence targets, engineering interpretation, and corrective recommendation.
 - Wheel zoom and left-drag panning for tables, plots, and 3D representations; output consoles support `Ctrl` + wheel, `Ctrl` + `+`/`-`, and `Ctrl+0` for text scaling.
 - Timestamped logs and total elapsed time in published reports.
 

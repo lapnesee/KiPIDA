@@ -8,12 +8,14 @@ import shutil
 
 import wx
 
+from emc_probe import RenderedPointProbe
 from .interactive_views import TextZoomController, ZoomableBitmapPanel
 
 
 class AnalysisResultPage(wx.Panel):
-    def __init__(self, parent):
+    def __init__(self, parent, status_callback=None):
         super().__init__(parent)
+        self._status_callback = status_callback
         splitter = wx.SplitterWindow(self)
         text_panel = wx.Panel(splitter)
         text_sizer = wx.BoxSizer(wx.VERTICAL)
@@ -42,9 +44,13 @@ class AnalysisResultPage(wx.Panel):
             for entry in plots:
                 title, bitmap = entry[:2]
                 hover_probe = entry[2] if len(entry) > 2 else None
+                click_probe = entry[3] if len(entry) > 3 else None
                 if bitmap and bitmap.IsOk():
                     self.plots.AddPage(
-                        ZoomableBitmapPanel(self.plots, bitmap, hover_probe=hover_probe), title,
+                        ZoomableBitmapPanel(
+                            self.plots, bitmap, hover_probe=hover_probe,
+                            click_probe=click_probe, status_callback=self._status_callback,
+                        ), title,
                     )
         finally:
             self.plots.Thaw()
@@ -128,13 +134,18 @@ class ProjectResultsHistory:
             except OSError:
                 pass
         saved = []
-        for index, (title, bitmap) in enumerate(plots or [], start=1):
+        for index, entry in enumerate(plots or [], start=1):
+            title, bitmap = entry[:2]
+            click_probe = entry[3] if len(entry) > 3 else None
             if bitmap is None or not bitmap.IsOk():
                 continue
             filename = f"plot-{index:02d}-{self._safe_name(title)}.png"
             image = bitmap.ConvertToImage()
             if image.SaveFile(str(entry_dir / filename), wx.BITMAP_TYPE_PNG):
-                saved.append({"title": str(title), "file": filename})
+                plot_metadata = {"title": str(title), "file": filename}
+                if click_probe is not None and hasattr(click_probe, "to_dict"):
+                    plot_metadata["click_probe"] = click_probe.to_dict()
+                saved.append(plot_metadata)
         metadata["plots"] = saved
         serializable = {key: value for key, value in metadata.items() if key != "directory"}
         (entry_dir / self.INDEX_NAME).write_text(
@@ -151,7 +162,12 @@ class ProjectResultsHistory:
                 continue
             image = wx.Image(str(entry_dir / str(plot.get("file", ""))))
             if image.IsOk():
-                plots.append((str(plot.get("title", "Plot")), wx.Bitmap(image)))
+                click_probe = None
+                if isinstance(plot.get("click_probe"), dict):
+                    click_probe = RenderedPointProbe.from_dict(plot["click_probe"])
+                plots.append((
+                    str(plot.get("title", "Plot")), wx.Bitmap(image), None, click_probe,
+                ))
         return report, plots
 
     def delete(self, metadata):
@@ -185,10 +201,14 @@ class ResultsWorkspace(wx.Panel):
         "DEBUG": "Debug",
     }
 
-    def __init__(self, parent, history_directory=None, log_callback=None):
+    def __init__(
+        self, parent, history_directory=None, log_callback=None,
+        interaction_status_callback=None,
+    ):
         super().__init__(parent)
         self._pages = {}
         self._log_callback = log_callback
+        self._interaction_status_callback = interaction_status_callback
         self._history = ProjectResultsHistory(history_directory)
         self._active_entries = {}
 
@@ -281,7 +301,9 @@ class ResultsWorkspace(wx.Panel):
     def page_for(self, analysis_id):
         page = self._pages.get(analysis_id)
         if page is None:
-            page = AnalysisResultPage(self.notebook)
+            page = AnalysisResultPage(
+                self.notebook, status_callback=self._interaction_status_callback,
+            )
             self._pages[analysis_id] = page
             self.notebook.AddPage(page, self.TITLES.get(analysis_id, analysis_id))
         return page

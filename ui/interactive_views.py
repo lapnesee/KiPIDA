@@ -31,21 +31,25 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
 
     MIN_SCALE = 0.25
     MAX_SCALE = 5.0
+    PAN_THRESHOLD_PX = 4
 
-    def __init__(self, parent, bitmap, hover_probe=None):
+    def __init__(
+        self, parent, bitmap, hover_probe=None, click_probe=None,
+        status_callback=None,
+    ):
         super().__init__(parent, style=wx.HSCROLL | wx.VSCROLL | wx.BORDER_NONE)
         self.SetScrollRate(10, 10)
         self._bitmap = bitmap
         self._scale = 1.0
         self._drag_origin = None
         self._view_origin = None
+        self._left_down_position = None
+        self._was_dragged = False
         self._hover_probe = hover_probe
+        self._click_probe = click_probe
+        self._status_callback = status_callback
+        self._tip_window = None
         self._image = wx.StaticBitmap(self)
-        self._hover_label = wx.StaticText(self._image, label="")
-        self._hover_label.SetBackgroundColour(wx.Colour(255, 255, 235))
-        self._hover_label.SetForegroundColour(wx.Colour(25, 25, 25))
-        self._hover_label.Enable(False)
-        self._hover_label.Hide()
         self._sizer = wx.BoxSizer(wx.VERTICAL)
         self._sizer.Add(self._image, 0, wx.ALL, 5)
         self.SetSizer(self._sizer)
@@ -71,7 +75,6 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
         image = self._bitmap.ConvertToImage().Scale(width, height, wx.IMAGE_QUALITY_HIGH)
         self._image.SetBitmap(wx.Bitmap(image))
         self._image.SetMinSize((width, height))
-        self._place_hover_label()
         self._sizer.Layout()
         self.FitInside()
 
@@ -97,14 +100,20 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
         self.Scroll(target_x, target_y)
 
     def _on_left_down(self, event):
+        self._left_down_position = self.ScreenToClient(
+            event.GetEventObject().ClientToScreen(event.GetPosition())
+        )
+        self._was_dragged = False
         if self._scale != 1.0:
-            self._drag_origin = self.ScreenToClient(event.GetEventObject().ClientToScreen(event.GetPosition()))
+            self._drag_origin = self._left_down_position
             self._view_origin = self.GetViewStart()
             if not self.HasCapture():
                 self.CaptureMouse()
         event.Skip()
 
     def _on_left_up(self, event):
+        if not self._was_dragged:
+            self._show_click_probe(event)
         self._finish_drag()
         event.Skip()
 
@@ -114,18 +123,10 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
 
     def _finish_drag(self):
         self._drag_origin = self._view_origin = None
+        self._left_down_position = None
+        self._was_dragged = False
         if self.HasCapture():
             self.ReleaseMouse()
-
-    def _place_hover_label(self):
-        if not self._hover_label.IsShown():
-            return
-        image_size = self._image.GetSize()
-        label_size = self._hover_label.GetBestSize()
-        self._hover_label.SetPosition((
-            8,
-            max(8, image_size.height - label_size.height - 8),
-        ))
 
     def _update_hover_readout(self, event):
         if self._hover_probe is None:
@@ -139,19 +140,48 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
             self._bitmap.GetHeight(),
         )
         if reading is None:
-            self._hover_label.Hide()
+            self._set_status("")
             return
-        self._hover_label.SetLabel(reading.label())
-        self._hover_label.Show()
-        self._place_hover_label()
+        self._set_status(reading.label())
+
+    def _set_status(self, text):
+        if self._status_callback:
+            self._status_callback(text or "")
+
+    def _probe_at_event(self, probe, event):
+        if probe is None:
+            return None
+        screen_position = event.GetEventObject().ClientToScreen(event.GetPosition())
+        image_position = self._image.ScreenToClient(screen_position)
+        return probe.sample(
+            image_position.x / self._scale,
+            image_position.y / self._scale,
+            self._bitmap.GetWidth(),
+            self._bitmap.GetHeight(),
+        )
+
+    def _show_click_probe(self, event):
+        reading = self._probe_at_event(self._click_probe, event)
+        if reading is None:
+            return
+        text = reading.label()
+        self._set_status(text.splitlines()[0])
+        if hasattr(wx, "TipWindow"):
+            self._tip_window = wx.TipWindow(self, text, 620)
+        else:
+            wx.MessageBox(text, "EMI/EMC Observation", wx.OK | wx.ICON_INFORMATION)
 
     def _on_leave(self, event):
-        self._hover_label.Hide()
+        self._set_status("")
         event.Skip()
 
     def _on_motion(self, event):
         if self._drag_origin is not None and event.LeftIsDown():
             point = self.ScreenToClient(event.GetEventObject().ClientToScreen(event.GetPosition()))
+            if math.hypot(point.x - self._drag_origin.x, point.y - self._drag_origin.y) < self.PAN_THRESHOLD_PX:
+                event.Skip()
+                return
+            self._was_dragged = True
             unit_x, unit_y = self.GetScrollPixelsPerUnit()
             self.Scroll(
                 max(0, self._view_origin[0] - int((point.x - self._drag_origin.x) / max(unit_x, 1))),

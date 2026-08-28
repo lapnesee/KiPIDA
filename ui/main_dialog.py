@@ -229,17 +229,24 @@ class KiPIDA_MainDialog(wx.Dialog):
         main_sizer.Add(self.notebook, 1, wx.EXPAND | wx.ALL, 5)
         
         # 2. Action Buttons (Bottom)
+        action_panel = wx.Panel(self)
+        action_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.lbl_interaction_status = wx.StaticText(
+            action_panel, label="", style=getattr(wx, "ST_ELLIPSIZE_END", 0),
+        )
+        self.lbl_interaction_status.SetMinSize((-1, 22))
+        action_sizer.Add(self.lbl_interaction_status, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 8)
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
         
-        self.btn_run = wx.Button(self, label="Run DC Simulation")
-        self.btn_run_ac = wx.Button(self, label="Run AC Analysis")
-        self.btn_optimize = wx.Button(self, label="Optimize Decoupling")
-        self.btn_run_differential = wx.Button(self, label="Run Differential Z")
-        self.btn_run_emc = wx.Button(self, label="Run EMI/EMC")
-        self.btn_run_thermal = wx.Button(self, label="Run Thermal")
-        self.btn_run_coupled = wx.Button(self, label="Run Coupled")
-        self.btn_run_cfd = wx.Button(self, label="Run Enclosure CFD")
-        self.btn_cancel = wx.Button(self, wx.ID_CANCEL, "Close")
+        self.btn_run = wx.Button(action_panel, label="Run DC Simulation")
+        self.btn_run_ac = wx.Button(action_panel, label="Run AC Analysis")
+        self.btn_optimize = wx.Button(action_panel, label="Optimize Decoupling")
+        self.btn_run_differential = wx.Button(action_panel, label="Run Differential Z")
+        self.btn_run_emc = wx.Button(action_panel, label="Run EMI/EMC")
+        self.btn_run_thermal = wx.Button(action_panel, label="Run Thermal")
+        self.btn_run_coupled = wx.Button(action_panel, label="Run Coupled")
+        self.btn_run_cfd = wx.Button(action_panel, label="Run Enclosure CFD")
+        self.btn_cancel = wx.Button(action_panel, wx.ID_CANCEL, "Close")
         
         btn_sizer.AddStretchSpacer()
         btn_sizer.Add(self.btn_run, 0, wx.ALL, 5)
@@ -252,7 +259,9 @@ class KiPIDA_MainDialog(wx.Dialog):
         btn_sizer.Add(self.btn_run_cfd, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_cancel, 0, wx.ALL, 5)
         
-        main_sizer.Add(btn_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        action_sizer.Add(btn_sizer, 0, wx.EXPAND)
+        action_panel.SetSizer(action_sizer)
+        main_sizer.Add(action_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
         
         self.SetSizer(main_sizer)
         
@@ -387,9 +396,17 @@ class KiPIDA_MainDialog(wx.Dialog):
             parent,
             history_directory=self._results_history_directory(),
             log_callback=self.log,
+            interaction_status_callback=self._set_interaction_status,
         )
         sizer.Add(self.results_workspace, 1, wx.EXPAND | wx.ALL, 5)
         parent.SetSizer(sizer)
+
+    def _set_interaction_status(self, text):
+        if not hasattr(self, "lbl_interaction_status"):
+            return
+        value = str(text or "")
+        self.lbl_interaction_status.SetLabel(value.replace("\n", " — "))
+        self.lbl_interaction_status.SetToolTip(value)
 
     def _results_history_directory(self):
         """Keep analysis archives alongside the active KiCad board/project."""
@@ -1152,9 +1169,12 @@ class KiPIDA_MainDialog(wx.Dialog):
             result = analyzer.analyze(progress_callback=self._emc_progress)
             with self._plot_lock:
                 plotter = Plotter(debug=debug_mode)
-                risk_png = plotter.plot_emc_risk_map(snapshot, result, as_png=True)
+                risk_png = plotter.plot_emc_risk_map(
+                    snapshot, result, as_png=True, with_click_probe=True,
+                )
                 spectrum_png = plotter.plot_emc_spectrum(
                     result, settings.frequency_start_hz, settings.frequency_stop_hz, as_png=True,
+                    with_click_probe=True,
                 )
             if not self._closing:
                 wx.CallAfter(self._finish_emc_analysis, settings, result, risk_png, spectrum_png)
@@ -1238,9 +1258,15 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.emc_panel.apply_results(result)
         plots = []
         if risk_png:
-            plots.append(("Risk Map", Plotter.bitmap_from_png(risk_png)))
+            plots.append((
+                "Risk Map", Plotter.bitmap_from_png(risk_png.png_bytes), None,
+                risk_png.click_probe,
+            ))
         if spectrum_png:
-            plots.append(("Relative Spectrum", Plotter.bitmap_from_png(spectrum_png)))
+            plots.append((
+                "Relative Spectrum", Plotter.bitmap_from_png(spectrum_png.png_bytes), None,
+                spectrum_png.click_probe,
+            ))
         self._publish_results("EMC", self._format_emc_report(settings, result), plots)
         self.log("EMI/EMC pre-compliance results ready.")
 
