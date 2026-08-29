@@ -1,6 +1,9 @@
 """Build board-level thermal models from KiCad geometry and power-tree data."""
 
 from dataclasses import dataclass, field, replace
+from collections import defaultdict
+import hashlib
+import time
 from typing import Dict, List, Optional, Tuple
 
 try:
@@ -145,6 +148,11 @@ class PowerLossEstimator:
 
 
 class ThermalModelBuilder:
+    # The dialog invalidates this cache on every live-board refresh.  Keeping it
+    # here avoids re-unioning all copper when users rerun thermal/CFD analysis
+    # without editing the PCB.
+    _copper_cache = {}
+
     def __init__(self, board, debug=False, log_callback=None, board_file_path=None):
         self.board = board
         self.debug = debug
@@ -153,6 +161,66 @@ class ThermalModelBuilder:
         # project board path so thermal plots use the physical board outline
         # rather than only the copper/footprint extents.
         self.board_file_path = board_file_path
+
+    @classmethod
+    def invalidate_board_cache(cls, board=None):
+        """Drop cached thermal copper, optionally for one live KiCad board."""
+        if board is None:
+            cls._copper_cache.clear()
+            return
+        cls._copper_cache.pop(id(board), None)
+
+    @classmethod
+    def board_geometry_signature(cls, board):
+        """Return a lightweight signature of live geometry relevant to heat.
+
+        The IPC board does not expose a portable dirty/revision counter.  This
+        fingerprint lets the dialog retain a thermal mesh/CSR between unchanged
+        reruns while still invalidating it immediately after track, via, zone,
+        footprint or outline edits made in the PCB editor.
+        """
+        helper = cls(board)
+        digest = hashlib.blake2b(digest_size=16)
+
+        def value(item, name):
+            current = helper._get_val(item, name, "")
+            if current is None:
+                return ""
+            if name in {"position", "start", "end", "mid"}:
+                position = helper._position(item) if name == "position" else current
+                if position is not None and name != "position":
+                    position = (
+                        helper._to_mm(helper._get_val(current, "x", 0.0)),
+                        helper._to_mm(helper._get_val(current, "y", 0.0)),
+                    )
+                return position or ""
+            if name == "net":
+                return helper._get_val(current, "name", "")
+            return current
+
+        fields = ("position", "start", "mid", "end", "layer", "width", "diameter", "net")
+        for collection in ("tracks", "vias", "zones", "footprints", "shapes"):
+            try:
+                items = list(helper._items(collection))
+            except Exception:
+                # A missing optional IPC collection is safe; the next refresh
+                # remains conservative if the board adapter cannot enumerate it.
+                items = []
+            digest.update(f"{collection}:{len(items)}|".encode("utf-8"))
+            for item in items:
+                values = [str(value(item, field)) for field in fields]
+                # Graphic shapes include Edge.Cuts.  Their geometry is exposed
+                # consistently in the wrapper representation even when they do
+                # not have a generic ``position`` field.
+                if collection == "shapes":
+                    values.append(repr(item))
+                if collection == "footprints":
+                    values.append(str(helper._reference(item)))
+                    for pad in helper._pads(item):
+                        values.extend(str(value(pad, field)) for field in fields)
+                digest.update(";".join(values).encode("utf-8", "replace"))
+                digest.update(b"\n")
+        return digest.hexdigest()
 
     def _log(self, message):
         if self.log_callback:
@@ -214,6 +282,27 @@ class ThermalModelBuilder:
             return max(default_width, width + 0.5), max(default_depth, depth + 0.5)
         return default_width, default_depth
 
+    @staticmethod
+    def _layer_matches(first, second):
+        """Compare IPC layer enums across KiCad 9/10 wrapper variants."""
+        try:
+            return int(first) == int(second)
+        except (TypeError, ValueError):
+            return str(first).upper() == str(second).upper()
+
+    @classmethod
+    def _is_bottom_layer(cls, layer, bottom_layer_id=None):
+        if bottom_layer_id is not None and cls._layer_matches(layer, bottom_layer_id):
+            return True
+        # Legacy pcbnew exposed B.Cu as 31; KiCad 10 IPC uses 34.  Keep the
+        # fallback only for incomplete/no-stackup board adapters.
+        text = str(layer).upper().replace(" ", "")
+        try:
+            numeric = int(layer)
+        except (TypeError, ValueError):
+            numeric = None
+        return text in {"B.CU", "B_CU", "BL_B_CU"} or numeric in {31, 34}
+
     def _discover_net_names(self):
         names = set()
         for collection in ("tracks", "vias", "zones", "footprints"):
@@ -227,19 +316,45 @@ class ThermalModelBuilder:
         return sorted(names)
 
     def _extract_copper(self, extractor):
-        by_layer = {}
+        cached = self._copper_cache.get(id(self.board))
+        if cached is not None:
+            self._log("Reusing cached merged copper geometry for the live board.")
+            return cached
+
+        shapes_by_layer = defaultdict(list)
         names = self._discover_net_names()
+        started = time.perf_counter()
         for index, net_name in enumerate(names):
-            geometry = extractor.get_net_geometry(net_name)
+            # Keep the inexpensive per-net collections, then union each board
+            # layer exactly once.  Repeated unary_union([previous, next]) work
+            # grew quadratically on boards with many nets.
+            geometry = extractor.get_net_geometry(net_name, merge=False)
             for layer, polygon in geometry.items():
                 if polygon is None or polygon.is_empty:
                     continue
-                if layer in by_layer:
-                    by_layer[layer] = unary_union([by_layer[layer], polygon])
+                if hasattr(polygon, "geoms"):
+                    shapes_by_layer[layer].extend(
+                        shape for shape in polygon.geoms if not shape.is_empty
+                    )
                 else:
-                    by_layer[layer] = polygon
+                    shapes_by_layer[layer].append(polygon)
             if self.debug and (index + 1) % 20 == 0:
                 self._log(f"Aggregated copper for {index + 1}/{len(names)} nets.")
+        by_layer = {}
+        for layer, shapes in shapes_by_layer.items():
+            if not shapes:
+                continue
+            layer_started = time.perf_counter()
+            by_layer[layer] = unary_union(shapes)
+            self._log(
+                f"Merged {len(shapes):,} copper shapes on layer {layer} in "
+                f"{time.perf_counter() - layer_started:.3f} s."
+            )
+        self._copper_cache[id(self.board)] = by_layer
+        self._log(
+            f"Built merged thermal copper for {len(by_layer)} layer(s) in "
+            f"{time.perf_counter() - started:.3f} s."
+        )
         return by_layer
 
     def _outline_and_bounds(self, copper_by_layer, placements):
@@ -277,6 +392,8 @@ class ThermalModelBuilder:
             raise ImportError("Shapely is required for 3D thermal model extraction.")
         extractor = GeometryExtractor(self.board, debug=self.debug, log_callback=self.log_callback)
         stackup = extractor.get_board_stackup()
+        layer_order = list(stackup.get("layer_order", []))
+        bottom_layer_id = layer_order[-1] if layer_order else None
 
         saved_components = {component.ref_des: replace(component) for component in settings.components}
         if not saved_components and rails:
@@ -299,11 +416,19 @@ class ThermalModelBuilder:
                 y_mm=position[1],
                 width_mm=width,
                 depth_mm=depth,
-                side="BOTTOM" if str(layer) in {"31", "B_Cu", "B.Cu"} else "TOP",
+                side="BOTTOM" if self._is_bottom_layer(layer, bottom_layer_id) else "TOP",
             )
             if ref_des in saved_components:
                 saved_components[ref_des].width_mm = width
                 saved_components[ref_des].depth_mm = depth
+
+        if placements:
+            top_count = sum(item.side == "TOP" for item in placements.values())
+            self._log(
+                f"Mapped {top_count} Top / {len(placements) - top_count} Bottom footprint placements "
+                f"(F.Cu={layer_order[0] if layer_order else 'auto'}, "
+                f"B.Cu={bottom_layer_id if bottom_layer_id is not None else 'auto'})."
+            )
 
         copper_by_layer = self._extract_copper(extractor)
         outline, bounds = self._outline_and_bounds(copper_by_layer, placements)

@@ -5,8 +5,18 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import io
+from dataclasses import dataclass
 import wx
 import numpy as np
+
+from thermal_probe import ThermalMapProbe
+
+
+@dataclass(frozen=True)
+class ThermalPlotPayload:
+    """PNG data plus optional live-probe mapping for a rendered thermal map."""
+    png_bytes: bytes
+    hover_probe: object = None
 
 class Plotter:
     def __init__(self, debug=False):
@@ -242,7 +252,10 @@ class Plotter:
                 print(f"Stackup plot error: {e}")
             return None
 
-    def plot_thermal_3d(self, mesh, result, as_png=False, board_bounds=None):
+    def plot_thermal_3d(
+        self, mesh, result, as_png=False, board_bounds=None, color_map='inferno',
+        color_scale_minimum_c=None,
+    ):
         """Render the solved volumetric temperature field."""
         try:
             nodes = list(mesh.nodes)
@@ -254,9 +267,15 @@ class Plotter:
             bounds = board_bounds or getattr(mesh, 'bounds_mm', None)
             fig = plt.figure(figsize=self._figsize(bounds), constrained_layout=True)
             axis = fig.add_subplot(111, projection='3d')
+            # KiCad's board-space Y axis grows downwards.  Matplotlib's view
+            # grows upwards, so negate Y to retain the PCB's screen/cardinal
+            # orientation: KiCad's upper-right stays upper-right in 3D.
+            display_y = -coords[:, 1]
+            color_map = color_map if color_map in plt.colormaps() else 'inferno'
+            vmin, vmax = self._thermal_limits(result, color_scale_minimum_c)
             scatter = axis.scatter(
-                coords[:, 0], coords[:, 1], coords[:, 2], c=temperatures,
-                cmap='inferno', s=5, alpha=0.8,
+                coords[:, 0], display_y, coords[:, 2], c=temperatures,
+                cmap=color_map, vmin=vmin, vmax=vmax, s=5, alpha=0.8,
             )
             axis.set_xlabel('X (mm)')
             axis.set_ylabel('Y (mm)')
@@ -266,7 +285,7 @@ class Plotter:
                 min_x, min_y, max_x, max_y = bounds
                 pad = max(1.0, 0.025 * max(max_x - min_x, max_y - min_y))
                 axis.set_xlim(min_x - pad, max_x + pad)
-                axis.set_ylim(min_y - pad, max_y + pad)
+                axis.set_ylim(-max_y - pad, -min_y + pad)
                 z_span = max(float(np.ptp(coords[:, 2])), 0.02 * max(max_x - min_x, max_y - min_y))
                 axis.set_box_aspect((max_x - min_x + 2 * pad, max_y - min_y + 2 * pad, z_span))
             fig.colorbar(scatter, ax=axis, label='Temperature (C)', shrink=0.75)
@@ -276,13 +295,32 @@ class Plotter:
                 print(f"Thermal 3D plot error: {e}")
             return None
 
-    def plot_thermal_surface(self, mesh, result, side='TOP', as_png=False, board_bounds=None):
-        """Render a top or bottom board temperature map."""
+    def plot_thermal_surface(
+        self, mesh, result, side='TOP', as_png=False, board_bounds=None, color_map='inferno',
+        color_scale_minimum_c=None, with_hover_probe=False,
+    ):
+        """Render a named exterior board temperature map."""
+        if not mesh.node_map:
+            return None
+        target_iz = 0 if side.upper() == 'TOP' else max(key[2] for key in mesh.node_map)
+        return self.plot_thermal_layer(
+            mesh, result, target_iz, f'{side.title()} surface', as_png=as_png,
+            board_bounds=board_bounds, color_map=color_map,
+            color_scale_minimum_c=color_scale_minimum_c,
+            with_hover_probe=with_hover_probe,
+        )
+
+    def plot_thermal_layer(
+        self, mesh, result, layer_index, layer_name=None, as_png=False,
+        board_bounds=None, color_map='inferno', color_scale_minimum_c=None,
+        with_hover_probe=False,
+    ):
+        """Render one physical thermal slice, including an internal copper layer."""
         try:
             if not mesh.node_map:
                 return None
-            target_iz = max(key[2] for key in mesh.node_map) if side.upper() == 'TOP' else 0
-            surface = self._thermal_surface_grid(mesh, result, target_iz)
+            layer_index = int(layer_index)
+            surface = self._thermal_surface_grid(mesh, result, layer_index)
             if surface is None:
                 return None
             x_edges, y_edges, temperatures = surface
@@ -292,21 +330,57 @@ class Plotter:
             # cells, which looks like a black grid at normal GUI zoom.  The
             # thermal mesh is already a regular finite-volume grid: render
             # its cells directly, without visible marker borders.
+            color_map = color_map if color_map in plt.colormaps() else 'inferno'
+            vmin, vmax = self._thermal_limits(result, color_scale_minimum_c)
             plot = axis.pcolormesh(
                 x_edges, y_edges, temperatures,
-                cmap='inferno', shading='flat', edgecolors='none',
+                cmap=color_map, vmin=vmin, vmax=vmax, shading='flat', edgecolors='none',
                 linewidth=0.0, antialiased=False, rasterized=True,
             )
             self._fit_xy(axis, bounds)
+            # KiCad board coordinates grow downwards on screen.  Keep the
+            # field in native board coordinates (so cells retain their exact
+            # locations), then invert only the display axis: the PCB's upper
+            # right corner stays upper right for both surface views.
+            axis.invert_yaxis()
             axis.set_xlabel('X (mm)')
             axis.set_ylabel('Y (mm)')
-            axis.set_title(f'{side.title()} surface temperature')
+            if layer_name is None:
+                specs = getattr(mesh, 'layer_specs', [])
+                layer_name = specs[layer_index].name if 0 <= layer_index < len(specs) else f'Layer {layer_index}'
+            axis.set_title(f'{layer_name} temperature')
             fig.colorbar(plot, ax=axis, label='Temperature (C)')
+            if with_hover_probe:
+                # Resolve constrained-layout positions before storing the
+                # pixel-to-data transform used by the wx bitmap viewport.
+                fig.canvas.draw()
+                probe = ThermalMapProbe(
+                    mesh, result, layer_index, layer_name,
+                    axis.get_position().bounds, axis.get_xlim(), axis.get_ylim(),
+                )
+                return ThermalPlotPayload(self._fig_to_png(fig), probe)
             return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
         except Exception as e:
             if self.debug:
                 print(f"Thermal surface plot error: {e}")
             return None
+
+    @staticmethod
+    def _thermal_limits(result, color_scale_minimum_c=None):
+        """Keep every thermal result tab on one comparable colour scale."""
+        values = getattr(result, 'temperature_vector_c', None)
+        if values is None:
+            values = list(getattr(result, 'temperatures_c', {}).values())
+        values = np.asarray(values, dtype=float)
+        values = values[np.isfinite(values)]
+        if values.size == 0:
+            return 0.0, 1.0
+        low = (
+            float(np.min(values)) if color_scale_minimum_c is None
+            else float(color_scale_minimum_c)
+        )
+        high = float(np.max(values))
+        return low, high if high - low >= 1.0e-9 else low + 1.0
 
     @staticmethod
     def _thermal_surface_grid(mesh, result, target_iz):

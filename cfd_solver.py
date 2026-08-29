@@ -17,16 +17,20 @@ except ImportError:
 
 try:
     from .models import CFDResidualHistory, EnclosureCFDResult
+    from .compute_backend import SparseComputeBackend
 except (ImportError, ValueError):
     from models import CFDResidualHistory, EnclosureCFDResult
+    from compute_backend import SparseComputeBackend
 
 
 class EnclosureCFDSolver:
     """Pseudo-transient projection solver on a structured cell-centred grid."""
 
-    def __init__(self, debug=False, log_callback=None):
+    def __init__(self, debug=False, log_callback=None, compute_settings=None):
         self.debug = debug
         self.log_callback = log_callback
+        self.compute_backend = SparseComputeBackend(compute_settings, log_callback)
+        self._last_compute = None
         if np is None or scipy is None:
             raise ImportError("NumPy and SciPy are required for enclosure CFD.")
 
@@ -328,10 +332,9 @@ class EnclosureCFDSolver:
                         matrix[row, column] -= diffusion + max(-flux, 0.0)
                     matrix[row, row] += max(diagonal, 1e-20)
         csr = matrix.tocsr()
-        temperatures = (
-            pypardiso.spsolve(csr, rhs) if pypardiso is not None
-            else scipy.sparse.linalg.spsolve(csr, rhs)
-        ).reshape(shape)
+        compute = self.compute_backend.solve(csr, rhs, system_kind="GENERAL")
+        self._last_compute = compute.metadata
+        temperatures = compute.values.reshape(shape)
         if np.any(~np.isfinite(temperatures)):
             raise ValueError("CFD energy solution contains non-finite temperatures.")
         residual = float(np.max(np.abs(temperatures - previous)))
@@ -500,4 +503,9 @@ class EnclosureCFDSolver:
             maximum_air_temperature_c=float(np.max(air_values)) if air_values.size else settings.ambient_c,
             maximum_solid_temperature_c=float(np.max(solid_values)) if solid_values.size else settings.ambient_c,
             total_heat_w=total_heat,
+            compute_backend=self._last_compute.backend if self._last_compute else "CPU",
+            compute_device=self._last_compute.device if self._last_compute else "CPU",
+            compute_solve_seconds=self._last_compute.solve_seconds if self._last_compute else 0.0,
+            compute_relative_residual=self._last_compute.relative_residual if self._last_compute else 0.0,
+            compute_fallback_reason=self._last_compute.fallback_reason if self._last_compute else "",
         )

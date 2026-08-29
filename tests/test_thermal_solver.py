@@ -7,11 +7,13 @@ if plugin_dir not in sys.path:
     sys.path.insert(0, plugin_dir)
 
 try:
+    import scipy.sparse
     from shapely.geometry import box
     from thermal_mesh import ThermalMesher
     from thermal_model import ThermalBoardModel, ThermalPlacement, ThermalVia
     from thermal_solver import ThermalSolver
     from models import AirflowSettings, ThermalAnalysisSettings, ThermalComponentModel
+    from runtime_config import RuntimeComputeSettings
     THERMAL_AVAILABLE = True
 except ImportError:
     THERMAL_AVAILABLE = False
@@ -72,11 +74,26 @@ class TestThermalSolver(unittest.TestCase):
 
         self.assertGreater(result.hotspot.temperature_c, 25.0)
         self.assertLess(result.energy_balance_error_pct, 1e-5)
+        self.assertTrue(result.compute_backend.startswith("CPU_"))
+        self.assertLess(result.compute_relative_residual, 1e-10)
+        self.assertGreaterEqual(result.compute_solve_seconds, 0.0)
         self.assertEqual(result.component_results[0].ref_des, "U1")
         self.assertAlmostEqual(
             result.component_results[0].junction_temperature_c,
             result.component_results[0].board_temperature_c + 5.0,
         )
+
+    def test_reuses_same_host_csr_matrix_between_coupled_iterations(self):
+        mesh = ThermalMesher().generate_mesh(self._model(), self._settings())
+        solver = ThermalSolver()
+        first = solver.solve(mesh, ambient_c=25.0)
+        matrix = solver._matrix_cache[id(mesh)][1]
+        mesh.heat_sources_w[next(iter(mesh.heat_sources_w))] += 0.1
+        second = solver.solve(mesh, ambient_c=25.0)
+
+        self.assertTrue(scipy.sparse.isspmatrix_csr(matrix))
+        self.assertIs(solver._matrix_cache[id(mesh)][1], matrix)
+        self.assertGreater(second.hotspot.temperature_c, first.hotspot.temperature_c)
 
     def test_forced_air_reduces_hotspot(self):
         model = self._model()
@@ -104,6 +121,20 @@ class TestThermalSolver(unittest.TestCase):
         downstream = max(top, key=lambda item: mesh.node_coords[item.node_id][0])
 
         self.assertGreater(upstream.conductance_w_k, downstream.conductance_w_k)
+
+    def test_cuda_runtime_has_larger_safe_thermal_mesh_budget(self):
+        cpu = ThermalMesher(compute_settings=RuntimeComputeSettings(backend="CPU"))
+        cuda = ThermalMesher(compute_settings=RuntimeComputeSettings(
+            backend="CUDA", cuda_enabled=True,
+        ))
+        self.assertEqual(cpu._node_limit(), (500000, False))
+        self.assertEqual(cuda._node_limit(), (1250000, True))
+
+    def test_explicit_ram_ceiling_can_extend_cuda_mesh_budget(self):
+        mesher = ThermalMesher(compute_settings=RuntimeComputeSettings(
+            backend="CUDA", cuda_enabled=True, memory_limit_gib=32.0,
+        ))
+        self.assertEqual(mesher._node_limit(), (4000000, True))
 
 
 if __name__ == "__main__":

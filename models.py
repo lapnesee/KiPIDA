@@ -282,6 +282,13 @@ class ImpedanceSweepResult:
     worst_frequency_hz: float = 0.0
     worst_impedance_ohm: float = 0.0
     meets_target: bool = False
+    compute_backend: str = "CPU"
+    compute_device: str = "CPU"
+    compute_solve_seconds: float = 0.0
+    compute_transfer_seconds: float = 0.0
+    compute_relative_residual: float = 0.0
+    compute_iterations: int = 0
+    compute_cache_hits: int = 0
 
 
 @dataclass
@@ -343,11 +350,26 @@ class ThermalAnalysisSettings:
     include_radiation: bool = True
     emissivity: float = 0.9
     include_dc_copper_losses: bool = True
+    color_map: str = "inferno"
+    # The thermal colour maximum always follows the solved hotspot.  Only the
+    # low end is configurable so a room-temperature board remains visibly cold.
+    color_scale_minimum_mode: str = "AMBIENT"
+    color_scale_minimum_c: Optional[float] = None
+    show_internal_copper_layers: bool = True
     coupled_iterations: int = 10
     convergence_c: float = 0.1
     relaxation: float = 0.6
     copper_temp_coefficient_per_c: float = 0.00393
     components: List[ThermalComponentModel] = field(default_factory=list)
+
+    def resolved_color_scale_minimum_c(self) -> Optional[float]:
+        """Return the requested lower colour bound, or None for auto."""
+        mode = str(self.color_scale_minimum_mode or "AMBIENT").upper()
+        if mode == "AUTO":
+            return None
+        if mode == "CUSTOM":
+            return self.color_scale_minimum_c
+        return float(self.ambient_c)
 
 
 @dataclass
@@ -373,6 +395,10 @@ class ComponentThermalResult:
 @dataclass
 class ThermalResult:
     temperatures_c: Dict[int, float] = field(default_factory=dict)
+    # Kept alongside the public node dictionary for fast electro-thermal
+    # coupling.  Values follow ``mesh.nodes`` order and avoid rebuilding a
+    # multi-million-entry Python mapping between coupled iterations.
+    temperature_vector_c: object = None
     hotspot: Optional[ThermalHotspot] = None
     component_results: List[ComponentThermalResult] = field(default_factory=list)
     total_input_power_w: float = 0.0
@@ -381,6 +407,16 @@ class ThermalResult:
     convection_coefficient_w_m2k: float = 0.0
     iterations: int = 1
     converged: bool = True
+    compute_backend: str = "CPU"
+    compute_device: str = "CPU"
+    compute_solve_seconds: float = 0.0
+    compute_transfer_seconds: float = 0.0
+    compute_relative_residual: float = 0.0
+    compute_iterations: int = 1
+    compute_cpu_threads: int = 1
+    compute_fallback_reason: str = ""
+    compute_matrix_assembly: str = "CPU_CSR"
+    compute_warm_start_used: bool = False
 
 
 @dataclass
@@ -482,6 +518,11 @@ class EnclosureCFDResult:
     maximum_air_temperature_c: float = 0.0
     maximum_solid_temperature_c: float = 0.0
     total_heat_w: float = 0.0
+    compute_backend: str = "CPU"
+    compute_device: str = "CPU"
+    compute_solve_seconds: float = 0.0
+    compute_relative_residual: float = 0.0
+    compute_fallback_reason: str = ""
 
 def generate_regulator_name(input_ref_des: str, output_ref_des: str, output_rail_name: str = "") -> str:
     """

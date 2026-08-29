@@ -13,6 +13,7 @@ try:
     from models import AirflowSettings, ThermalAnalysisSettings
     from thermal_mesh import ThermalMesher
     from thermal_model import ThermalBoardModel
+    from runtime_config import RuntimeComputeSettings
     ELECTROTHERMAL_AVAILABLE = True
 except ImportError:
     ELECTROTHERMAL_AVAILABLE = False
@@ -69,6 +70,32 @@ class TestElectroThermalSolver(unittest.TestCase):
         self.assertGreater(result.dc_results["5V"].total_loss_w, 1.0)
         self.assertLessEqual(result.iterations, settings.coupled_iterations)
         self.assertTrue(result.converged)
+
+    def test_thermal_sampling_uses_configured_workers_as_row_bands(self):
+        settings = ThermalAnalysisSettings(
+            ambient_c=25.0, grid_size_mm=1.0,
+            airflow=AirflowSettings(expose_top=True, expose_bottom=True, expose_edges=True),
+        )
+        board_model = ThermalBoardModel(
+            bounds_mm=(0.0, 0.0, 20.0, 20.0),
+            outline=box(0.0, 0.0, 20.0, 20.0),
+            stackup={
+                "copper": {0: {"name": "F.Cu", "thickness_mm": 0.035}, 31: {"name": "B.Cu", "thickness_mm": 0.035}},
+                "layer_order": [0, 31],
+                "substrate": [{"between": [0, 31], "thickness_mm": 1.53}],
+            },
+            copper_by_layer={0: box(0.0, 0.0, 20.0, 20.0), 31: box(0.0, 0.0, 20.0, 20.0)},
+        )
+        messages = []
+        parallel = ThermalMesher(
+            log_callback=messages.append,
+            compute_settings=RuntimeComputeSettings(cpu_threads=4),
+        ).generate_mesh(board_model, settings)
+        serial = ThermalMesher().generate_mesh(board_model, settings)
+
+        self.assertEqual(len(parallel.nodes), len(serial.nodes))
+        self.assertEqual(len(parallel.branches), len(serial.branches))
+        self.assertTrue(any("4 row-band work items with 4 CPU workers" in message for message in messages))
 
 
 if __name__ == "__main__":

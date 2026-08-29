@@ -5,6 +5,22 @@ import math
 import wx
 
 
+def _copy_font(font):
+    """Return a detached font across the wxPython versions bundled by KiCad.
+
+    wxPython Phoenix accepts a font in the ``wx.Font`` constructor, while
+    some KiCad builds do not expose the convenience ``Font.Copy`` method.
+    Keep a native-info fallback for older wx builds with a narrower overload
+    set.
+    """
+    try:
+        return wx.Font(font)
+    except (TypeError, AttributeError):
+        copied = wx.Font()
+        copied.SetNativeFontInfo(font.GetNativeFontInfo())
+        return copied
+
+
 class ZoomableBitmapPanel(wx.ScrolledWindow):
     """A bitmap viewport with wheel zoom and drag pan.
 
@@ -16,14 +32,20 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
     MIN_SCALE = 0.25
     MAX_SCALE = 5.0
 
-    def __init__(self, parent, bitmap):
+    def __init__(self, parent, bitmap, hover_probe=None):
         super().__init__(parent, style=wx.HSCROLL | wx.VSCROLL | wx.BORDER_NONE)
         self.SetScrollRate(10, 10)
         self._bitmap = bitmap
         self._scale = 1.0
         self._drag_origin = None
         self._view_origin = None
+        self._hover_probe = hover_probe
         self._image = wx.StaticBitmap(self)
+        self._hover_label = wx.StaticText(self._image, label="")
+        self._hover_label.SetBackgroundColour(wx.Colour(255, 255, 235))
+        self._hover_label.SetForegroundColour(wx.Colour(25, 25, 25))
+        self._hover_label.Enable(False)
+        self._hover_label.Hide()
         self._sizer = wx.BoxSizer(wx.VERTICAL)
         self._sizer.Add(self._image, 0, wx.ALL, 5)
         self.SetSizer(self._sizer)
@@ -34,6 +56,7 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
             window.Bind(wx.EVT_LEFT_DOWN, self._on_left_down)
             window.Bind(wx.EVT_LEFT_UP, self._on_left_up)
             window.Bind(wx.EVT_MOTION, self._on_motion)
+            window.Bind(wx.EVT_LEAVE_WINDOW, self._on_leave)
             window.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self._on_capture_lost)
 
     @property
@@ -48,6 +71,7 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
         image = self._bitmap.ConvertToImage().Scale(width, height, wx.IMAGE_QUALITY_HIGH)
         self._image.SetBitmap(wx.Bitmap(image))
         self._image.SetMinSize((width, height))
+        self._place_hover_label()
         self._sizer.Layout()
         self.FitInside()
 
@@ -93,6 +117,38 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
         if self.HasCapture():
             self.ReleaseMouse()
 
+    def _place_hover_label(self):
+        if not self._hover_label.IsShown():
+            return
+        image_size = self._image.GetSize()
+        label_size = self._hover_label.GetBestSize()
+        self._hover_label.SetPosition((
+            8,
+            max(8, image_size.height - label_size.height - 8),
+        ))
+
+    def _update_hover_readout(self, event):
+        if self._hover_probe is None:
+            return
+        screen_position = event.GetEventObject().ClientToScreen(event.GetPosition())
+        image_position = self._image.ScreenToClient(screen_position)
+        reading = self._hover_probe.sample(
+            image_position.x / self._scale,
+            image_position.y / self._scale,
+            self._bitmap.GetWidth(),
+            self._bitmap.GetHeight(),
+        )
+        if reading is None:
+            self._hover_label.Hide()
+            return
+        self._hover_label.SetLabel(reading.label())
+        self._hover_label.Show()
+        self._place_hover_label()
+
+    def _on_leave(self, event):
+        self._hover_label.Hide()
+        event.Skip()
+
     def _on_motion(self, event):
         if self._drag_origin is not None and event.LeftIsDown():
             point = self.ScreenToClient(event.GetEventObject().ClientToScreen(event.GetPosition()))
@@ -102,6 +158,7 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
                 max(0, self._view_origin[1] - int((point.y - self._drag_origin.y) / max(unit_y, 1))),
             )
             return
+        self._update_hover_readout(event)
         event.Skip()
 
 
@@ -127,7 +184,7 @@ class ListZoomPanController:
         control.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self._on_capture_lost)
 
     def _apply(self):
-        font = self._font.Copy()
+        font = _copy_font(self._font)
         font.SetPointSize(max(6, int(round(self._font.GetPointSize() * self.scale))))
         self.control.SetFont(font)
         for index, width in enumerate(self._columns):
@@ -195,7 +252,7 @@ class TextZoomController:
 
     def _set_points(self, points):
         self._points = max(self.MIN_POINTS, min(self.MAX_POINTS, points))
-        font = self.control.GetFont().Copy()
+        font = _copy_font(self.control.GetFont())
         font.SetPointSize(self._points)
         self.control.SetFont(font)
         self.control.Refresh()

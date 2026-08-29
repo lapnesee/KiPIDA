@@ -1,11 +1,30 @@
+import math
+
 import wx
 
 try:
     from models import AirflowSettings, ThermalAnalysisSettings
     from thermal_model import PowerLossEstimator
+    from thermal_mesh import estimate_thermal_mesh_cost
 except (ImportError, ValueError):
     from models import AirflowSettings, ThermalAnalysisSettings
     from thermal_model import PowerLossEstimator
+    from thermal_mesh import estimate_thermal_mesh_cost
+
+
+THERMAL_COLOR_MAPS = (
+    ("Inferno (default)", "inferno"),
+    ("Viridis", "viridis"),
+    ("Turbo", "turbo"),
+    ("Plasma", "plasma"),
+    ("Cividis", "cividis"),
+)
+
+THERMAL_COLOR_MINIMUM_MODES = (
+    ("Ambient temperature", "AMBIENT"),
+    ("Automatic (calculated minimum)", "AUTO"),
+    ("Custom temperature", "CUSTOM"),
+)
 
 
 class ThermalComponentDialog(wx.Dialog):
@@ -56,10 +75,17 @@ class ThermalComponentDialog(wx.Dialog):
 
 
 class ThermalAnalysisPanel(wx.Panel):
-    def __init__(self, parent, rails_provider, log_callback=None):
+    def __init__(
+        self, parent, rails_provider, log_callback=None, mesh_context_provider=None,
+        inject_overlay_callback=None, clear_overlay_callback=None, clear_cache_callback=None,
+    ):
         super().__init__(parent)
         self.rails_provider = rails_provider
         self.log_callback = log_callback
+        self.mesh_context_provider = mesh_context_provider
+        self.inject_overlay_callback = inject_overlay_callback
+        self.clear_overlay_callback = clear_overlay_callback
+        self.clear_cache_callback = clear_cache_callback
         self.settings = ThermalAnalysisSettings()
         self._init_ui()
 
@@ -72,7 +98,10 @@ class ThermalAnalysisPanel(wx.Panel):
         grid.AddGrowableCol(3, 1)
 
         self.txt_ambient = wx.TextCtrl(settings_parent, value="25")
-        self.txt_grid = wx.TextCtrl(settings_parent, value="1.0")
+        self.txt_grid = wx.SpinCtrlDouble(
+            settings_parent, min=0.1, max=5.0, initial=1.0, inc=0.1,
+        )
+        self.txt_grid.SetDigits(2)
         self.choice_airflow = wx.Choice(settings_parent, choices=["NATURAL", "FORCED", "CUSTOM"])
         self.choice_airflow.SetSelection(0)
         self.txt_velocity = wx.TextCtrl(settings_parent, value="0")
@@ -80,12 +109,27 @@ class ThermalAnalysisPanel(wx.Panel):
         self.txt_custom_h = wx.TextCtrl(settings_parent, value="10")
         self.txt_iterations = wx.TextCtrl(settings_parent, value="10")
         self.txt_convergence = wx.TextCtrl(settings_parent, value="0.1")
+        self.choice_color_map = wx.Choice(
+            settings_parent, choices=[label for label, _ in THERMAL_COLOR_MAPS],
+        )
+        self.choice_color_map.SetSelection(0)
+        self.choice_color_minimum = wx.Choice(
+            settings_parent, choices=[label for label, _ in THERMAL_COLOR_MINIMUM_MODES],
+        )
+        self.choice_color_minimum.SetSelection(0)
+        self.txt_color_minimum = wx.TextCtrl(settings_parent, value="25")
+        self.txt_color_minimum.Enable(False)
+        colour_note = wx.StaticText(
+            settings_parent, label="Applied to results and KiCad overlay",
+        )
 
         rows = [
             ("Ambient (C):", self.txt_ambient, "Grid size (mm):", self.txt_grid),
             ("Airflow mode:", self.choice_airflow, "Air speed (m/s):", self.txt_velocity),
             ("Air direction (deg):", self.txt_direction, "Custom h (W/m2K):", self.txt_custom_h),
             ("Coupled iterations:", self.txt_iterations, "Convergence (C):", self.txt_convergence),
+            ("Thermal colors:", self.choice_color_map, "", colour_note),
+            ("Color scale minimum:", self.choice_color_minimum, "Custom minimum (C):", self.txt_color_minimum),
         ]
         for left_label, left_control, right_label, right_control in rows:
             grid.Add(wx.StaticText(settings_parent, label=left_label), 0, wx.ALIGN_CENTER_VERTICAL)
@@ -94,16 +138,48 @@ class ThermalAnalysisPanel(wx.Panel):
             grid.Add(right_control, 1, wx.EXPAND)
         settings_box.Add(grid, 0, wx.EXPAND | wx.ALL, 8)
 
+        mesh_controls = wx.BoxSizer(wx.HORIZONTAL)
+        mesh_controls.Add(wx.StaticText(settings_parent, label="Mesh preset:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self.choice_mesh_preset = wx.Choice(
+            settings_parent,
+            choices=["Fast (1.5 mm)", "Normal (1.0 mm)", "Fine (0.5 mm)", "Expert / custom"],
+        )
+        self.choice_mesh_preset.SetSelection(1)
+        self.txt_expert_grid = wx.TextCtrl(settings_parent, value="1.0", size=(75, -1))
+        self.txt_expert_grid.Hide()
+        self.lbl_mesh_cost = wx.StaticText(settings_parent, label="Estimating mesh...")
+        mesh_controls.Add(self.choice_mesh_preset, 0, wx.RIGHT, 12)
+        mesh_controls.Add(self.txt_expert_grid, 0, wx.RIGHT, 12)
+        mesh_controls.Add(self.lbl_mesh_cost, 0, wx.ALIGN_CENTER_VERTICAL)
+        settings_box.Add(mesh_controls, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+
         checks = wx.BoxSizer(wx.HORIZONTAL)
         self.chk_top = wx.CheckBox(settings_parent, label="Top exposed")
         self.chk_bottom = wx.CheckBox(settings_parent, label="Bottom exposed")
         self.chk_edges = wx.CheckBox(settings_parent, label="Edges exposed")
         self.chk_radiation = wx.CheckBox(settings_parent, label="Include radiation")
         self.chk_dc_loss = wx.CheckBox(settings_parent, label="Include DC copper losses")
-        for check in (self.chk_top, self.chk_bottom, self.chk_edges, self.chk_radiation, self.chk_dc_loss):
+        self.chk_internal_layers = wx.CheckBox(settings_parent, label="Show internal copper maps in Results")
+        for check in (
+            self.chk_top, self.chk_bottom, self.chk_edges, self.chk_radiation,
+            self.chk_dc_loss, self.chk_internal_layers,
+        ):
             check.SetValue(True)
             checks.Add(check, 0, wx.RIGHT, 14)
         settings_box.Add(checks, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+
+        overlay_controls = wx.BoxSizer(wx.HORIZONTAL)
+        self.btn_inject_overlay = wx.Button(settings_parent, label="Inject KiCad Heat Overlay")
+        self.btn_clear_overlay = wx.Button(settings_parent, label="Clear KiCad Heat Overlay")
+        self.btn_clear_mesh_cache = wx.Button(settings_parent, label="Clear Thermal Cache")
+        overlay_controls.Add(self.btn_inject_overlay, 0, wx.RIGHT, 6)
+        overlay_controls.Add(self.btn_clear_overlay, 0, wx.RIGHT, 14)
+        overlay_controls.Add(self.btn_clear_mesh_cache, 0)
+        overlay_controls.Add(wx.StaticText(
+            settings_parent,
+            label="Dedicated non-electrical layers: X.Thermal.Top / X.Thermal.Bottom.",
+        ), 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 10)
+        settings_box.Add(overlay_controls, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         main.Add(settings_box, 0, wx.EXPAND | wx.ALL, 5)
 
         component_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Component Heat Sources")
@@ -135,6 +211,86 @@ class ThermalAnalysisPanel(wx.Panel):
         self.btn_toggle.Bind(wx.EVT_BUTTON, self._on_toggle)
         self.btn_edit.Bind(wx.EVT_BUTTON, self._on_edit)
         self.component_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit)
+        self.choice_mesh_preset.Bind(wx.EVT_CHOICE, self._on_mesh_preset)
+        self.choice_color_minimum.Bind(wx.EVT_CHOICE, self._on_color_minimum_mode)
+        self.txt_grid.Bind(wx.EVT_SPINCTRLDOUBLE, self._on_grid_changed)
+        self.txt_grid.Bind(wx.EVT_TEXT, self._on_grid_changed)
+        self.txt_expert_grid.Bind(wx.EVT_TEXT, self._on_expert_grid_changed)
+        self.btn_inject_overlay.Bind(wx.EVT_BUTTON, self._on_inject_overlay)
+        self.btn_clear_overlay.Bind(wx.EVT_BUTTON, self._on_clear_overlay)
+        self.btn_clear_mesh_cache.Bind(wx.EVT_BUTTON, self._on_clear_mesh_cache)
+
+    def _on_inject_overlay(self, _event):
+        if self.inject_overlay_callback:
+            self.inject_overlay_callback()
+
+    def _on_clear_overlay(self, _event):
+        if self.clear_overlay_callback:
+            self.clear_overlay_callback()
+
+    def _on_clear_mesh_cache(self, _event):
+        if self.clear_cache_callback:
+            self.clear_cache_callback()
+
+    def _on_mesh_preset(self, event):
+        values = {0: 1.5, 1: 1.0, 2: 0.5}
+        selected = self.choice_mesh_preset.GetSelection()
+        if selected in values:
+            self.txt_grid.SetValue(values[selected])
+        self.txt_expert_grid.Show(selected == 3)
+        if selected == 3:
+            self.txt_expert_grid.SetValue(f"{self.txt_grid.GetValue():g}")
+            self.txt_expert_grid.SetFocus()
+        self.Layout()
+        self._update_mesh_cost()
+
+    def _on_color_minimum_mode(self, event):
+        selected = self.choice_color_minimum.GetSelection()
+        mode = THERMAL_COLOR_MINIMUM_MODES[
+            selected if selected != wx.NOT_FOUND else 0
+        ][1]
+        self.txt_color_minimum.Enable(mode == "CUSTOM")
+        if mode == "AMBIENT":
+            self.txt_color_minimum.SetValue(self.txt_ambient.GetValue())
+        event.Skip()
+
+    def _on_expert_grid_changed(self, event):
+        try:
+            value = float(self.txt_expert_grid.GetValue().replace(",", "."))
+            if 0.1 <= value <= 5.0:
+                self.txt_grid.SetValue(value)
+        except ValueError:
+            pass
+        self._update_mesh_cost()
+        event.Skip()
+
+    def _on_grid_changed(self, event):
+        self._update_mesh_cost()
+        event.Skip()
+
+    def _update_mesh_cost(self):
+        try:
+            size = max(0.1, float(self.txt_grid.GetValue()))
+            context = self.mesh_context_provider() if self.mesh_context_provider else {}
+            estimate = estimate_thermal_mesh_cost(context, size)
+            mib = 1024 ** 2
+            ceiling = (
+                f", RAM ceiling {estimate['memory_budget_bytes'] / (1024 ** 3):g} GiB"
+                if estimate["memory_budget_bytes"] else ""
+            )
+            self.lbl_mesh_cost.SetLabel(
+                f"~{estimate['nodes']:,} nodes / {estimate['branches']:,} branches — "
+                f"host peak {estimate['cpu_bytes']/mib:.0f} MiB, GPU {estimate['gpu_bytes']/mib:.0f} MiB — "
+                f"limit {estimate['node_limit']:,} nodes{ceiling} — recommended: {estimate['backend']}"
+            )
+            node_limit = estimate["node_limit"]
+            colour = wx.Colour(190, 35, 35) if estimate["exceeds_memory_limit"] else (
+                wx.Colour(190, 105, 0) if estimate["nodes"] > node_limit * 0.7 else wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOWTEXT)
+            )
+            self.lbl_mesh_cost.SetForegroundColour(colour)
+            self.lbl_mesh_cost.GetParent().Layout()
+        except (TypeError, ValueError):
+            self.lbl_mesh_cost.SetLabel("Relative XY cells: invalid")
 
     def refresh_components(self, preserve_user=True):
         saved = {component.ref_des: component for component in self.settings.components}
@@ -204,17 +360,38 @@ class ThermalAnalysisPanel(wx.Panel):
         )
         self.settings.include_radiation = self.chk_radiation.GetValue()
         self.settings.include_dc_copper_losses = self.chk_dc_loss.GetValue()
+        selected = self.choice_color_map.GetSelection()
+        self.settings.color_map = THERMAL_COLOR_MAPS[
+            selected if selected != wx.NOT_FOUND else 0
+        ][1]
+        minimum_selected = self.choice_color_minimum.GetSelection()
+        minimum_mode = THERMAL_COLOR_MINIMUM_MODES[
+            minimum_selected if minimum_selected != wx.NOT_FOUND else 0
+        ][1]
+        self.settings.color_scale_minimum_mode = minimum_mode
+        self.settings.color_scale_minimum_c = None
+        if minimum_mode == "CUSTOM":
+            minimum = float(self.txt_color_minimum.GetValue())
+            if not math.isfinite(minimum) or minimum <= -273.15:
+                raise ValueError("Custom thermal colour minimum must be above absolute zero.")
+            self.settings.color_scale_minimum_c = minimum
+        self.settings.show_internal_copper_layers = self.chk_internal_layers.GetValue()
         self.settings.coupled_iterations = int(self.txt_iterations.GetValue())
         self.settings.convergence_c = float(self.txt_convergence.GetValue())
-        if self.settings.grid_size_mm <= 0 or self.settings.coupled_iterations < 1:
-            raise ValueError("Grid size and coupled iterations must be greater than zero.")
+        if not 0.1 <= self.settings.grid_size_mm <= 5.0 or self.settings.coupled_iterations < 1:
+            raise ValueError("Thermal grid size must be between 0.1 and 5 mm; coupled iterations must be positive.")
         return self.settings
 
     def set_settings(self, settings):
         self.settings = settings or ThermalAnalysisSettings()
         airflow = self.settings.airflow
         self.txt_ambient.SetValue(f"{self.settings.ambient_c:g}")
-        self.txt_grid.SetValue(f"{self.settings.grid_size_mm:g}")
+        self.txt_grid.SetValue(float(self.settings.grid_size_mm))
+        preset = {1.5: 0, 1.0: 1, 0.5: 2}.get(round(float(self.settings.grid_size_mm), 2), 3)
+        self.choice_mesh_preset.SetSelection(preset)
+        self.txt_expert_grid.SetValue(f"{self.settings.grid_size_mm:g}")
+        self.txt_expert_grid.Show(preset == 3)
+        self._update_mesh_cost()
         index = self.choice_airflow.FindString(airflow.mode)
         self.choice_airflow.SetSelection(index if index != wx.NOT_FOUND else 0)
         self.txt_velocity.SetValue(f"{airflow.velocity_m_s:g}")
@@ -227,6 +404,32 @@ class ThermalAnalysisPanel(wx.Panel):
         self.chk_edges.SetValue(airflow.expose_edges)
         self.chk_radiation.SetValue(self.settings.include_radiation)
         self.chk_dc_loss.SetValue(self.settings.include_dc_copper_losses)
+        self.chk_internal_layers.SetValue(
+            bool(getattr(self.settings, "show_internal_copper_layers", True))
+        )
+        colour_map = str(getattr(self.settings, "color_map", "inferno")).lower()
+        colour_index = next(
+            (index for index, (_, value) in enumerate(THERMAL_COLOR_MAPS) if value == colour_map),
+            0,
+        )
+        self.choice_color_map.SetSelection(colour_index)
+        minimum_mode = str(
+            getattr(self.settings, "color_scale_minimum_mode", "AMBIENT")
+        ).upper()
+        minimum_index = next(
+            (index for index, (_, value) in enumerate(THERMAL_COLOR_MINIMUM_MODES)
+             if value == minimum_mode),
+            0,
+        )
+        self.choice_color_minimum.SetSelection(minimum_index)
+        minimum_value = getattr(self.settings, "color_scale_minimum_c", None)
+        self.txt_color_minimum.SetValue(
+            f"{float(minimum_value):g}" if minimum_value is not None
+            else f"{self.settings.ambient_c:g}"
+        )
+        self.txt_color_minimum.Enable(
+            THERMAL_COLOR_MINIMUM_MODES[minimum_index][1] == "CUSTOM"
+        )
         # Recompute all automatic entries when loading a project so configs
         # saved by older versions cannot retain V*I connector heat or output-
         # inductor regulator placement. Explicit user models remain untouched.

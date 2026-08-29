@@ -1,13 +1,14 @@
 import logging
 import math
 import re
+import time
 from pathlib import Path
 try:
-    from shapely.geometry import LineString, Polygon, MultiPolygon, Point, box
+    from shapely.geometry import LineString, Polygon, MultiPolygon, GeometryCollection, Point, box
     from shapely.ops import unary_union
     from shapely import affinity
 except ImportError:
-    LineString = Polygon = MultiPolygon = Point = box = unary_union = affinity = None
+    LineString = Polygon = MultiPolygon = GeometryCollection = Point = box = unary_union = affinity = None
 
 try:
     import kipy
@@ -34,6 +35,7 @@ class GeometryExtractor:
         # Stackup data belongs to one live board. A class-level cache can leak
         # data between projects opened in the same KiCad process.
         self._stackup_cache = None
+        self._net_item_caches = {}
         if debug:
             self.logger.setLevel(logging.DEBUG)
             # Clear any existing handlers to avoid duplicates
@@ -102,6 +104,42 @@ class GeometryExtractor:
         except Exception:
             return False
 
+    def _get_items_for_net(self, attr_name, net_name):
+        """Index live board objects once per run instead of rescanning for every rail."""
+        cache = self._net_item_caches.get(attr_name)
+        if cache is None:
+            started = time.perf_counter()
+            cache = {}
+            if attr_name == "pads":
+                items = []
+                for footprint in self._get_board_items("footprints"):
+                    pads = self._get_val(footprint, "pads")
+                    if pads is None:
+                        definition = self._get_val(footprint, "definition")
+                        pads = self._get_val(definition, "pads", [])
+                    items.extend(list(pads or []))
+            else:
+                items = list(self._get_board_items(attr_name) or [])
+            unresolved = []
+            for item in items:
+                net = self._get_val(item, "net")
+                name = self._get_val(net, "name", "")
+                if name:
+                    cache.setdefault(str(name), []).append(item)
+                else:
+                    unresolved.append(item)
+            cache[None] = unresolved
+            self._net_item_caches[attr_name] = cache
+            if self.log_callback:
+                self.log_callback(
+                    f"[GEOMETRY] Indexed {len(items):,} {attr_name} in "
+                    f"{time.perf_counter() - started:.3f} s."
+                )
+        matches = list(cache.get(net_name, []))
+        matches.extend(
+            item for item in cache.get(None, []) if self._item_matches_net(item, net_name)
+        )
+        return matches
     # Cache for stackup data
     _stackup_cache = None
 
@@ -407,9 +445,7 @@ class GeometryExtractor:
     def get_net_tracks(self, net_name):
         """Extract immutable same-net route segments for Phase 5 analysis."""
         result = []
-        for track in self._get_board_items('tracks'):
-            if not self._item_matches_net(track, net_name):
-                continue
+        for track in self._get_items_for_net('tracks', net_name):
             start = self._get_val(track, 'start')
             end = self._get_val(track, 'end')
             if start is None or end is None:
@@ -435,10 +471,8 @@ class GeometryExtractor:
         if Polygon is None or unary_union is None:
             return {}
         shapes = {}
-        for zone in self._get_board_items('zones'):
+        for zone in self._get_items_for_net('zones', net_name):
             net = self._get_val(zone, 'net')
-            if self._get_val(net, 'name', '') != net_name:
-                continue
             filled = self._get_val(zone, 'filled_polygons', {})
             if not isinstance(filled, dict):
                 continue
@@ -480,7 +514,7 @@ class GeometryExtractor:
             for layer_id, layer_shapes in shapes.items() if layer_shapes
         }
 
-    def get_net_geometry(self, net_name):
+    def get_net_geometry(self, net_name, merge=True):
         """
         Extracts and merges geometry for a specific net.
         Returns a dictionary: { layer_id: shapely.geometry.Polygon }
@@ -497,7 +531,7 @@ class GeometryExtractor:
             return lid in stackup['copper']
             
         # 1. Process Tracks
-        tracks = self._get_board_items('tracks')
+        tracks = self._get_items_for_net('tracks', net_name)
         
         # We might want to buffer tracks slightly more than half-width to ensure 
         # grid points are caught if the track is very thin.
@@ -505,9 +539,6 @@ class GeometryExtractor:
         safety_buffer = 0.05 
         
         for track in tracks:
-            if not self._item_matches_net(track, net_name):
-                continue
-                    
             start = self._get_val(track, 'start')
             end = self._get_val(track, 'end')
             width_mm = to_mm(self._get_val(track, 'width', 0))
@@ -621,14 +652,11 @@ class GeometryExtractor:
                 add_shape(layer, poly)
 
         # 1b. Process Vias (Essental for vertical connectivity mesh nodes)
-        vias = self._get_board_items('vias')
+        vias = self._get_items_for_net('vias', net_name)
         for via in vias:
             net = self._get_val(via, 'net')
             v_net_name = self._get_val(net, 'name', "")
             
-            if v_net_name != net_name:
-                continue
-                
             pos = self._get_val(via, 'position')
             x_mm = to_mm(self._get_val(pos, 'x', 0))
             y_mm = to_mm(self._get_val(pos, 'y', 0))
@@ -659,34 +687,10 @@ class GeometryExtractor:
                     add_shape(lid, poly)
                     
         # 2. Process Pads (Footprints)
-        footprints = self._get_board_items('footprints')
-        for fp in footprints:
-            pads = self._get_val(fp, 'pads')
-            is_def_pads = False
-            
-            if pads is None:
-                defn = self._get_val(fp, 'definition')
-                pads = self._get_val(defn, 'pads', [])
-                is_def_pads = True
-                
-            # Get footprint transforms if needed
-            fp_x, fp_y, fp_rot = 0, 0, 0
-            if is_def_pads:
-                fp_pos = self._get_val(fp, 'position')
-                fp_x = to_mm(self._get_val(fp_pos, 'x', 0))
-                fp_y = to_mm(self._get_val(fp_pos, 'y', 0))
-                fp_rot = self._get_val(fp, 'orientation', 0)
-                # Ensure float
-                try: fp_rot = float(fp_rot)
-                except: fp_rot = 0.0
-
-            for pad in pads:
+        for pad in self._get_items_for_net('pads', net_name):
                 net = self._get_val(pad, 'net')
                 p_net_name = self._get_val(net, 'name', "")
                     
-                if p_net_name != net_name:
-                    continue
-                            
                 # Geometry
                 # Position (Absolute)
                 pos = self._get_val(pad, 'position')
@@ -765,14 +769,11 @@ class GeometryExtractor:
                        add_shape(lid, pad_poly)
 
         # 3. Process Zones
-        zones = self._get_board_items('zones')
+        zones = self._get_items_for_net('zones', net_name)
         for zone in zones:
             net = self._get_val(zone, 'net')
             z_net_name = self._get_val(net, 'name', "")
             
-            if z_net_name != net_name:
-                continue
-                
             # Filled Polygons (dict mapping layer_id -> list of polygon objects)
             filled_polygons = self._get_val(zone, 'filled_polygons', {})
             
@@ -838,8 +839,20 @@ class GeometryExtractor:
         for layer, shapes in layer_shapes.items():
             if not shapes:
                 continue
-            merged = unary_union(shapes)
-            merged_geometry[layer] = merged
+            # Bulk thermal extraction visits every net on every copper layer.
+            # Logging each tiny unmerged collection can enqueue thousands of
+            # wx events and make the GUI appear frozen.  Keep only meaningful
+            # geometry summaries; indexing and thermal-layer timings remain
+            # visible in the log.
+            if self.log_callback and len(shapes) >= 100:
+                action = "Merging" if merge else "Collecting"
+                self.log_callback(
+                    f"[GEOMETRY] {action} {len(shapes):,} shape(s) for {net_name} "
+                    f"on layer {layer}."
+                )
+            merged_geometry[layer] = (
+                unary_union(shapes) if merge else GeometryCollection(shapes)
+            )
             
         return merged_geometry
 

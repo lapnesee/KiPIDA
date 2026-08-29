@@ -4,3 +4,4 @@ shapely
 matplotlib
 kicad-python
 pypardiso
+threadpoolctl

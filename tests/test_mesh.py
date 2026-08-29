@@ -87,6 +87,7 @@ class MockPoint:
     def __init__(self, x, y): self.x, self.y = x, y
 
 from mesh import Mesher, Mesh
+from runtime_config import RuntimeComputeSettings
 
 class TestMesher(unittest.TestCase):
     def setUp(self):
@@ -128,9 +129,62 @@ class TestMesher(unittest.TestCase):
         # Vertical conductance is usually large (short) or specific value
         # We can just check that G_coo_data grew
         self.assertTrue(len(mesh.G_coo_data) > 0)
-        
-        # Optionally check that we have some very large values (vertical shorts)
-        # self.assertTrue(any(g > 100 for g in mesh.G_coo_data))
+
+    def test_large_electrical_mesh_adapts_grid_instead_of_exhausting_memory(self):
+        poly = Polygon([(0, 0), (20, 0), (20, 10), (0, 10)])
+        stackup = {'copper': {0: {'thickness_mm': 0.035}}, 'resistivity': 1.7e-5}
+        self.mesher.MAX_ELECTRICAL_NODES = 100
+        mesh = self.mesher.generate_mesh("Plane", {0: poly}, stackup, grid_size_mm=1.0)
+        self.assertTrue(mesh.adaptive_grid)
+        self.assertEqual(mesh.requested_grid_step, 1.0)
+        self.assertGreater(mesh.grid_step, mesh.requested_grid_step)
+        self.assertLessEqual(len(mesh.nodes), self.mesher.MAX_ELECTRICAL_NODES)
+
+    def test_preflight_selects_safe_grid_before_full_raster(self):
+        messages = []
+        self.mesher.log_callback = messages.append
+        self.mesher.MAX_ELECTRICAL_NODES = 100
+        geometry = {0: Polygon([(0, 0), (20, 0), (20, 10), (0, 10)])}
+
+        grid, estimate = self.mesher._preflight_grid_size(geometry, 1.0)
+
+        self.assertGreater(estimate, self.mesher.MAX_ELECTRICAL_NODES)
+        self.assertGreater(grid, 1.0)
+        mesh = self.mesher.generate_mesh("Plane", geometry, {
+            'copper': {0: {'thickness_mm': 0.035}}, 'resistivity': 1.7e-5,
+        }, grid_size_mm=1.0)
+        self.assertTrue(mesh.adaptive_grid)
+        self.assertTrue(any("preflight estimates" in message for message in messages))
+
+    def test_large_layer_is_split_into_multiple_parallel_raster_chunks(self):
+        settings = RuntimeComputeSettings(cpu_multithread=True, cpu_threads=4)
+        mesher = Mesher(self.board, compute_settings=settings)
+        poly = Polygon([(0, 0), (500, 0), (500, 700), (0, 700)])
+        x_coords = np.linspace(0.0, 500.0, 501)
+        y_coords = np.linspace(0.0, 700.0, 701)
+        shape = (len(y_coords), len(x_coords))
+
+        sequential = mesher._rasterize_polygon(poly, x_coords, y_coords, shape)
+        parallel, chunk_count = mesher._rasterize_layers(
+            {0: poly}, [0], x_coords, y_coords, shape, workers=4,
+        )
+
+        self.assertGreater(chunk_count, 1)
+        np.testing.assert_array_equal(parallel[0], sequential)
+
+    def test_vector_rasterizer_preserves_polygon_holes(self):
+        poly = Polygon(
+            [(0, 0), (10, 0), (10, 10), (0, 10)],
+            holes=[[(4, 4), (6, 4), (6, 6), (4, 6)]],
+        )
+        x_coords = np.linspace(0.0, 10.0, 11)
+        y_coords = np.linspace(0.0, 10.0, 11)
+        mask = self.mesher._rasterize_polygon(
+            poly, x_coords, y_coords, (len(y_coords), len(x_coords)),
+        )
+
+        self.assertTrue(mask[2, 2])
+        self.assertFalse(mask[5, 5])
 
 if __name__ == '__main__':
     unittest.main()
