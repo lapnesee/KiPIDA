@@ -1,5 +1,7 @@
 import wx
 
+from i18n import _
+
 try:
     from ac_model import ACModelBuilder, format_capacitance, parse_capacitance
     from models import ACAnalysisSettings, ACMeasurementPort, ACSourceModel
@@ -10,7 +12,7 @@ except (ImportError, ValueError):
 
 class CapacitorModelDialog(wx.Dialog):
     def __init__(self, parent, capacitor):
-        super().__init__(parent, title=f"Capacitor Model: {capacitor.ref_des}")
+        super().__init__(parent, title=_("Capacitor Model: {reference}").format(reference=capacitor.ref_des))
         sizer = wx.BoxSizer(wx.VERTICAL)
         grid = wx.FlexGridSizer(cols=2, hgap=8, vgap=8)
         grid.AddGrowableCol(1, 1)

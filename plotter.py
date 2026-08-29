@@ -10,6 +10,8 @@ from dataclasses import dataclass
 import wx
 import numpy as np
 
+from i18n import _
+
 from thermal_probe import ThermalMapProbe
 from field_probe import EMFieldMapProbe
 from emc_probe import EMCProbeReading, capture_axis_points
@@ -90,9 +92,9 @@ class Plotter:
                 
             sc = ax.scatter(xs, ys, zs, c=c, cmap='viridis', vmin=vmin, vmax=vmax)
             if has_results:
-                plt.colorbar(sc, label='Voltage (V)', shrink=0.8)
+                plt.colorbar(sc, label=_('Voltage (V)'), shrink=0.8)
             
-            ax.set_xlabel('X (mm)'); ax.set_ylabel('Y (mm)'); ax.set_zlabel('L (pseudo)')
+            ax.set_xlabel(_('X (mm)')); ax.set_ylabel(_('Y (mm)')); ax.set_zlabel(_('Layer (pseudo)'))
             
             # Equal aspect ratio
             x_limits = (board_bounds[0], board_bounds[2]) if board_bounds else ax.get_xlim3d()
@@ -151,7 +153,7 @@ class Plotter:
             sc = ax.scatter(xs, ys, c=vs, cmap='viridis', vmin=vmin, vmax=vmax, s=20)
             
             if has_results:
-                plt.colorbar(sc, label='Voltage (V)')
+                plt.colorbar(sc, label=_('Voltage (V)'))
             
             if layer_name is None:
                 layer_name = str(layer_id)
@@ -159,9 +161,9 @@ class Plotter:
                      # Try to get layer name? currently stackup dict structure in test is simple
                      pass
 
-            ax.set_title(f"Layer: {layer_name}")
-            ax.set_xlabel('X (mm)')
-            ax.set_ylabel('Y (mm)')
+            ax.set_title(_('Layer: {layer}').format(layer=layer_name))
+            ax.set_xlabel(_('X (mm)'))
+            ax.set_ylabel(_('Y (mm)'))
             ax.set_aspect('equal', 'box')
             self._fit_xy(ax, board_bounds, invert_y=True)
             
@@ -189,12 +191,12 @@ class Plotter:
             if target > 0:
                 ax_mag.axhline(target, color="red", linestyle="--", label=f"Target ({target:g} ohm)")
 
-            ax_mag.set_ylabel("|Z| (ohm)")
-            ax_mag.set_title("Rail-to-ground impedance")
+            ax_mag.set_ylabel(_("|Z| (ohm)"))
+            ax_mag.set_title(_("Rail-to-ground impedance"))
             ax_mag.grid(True, which="both", alpha=0.3)
             ax_mag.legend()
-            ax_phase.set_xlabel("Frequency (Hz)")
-            ax_phase.set_ylabel("Phase (deg)")
+            ax_phase.set_xlabel(_("Frequency (Hz)"))
+            ax_phase.set_ylabel(_("Phase (deg)"))
             ax_phase.grid(True, which="both", alpha=0.3)
             return self._fig_to_bitmap(fig)
         except Exception as e:
@@ -224,8 +226,8 @@ class Plotter:
             for index, result in enumerate(plotted):
                 axis.plot(index, result.pair.target_impedance_ohm, marker="D", color="blue")
             axis.set_xticks(x, labels, rotation=25, ha="right")
-            axis.set_ylabel("Differential impedance (ohm)")
-            axis.set_title("Stackup-aware differential impedance")
+            axis.set_ylabel(_("Differential impedance (ohm)"))
+            axis.set_title(_("Stackup-aware differential impedance"))
             axis.grid(True, axis="y", alpha=0.3)
             axis.scatter([], [], marker="D", color="blue", label="Target")
             axis.legend()
@@ -255,8 +257,8 @@ class Plotter:
             axis.set_xlim(0, max(y, 1e-6))
             axis.set_ylim(-0.55, 0.55)
             axis.set_yticks([])
-            axis.set_xlabel("Physical thickness from bottom to top (mm)")
-            axis.set_title(f"PCB stackup — {stackup.source}")
+            axis.set_xlabel(_("Physical thickness from bottom to top (mm)"))
+            axis.set_title(_("PCB stackup — {source}").format(source=stackup.source))
             return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
         except Exception as e:
             if self.debug:
@@ -306,8 +308,8 @@ class Plotter:
                     ))
             self._fit_xy(axis, bounds)
             axis.invert_yaxis()
-            axis.set_xlabel("X (mm)"); axis.set_ylabel("Y (mm)")
-            axis.set_title("EMI/EMC geometric risk map")
+            axis.set_xlabel(_("X (mm)")); axis.set_ylabel(_("Y (mm)"))
+            axis.set_title(_("EMI/EMC geometric risk map"))
             axis.grid(True, alpha=0.18)
             if labelled:
                 handles, labels = axis.get_legend_handles_labels()
@@ -365,9 +367,9 @@ class Plotter:
                 )
             axis.set_xscale("log")
             axis.set_xlim(max(float(frequency_start_hz), 1.0), max(float(frequency_stop_hz), frequency_start_hz * 1.01))
-            axis.set_xlabel("Frequency (Hz)")
-            axis.set_ylabel("Relative harmonic envelope (dB)")
-            axis.set_title("Relative EMI source spectrum — not an absolute compliance level")
+            axis.set_xlabel(_("Frequency (Hz)"))
+            axis.set_ylabel(_("Relative harmonic envelope (dB)"))
+            axis.set_title(_("Relative EMI source spectrum — not an absolute compliance level"))
             axis.grid(True, which="both", alpha=0.25)
             axis.legend(fontsize=8, loc="best")
             if with_click_probe:
@@ -412,16 +414,18 @@ class Plotter:
             )
             self._fit_xy(axis, bounds)
             axis.invert_yaxis()
-            axis.set_xlabel("X (mm)")
-            axis.set_ylabel("Y (mm)")
+            axis.set_xlabel(_("X (mm)"))
+            axis.set_ylabel(_("Y (mm)"))
             mode = (
                 f"{result.frequency_hz / 1e6:g} MHz envelope"
                 if result.frequency_hz > 0.0 else "configured source fundamentals"
             )
             axis.set_title(
-                f"{title} at {result.probe_height_mm:g} mm — {mode}"
+                _("{title} at {height:g} mm — {mode}").format(
+                    title=_(title), height=result.probe_height_mm, mode=_(mode),
+                )
             )
-            fig.colorbar(plot, ax=axis, label=f"Estimated |{label}| ({unit})")
+            fig.colorbar(plot, ax=axis, label=_("Estimated |{label}| ({unit})").format(label=label, unit=unit))
             if with_hover_probe:
                 fig.canvas.draw()
                 probe = EMFieldMapProbe(
@@ -462,10 +466,10 @@ class Plotter:
                 coords[:, 0], display_y, coords[:, 2], c=temperatures,
                 cmap=color_map, vmin=vmin, vmax=vmax, s=5, alpha=0.8,
             )
-            axis.set_xlabel('X (mm)')
-            axis.set_ylabel('Y (mm)')
+            axis.set_xlabel(_('X (mm)'))
+            axis.set_ylabel(_('Y (mm)'))
             axis.set_zlabel('Z (mm)')
-            axis.set_title('3D board temperature')
+            axis.set_title(_('3D board temperature'))
             if bounds:
                 min_x, min_y, max_x, max_y = bounds
                 pad = max(1.0, 0.025 * max(max_x - min_x, max_y - min_y))
@@ -473,7 +477,7 @@ class Plotter:
                 axis.set_ylim(-max_y - pad, -min_y + pad)
                 z_span = max(float(np.ptp(coords[:, 2])), 0.02 * max(max_x - min_x, max_y - min_y))
                 axis.set_box_aspect((max_x - min_x + 2 * pad, max_y - min_y + 2 * pad, z_span))
-            fig.colorbar(scatter, ax=axis, label='Temperature (C)', shrink=0.75)
+            fig.colorbar(scatter, ax=axis, label=_('Temperature (C)'), shrink=0.75)
             return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
         except Exception as e:
             if self.debug:
@@ -531,13 +535,13 @@ class Plotter:
             # locations), then invert only the display axis: the PCB's upper
             # right corner stays upper right for both surface views.
             axis.invert_yaxis()
-            axis.set_xlabel('X (mm)')
-            axis.set_ylabel('Y (mm)')
+            axis.set_xlabel(_('X (mm)'))
+            axis.set_ylabel(_('Y (mm)'))
             if layer_name is None:
                 specs = getattr(mesh, 'layer_specs', [])
                 layer_name = specs[layer_index].name if 0 <= layer_index < len(specs) else f'Layer {layer_index}'
-            axis.set_title(f'{layer_name} temperature')
-            fig.colorbar(plot, ax=axis, label='Temperature (C)')
+            axis.set_title(_('{layer} temperature').format(layer=layer_name))
+            fig.colorbar(plot, ax=axis, label=_('Temperature (C)'))
             if with_hover_probe:
                 # Resolve constrained-layout positions before storing the
                 # pixel-to-data transform used by the wx bitmap viewport.
@@ -680,7 +684,7 @@ class Plotter:
                 color='white', alpha=0.65, scale=None,
             )
             axis.set_xlabel(axes[0]); axis.set_ylabel(axes[1])
-            axis.set_title(f'Enclosure CFD {field.title()} - {plane} slice')
+            axis.set_title(_('Enclosure CFD {field} - {plane} slice').format(field=_(field.title()), plane=plane))
             fig.colorbar(image_plot, ax=axis, label=label)
             return self._fig_to_bitmap(fig)
         except Exception as exc:
@@ -702,8 +706,8 @@ class Plotter:
             axis = fig.add_subplot(111, projection='3d')
             scatter = axis.scatter(coords[:, 0], coords[:, 1], coords[:, 2], c=colors,
                                    cmap=cmap, s=4, alpha=0.45)
-            axis.set_xlabel('X (mm)'); axis.set_ylabel('Y (mm)'); axis.set_zlabel('Z (mm)')
-            axis.set_title('Enclosure CFD volumetric temperature')
+            axis.set_xlabel(_('X (mm)')); axis.set_ylabel(_('Y (mm)')); axis.set_zlabel(_('Z (mm)'))
+            axis.set_title(_('Enclosure CFD volumetric temperature'))
             fig.colorbar(scatter, ax=axis, label=label, shrink=0.75)
             return self._fig_to_bitmap(fig)
         except Exception as exc:
@@ -722,8 +726,8 @@ class Plotter:
                 finite = np.asarray(values, dtype=float)
                 finite = np.where(np.isfinite(finite), finite, np.nan)
                 axis.semilogy(np.arange(1, len(finite) + 1), np.maximum(finite, 1e-16), label=label)
-            axis.set_xlabel('Iteration'); axis.set_ylabel('Residual')
-            axis.set_title('Enclosure CFD convergence')
+            axis.set_xlabel(_('Iteration')); axis.set_ylabel(_('Residual'))
+            axis.set_title(_('Enclosure CFD convergence'))
             axis.grid(True, which='both', alpha=0.3); axis.legend()
             return self._fig_to_bitmap(fig)
         except Exception as exc:

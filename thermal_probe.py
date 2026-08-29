@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
+from i18n import _
+
 
 @dataclass(frozen=True)
 class ThermalProbeReading:
@@ -13,10 +15,12 @@ class ThermalProbeReading:
     layer_name: str
 
     def label(self) -> str:
-        return (
-            f"Thermal probe  {self.temperature_c:.2f} C  |  "
-            f"X {self.x_mm:.2f} mm, Y {self.y_mm:.2f} mm, Z {self.z_mm:.3f} mm  |  "
-            f"{self.layer_name}"
+        return _(
+            "Thermal probe  {temperature:.2f} C  |  X {x:.2f} mm, Y {y:.2f} mm, "
+            "Z {z:.3f} mm  |  {layer}"
+        ).format(
+            temperature=self.temperature_c, x=self.x_mm, y=self.y_mm,
+            z=self.z_mm, layer=self.layer_name,
         )
 
 

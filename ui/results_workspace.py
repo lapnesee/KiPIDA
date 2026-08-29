@@ -9,6 +9,7 @@ import shutil
 import wx
 
 from emc_probe import RenderedPointProbe
+from i18n import _
 from .interactive_views import TextZoomController, ZoomableBitmapPanel
 
 
@@ -192,13 +193,13 @@ class ResultsWorkspace(wx.Panel):
     """Result notebook with project-persistent, user-managed history."""
 
     TITLES = {
-        "DC": "DC Power",
-        "AC": "AC Impedance",
-        "DIFFERENTIAL": "Differential Pairs",
-        "EMC": "EMI / EMC",
-        "THERMAL": "3D Thermal",
-        "CFD": "Enclosure CFD",
-        "DEBUG": "Debug",
+        "DC": _("DC Power"),
+        "AC": _("AC Impedance"),
+        "DIFFERENTIAL": _("Differential Pairs"),
+        "EMC": _("EMI / EMC"),
+        "THERMAL": _("3D Thermal"),
+        "CFD": _("Enclosure CFD"),
+        "DEBUG": _("Debug"),
     }
 
     def __init__(
@@ -239,7 +240,7 @@ class ResultsWorkspace(wx.Panel):
     def _entry_label(entry):
         created = str(entry.get("created_at", "")).replace("T", " ")
         title = str(entry.get("title") or entry.get("analysis_id") or "Result")
-        return f"{created} — {title}"
+        return _("{created} — {title}").format(created=created, title=title)
 
     def refresh_history(self, select_entry=None):
         entries = self._history.entries()

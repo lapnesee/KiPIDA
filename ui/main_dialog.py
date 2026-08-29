@@ -37,6 +37,7 @@ from ui.power_tree_panel import PowerTreePanel
 from ui.interactive_views import ZoomableBitmapPanel, install_navigation
 from ui.results_workspace import ResultsWorkspace
 from plotter import Plotter
+from i18n import _
 
 class KiPIDA_MainDialog(wx.Dialog):
     PAGE_CONFIG = 0
@@ -231,6 +232,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         
         # 2. Action Buttons (Bottom)
         action_panel = wx.Panel(self)
+        self.action_panel = action_panel
         action_sizer = wx.BoxSizer(wx.VERTICAL)
         self.lbl_interaction_status = wx.StaticText(
             action_panel, label="", style=getattr(wx, "ST_ELLIPSIZE_END", 0),
@@ -409,6 +411,10 @@ class KiPIDA_MainDialog(wx.Dialog):
         value = str(text or "")
         self.lbl_interaction_status.SetLabel(value.replace("\n", " — "))
         self.lbl_interaction_status.SetToolTip(value)
+        available_width = max(100, self.action_panel.GetClientSize().width - 16)
+        self.lbl_interaction_status.Wrap(available_width)
+        self.action_panel.Layout()
+        self.lbl_interaction_status.Refresh()
 
     def _results_history_directory(self):
         """Keep analysis archives alongside the active KiCad board/project."""
@@ -440,7 +446,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                 wx.CallAfter(self.log, msg)
             return
         timestamp = datetime.now().strftime("%H:%M:%S")
-        self.log_ctrl.AppendText(f"[{timestamp}] {msg}\n")
+        self.log_ctrl.AppendText(f"[{timestamp}] {_(str(msg))}\n")
         self.log_ctrl.ShowPosition(self.log_ctrl.GetLastPosition())
         
     def to_mm(self, val_nm):
@@ -935,33 +941,37 @@ class KiPIDA_MainDialog(wx.Dialog):
     def _update_ac_results_ui(self, result, optimization=None):
         self._result_generation += 1
         final_result = optimization.optimized if optimization else result
-        status = "PASS" if final_result.meets_target else "TARGET NOT MET"
+        status = _("PASS") if final_result.meets_target else _("TARGET NOT MET")
         lines = [
-            "AC Impedance Analysis Results",
+            _("AC Impedance Analysis Results"),
             "=============================",
-            f"Status: {status}",
-            f"Worst |Z|: {final_result.worst_impedance_ohm:.6g} ohm",
-            f"Worst frequency: {final_result.worst_frequency_hz:.6g} Hz",
-            f"Target: {final_result.target_impedance_ohm:.6g} ohm",
-            f"Compute backend: {final_result.compute_backend} ({final_result.compute_device})",
-            f"Sparse solve time: {final_result.compute_solve_seconds:.4g} s "
-            f"(transfer {final_result.compute_transfer_seconds:.4g} s)",
-            f"Linear residual: {final_result.compute_relative_residual:.4g}; "
-            f"CUDA structure cache hits: {final_result.compute_cache_hits}",
+            _("Status: {status}").format(status=status),
+            _("Worst |Z|: {value:.6g} ohm").format(value=final_result.worst_impedance_ohm),
+            _("Worst frequency: {frequency:.6g} Hz").format(frequency=final_result.worst_frequency_hz),
+            _("Target: {target:.6g} ohm").format(target=final_result.target_impedance_ohm),
+            _("Compute backend: {backend} ({device})").format(backend=final_result.compute_backend, device=final_result.compute_device),
+            _("Sparse solve time: {solve:.4g} s (transfer {transfer:.4g} s)").format(
+                solve=final_result.compute_solve_seconds, transfer=final_result.compute_transfer_seconds,
+            ),
+            _("Linear residual: {residual:.4g}; CUDA structure cache hits: {hits}").format(
+                residual=final_result.compute_relative_residual, hits=final_result.compute_cache_hits,
+            ),
         ]
         if optimization:
-            lines.extend(["", "Decoupling recommendations:"])
+            lines.extend(["", _("Decoupling recommendations:")])
             if optimization.recommendations:
                 for recommendation in optimization.recommendations:
                     lines.append(
-                        f"  - {recommendation.action} {recommendation.ref_des}: "
-                        f"{format_capacitance(recommendation.capacitance_f)}"
+                        _("  - {action} {reference}: {capacitance}").format(
+                            action=_(recommendation.action), reference=recommendation.ref_des,
+                            capacitance=format_capacitance(recommendation.capacitance_f),
+                        )
                     )
             else:
-                lines.append("  - No capacitor changes recommended.")
+                lines.append(_("  - No capacitor changes recommended."))
         lines.extend([
             "",
-            "Model note: ESR/ESL and distributed inductance may be estimates; review before sign-off.",
+            _("Model note: ESR/ESL and distributed inductance may be estimates; review before sign-off."),
         ])
         plotter = Plotter(debug=self.chk_debug.GetValue())
         bitmap = plotter.plot_impedance_sweep(
@@ -1037,13 +1047,15 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.btn_run_differential.Enable()
         self.differential_panel.apply_results(results)
         lines = [
-            "Differential Pair Impedance Results",
+            _("Differential Pair Impedance Results"),
             "===================================",
-            f"Stackup: {stackup.source} ({'trusted' if stackup.trustworthy else 'estimate only'})",
+            _("Stackup: {source} ({trust})").format(
+                source=stackup.source, trust=_("trusted") if stackup.trustworthy else _("estimate only"),
+            ),
             "",
         ]
         if stackup.warnings:
-            lines.append("Stackup warnings:")
+            lines.append(_("Stackup warnings:"))
             lines.extend(f"  - {warning}" for warning in stackup.warnings)
             lines.append("")
         for result in results:
@@ -1053,13 +1065,16 @@ class KiPIDA_MainDialog(wx.Dialog):
                 f"[{pair.interface}; {pair.confidence}]"
             )
             lines.append(
-                f"  Status: {result.status}; Zdiff={result.weighted_impedance_ohm:.3f} ohm; "
-                f"target={pair.target_impedance_ohm:g} ohm; error={result.error_pct:+.2f}%"
+                _("  Status: {status}; Zdiff={impedance:.3f} ohm; target={target:g} ohm; error={error:+.2f}%").format(
+                    status=_(result.status), impedance=result.weighted_impedance_ohm,
+                    target=pair.target_impedance_ohm, error=result.error_pct,
+                )
             )
             lines.append(
-                f"  Range: {result.minimum_impedance_ohm:.3f} .. "
-                f"{result.maximum_impedance_ohm:.3f} ohm; "
-                f"length mismatch={result.length_mismatch_mm:.3f} mm"
+                _("  Range: {minimum:.3f} .. {maximum:.3f} ohm; length mismatch={mismatch:.3f} mm").format(
+                    minimum=result.minimum_impedance_ohm, maximum=result.maximum_impedance_ohm,
+                    mismatch=result.length_mismatch_mm,
+                )
             )
             for section in result.sections:
                 lines.append(
@@ -1070,25 +1085,30 @@ class KiPIDA_MainDialog(wx.Dialog):
                     f"coverage={section.reference_coverage_pct:.1f}%"
                 )
             for warning in result.warnings:
-                lines.append(f"  WARNING: {warning}")
+                lines.append(_("  WARNING: {warning}").format(warning=_(warning)))
             if result.recommendations:
-                lines.append("  Recommendations:")
+                lines.append(_("  Recommendations:"))
                 for recommendation in result.recommendations:
                     geometry = (
                         f"w={recommendation.recommended_width_mm:.3f} mm, "
                         f"gap={recommendation.recommended_gap_mm:.3f} mm"
-                        if recommendation.recommended_width_mm else "geometry unavailable"
+                        if recommendation.recommended_width_mm else _("geometry unavailable")
                     )
                     lines.append(
-                        f"  - {recommendation.action} [{recommendation.feasibility}; "
-                        f"{recommendation.confidence}]: {geometry}; "
-                        f"predicted Zdiff={recommendation.predicted_impedance_ohm:.3f} ohm; "
-                        f"GND clearance >= {recommendation.recommended_ground_clearance_mm:.3f} mm"
+                        _(
+                            "  - {action} [{feasibility}; {confidence}]: {geometry}; "
+                            "predicted Zdiff={impedance:.3f} ohm; GND clearance >= {clearance:.3f} mm"
+                        ).format(
+                            action=_(recommendation.action), feasibility=_(recommendation.feasibility),
+                            confidence=_(recommendation.confidence), geometry=geometry,
+                            impedance=recommendation.predicted_impedance_ohm,
+                            clearance=recommendation.recommended_ground_clearance_mm,
+                        )
                     )
             lines.append("")
         lines.extend([
-            "Model scope: quasi-static coupled microstrip/stripline estimates. ",
-            "Vias and reference-plane transitions are reported as discontinuities; this is not a 3D full-wave solver.",
+            _("Model scope: quasi-static coupled microstrip/stripline estimates. "),
+            _("Vias and reference-plane transitions are reported as discontinuities; this is not a 3D full-wave solver."),
         ])
         plots = []
         if impedance_png:
@@ -1220,18 +1240,19 @@ class KiPIDA_MainDialog(wx.Dialog):
     def _format_emc_report(settings, result):
         counts = result.severity_counts
         lines = [
-            "EMI / EMC Pre-compliance Results",
+            _("EMI / EMC Pre-compliance Results"),
             "================================",
-            f"Target: {settings.standard} ({settings.market})",
-            f"Frequency band: {settings.frequency_start_hz / 1e6:g} .. {settings.frequency_stop_hz / 1e6:g} MHz",
-            f"Risk score: {result.risk_score}/100",
-            f"Checks evaluated: {result.total_checks}",
-            f"Findings: {len(result.findings)} — critical {counts.get('CRITICAL', 0)}, "
-            f"high {counts.get('HIGH', 0)}, medium {counts.get('MEDIUM', 0)}, "
-            f"low {counts.get('LOW', 0)}, info {counts.get('INFO', 0)}",
-            f"Total elapsed time: {result.elapsed_seconds:.3f} s",
+            _("Target: {standard} ({market})").format(standard=settings.standard, market=settings.market),
+            _("Frequency band: {start:g} .. {stop:g} MHz").format(start=settings.frequency_start_hz / 1e6, stop=settings.frequency_stop_hz / 1e6),
+            _("Risk score: {score}/100").format(score=result.risk_score),
+            _("Checks evaluated: {count}").format(count=result.total_checks),
+            _("Findings: {total} — critical {critical}, high {high}, medium {medium}, low {low}, info {info}").format(
+                total=len(result.findings), critical=counts.get('CRITICAL', 0), high=counts.get('HIGH', 0),
+                medium=counts.get('MEDIUM', 0), low=counts.get('LOW', 0), info=counts.get('INFO', 0),
+            ),
+            _("Total elapsed time: {seconds:.3f} s").format(seconds=result.elapsed_seconds),
             "",
-            "Configured emission sources",
+            _("Configured emission sources"),
             "---------------------------",
         ]
         enabled_sources = [source for source in settings.sources if source.enabled]
@@ -1243,32 +1264,32 @@ class KiPIDA_MainDialog(wx.Dialog):
                     f"[{source.source}]"
                 )
         else:
-            lines.append("  - None; geometry-only analysis.")
+            lines.append(_("  - None; geometry-only analysis."))
         field_result = getattr(result, "field_simulation", None)
-        lines.extend(["", "Near-field simulation", "---------------------"])
+        lines.extend(["", _("Near-field simulation"), "---------------------"])
         if field_result is None:
-            lines.append("  - Disabled or unavailable for this run.")
+            lines.append(_("  - Disabled or unavailable for this run."))
         else:
             mode = (
-                f"selected envelope at {field_result.frequency_hz / 1e6:g} MHz"
-                if field_result.frequency_hz > 0.0 else "each source at its configured fundamental"
+                _("selected envelope at {frequency:g} MHz").format(frequency=field_result.frequency_hz / 1e6)
+                if field_result.frequency_hz > 0.0 else _("each source at its configured fundamental")
             )
             lines.extend([
-                f"  - Observation plane: {field_result.probe_height_mm:g} mm above PCB; grid {settings.field_grid_size_mm:g} mm.",
-                f"  - Frequency mode: {mode}.",
-                f"  - Sources / trace elements: {field_result.source_count} / {field_result.segment_count}.",
-                f"  - Maximum |E|: {field_result.maximum_e_v_m:.6g} V/m at ({field_result.maximum_e_position_mm[0]:.3f}, {field_result.maximum_e_position_mm[1]:.3f}) mm.",
-                f"  - Maximum |H|: {field_result.maximum_h_a_m:.6g} A/m at ({field_result.maximum_h_position_mm[0]:.3f}, {field_result.maximum_h_position_mm[1]:.3f}) mm.",
-                f"  - Backend / elapsed: {field_result.compute_backend}; {field_result.elapsed_seconds:.3f} s.",
+                _("  - Observation plane: {height:g} mm above PCB; grid {grid:g} mm.").format(height=field_result.probe_height_mm, grid=settings.field_grid_size_mm),
+                _("  - Frequency mode: {mode}.").format(mode=mode),
+                _("  - Sources / trace elements: {sources} / {segments}.").format(sources=field_result.source_count, segments=field_result.segment_count),
+                _("  - Maximum |E|: {value:.6g} V/m at ({x:.3f}, {y:.3f}) mm.").format(value=field_result.maximum_e_v_m, x=field_result.maximum_e_position_mm[0], y=field_result.maximum_e_position_mm[1]),
+                _("  - Maximum |H|: {value:.6g} A/m at ({x:.3f}, {y:.3f}) mm.").format(value=field_result.maximum_h_a_m, x=field_result.maximum_h_position_mm[0], y=field_result.maximum_h_position_mm[1]),
+                _("  - Backend / elapsed: {backend}; {seconds:.3f} s.").format(backend=field_result.compute_backend, seconds=field_result.elapsed_seconds),
             ])
             lines.extend(f"  - Warning: {warning}" for warning in field_result.warnings)
         lines.extend([
             "",
-            "Findings",
+            _("Findings"),
             "--------",
         ])
         if not result.findings:
-            lines.append("No finding was generated by the enabled deterministic checks.")
+            lines.append(_("No finding was generated by the enabled deterministic checks."))
         for finding in result.findings:
             targets = []
             if finding.nets:
@@ -1276,32 +1297,32 @@ class KiPIDA_MainDialog(wx.Dialog):
             if finding.components:
                 targets.append("components=" + ", ".join(finding.components))
             lines.append(
-                f"[{finding.severity}] {finding.rule_id} — {finding.title} "
+                f"[{finding.severity}] {finding.rule_id} — {_(finding.title)} "
                 f"(confidence {finding.confidence})"
             )
-            lines.append(f"  {finding.description}")
+            lines.append(f"  {_(finding.description)}")
             if targets:
-                lines.append("  Evidence targets: " + "; ".join(targets))
+                lines.append(_("  Evidence targets: {targets}").format(targets="; ".join(targets)))
             for evidence in finding.evidence:
                 position = ""
                 if evidence.x_mm is not None and evidence.y_mm is not None:
                     position = f" at ({evidence.x_mm:.3f}, {evidence.y_mm:.3f}) mm"
                     if evidence.layer_id is not None:
                         position += f" on layer {evidence.layer_id}"
-                lines.append(f"  Evidence [{evidence.source}]{position}: {evidence.detail}")
-            lines.append(f"  Recommendation: {finding.recommendation}")
-        lines.extend(["", "Per-net risk scores", "-------------------"])
+                lines.append(f"  {_('Evidence')} [{evidence.source}]{position}: {_(evidence.detail)}")
+            lines.append(_("  Recommendation: {recommendation}").format(recommendation=_(finding.recommendation)))
+        lines.extend(["", _("Per-net risk scores"), "-------------------"])
         if result.per_net_scores:
             for net, score in sorted(result.per_net_scores.items(), key=lambda item: (item[1], item[0])):
                 lines.append(f"  - {net}: {score}/100")
         else:
-            lines.append("  - No net-specific penalty.")
-        lines.extend(["", "Pre-compliance test plan", "------------------------"])
-        lines.extend(f"  - {item}" for item in result.test_plan)
-        lines.extend(["", "Regulatory coverage", "-------------------"])
-        lines.extend(f"  - {item}" for item in result.regulatory_coverage)
-        lines.extend(["", "Model limitations", "-----------------"])
-        lines.extend(f"  - {item}" for item in result.limitations)
+            lines.append(_("  - No net-specific penalty."))
+        lines.extend(["", _("Pre-compliance test plan"), "------------------------"])
+        lines.extend(f"  - {_(item)}" for item in result.test_plan)
+        lines.extend(["", _("Regulatory coverage"), "-------------------"])
+        lines.extend(f"  - {_(item)}" for item in result.regulatory_coverage)
+        lines.extend(["", _("Model limitations"), "-----------------"])
+        lines.extend(f"  - {_(item)}" for item in result.limitations)
         return "\n".join(lines)
 
     def _finish_emc_analysis(
@@ -1581,58 +1602,67 @@ class KiPIDA_MainDialog(wx.Dialog):
     ):
         hotspot = result.hotspot
         lines = [
-            "3D Thermal Analysis Results",
+            _("3D Thermal Analysis Results"),
             "===========================",
-            f"Mode: {'Coupled DC / thermal' if coupled else 'Thermal'}",
-            f"Hotspot: {hotspot.temperature_c:.3f} C at "
-            f"({hotspot.x_mm:.2f}, {hotspot.y_mm:.2f}, {hotspot.z_mm:.3f}) mm",
-            f"Input heat: {result.total_input_power_w:.6g} W",
-            f"Boundary heat: {result.total_boundary_power_w:.6g} W",
-            f"Energy balance error: {result.energy_balance_error_pct:.4g}%",
-            f"Effective h: {result.convection_coefficient_w_m2k:.4g} W/m2K",
-            f"Iterations: {result.iterations} ({'converged' if result.converged else 'limit reached'})",
-            f"Thermal grid: {mesh.grid_size_mm:.4g} mm" + (
-                f" (requested {mesh.requested_grid_size_mm:.4g} mm; adapted)"
+            _("Mode: {mode}").format(mode=_("Coupled DC / thermal") if coupled else _("Thermal")),
+            _("Hotspot: {temperature:.3f} C at ({x:.2f}, {y:.2f}, {z:.3f}) mm").format(
+                temperature=hotspot.temperature_c, x=hotspot.x_mm, y=hotspot.y_mm, z=hotspot.z_mm,
+            ),
+            _("Input heat: {power:.6g} W").format(power=result.total_input_power_w),
+            _("Boundary heat: {power:.6g} W").format(power=result.total_boundary_power_w),
+            _("Energy balance error: {error:.4g}%").format(error=result.energy_balance_error_pct),
+            _("Effective h: {coefficient:.4g} W/m2K").format(coefficient=result.convection_coefficient_w_m2k),
+            _("Iterations: {iterations} ({state})").format(
+                iterations=result.iterations, state=_("converged") if result.converged else _("limit reached"),
+            ),
+            _("Thermal grid: {grid:.4g} mm").format(grid=mesh.grid_size_mm) + (
+                _(" (requested {requested:.4g} mm; adapted)").format(requested=mesh.requested_grid_size_mm)
                 if mesh.adaptive_grid else ""
             ),
-            f"Thermal colors: {str(color_map).title()}",
-            "Thermal colour minimum: " + (
-                f"{float(color_scale_minimum_c):.3g} C ({str(color_scale_minimum_mode).lower()})"
-                if color_scale_minimum_c is not None else "calculated minimum"
+            _("Thermal colors: {palette}").format(palette=str(color_map).title()),
+            _("Thermal colour minimum: {value}").format(value=(
+                _("{temperature:.3g} C ({mode})").format(temperature=float(color_scale_minimum_c), mode=str(color_scale_minimum_mode).lower())
+                if color_scale_minimum_c is not None else _("calculated minimum")
+            )),
+            _("Thermal colour maximum: {value}").format(value=(
+                _("{temperature:.3g} C ({mode})").format(temperature=float(color_scale_maximum_c), mode=str(color_scale_maximum_mode).lower())
+                if color_scale_maximum_c is not None else _("calculated hotspot")
+            )),
+            _("Internal copper maps: enabled") if show_internal_copper_layers else
+            _("Internal copper maps: disabled"),
+            _("Compute backend: {backend} ({device})").format(backend=result.compute_backend, device=result.compute_device),
+            _("Sparse matrix path: {path}").format(path=result.compute_matrix_assembly),
+            _("CUDA warm start: device-resident previous thermal solution") if result.compute_warm_start_used else
+            _("CUDA warm start: unavailable (first solve or CPU backend)"),
+            _("CPU threads: {count}").format(count=result.compute_cpu_threads),
+            _("Solve time: {solve:.4g} s (transfer {transfer:.4g} s)").format(
+                solve=result.compute_solve_seconds, transfer=result.compute_transfer_seconds,
             ),
-            "Thermal colour maximum: " + (
-                f"{float(color_scale_maximum_c):.3g} C ({str(color_scale_maximum_mode).lower()})"
-                if color_scale_maximum_c is not None else "calculated hotspot"
+            _("Linear residual: {residual:.4g} ({iterations} iteration(s))").format(
+                residual=result.compute_relative_residual, iterations=result.compute_iterations,
             ),
-            "Internal copper maps: enabled" if show_internal_copper_layers else
-            "Internal copper maps: disabled",
-            f"Compute backend: {result.compute_backend} ({result.compute_device})",
-            f"Sparse matrix path: {result.compute_matrix_assembly}",
-            "CUDA warm start: device-resident previous thermal solution" if result.compute_warm_start_used else
-            "CUDA warm start: unavailable (first solve or CPU backend)",
-            f"CPU threads: {result.compute_cpu_threads}",
-            f"Solve time: {result.compute_solve_seconds:.4g} s "
-            f"(transfer {result.compute_transfer_seconds:.4g} s)",
-            f"Linear residual: {result.compute_relative_residual:.4g} "
-            f"({result.compute_iterations} iteration(s))",
         ]
         if elapsed_seconds is not None:
-            lines.append(f"Total elapsed time: {float(elapsed_seconds):.3f} s")
-        lines.extend(["", "Component junction estimates:"])
+            lines.append(_("Total elapsed time: {seconds:.3f} s").format(seconds=float(elapsed_seconds)))
+        lines.extend(["", _("Component junction estimates:")])
         if result.component_results:
             for component in result.component_results:
                 status = "OK" if component.margin_c >= 0 else "OVER LIMIT"
                 lines.append(
-                    f"  - {component.ref_des}: Tj={component.junction_temperature_c:.2f} C, "
-                    f"P={component.power_w:.4g} W, margin={component.margin_c:.2f} C "
-                    f"[{status}; {component.model_source}]"
+                    _(
+                        "  - {reference}: Tj={junction:.2f} C, P={power:.4g} W, "
+                        "margin={margin:.2f} C [{status}; {source}]"
+                    ).format(
+                        reference=component.ref_des, junction=component.junction_temperature_c,
+                        power=component.power_w, margin=component.margin_c,
+                        status=_(status), source=_(component.model_source),
+                    )
                 )
         else:
-            lines.append("  - No mapped component heat source.")
+            lines.append(_("  - No mapped component heat source."))
         lines.extend([
             "",
-            "Model scope: steady-state 3D solid conduction with convective boundaries; "
-            "this is not a volumetric CFD airflow solution.",
+            _("Model scope: steady-state 3D solid conduction with convective boundaries; this is not a volumetric CFD airflow solution."),
         ])
         if result.compute_fallback_reason:
             lines.append(f"Compute fallback: {result.compute_fallback_reason}")
@@ -1856,24 +1886,21 @@ class KiPIDA_MainDialog(wx.Dialog):
     def _update_cfd_results_ui(self, mesh, result):
         self._result_generation += 1
         lines = [
-            "Phase 4 Enclosure CFD Results",
+            _("Phase 4 Enclosure CFD Results"),
             "=============================",
-            "Mode: steady incompressible laminar flow with Boussinesq buoyancy",
-            f"Cells: {mesh.cell_count:,} ({mesh.shape[0]} x {mesh.shape[1]} x {mesh.shape[2]})",
-            f"Iterations: {result.iterations} ({'converged' if result.converged else 'limit reached'})",
-            f"Maximum velocity: {result.maximum_velocity_m_s:.6g} m/s",
-            f"Maximum air temperature: {result.maximum_air_temperature_c:.3f} C",
-            f"Maximum solid temperature: {result.maximum_solid_temperature_c:.3f} C",
-            f"Mapped heat: {result.total_heat_w:.6g} W",
-            f"Mass balance error: {result.mass_balance_error_pct:.4g}%",
-            f"Energy balance error: {result.energy_balance_error_pct:.4g}%",
-            f"Compute backend: {result.compute_backend} ({result.compute_device})",
-            f"Last energy solve: {result.compute_solve_seconds:.4g} s, "
-            f"residual {result.compute_relative_residual:.4g}",
+            _("Mode: steady incompressible laminar flow with Boussinesq buoyancy"),
+            _("Cells: {count:,} ({nx} x {ny} x {nz})").format(count=mesh.cell_count, nx=mesh.shape[0], ny=mesh.shape[1], nz=mesh.shape[2]),
+            _("Iterations: {iterations} ({state})").format(iterations=result.iterations, state=_("converged") if result.converged else _("limit reached")),
+            _("Maximum velocity: {value:.6g} m/s").format(value=result.maximum_velocity_m_s),
+            _("Maximum air temperature: {value:.3f} C").format(value=result.maximum_air_temperature_c),
+            _("Maximum solid temperature: {value:.3f} C").format(value=result.maximum_solid_temperature_c),
+            _("Mapped heat: {value:.6g} W").format(value=result.total_heat_w),
+            _("Mass balance error: {value:.4g}%").format(value=result.mass_balance_error_pct),
+            _("Energy balance error: {error:.4g}%").format(error=result.energy_balance_error_pct),
+            _("Compute backend: {backend} ({device})").format(backend=result.compute_backend, device=result.compute_device),
+            _("Last energy solve: {seconds:.4g} s, residual {residual:.4g}").format(seconds=result.compute_solve_seconds, residual=result.compute_relative_residual),
             "",
-            "Model scope: structured volumetric CFD, boundary-patch fans/vents, and "
-            "conjugate solid-air heat transfer. Fan blades, turbulence, radiation, "
-            "and transient effects are outside this Phase 4 solver.",
+            _("Model scope: structured volumetric CFD, boundary-patch fans/vents, and conjugate solid-air heat transfer. Fan blades, turbulence, radiation, and transient effects are outside this Phase 4 solver."),
         ]
         plotter = Plotter(debug=self.chk_debug.GetValue())
         plots = [
@@ -1905,25 +1932,26 @@ class KiPIDA_MainDialog(wx.Dialog):
     def _update_results_ui(self):
         self._result_generation += 1
         # Populate text stats
-        txt = "System Simulation Results:\n==========================\n"
+        txt = _("System Simulation Results:") + "\n==========================\n"
         for net, data in self.system_results.items():
             vmin, vmax, drop = data['stats']
-            txt += f"Rail: {net}\n"
-            txt += f"  Range: {vmin:.4f} - {vmax:.4f} V\n"
-            txt += f"  Drop:  {drop:.4f} V\n\n"
+            txt += _("Rail: {net}\n").format(net=net)
+            txt += _("  Range: {minimum:.4f} - {maximum:.4f} V\n").format(minimum=vmin, maximum=vmax)
+            txt += _("  Drop:  {drop:.4f} V\n\n").format(drop=drop)
             actual_grid = data.get('grid_size_mm')
             requested_grid = data.get('requested_grid_size_mm', actual_grid)
             if actual_grid is not None:
-                suffix = " (adapted for mesh safety)" if data.get('adaptive_grid') else ""
-                txt += f"  DC grid: {actual_grid:.4g} mm{suffix}\n"
+                suffix = _(" (adapted for mesh safety)") if data.get('adaptive_grid') else ""
+                txt += _("  DC grid: {grid:.4g} mm{suffix}\n").format(grid=actual_grid, suffix=suffix)
                 if data.get('adaptive_grid'):
-                    txt += f"  Requested DC grid: {requested_grid:.4g} mm\n"
+                    txt += _("  Requested DC grid: {grid:.4g} mm\n").format(grid=requested_grid)
             compute = data.get('compute_metadata')
             if compute is not None:
                 txt += (
-                    f"  Backend: {compute.backend} ({compute.device}), "
-                    f"solve {compute.solve_seconds:.4g} s, "
-                    f"residual {compute.relative_residual:.3g}\n\n"
+                    _("  Backend: {backend} ({device}), solve {solve:.4g} s, residual {residual:.3g}\n\n").format(
+                        backend=compute.backend, device=compute.device,
+                        solve=compute.solve_seconds, residual=compute.relative_residual,
+                    )
                 )
         page = self._publish_results("DC", txt, [])
         results_notebook = page.plots

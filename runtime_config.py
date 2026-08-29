@@ -10,12 +10,18 @@ import os
 from pathlib import Path
 import tempfile
 
+try:
+    from .i18n import SYSTEM_LANGUAGE, normalize_language
+except (ImportError, ValueError):
+    from i18n import SYSTEM_LANGUAGE, normalize_language
 
-RUNTIME_CONFIG_VERSION = "1.1"
+
+RUNTIME_CONFIG_VERSION = "1.2"
 
 
 @dataclass
 class RuntimeComputeSettings:
+    ui_language: str = SYSTEM_LANGUAGE
     backend: str = "AUTO"  # AUTO, CPU, CUDA
     cpu_multithread: bool = True
     cpu_threads: int = 0  # 0 = automatic
@@ -27,6 +33,11 @@ class RuntimeComputeSettings:
     solver_max_iterations: int = 5000
 
     def normalized(self):
+        requested_language = str(self.ui_language or SYSTEM_LANGUAGE).strip()
+        self.ui_language = (
+            SYSTEM_LANGUAGE if requested_language.upper() == SYSTEM_LANGUAGE
+            else (normalize_language(requested_language) or SYSTEM_LANGUAGE)
+        )
         self.backend = str(self.backend or "AUTO").upper()
         if self.backend not in {"AUTO", "CPU", "CUDA"}:
             self.backend = "AUTO"

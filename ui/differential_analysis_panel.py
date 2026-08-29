@@ -2,6 +2,8 @@
 
 import wx
 
+from i18n import _
+
 try:
     from differential_discovery import DifferentialPairDiscoverer, INTERFACE_DEFAULTS
     from differential_recommender import DifferentialRecommendationEngine
@@ -224,7 +226,9 @@ class DifferentialAnalysisPanel(wx.Panel):
             self.stackup_status.SetLabel("Stackup not loaded")
             return
         trust = "trusted" if self.stackup.trustworthy else "estimate only"
-        self.stackup_status.SetLabel(f"Source: {self.stackup.source} ({trust})")
+        self.stackup_status.SetLabel(
+            _("Source: {source} ({trust})").format(source=self.stackup.source, trust=_(trust))
+        )
         for layer in self.stackup.layers:
             row = self.stackup_list.InsertItem(self.stackup_list.GetItemCount(), layer.name)
             for column, value in enumerate((

@@ -2,6 +2,8 @@ import math
 
 import wx
 
+from i18n import _
+
 try:
     from models import AirflowSettings, ThermalAnalysisSettings
     from thermal_model import PowerLossEstimator
@@ -13,28 +15,28 @@ except (ImportError, ValueError):
 
 
 THERMAL_COLOR_MAPS = (
-    ("Inferno (default)", "inferno"),
-    ("Viridis", "viridis"),
-    ("Turbo", "turbo"),
-    ("Plasma", "plasma"),
-    ("Cividis", "cividis"),
+    (_("Inferno (default)"), "inferno"),
+    (_("Viridis"), "viridis"),
+    (_("Turbo"), "turbo"),
+    (_("Plasma"), "plasma"),
+    (_("Cividis"), "cividis"),
 )
 
 THERMAL_COLOR_MINIMUM_MODES = (
-    ("Ambient temperature", "AMBIENT"),
-    ("Automatic (calculated minimum)", "AUTO"),
-    ("Custom temperature", "CUSTOM"),
+    (_("Ambient temperature"), "AMBIENT"),
+    (_("Automatic (calculated minimum)"), "AUTO"),
+    (_("Custom temperature"), "CUSTOM"),
 )
 
 THERMAL_COLOR_MAXIMUM_MODES = (
-    ("Automatic (calculated hotspot)", "AUTO"),
-    ("Custom temperature", "CUSTOM"),
+    (_("Automatic (calculated hotspot)"), "AUTO"),
+    (_("Custom temperature"), "CUSTOM"),
 )
 
 
 class ThermalComponentDialog(wx.Dialog):
     def __init__(self, parent, component):
-        super().__init__(parent, title=f"Thermal Model: {component.ref_des}")
+        super().__init__(parent, title=_("Thermal Model: {reference}").format(reference=component.ref_des))
         sizer = wx.BoxSizer(wx.VERTICAL)
         grid = wx.FlexGridSizer(cols=2, hgap=8, vgap=8)
         grid.AddGrowableCol(1, 1)
@@ -155,8 +157,8 @@ class ThermalAnalysisPanel(wx.Panel):
         self.choice_mesh_preset = wx.Choice(
             settings_parent,
             choices=[
-                "Fast (1.5 mm)", "Normal (1.0 mm)", "Fine (0.5 mm)",
-                "Super (0.1 mm)", "Expert / custom",
+                _("Fast (1.5 mm)"), _("Normal (1.0 mm)"), _("Fine (0.5 mm)"),
+                _("Super (0.1 mm)"), _("Expert / custom"),
             ],
         )
         self.choice_mesh_preset.SetSelection(1)
@@ -299,13 +301,20 @@ class ThermalAnalysisPanel(wx.Panel):
             estimate = estimate_thermal_mesh_cost(context, size)
             mib = 1024 ** 2
             ceiling = (
-                f", RAM ceiling {estimate['memory_budget_bytes'] / (1024 ** 3):g} GiB"
+                _(", RAM ceiling {memory:g} GiB").format(
+                    memory=estimate['memory_budget_bytes'] / (1024 ** 3)
+                )
                 if estimate["memory_budget_bytes"] else ""
             )
             self.lbl_mesh_cost.SetLabel(
-                f"~{estimate['nodes']:,} nodes / {estimate['branches']:,} branches — "
-                f"host peak {estimate['cpu_bytes']/mib:.0f} MiB, GPU {estimate['gpu_bytes']/mib:.0f} MiB — "
-                f"limit {estimate['node_limit']:,} nodes{ceiling} — recommended: {estimate['backend']}"
+                _(
+                    "~{nodes:,} nodes / {branches:,} branches — host peak {host:.0f} MiB, "
+                    "GPU {gpu:.0f} MiB — limit {limit:,} nodes{ceiling} — recommended: {backend}"
+                ).format(
+                    nodes=estimate['nodes'], branches=estimate['branches'],
+                    host=estimate['cpu_bytes']/mib, gpu=estimate['gpu_bytes']/mib,
+                    limit=estimate['node_limit'], ceiling=ceiling, backend=estimate['backend'],
+                )
             )
             node_limit = estimate["node_limit"]
             colour = wx.Colour(190, 35, 35) if estimate["exceeds_memory_limit"] else (

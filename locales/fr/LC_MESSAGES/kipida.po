@@ -1,0 +1,2762 @@
+msgid ""
+msgstr "Project-Id-Version: Ki-PIDA\nLanguage: fr\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: 8bit\nPlural-Forms: nplurals=2; plural=(n > 1);\n"
+
+msgid "\nTesting {backend} backend...\n"
+msgstr "\nTestering {backend} backend...\n"
+
+msgid "      [VIA] Failed to connect layers @ ({p0}, {p1}): found nodes on layers {p2}"
+msgstr "      [VIA] Échec de connexion des couches à ({p0}, {p1}) : nœuds trouvés sur les couches {p2}"
+
+msgid "  - Backend / elapsed: {backend}; {seconds:.3f} s."
+msgstr "  - Backend / durée écoulée : {backend} ; {seconds:.3f} s."
+
+msgid "  - Disabled or unavailable for this run."
+msgstr "  - Désactivé ou indisponible pour cette exécution."
+
+msgid "  - Frequency mode: {mode}."
+msgstr "  - Fréquence mode: {mode}."
+
+msgid "  - Maximum |E|: {value:.6g} V/m at ({x:.3f}, {y:.3f}) mm."
+msgstr "  - Maximum |E|: {value:.6g} V/m à ({x:.3f}, {y:.3f}) mm."
+
+msgid "  - Maximum |H|: {value:.6g} A/m at ({x:.3f}, {y:.3f}) mm."
+msgstr "  - Maximum |H|: {value:.6g} A/m à ({x:.3f}, {y:.3f}) mm."
+
+msgid "  - No capacitor changes recommended."
+msgstr "  - Aucun capacitor changes recommandé."
+
+msgid "  - No mapped component heat source."
+msgstr "  - Aucun mapped component heat source."
+
+msgid "  - No net-specific penalty."
+msgstr "  - Aucun net-specific penalty."
+
+msgid "  - None; geometry-only analysis."
+msgstr "  - Aucune ; analyse géométrique uniquement."
+
+msgid "  - Observation plane: {height:g} mm above PCB; grid {grid:g} mm."
+msgstr "  - Plan d’observation : {height:g} mm au-dessus du PCB ; grille {grid:g} mm."
+
+msgid "  - Sources / trace elements: {sources} / {segments}."
+msgstr "  - Sources / éléments de piste : {sources} / {segments}."
+
+msgid "  - {action} [{feasibility}; {confidence}]: {geometry}; predicted Zdiff={impedance:.3f} ohm; GND clearance >= {clearance:.3f} mm"
+msgstr "  - {action} [{feasibility} ; {confidence}] : {geometry} ; Zdiff prédit={impedance:.3f} ohm ; dégagement GND >= {clearance:.3f} mm"
+
+msgid "  - {reference}: Tj={junction:.2f} C, P={power:.4g} W, margin={margin:.2f} C [{status}; {source}]"
+msgstr "  - {reference} : Tj={junction:.2f} C, P={power:.4g} W, marge={margin:.2f} C [{status} ; {source}]"
+
+msgid "  [_get_mesh_nodes] Looking up {p0} pads={p1}"
+msgstr "  [_get_mesh_nœuds] Looking up {p0} pads={p1}"
+
+msgid "  Backend: {backend} ({device}), solve {solve:.4g} s, residual {residual:.3g}\n\n"
+msgstr "  Backend : {backend} ({device}), résolution {solve:.4g} s, résidu {residual:.3g}\n\n"
+
+msgid "  DC grid: {grid:.4g} mm{suffix}\n"
+msgstr "  Grille DC : {grid:.4g} mm{suffix}\n"
+
+msgid "  Drop:  {drop:.4f} V\n\n"
+msgstr "  Chute : {drop:.4f} V\n\n"
+
+msgid "  Evidence targets: {targets}"
+msgstr "  Cibles des éléments probants : {targets}"
+
+msgid "  Extracting copper geometry for {p0}..."
+msgstr "  Extraction de la géométrie cuivre de {p0}..."
+
+msgid "  Geometry ready for {p0}: {p1} layer(s) in {p2} s."
+msgstr "  Géométrie prête pour {p0} : {p1} couche(s) en {p2} s."
+
+msgid "  Layer {p0} vectorized mesh: {p1} nodes."
+msgstr "  Couche {p0} vectorized mesh: {p1} nodes."
+
+msgid "  Mesh ready for {p0}: {p1} nodes in {p2} s."
+msgstr "  Maillage prêt pour {p0} : {p1} nœuds en {p2} s."
+
+msgid "  No pads found for {p0} matching {p1}"
+msgstr "  Aucune pastille de {p0} ne correspond à {p1}"
+
+msgid "  Pad {p0} at ({p1},{p2}) not on mesh."
+msgstr "  La pastille {p0} à ({p1},{p2}) n’appartient pas au maillage."
+
+msgid "  Range: {minimum:.3f} .. {maximum:.3f} ohm; length mismatch={mismatch:.3f} mm"
+msgstr "  Range: {minimum:.3f} .. {maximum:.3f} ohm; longueur mismatch={mismatch:.3f} mm"
+
+msgid "  Range: {minimum:.4f} - {maximum:.4f} V\n"
+msgstr "  Plage : {minimum:.4f} - {maximum:.4f} V\n"
+
+msgid "  Recommendation: {recommendation}"
+msgstr "  Recommandation : {recommendation}"
+
+msgid "  Recommendations:"
+msgstr "  Recommandations :"
+
+msgid "  Regulator {p0} draws {p1}A from {p2} ({p3})"
+msgstr "  Regulator {p0} draws {p1}A depuis {p2} ({p3})"
+
+msgid "  Regulator {p0} has no load on output rail {p1}"
+msgstr "  Le régulateur {p0} n’a aucune charge sur le rail de sortie {p1}"
+
+msgid "  Regulator {p0} output {p1} pads {p2} -> {p3} nodes"
+msgstr "  Regulator {p0} output {p1} pads {p2} -> {p3} nœuds"
+
+msgid "  Requested DC grid: {grid:.4g} mm\n"
+msgstr "  Grille DC demandée : {grid:.4g} mm\n"
+
+msgid "  Skipping {p0}: Mesh empty."
+msgstr "  Skipping {p0}: Maillage empty."
+
+msgid "  Skipping {p0}: No geometry."
+msgstr "  Skipping {p0}: Aucun géométrie."
+
+msgid "  Solved {p0}: Drop {p1} V"
+msgstr "  {p0} résolu : chute de {p1} V"
+
+msgid "  Solved {p0}: No result."
+msgstr "  Solved {p0}: Aucun résultat."
+
+msgid "  Source {p0} pads {p1} -> {p2} nodes"
+msgstr "  Source {p0}, pastilles {p1} -> {p2} nœuds"
+
+msgid "  Status: {status}; Zdiff={impedance:.3f} ohm; target={target:g} ohm; error={error:+.2f}%"
+msgstr "  Status: {status}; Zdiff={impedance:.3f} ohm; target={target:g} ohm; erreur={error:+.2f}%"
+
+msgid "  Warning: Footprint {p0} not found."
+msgstr "  Avertissement : empreinte {p0} introuvable."
+
+msgid "  Warning: No sources for {p0}. Skipping solve."
+msgstr "  Avertissement : aucune source pour {p0}. Calcul ignoré."
+
+msgid "  WARNING: Regulator {p0} input at {p1} pads {p2} found NO mesh nodes!"
+msgstr "  AVERTISSEMENT : aucun nœud de maillage trouvé pour l’entrée {p1} du régulateur {p0}, pastilles {p2} !"
+
+msgid "  WARNING: Regulator {p0} output {p1} pads {p2} found NO mesh nodes!"
+msgstr "  AVERTISSEMENT : aucun nœud de maillage trouvé pour la sortie {p1} du régulateur {p0}, pastilles {p2} !"
+
+msgid "  WARNING: Source {p0} pads {p1} found NO mesh nodes!"
+msgstr "  AVERTISSEMENT : aucun nœud de maillage trouvé pour la source {p0}, pastilles {p1} !"
+
+msgid "  WARNING: {warning}"
+msgstr "  AVERTISSEMENT : {warning}"
+
+msgid " (adapted for mesh safety)"
+msgstr " (adapté pour la sécurité du maillage)"
+
+msgid " (requested {requested:.4g} mm; adapted)"
+msgstr " (valeur demandée {requested:.4g} mm ; adaptée)"
+
+msgid " MHz."
+msgstr " MHz."
+
+msgid "+ Load"
+msgstr "+ Charger"
+
+msgid "+ Regulator"
+msgstr "+ Régulateur"
+
+msgid "+ Source"
+msgstr "+ Source d’alimentation"
+
+msgid ", RAM ceiling {memory:g} GiB"
+msgstr ", RAM plafond {memory:g} GiB"
+
+msgid "- Remove"
+msgstr "- Supprimer"
+
+msgid "--- Starting 3D Thermal Analysis ---"
+msgstr "--- Démarrage de l’analyse thermique 3D ---"
+
+msgid "--- Starting AC Impedance Analysis ---"
+msgstr "--- Démarrage de l’analyse d’impédance AC ---"
+
+msgid "--- Starting Coupled DC / 3D Thermal Analysis ---"
+msgstr "--- Démarrage de l’analyse DC / thermique 3D couplée ---"
+
+msgid "--- Starting Decoupling Optimization ---"
+msgstr "--- Démarrage de Découplage Optimisation ---"
+
+msgid "--- Starting Differential Pair Impedance Analysis ---"
+msgstr "--- Démarrage de l’analyse d’impédance différentielle ---"
+
+msgid "--- Starting EMI / EMC Pre-compliance Analysis ---"
+msgstr "--- Démarrage de l’analyse de préconformité EMI/CEM ---"
+
+msgid "--- Starting Phase 4 Enclosure CFD Analysis ---"
+msgstr "--- Démarrage de l’analyse CFD volumique de phase 4 ---"
+
+msgid "--- Starting System Simulation ({p0} rails) ---"
+msgstr "--- Démarrage de Simulation système ({p0} rails) ---"
+
+msgid "3D board temperature"
+msgstr "3D PCB temperature"
+
+msgid "3D Thermal"
+msgstr "3D Thermique"
+
+msgid "3D Thermal Analysis Results"
+msgstr "Résultats de l’analyse thermique 3D"
+
+msgid "3D Thermal and Airflow Setup"
+msgstr "Configuration thermique 3D et flux d’air"
+
+msgid "3D View"
+msgstr "Vue 3D"
+
+msgid "[ALREADY USED] "
+msgstr "[DÉJÀ UTILISÉ] "
+
+msgid "[DEBUG] Error calling {p0}: {p1}"
+msgstr "[DEBUG] Erreur calling {p0}: {p1}"
+
+msgid "[DEBUG] Found {p0} nets by scanning items"
+msgstr "[DEBUG] Trouvé {p0} nets by scanning items"
+
+msgid "[DEBUG] Found {p0} nets via board.nets collection"
+msgstr "[DEBUG] Trouvé {p0} nets via PCB.nets collection"
+
+msgid "[EM FIELD] Complete in {p0} s: Emax={p1} V/m, Hmax={p2} A/m."
+msgstr "[EM FIELD] Complete dans {p0} s: Emax={p1} V/m, Hmax={p2} A/m."
+
+msgid "[EM FIELD] CUDA unavailable; using NumPy: {p0}"
+msgstr "[EM FIELD] CUDA indisponible; utilisation de NumPy: {p0}"
+
+msgid "[EM FIELD] Solving {p0} observation cells at {p1} mm with {p2} trace elements on {p3}."
+msgstr "[EM FIELD] Solving {p0} observation cells à {p1} mm avec {p2} trace elements sur {p3}."
+
+msgid "[INIT] {p0}"
+msgstr "[INIT] {p0}"
+
+msgid "A stackup requires at least two copper layers."
+msgstr "Un empilage exige au moins deux couches de cuivre."
+
+msgid "Absolute emissions, immunity, enclosure seams and cable routing require physical tests."
+msgstr "Absolute emissions, immunity, enclosure seams et cable routing require physical tests."
+
+msgid "AC Analysis Error"
+msgstr "AC Analyse Erreur"
+
+msgid "AC Analysis Error: {p0}"
+msgstr "AC Analyse Erreur: {p0}"
+
+msgid "AC Impedance"
+msgstr "Impédance AC"
+
+msgid "AC Impedance Analysis Results"
+msgstr "AC Impedance Analyse Résultats"
+
+msgid "AC Impedance Setup"
+msgstr "AC Impedance Configuration"
+
+msgid "AC progress: {p0}/{p1} ({p2})"
+msgstr "Progression AC : {p0}/{p1} ({p2})"
+
+msgid "AC solve failed at {p0} Hz: {p1}"
+msgstr "Échec du calcul AC à {p0} Hz : {p1}"
+
+msgid "AC source is not connected to the network."
+msgstr "La source AC n’est pas connectée au réseau."
+
+msgid "Action"
+msgstr "Action recommandée"
+
+msgid "Add a continuous ground plane and verify the configured ground-net aliases."
+msgstr "Ajouter a continuous ground plane et verify le configured ground-net aliases."
+
+msgid "Add Differential Pair"
+msgstr "Ajouter Differential Pair"
+
+msgid "Add EMI/EMC Source"
+msgstr "Ajouter une source EMI/CEM"
+
+msgid "Add Fan Pair"
+msgstr "Ajouter Fan Pair"
+
+msgid "Add ground stitching around board edges, connectors and reference transitions."
+msgstr "Ajouter ground stitching around board edges, connectors et reference transitions."
+
+msgid "Add Manual Net"
+msgstr "Ajouter Manual Net"
+
+msgid "Add Manual Pair"
+msgstr "Ajouter Manual Pair"
+
+msgid "Add Manual Source"
+msgstr "Ajouter une source manuelle"
+
+msgid "Add Patch"
+msgstr "Ajouter Patch"
+
+msgid "Add Regulator"
+msgstr "Ajouter Regulator"
+
+msgid "Add symmetric transitions and adjacent ground vias at every layer change."
+msgstr "Ajoutez des transitions symétriques et des vias de masse adjacents à chaque changement de couche."
+
+msgid "Adjacent copper layers require a dielectric between them."
+msgstr "Les couches de cuivre adjacentes doivent être séparées par un diélectrique."
+
+msgid "Adjacent signal layers"
+msgstr "Adjacent signal couches"
+
+msgid "Aggregated copper for {p0}/{p1} nets."
+msgstr "Cuivre agrégé pour {p0}/{p1} réseaux."
+
+msgid "Air direction (deg):"
+msgstr "Direction de l’air (deg) :"
+
+msgid "Air speed (m/s):"
+msgstr "Vitesse de l’air (m/s) :"
+
+msgid "Airflow mode:"
+msgstr "Airffaible mode:"
+
+msgid "All components on this net have been assigned."
+msgstr "Tous les composants de ce réseau ont été affectés."
+
+msgid "Ambient (C):"
+msgstr "Température ambiante (C) :"
+
+msgid "Ambient temperature"
+msgstr "Température ambiante"
+
+msgid "An inlet or fan patch requires a positive velocity."
+msgstr "An inlet ou fan patch nécessite a positive velocity."
+
+msgid "Applied KiCad differential classes: "
+msgstr "Classes différentielles KiCad appliquées : "
+
+msgid "Applied to results and KiCad overlay"
+msgstr "Applied to results et KiCad overlay"
+
+msgid "Apply KiCad Design Rules"
+msgstr "Appliquer KiCad Design Rules"
+
+msgid "Apply Selected to KiCad Rules"
+msgstr "Appliquer la sélection aux règles KiCad"
+
+msgid "Assembling sparse thermal matrix from {p0} branches and {p1} boundaries."
+msgstr "Assembling sparse thermal matrix depuis {p0} branches et {p1} boundaries."
+
+msgid "At least one exposed convective surface is required."
+msgstr "Au moins une surface convective exposée est requise."
+
+msgid "At least two frequency points are required."
+msgstr "Au moins deux points de fréquence sont requis."
+
+msgid "AUTO CUDA threshold (nodes):"
+msgstr "AUTO CUDA threshold (nœuds):"
+
+msgid "Automatic (calculated hotspot)"
+msgstr "Automatique (calculé hotspot)"
+
+msgid "Automatic (calculated minimum)"
+msgstr "Automatique (calculé minimum)"
+
+msgid "Automatically detected source frequencies are editable defaults until confirmed by the designer."
+msgstr "Automatiquement detected source frequencies sont editable defaults until confirmed by le designer."
+
+msgid "available"
+msgstr "disponible"
+
+msgid "Backend test failed: {error}"
+msgstr "Échec du test du backend : {error}"
+
+msgid "Board cavity resonances estimated"
+msgstr "PCB cavity resonances estimated"
+
+msgid "Board edge"
+msgstr "PCB edge"
+
+msgid "Board object connected: {p0}"
+msgstr "PCB object connected: {p0}"
+
+msgid "Board orientation must be XY, XZ, or YZ."
+msgstr "L’orientation de la carte doit être XY, XZ ou YZ."
+
+msgid "Board Z (mm):"
+msgstr "PCB Z (mm):"
+
+msgid "Bottom exposed"
+msgstr "Inférieure exposed"
+
+msgid "Bottom Surface"
+msgstr "Surface inférieure"
+
+msgid "Boundary heat: {power:.6g} W"
+msgstr "Flux thermique aux limites : {power:.6g} W"
+
+msgid "Boussinesq buoyancy"
+msgstr "Poussée d’Archimède (Boussinesq)"
+
+msgid "Building thermal branch/boundary arrays with vectorized grid connectivity."
+msgstr "Building thermal branch/boundary arrays avec vectorized grid connectivity."
+
+msgid "Built merged thermal copper for {p0} layer(s) in {p1} s."
+msgstr "Cuivre thermique fusionné construit pour {p0} couche(s) en {p1} s."
+
+msgid "Built {p0} branches and {p1} boundaries in {p2} s using vectorized arrays."
+msgstr "{p0} branches et {p1} limites construites en {p2} s avec des tableaux vectorisés."
+
+msgid "Built {p0} x {p1} x {p2} mm enclosure with {p3} solid obstacles."
+msgstr "Built {p0} x {p1} x {p2} mm enclosure avec {p3} solid obstacles."
+
+msgid "Cable length (m):"
+msgstr "Cable longueur (m):"
+
+msgid "Cable m"
+msgstr "Câble (m)"
+
+msgid "Cached thermal mesh and sparse solver workspace for unchanged-session reruns."
+msgstr "Maillage thermique et espace de travail du solveur creux mis en cache pour les relances sans modification."
+
+msgid "Cached {p0} electrical-branch to thermal-cell mappings in {p1} s."
+msgstr "Cached {p0} electrical-branch to thermal-cell mappings dans {p1} s."
+
+msgid "calculated hotspot"
+msgstr "calculé hotspot"
+
+msgid "calculated minimum"
+msgstr "calculé minimum"
+
+msgid "Cancel"
+msgstr "Annuler"
+
+msgid "Cancel Enclosure CFD"
+msgstr "Cancel Boîtier CFD"
+
+msgid "Cancellation requested for enclosure CFD."
+msgstr "Annulation du calcul CFD volumique demandée."
+
+msgid "Cancelling CFD..."
+msgstr "Annulation du calcul CFD..."
+
+msgid "Candidate/DNP"
+msgstr "Candidat / non monté"
+
+msgid "Capacitance"
+msgstr "Capacité"
+
+msgid "Capacitance:"
+msgstr "Capacité :"
+
+msgid "Capacitor Model: {reference}"
+msgstr "Capacitor Modèle: {reference}"
+
+msgid "Cell (mm):"
+msgstr "Cellule (mm) :"
+
+msgid "Cells: {count:,} ({nx} x {ny} x {nz})"
+msgstr "Cellules : {count:,} ({nx} x {ny} x {nz})"
+
+msgid "Center"
+msgstr "Centre"
+
+msgid "Center U (0..1):"
+msgstr "Centre U (0..1):"
+
+msgid "Center V (0..1):"
+msgstr "Centre V (0..1):"
+
+msgid "CFD 3D"
+msgstr "CFD 3D"
+
+msgid "CFD boundary patch '{p0}' coordinates must be between 0 and 1."
+msgstr "Les coordonnées de la zone limite CFD « {p0} » doivent être comprises entre 0 et 1."
+
+msgid "CFD boundary patch '{p0}' has no fluid cells on its face."
+msgstr "La zone limite CFD « {p0} » ne contient aucune cellule fluide sur sa face."
+
+msgid "CFD boundary patch '{p0}' must have a positive size."
+msgstr "La zone limite CFD « {p0} » doit avoir une taille positive."
+
+msgid "CFD boundary patch '{p0}' overlaps another patch."
+msgstr "CFD frontière patch '{p0}' overlaps another patch."
+
+msgid "CFD boundary patch '{p0}' requires a positive velocity."
+msgstr "CFD boundary patch '{p0}' nécessite a positive velocity."
+
+msgid "CFD energy solution contains non-finite temperatures."
+msgstr "CFD energy solution contient non-finite temperatures."
+
+msgid "CFD iteration limits must be greater than zero."
+msgstr "CFD iteration limits doit être supérieur à zero."
+
+msgid "CFD mesh would contain {p0} cells. Increase the CFD cell size."
+msgstr "Le maillage CFD contiendrait {p0} cellules. Augmentez la taille des cellules CFD."
+
+msgid "Checks evaluated: {count}"
+msgstr "Contrôles évalués : {count}"
+
+msgid "CISPR 25 Class 5"
+msgstr "CISPR 25 Class 5"
+
+msgid "CISPR 32 Class A"
+msgstr "CISPR 32 Class A"
+
+msgid "CISPR 32 Class B"
+msgstr "CISPR 32 Class B"
+
+msgid "Cividis"
+msgstr "Cividis"
+
+msgid "Clear history"
+msgstr "Effacer l’historique"
+
+msgid "Clear KiCad Heat Overlay"
+msgstr "Effacer KiCad Chaleur Overlay"
+
+msgid "Clear result history"
+msgstr "Effacer l’historique des résultats"
+
+msgid "Clear Thermal Cache"
+msgstr "Effacer Thermique Cache"
+
+msgid "Cleared the in-session thermal mesh, CSR, CUDA workspace and copper-geometry cache."
+msgstr "Le maillage thermique, la matrice CSR, l’espace de travail CUDA et le cache de géométrie cuivre de la session ont été vidés."
+
+msgid "Clock close to connector"
+msgstr "Horloge proche d’un connecteur"
+
+msgid "Clock routed mostly on outer copper"
+msgstr "Clock routed mostly sur outer copper"
+
+msgid "Clocks"
+msgstr "Horloges"
+
+msgid "Close"
+msgstr "Fermer"
+
+msgid "Close requested; cancelling enclosure CFD first."
+msgstr "Fermeture demandée ; annulation préalable du calcul CFD de l’enclosure."
+
+msgid "Color scale maximum:"
+msgstr "Maximum de l’échelle de couleurs :"
+
+msgid "Color scale minimum:"
+msgstr "Minimum de l’échelle de couleurs :"
+
+msgid "Component Heat Sources"
+msgstr "Sources thermiques des composants"
+
+msgid "Component junction estimates:"
+msgstr "Composant junction estimates:"
+
+msgid "Components and I/O"
+msgstr "Composants et I/O"
+
+msgid "Components: {components}"
+msgstr "Composants: {components}"
+
+msgid "components="
+msgstr "components="
+
+msgid "Compute Backend"
+msgstr "Backend de calcul"
+
+msgid "Compute backend: {backend} ({device})"
+msgstr "Calcul backend: {backend} ({device})"
+
+msgid "Compute electric and magnetic maps"
+msgstr "Calculer les cartes des champs électrique et magnétique"
+
+msgid "Confidence"
+msgstr "Confiance"
+
+msgid "Confidence: {confidence}"
+msgstr "Confiance: {confidence}"
+
+msgid "Configuration saved to {p0}"
+msgstr "Configuration enregistré to {p0}"
+
+msgid "Configured emission sources"
+msgstr "Configuré emission sources"
+
+msgid "Confirm Selected"
+msgstr "Confirmer la sélection"
+
+msgid "Connected to an external cable"
+msgstr "Connected to an externe cable"
+
+msgid "Connectivity diagnostic failed: {p0}"
+msgstr "Connectivity diagnostic échoué: {p0}"
+
+msgid "Connector prefixes:"
+msgstr "Préfixes des connecteurs :"
+
+msgid "Connector shield return not identified"
+msgstr "Connector shield return non identifié"
+
+msgid "conservative default"
+msgstr "prudent par défaut"
+
+msgid "converged"
+msgstr "convergé"
+
+msgid "Convergence (C):"
+msgstr "Convergence (C) :"
+
+msgid "Copper layer_id values must be unique."
+msgstr "Copper couche_id values doit be unique."
+
+msgid "copper-layer"
+msgstr "cuivre-couche"
+
+msgid "Could not locate regulator."
+msgstr "Impossible de locate regulator."
+
+msgid "Could not verify KiCad group membership: {p0}"
+msgstr "Impossible de verify KiCad group membership: {p0}"
+
+msgid "Coupled analysis requires a successful DC analysis."
+msgstr "Coupled analysis nécessite a successful DC analysis."
+
+msgid "Coupled analysis requires at least one configured power rail."
+msgstr "L’analyse couplée exige au moins un rail d’alimentation configuré."
+
+msgid "Coupled DC / thermal"
+msgstr "DC / thermique couplé"
+
+msgid "Coupled iterations:"
+msgstr "Coupled itérations:"
+
+msgid "Coupled Thermal"
+msgstr "Coupled Thermique"
+
+msgid "Coupled Thermal Analysis Error"
+msgstr "Erreur d’analyse thermique couplée"
+
+msgid "Coupled Thermal Analysis Error: {p0}"
+msgstr "Erreur d’analyse thermique couplée : {p0}"
+
+msgid "CPU logical processors: {count}"
+msgstr "CPU processeurs logiques: {count}"
+
+msgid "CPU multithreading:"
+msgstr "Multithreading CPU :"
+
+msgid "CPU sparse backend: {backend}"
+msgstr "CPU creuse backend: {backend}"
+
+msgid "CPU threads (0 = Auto):"
+msgstr "Threads CPU (0 = Auto) :"
+
+msgid "CPU threads: {count}"
+msgstr "Threads CPU : {count}"
+
+msgid "Create/update KiPIDA_DIFF net classes and predefined differential sizes in this project?\n\n"
+msgstr "Créer ou mettre à jour les classes de réseaux KiPIDA_DIFF et les dimensions différentielles prédéfinies dans ce projet ?\n\n"
+
+msgid "Crosstalk"
+msgstr "Diaphonie"
+
+msgid "CUDA available: {state}"
+msgstr "CUDA disponible: {state}"
+
+msgid "CUDA device:"
+msgstr "CUDA périphérique:"
+
+msgid "CUDA diagnostic: {error}"
+msgstr "Diagnostic CUDA : {error}"
+
+msgid "CUDA driver/runtime: {driver} / {runtime}"
+msgstr "CUDA pilote/runtemps: {driver} / {runtime}"
+
+msgid "CUDA fallback to CPU: {p0}"
+msgstr "Repli de CUDA vers le CPU : {p0}"
+
+msgid "CUDA iterative solver did not converge (status={p0}){p1}."
+msgstr "Le solveur itératif CUDA n’a pas convergé (état={p0}){p1}."
+
+msgid "CUDA solution contains non-finite values."
+msgstr "CUDA solution contient non-finite values."
+
+msgid "CUDA warm start: device-resident previous thermal solution"
+msgstr "CUDA warm start: périphérique-resident previous thermal solution"
+
+msgid "CUDA warm start: unavailable (first solve or CPU backend)"
+msgstr "Démarrage à chaud CUDA : indisponible (premier calcul ou backend CPU)"
+
+msgid "CUDA was forced but CUDA acceleration is disabled."
+msgstr "CUDA a été imposé alors que l’accélération CUDA est désactivée."
+
+msgid "CUDA:"
+msgstr "CUDA:"
+
+msgid "CuPy: {version}"
+msgstr "CuPy: {version}"
+
+msgid "Current (A):"
+msgstr "Courant (A) :"
+
+msgid "Current A"
+msgstr "Courant A"
+
+msgid "Current W/G"
+msgstr "Courant W/G"
+
+msgid "Custom h (W/m2K):"
+msgstr "Personnalisé h (W/m2K):"
+
+msgid "Custom maximum (C):"
+msgstr "Personnalisé maximum (C):"
+
+msgid "Custom minimum (C):"
+msgstr "Personnalisé minimum (C):"
+
+msgid "Custom temperature"
+msgstr "Température personnalisée"
+
+msgid "Custom thermal colour maximum must be above absolute zero."
+msgstr "Le maximum thermique personnalisé doit être supérieur au zéro absolu."
+
+msgid "Custom thermal colour minimum must be above absolute zero."
+msgstr "Le minimum thermique personnalisé doit être supérieur au zéro absolu."
+
+msgid "Cycle detected in power rail dependencies involving '{p0}'"
+msgstr "Cycle detected dans rail d’alimentation dependencies involving '{p0}'"
+
+msgid "DC Power"
+msgstr "DC Puissance"
+
+msgid "Debug"
+msgstr "Débogage"
+
+msgid "Decoupling"
+msgstr "Découplage"
+
+msgid "Decoupling Optimization Error"
+msgstr "Decoupling Optimization Erreur"
+
+msgid "Decoupling Optimization Error: {p0}"
+msgstr "Decoupling Optimization Erreur: {p0}"
+
+msgid "Decoupling recommendations:"
+msgstr "Découplage recommendations:"
+
+msgid "Dedicated non-electrical layers: X.Thermal.Top / X.Thermal.Bottom."
+msgstr "Dedicated non-electrical couches: X.Thermique.Supérieure / X.Thermique.Inférieure."
+
+msgid "Delete every saved Ki-PIDA result for this PCB?"
+msgstr "Supprimer tous les résultats Ki-PIDA enregistrés pour ce PCB ?"
+
+msgid "Delete saved result"
+msgstr "Supprimer le résultat enregistré"
+
+msgid "Delete selected"
+msgstr "Supprimer la sélection"
+
+msgid "Deleted saved Ki-PIDA result."
+msgstr "Résultat Ki-PIDA enregistré supprimé."
+
+msgid "Deleted {p0} saved Ki-PIDA result(s)."
+msgstr "{p0} résultat(s) Ki-PIDA enregistré(s) supprimé(s)."
+
+msgid "Depth (mm):"
+msgstr "Profondeur (mm) :"
+
+msgid "Detached {p0} overlay image(s) from active KiCad group(s)."
+msgstr "Detached {p0} overlay image(s) depuis active KiCad group(s)."
+
+msgid "Detected and Manual Emission Sources"
+msgstr "Sources d’émission détectées et manuelles"
+
+msgid "Detected Differential Pairs"
+msgstr "Détecté Differential Pairs"
+
+msgid "Detected Power Rails"
+msgstr "Détecté Puissance Rails"
+
+msgid "Detected Rail-to-Ground Capacitors"
+msgstr "Détecté Rail-to-Masse Capacitors"
+
+msgid "Detected {p0} copper islands before source constraints."
+msgstr "{p0} îlots de cuivre détectés avant application des contraintes de source."
+
+msgid "Dielectric {p0} requires epsilon_r > 1."
+msgstr "Dielectric {p0} nécessite epsilon_r > 1."
+
+msgid "Differential Analysis Error"
+msgstr "Differential Analyse Erreur"
+
+msgid "Differential Analysis Error: {p0}"
+msgstr "Differential Analyse Erreur: {p0}"
+
+msgid "Differential impedance (ohm)"
+msgstr "Différentiel impedance (ohm)"
+
+msgid "Differential impedance analysis complete for {p0} pairs."
+msgstr "Analyse d’impédance différentielle terminée pour {p0} paires."
+
+msgid "Differential impedance results ready."
+msgstr "Résultats d’impédance différentielle prêts."
+
+msgid "Differential pair changes reference layer"
+msgstr "Différentiel pair changes reference couche"
+
+msgid "Differential Pair Impedance Results"
+msgstr "Differential Pair Impedance Résultats"
+
+msgid "Differential pair mostly on outer layers"
+msgstr "Differential pair mostly sur outer layers"
+
+msgid "Differential pairs"
+msgstr "Paires différentielles"
+
+msgid "Differential Pairs"
+msgstr "Paires différentielles"
+
+msgid "Differential scan complete. Discovered {p0} pair candidates."
+msgstr "Différentiel scan terminée. Discovered {p0} pair candidats."
+
+msgid "Differential Setup Error"
+msgstr "Differential Configuration Erreur"
+
+msgid "Differential Setup Error: {p0}"
+msgstr "Differential Configuration Erreur: {p0}"
+
+msgid "Differential Z"
+msgstr "Z différentiel"
+
+msgid "Differential-pair skew"
+msgstr "Différentiel-pair skew"
+
+msgid "differential-scan"
+msgstr "differential-scan"
+
+msgid "Distant decoupling capacitor"
+msgstr "Condensateur de découplage trop éloigné"
+
+msgid "each source at its configured fundamental"
+msgstr "each source à its configured fundamental"
+
+msgid "Edges exposed"
+msgstr "Bords exposés"
+
+msgid "Edit Differential Pair"
+msgstr "Modifier Differential Pair"
+
+msgid "Edit EMI/EMC Source"
+msgstr "Modifier la source EMI/CEM"
+
+msgid "Edit Load"
+msgstr "Modifier Charger"
+
+msgid "Edit Patch"
+msgstr "Modifier Patch"
+
+msgid "Edit Regulator"
+msgstr "Modifier Regulator"
+
+msgid "Edit Selected"
+msgstr "Modifier la sélection"
+
+msgid "Edit Selected Model"
+msgstr "Modifier le modèle sélectionné"
+
+msgid "Edit Source"
+msgstr "Modifier la source"
+
+msgid "Effective h: {coefficient:.4g} W/m2K"
+msgstr "Coefficient h effectif : {coefficient:.4g} W/m2K"
+
+msgid "Efficiency (0.0-1.0):"
+msgstr "Rendement (0,0–1,0) :"
+
+msgid "Efficiency must be between 0.0 and 1.0"
+msgstr "Le rendement doit être compris entre 0,0 et 1,0."
+
+msgid "Electric Field"
+msgstr "Champ électrique"
+
+msgid "Electrical mesh for {p0} still contains about {p1} nodes at {p2} mm. Increase the DC grid size."
+msgstr "Le maillage électrique de {p0} contient encore environ {p1} nœuds à {p2} mm. Augmentez la taille de la grille DC."
+
+msgid "EM {quantity}-field  {value:.5g} {unit}  |  X {x:.2f} mm, Y {y:.2f} mm  |  probe height {height:g} mm"
+msgstr "EM {quantity}-field  {value:.5g} {unit}  |  X {x:.2f} mm, Y {y:.2f} mm  |  probe hauteur {height:g} mm"
+
+msgid "EMI / EMC"
+msgstr "EMI / EMC"
+
+msgid "EMI / EMC Pre-compliance Results"
+msgstr "EMI / EMC Pre-compliance Résultats"
+
+msgid "EMI/EMC analysis completed: {p0} findings, score {p1}/100."
+msgstr "Analyse EMI/CEM terminée : {p0} observations, score {p1}/100."
+
+msgid "EMI/EMC Analysis Error"
+msgstr "EMI/EMC Analyse Erreur"
+
+msgid "EMI/EMC Analysis Error: {p0}"
+msgstr "EMI/EMC Analyse Erreur: {p0}"
+
+msgid "EMI/EMC geometric risk map"
+msgstr "EMI/EMC geometric risque map"
+
+msgid "EMI/EMC note: no clock or switching source is enabled; geometry-only rules will run."
+msgstr "Remarque EMI/CEM : aucune horloge ni source de commutation n’est activée ; seules les règles géométriques seront exécutées."
+
+msgid "EMI/EMC Observation"
+msgstr "Observation EMI/CEM"
+
+msgid "EMI/EMC observation copied to clipboard"
+msgstr "EMI/EMC observation copied to clipPCB"
+
+msgid "EMI/EMC pre-compliance results ready."
+msgstr "Résultats de préconformité EMI/CEM prêts."
+
+msgid "EMI/EMC Setup Error"
+msgstr "EMI/EMC Configuration Erreur"
+
+msgid "EMI/EMC Setup Error: {p0}"
+msgstr "EMI/EMC Configuration Erreur: {p0}"
+
+msgid "EMI/EMC source"
+msgstr "Source EMI/CEM"
+
+msgid "EMI/EMC source scan complete: {p0} candidate(s)."
+msgstr "EMI/EMC source scan terminée: {p0} candidat(s)."
+
+msgid "EMI/EMC stop frequency must be greater than the positive start frequency."
+msgstr "EMI/EMC stop frequency doit être supérieur à le positive start frequency."
+
+msgid "Emission estimates"
+msgstr "Estimations des émissions"
+
+msgid "Enable / Disable"
+msgstr "Activer / Désactiver"
+
+msgid "Enable / Disable Selected"
+msgstr "Activer ou désactiver la sélection"
+
+msgid "Enable CPU multithreading"
+msgstr "Activer CPU multithreading"
+
+msgid "Enable CUDA acceleration"
+msgstr "Activer CUDA acceleration"
+
+msgid "Enable Debug Log"
+msgstr "Activer Debug Log"
+
+msgid "Enabled:"
+msgstr "Activerd:"
+
+msgid "Enclosure and PCB"
+msgstr "Enclosure et PCB"
+
+msgid "Enclosure Boundary Patch"
+msgstr "Boîtier Boundary Patch"
+
+msgid "Enclosure CFD"
+msgstr "CFD du boîtier"
+
+msgid "Enclosure CFD analysis cancelled."
+msgstr "Boîtier CFD analysis cancelled."
+
+msgid "Enclosure CFD complete: {p0} iterations, Vmax={p1} m/s."
+msgstr "Boîtier CFD terminée: {p0} itérations, Vmax={p1} m/s."
+
+msgid "Enclosure CFD convergence"
+msgstr "Boîtier CFD convergence"
+
+msgid "Enclosure CFD Error"
+msgstr "Enclosure CFD Erreur"
+
+msgid "Enclosure CFD error: {p0}"
+msgstr "Boîtier CFD erreur: {p0}"
+
+msgid "Enclosure CFD Setup Error"
+msgstr "Enclosure CFD Configuration Erreur"
+
+msgid "Enclosure CFD setup error: {p0}"
+msgstr "Boîtier CFD setup erreur: {p0}"
+
+msgid "Enclosure CFD volumetric temperature"
+msgstr "Boîtier CFD volumetric temperature"
+
+msgid "Enclosure CFD {field} - {plane} slice"
+msgstr "Boîtier CFD {field} - {plane} slice"
+
+msgid "Enclosure dimensions and CFD cell size must be greater than zero."
+msgstr "Enclosure dimensions et CFD cell size doit être supérieur à zero."
+
+msgid "Enclosure dimensions must be greater than zero."
+msgstr "Enclosure dimensions doit être supérieur à zero."
+
+msgid "Energy balance error: {error:.4g}%"
+msgstr "Energy balance erreur: {error:.4g}%"
+
+msgid "Enter a source net name."
+msgstr "Saisissez le nom d’un réseau source."
+
+msgid "Enter a valid capacitance such as 100n, 4u7, or 10uF."
+msgstr "Enter a valid capacitance such as 100n, 4u7, ou 10uF."
+
+msgid "Enter at least one ground reference net."
+msgstr "Saisissez au moins un réseau de référence de masse."
+
+msgid "Enter at least one ground-net alias."
+msgstr "Saisissez au moins un alias de réseau de masse."
+
+msgid "Enter two different, non-empty net names."
+msgstr "Saisissez deux noms de réseaux différents et non vides."
+
+msgid "Er"
+msgstr "Er"
+
+msgid "Error"
+msgstr "Erreur"
+
+msgid "Error extracting stackup: {p0}"
+msgstr "Erreur extracting empilage: {p0}"
+
+msgid "Error getting config path: {p0}"
+msgstr "Erreur getting config path: {p0}"
+
+msgid "Error locating input rail."
+msgstr "Erreur locating input rail."
+
+msgid "ERROR: Cannot determine project path - no project object and board has no filename attribute."
+msgstr "ERREUR : impossible de déterminer le chemin du projet ; aucun objet projet et la carte ne possède pas de nom de fichier."
+
+msgid "ERROR: Island #{p0} ({p1} nodes) has {p2} load node(s) but no voltage source; its loads and voltages are excluded."
+msgstr "ERREUR : l’îlot nº {p0} ({p1} nœuds) contient {p2} nœud(s) de charge mais aucune source de tension ; ses charges et tensions sont exclues."
+
+msgid "ERROR: No board object connected. Plugin will not function properly."
+msgstr "ERREUR : aucun objet carte connecté. Le plugin ne fonctionnera pas correctement."
+
+msgid "ERROR: {p0}"
+msgstr "ERREUR : {p0}"
+
+msgid "ESD path is missing or too long"
+msgstr "ESD path est missing ou too long"
+
+msgid "ESL (nH)"
+msgstr "ESL (nH)"
+
+msgid "ESL (nH):"
+msgstr "ESL (nH):"
+
+msgid "ESR (mOhm)"
+msgstr "ESR (mOhm)"
+
+msgid "ESR (mOhm):"
+msgstr "ESR (mOhm):"
+
+msgid "ESR and ESL must be zero or greater."
+msgstr "L’ESR et l’ESL doivent être positives ou nulles."
+
+msgid "ESR/ESL values inferred from package are estimates. Review them before sign-off."
+msgstr "Les valeurs ESR/ESL déduites du boîtier sont des estimations. Vérifiez-les avant validation."
+
+msgid "estimate only"
+msgstr "estimation uniquement"
+
+msgid "Estimated cells: --"
+msgstr "Estimé cellules: --"
+
+msgid "Estimated cells: invalid settings"
+msgstr "Cellules estimées : paramètres non valides"
+
+msgid "Estimated cells: {count:,}"
+msgstr "Estimé cellules: {count:,}"
+
+msgid "Estimated |{label}| ({unit})"
+msgstr "Estimé |{label}| ({unit})"
+
+msgid "Estimating mesh..."
+msgstr "Estimation mesh..."
+
+msgid "Every copper layer requires its KiCad layer_id."
+msgstr "Chaque couche de cuivre exige un identifiant layer_id KiCad."
+
+msgid "Evidence: {evidence}"
+msgstr "Éléments probants : {evidence}"
+
+msgid "Expert / custom"
+msgstr "Expert / personnalisé"
+
+msgid "External"
+msgstr "Externe"
+
+msgid "External connector lacks nearby EMC protection"
+msgstr "Le connecteur externe ne possède pas de protection CEM à proximité"
+
+msgid "External interface:"
+msgstr "Interface externe :"
+
+msgid "Face"
+msgstr "Face"
+
+msgid "Face:"
+msgstr "Face :"
+
+msgid "Failed to apply KiCad differential rules: {p0}"
+msgstr "Échec lors de apply KiCad differential rules: {p0}"
+
+msgid "Failed to load config: {p0}"
+msgstr "Échec lors de load config: {p0}"
+
+msgid "Failed to load config: {p0}. Running auto-scan instead."
+msgstr "Échec du chargement de la configuration : {p0}. Lancement du balayage automatique."
+
+msgid "Failed to save config: {p0}"
+msgstr "Échec lors de save config: {p0}"
+
+msgid "Failed to start Ki-PIDA: {error}\n\nCheck logs for details."
+msgstr "Échec du démarrage de Ki-PIDA : {error}\n\nConsultez le journal pour plus de détails."
+
+msgid "Fan Inlet"
+msgstr "Entrée du ventilateur"
+
+msgid "Fast (1.5 mm)"
+msgstr "Rapide (1,5 mm)"
+
+msgid "FCC Part 15 Class A"
+msgstr "FCC Part 15 Class A"
+
+msgid "FCC Part 15 Class B"
+msgstr "FCC Part 15 Class B"
+
+msgid "Field magnitude depends on the configured source voltage/current and does not solve return-current cancellation, dielectric boundaries, phase or enclosure scattering."
+msgstr "L’amplitude du champ dépend de la tension ou du courant configuré pour la source ; le calcul ne modélise pas l’annulation par le courant de retour, les interfaces diélectriques, la phase ni la diffusion par l’enclosure."
+
+msgid "Filled copper exists on multiple configured grounds: "
+msgstr "Filled copper exists sur multiple configured grounds: "
+
+msgid "Findings"
+msgstr "Observations"
+
+msgid "Findings: {total} — critical {critical}, high {high}, medium {medium}, low {low}, info {info}"
+msgstr "Findings: {total} — critique {critical}, élevé {high}, moyen {medium}, faible {low}, info {info}"
+
+msgid "Fine (0.5 mm)"
+msgstr "Fin (0,5 mm)"
+
+msgid "First rectangular-board modes: "
+msgstr "Premiers modes d’une carte rectangulaire : "
+
+msgid "Flush"
+msgstr "Affleurant"
+
+msgid "Footprint-name decoupling and connector checks have low confidence without schematic pin metadata."
+msgstr "Les contrôles de découplage et de connecteurs fondés sur les noms d’empreintes ont une faible confiance sans métadonnées de broches du schéma."
+
+msgid "Forced enclosure flow requires at least one OUTLET or VENT patch."
+msgstr "Un flux forcé dans l’enclosure exige au moins une zone OUTLET ou VENT."
+
+msgid "Found {p0} total nets on board."
+msgstr "{p0} réseaux trouvés sur la carte."
+
+msgid "Fragmented ground plane"
+msgstr "Fragmented masse plan"
+
+msgid "Frequency (Hz)"
+msgstr "Fréquence (Hz)"
+
+msgid "Frequency (MHz, 0=source fundamentals):"
+msgstr "Fréquence (MHz, 0=source fundamentals):"
+
+msgid "Frequency band: {start:g} .. {stop:g} MHz"
+msgstr "Fréquence band: {start:g} .. {stop:g} MHz"
+
+msgid "Frequency points:"
+msgstr "Fréquence points:"
+
+msgid "Frequency, cable length, voltage and current must be non-negative; rise time must be positive."
+msgstr "La fréquence, la longueur de câble, la tension et le courant doivent être positifs ou nuls ; le temps de montée doit être positif."
+
+msgid "Fundamental (MHz):"
+msgstr "Fondamentale (MHz) :"
+
+msgid "Gauge pressure (Pa):"
+msgstr "Gauge pression (Pa):"
+
+msgid "Generate Recommendations"
+msgstr "Générer des recommandations"
+
+msgid "Generated {p0} nodes, {p1} branches, {p2} W heat."
+msgstr "Généré {p0} nœuds, {p1} branches, {p2} W heat."
+
+msgid "Generated {p0} x {p1} x {p2} = {p3} cells ({p4} fluid)."
+msgstr "Généré {p0} x {p1} x {p2} = {p3} cellules ({p4} fluide)."
+
+msgid "Geometry Debug"
+msgstr "Géométrie Debug"
+
+msgid "Geometry debug plot"
+msgstr "Géométrie debug plot"
+
+msgid "Geometry Recommendations"
+msgstr "Géométrie Recommendations"
+
+msgid "geometry unavailable"
+msgstr "géométrie indisponible"
+
+msgid "GND, AGND, DGND, PGND"
+msgstr "GND, AGND, DGND, PGND"
+
+msgid "GPU {index}: {name} — {free:.1f}/{total:.1f} GiB free"
+msgstr "GPU {index}: {name} — {free:.1f}/{total:.1f} GiB libre"
+
+msgid "Grid setup: {p0}x{p1} points, bounds ({p2},{p3}) to ({p4},{p5})"
+msgstr "Grille : {p0}x{p1} points, limites ({p2},{p3}) à ({p4},{p5})"
+
+msgid "Grid size (mm):"
+msgstr "Taille de grille (mm) :"
+
+msgid "Ground clearance"
+msgstr "Masse clearance"
+
+msgid "Ground planes"
+msgstr "Masse planes"
+
+msgid "Ground reference nets:"
+msgstr "Masse reference nets:"
+
+msgid "Ground-net aliases:"
+msgstr "Masse-net aliases:"
+
+msgid "Ground-via stitching is sparse"
+msgstr "Masse-vias de liaison est sparse"
+
+msgid "Height (mm):"
+msgstr "Hauteur (mm) :"
+
+msgid "High temperature may alter EMC components"
+msgstr "Une température élevée peut altérer les composants CEM"
+
+msgid "Hotspot: {temperature:.3f} C at ({x:.2f}, {y:.2f}, {z:.3f}) mm"
+msgstr "Hotspot: {temperature:.3f} C à ({x:.2f}, {y:.2f}, {z:.3f}) mm"
+
+msgid "I/O filtering"
+msgstr "Filtrage des E/S"
+
+msgid "Ignore Selected"
+msgstr "Ignorer la sélection"
+
+msgid "Ignoring floating island #{p0} ({p1} nodes): no voltage source or load."
+msgstr "Îlot flottant nº {p0} ignoré ({p1} nœuds) : aucune source de tension ni charge."
+
+msgid "Import JSON"
+msgstr "Importer un fichier JSON"
+
+msgid "Import Ki-PIDA stackup"
+msgstr "Import Ki-PIDA empilage"
+
+msgid "Imported stackup from {p0} ({p1} layers)."
+msgstr "Imported empilage depuis {p0} ({p1} layers)."
+
+msgid "Include as heat source"
+msgstr "Inclure as heat source"
+
+msgid "Include DC copper losses"
+msgstr "Inclure DC cuivre losses"
+
+msgid "Include radiation"
+msgstr "Inclure radiation"
+
+msgid "Increase continuous ground coverage, prioritising regions below fast signals."
+msgstr "Augmentez la couverture continue de masse, en priorité sous les signaux rapides."
+
+msgid "Increase separation to reduce coupling onto attached cables."
+msgstr "Augmentez la séparation afin de réduire le couplage vers les câbles raccordés."
+
+msgid "Increase spacing to at least 3H, change layer, or insert a grounded guard."
+msgstr "Augmentez l’espacement à au moins 3H, changez de couche ou ajoutez une garde reliée à la masse."
+
+msgid "Inferno (default)"
+msgstr "Inferaucun (par défaut)"
+
+msgid "Inject KiCad Heat Overlay"
+msgstr "Injecter KiCad Chaleur Overlay"
+
+msgid "Injected thermal overlays and colour scales on X.Thermal.Top and X.Thermal.Bottom. Toggle those layers in Appearance to inspect each side."
+msgstr "Les calques thermiques et leurs échelles de couleurs ont été injectés sur X.Thermal.Top et X.Thermal.Bottom. Activez ces couches dans Apparence pour inspecter chaque face."
+
+msgid "Inlets, Outlets, Fans, and Vents"
+msgstr "Inlets, Outlets, Fans, et Vents"
+
+msgid "Input and Output rails cannot be the same."
+msgstr "Les rails d’entrée et de sortie doivent être différents."
+
+msgid "Input Component:"
+msgstr "Input Composant:"
+
+msgid "Input heat: {power:.6g} W"
+msgstr "Entrée heat: {power:.6g} W"
+
+msgid "Input Pads:"
+msgstr "Pastilles d’entrée :"
+
+msgid "Input Rail:"
+msgstr "Rail d’entrée :"
+
+msgid "Input Side"
+msgstr "Côté entrée"
+
+msgid "Install / Repair CUDA"
+msgstr "Installer / Réparer CUDA"
+
+msgid "Install CUDA Backend"
+msgstr "Installer le backend CUDA"
+
+msgid "Install or update the optional CuPy CUDA environment in the Python runtime used by KiCad?\n\nA KiCad restart will be required afterwards."
+msgstr "Installer ou mettre à jour l’environnement CUDA CuPy optionnel dans l’environnement Python utilisé par KiCad ?\n\nUn redémarrage de KiCad sera ensuite nécessaire."
+
+msgid "Interface"
+msgstr "Interface"
+
+msgid "Interface language:"
+msgstr "Langue de l’interface :"
+
+msgid "Interface:"
+msgstr "Interface :"
+
+msgid "Internal copper maps: disabled"
+msgstr "Internal cuivre maps: désactivé"
+
+msgid "Internal copper maps: enabled"
+msgstr "Internal cuivre maps: activé"
+
+msgid "Invalid Capacitor Model"
+msgstr "Invalid Capacitor Modèle"
+
+msgid "Invalid CFD Patch"
+msgstr "Invalide CFD Patch"
+
+msgid "Invalid Differential Pair"
+msgstr "Invalide Différentiel Pair"
+
+msgid "Invalid Thermal Model"
+msgstr "Modèle thermique non valide"
+
+msgid "Iteration"
+msgstr "Itération"
+
+msgid "Iteration {p0}/{p1}: max delta {p2} C, copper loss {p3} W; DC/map {p4} s, total {p5} s."
+msgstr "Itération {p0}/{p1}: max delta {p2} C, copper loss {p3} W; DC/map {p4} s, total {p5} s."
+
+msgid "Iterations:"
+msgstr "Itérations :"
+
+msgid "Iterations: {iterations} ({state})"
+msgstr "Itérations: {iterations} ({state})"
+
+msgid "J, P, CN"
+msgstr "J, P, CN"
+
+msgid "JSON files (*.json)|*.json"
+msgstr "JSON files (*.json)|*.json"
+
+msgid "Ki-PIDA UI Initialized."
+msgstr "Interface Ki-PIDA initialisée."
+
+msgid "Ki-PIDA version: {version}"
+msgstr "Version de Ki-PIDA : {version}"
+
+msgid "Ki-PIDA: Power Integrity Analyzer"
+msgstr "Ki-PIDA: Puissance Integrity Analyzer"
+
+msgid "KiCad could not create the dedicated X.Thermal user layers."
+msgstr "KiCad n’a pas pu créer les couches utilisateur dédiées X.Thermal."
+
+msgid "KiCad could not query the board user-layer configuration."
+msgstr "KiCad n’a pas pu interroger la configuration des couches utilisateur de la carte."
+
+msgid "KiCad did not expose board reference-image IPC operations. Update KiCad 10 to a current maintenance release."
+msgstr "KiCad n’expose pas les opérations IPC d’image de référence de la carte. Mettez KiCad 10 à jour vers une version de maintenance récente."
+
+msgid "KiCad ID"
+msgstr "KiCad ID"
+
+msgid "KiCad IPC geometry bindings are not available."
+msgstr "KiCad IPC geometry bindings sont indisponible."
+
+msgid "KiCad IPC Python bindings are not available."
+msgstr "KiCad IPC Python bindings sont indisponible."
+
+msgid "KiCad project file path is required to inject design rules."
+msgstr "KiCad project file path est required to inject design rules."
+
+msgid "KiCad project file was not found: {p0}"
+msgstr "Fichier de projet KiCad introuvable : {p0}"
+
+msgid "KiCad project path is unavailable; rules were not changed."
+msgstr "Le chemin du projet KiCad est indisponible ; les règles n’ont pas été modifiées."
+
+msgid "KiCad project rules were updated. Open Board Setup or rerun DRC to inspect the new KiPIDA_DIFF classes.\nThe current Ki-PIDA session can continue analysing immediately."
+msgstr "Les règles du projet KiCad ont été mises à jour. Ouvrez la configuration du PCB ou relancez le DRC pour inspecter les nouvelles classes KiPIDA_DIFF.\nLa session Ki-PIDA actuelle peut poursuivre les analyses immédiatement."
+
+msgid "KiCad Rules"
+msgstr "Règles KiCad"
+
+msgid "KiCad Rules Applied"
+msgstr "Règles KiCad appliquées"
+
+msgid "KiCad thermal overlay clear completed ({p0} image(s))."
+msgstr "Effacement du calque thermique KiCad terminé ({p0} image(s))."
+
+msgid "KiCad thermal overlay injection completed."
+msgstr "Injection du calque thermique KiCad terminée."
+
+msgid "Kind"
+msgstr "Type"
+
+msgid "Language"
+msgstr "Langue"
+
+msgid "Language change"
+msgstr "Changement de langue"
+
+msgid "Large switching-node copper area"
+msgstr "Large switching-node cuivre area"
+
+msgid "Last analysed rail"
+msgstr "Dernier rail analysé"
+
+msgid "Last energy solve: {seconds:.4g} s, residual {residual:.4g}"
+msgstr "Last energy résolution: {seconds:.4g} s, résidu {residual:.4g}"
+
+msgid "Layer"
+msgstr "Couche"
+
+msgid "Layer (pseudo)"
+msgstr "Couche (pseudo)"
+
+msgid "Layer transition lacks a nearby ground via"
+msgstr "Couche transition lacks a nearby ground via"
+
+msgid "Layer {p0} ({p1}) has no positive thickness."
+msgstr "La couche {p0} ({p1}) n’a pas d’épaisseur positive."
+
+msgid "Layer: {layer}"
+msgstr "Couche: {layer}"
+
+msgid "Length-match the pair while preserving constant spacing and reference."
+msgstr "Length-match le pair while preserving constant spacing et reference."
+
+msgid "limit reached"
+msgstr "limite reached"
+
+msgid "Linear residual: {residual:.4g} ({iterations} iteration(s))"
+msgstr "Linear résidu: {residual:.4g} ({iterations} itération(s))"
+
+msgid "Linear residual: {residual:.4g}; CUDA structure cache hits: {hits}"
+msgstr "Linear résidu: {residual:.4g}; CUDA structure cache hits: {hits}"
+
+msgid "Live PCB geometry changed; invalidated thermal mesh/CSR cache."
+msgstr "La géométrie active du PCB a changé ; le cache du maillage thermique et de la matrice CSR a été invalidé."
+
+msgid "Live PCB geometry unchanged; thermal mesh/CSR cache remains eligible."
+msgstr "La géométrie active du PCB est inchangée ; le cache du maillage thermique et de la matrice CSR reste réutilisable."
+
+msgid "Live PCB refresh warning: {p0}"
+msgstr "Live PCB refresh avertissement: {p0}"
+
+msgid "Load Config"
+msgstr "Charger la configuration"
+
+msgid "Loaded configuration from {p0} ({p1} rails)"
+msgstr "Configuration chargée depuis {p0} ({p1} rails)"
+
+msgid "Loaded saved {p0} result from history."
+msgstr "Résultat {p0} enregistré chargé depuis l’historique."
+
+msgid "Log"
+msgstr "Journal"
+
+msgid "Long clock route"
+msgstr "Routage d’horloge trop long"
+
+msgid "Long parallel trace coupling"
+msgstr "Couplage entre pistes parallèles longues"
+
+msgid "Low ground-plane coverage"
+msgstr "Low masse-plan couverture"
+
+msgid "Magnetic Field"
+msgstr "Champ magnétique"
+
+msgid "Mapped heat: {value:.6g} W"
+msgstr "Mappé heat: {value:.6g} W"
+
+msgid "Mapped {p0} Top / {p1} Bottom footprint placements (F.Cu={p2}, B.Cu={p3})."
+msgstr "Mappé {p0} Supérieure / {p1} Inférieure footprint placements (F.Cu={p2}, B.Cu={p3})."
+
+msgid "Market:"
+msgstr "Marché :"
+
+msgid "Mass balance error: {value:.4g}%"
+msgstr "Mass balance erreur: {value:.4g}%"
+
+msgid "Material"
+msgstr "Matériau"
+
+msgid "Matplotlib did not produce any thermal plot."
+msgstr "Matplotlib n’a produit aucun graphique thermique."
+
+msgid "Max capacitor additions:"
+msgstr "Nombre maximal de condensateurs ajoutés :"
+
+msgid "Max Drop %:"
+msgstr "Chute maximale (%) :"
+
+msgid "Max junction (C):"
+msgstr "Température de jonction maximale (C) :"
+
+msgid "Maximum air temperature: {value:.3f} C"
+msgstr "Température maximale de l’air : {value:.3f} C"
+
+msgid "Maximum solid temperature: {value:.3f} C"
+msgstr "Température maximale du solide : {value:.3f} C"
+
+msgid "Maximum velocity: {value:.6g} m/s"
+msgstr "Vitesse maximale : {value:.6g} m/s"
+
+msgid "Measurement component:"
+msgstr "Composant de mesure :"
+
+msgid "Measurement port is not connected to the AC network."
+msgstr "Le port de mesure n’est pas connecté au réseau AC."
+
+msgid "Merged {p0} copper shapes on layer {p1} in {p2} s."
+msgstr "Merged {p0} copper shapes sur layer {p1} dans {p2} s."
+
+msgid "Mesh Debug"
+msgstr "Maillage Debug"
+
+msgid "Mesh debug plot"
+msgstr "Maillage debug plot"
+
+msgid "Mesh has no nodes. Returning empty result."
+msgstr "Maillage a aucun nœuds. Returning empty résultat."
+
+msgid "Mesh preset:"
+msgstr "Maillage preset:"
+
+msgid "Mesh Resolution (mm):"
+msgstr "Maillage Resolution (mm):"
+
+msgid "MHz"
+msgstr "MHz"
+
+msgid "Microstrip dimensions must be positive."
+msgstr "Microstrip dimensions doit être positif."
+
+msgid "MIL-STD-461G RE102"
+msgstr "MIL-STD-461G RE102"
+
+msgid "Min W/G/GND (mm):"
+msgstr "W/G/GND minimal (mm) :"
+
+msgid "Min W/G/GND must contain three positive mm values, e.g. 0.10 / 0.10 / 0.15."
+msgstr "Min W/G/GND doit contain three positif mm values, e.g. 0.10 / 0.10 / 0.15."
+
+msgid "Minimise hot-loop area and verify this band with a near-field probe."
+msgstr "Minimisez la surface de la boucle chaude et vérifiez cette bande avec une sonde de champ proche."
+
+msgid "Mode: steady incompressible laminar flow with Boussinesq buoyancy"
+msgstr "Mode: steady incompressible laminar flow avec Boussinesq buoyancy"
+
+msgid "Mode: {mode}"
+msgstr "Mode : {mode}"
+
+msgid "Model"
+msgstr "Modèle"
+
+msgid "Model limitations"
+msgstr "Modèle limitations"
+
+msgid "Model note: ESR/ESL and distributed inductance may be estimates; review before sign-off."
+msgstr "Remarque sur le modèle : l’ESR, l’ESL et l’inductance distribuée peuvent être estimées ; vérifiez-les avant validation."
+
+msgid "Model scope: quasi-static coupled microstrip/stripline estimates. "
+msgstr "Modèle scope: quasi-static coupled microstrip/stripline estimates. "
+
+msgid "Model scope: steady-state 3D solid conduction with convective boundaries; this is not a volumetric CFD airflow solution."
+msgstr "Portée du modèle : conduction 3D stationnaire dans les solides avec limites convectives ; il ne s’agit pas d’une résolution CFD volumique de l’écoulement d’air."
+
+msgid "Model scope: structured volumetric CFD, boundary-patch fans/vents, and conjugate solid-air heat transfer. Fan blades, turbulence, radiation, and transient effects are outside this Phase 4 solver."
+msgstr "Portée du modèle : CFD volumique structurée, ventilateurs et évents définis aux limites, transfert thermique conjugué solide-air. Les pales, la turbulence, le rayonnement et les phénomènes transitoires ne sont pas modélisés par ce solveur de phase 4."
+
+msgid "Move the high-frequency capacitor closer and minimise pad-to-via inductance."
+msgstr "Move le high-frequency capacitor closer et minimise pad-to-via inductance."
+
+msgid "Move the route inward or add a grounded edge guard with stitching vias."
+msgstr "Move le route inward ou add a grounded edge guard avec stitching vias."
+
+msgid "Multiple ground domains"
+msgstr "Multiple masse domains"
+
+msgid "Name"
+msgstr "Nom"
+
+msgid "Name is required."
+msgstr "Name est required."
+
+msgid "Name:"
+msgstr "Nom :"
+
+msgid "Near-field E/H maps use quasi-static line-charge and Biot-Savart trace elements; they are not a full-wave Maxwell solution."
+msgstr "Les cartes E/H en champ proche utilisent des charges linéiques quasi statiques et des éléments de piste de Biot-Savart ; ce n’est pas une résolution pleine onde de Maxwell."
+
+msgid "Near-field E/H Simulation"
+msgstr "Simulation E/H en champ proche"
+
+msgid "Near-field grid size must be positive."
+msgstr "Champ proche grid size doit être positif."
+
+msgid "Near-field grid would contain {p0} cells; increase the grid size to at least {p1} mm (limit {p2})."
+msgstr "La grille de champ proche contiendrait {p0} cellules ; augmentez son pas à au moins {p1} mm (limite {p2})."
+
+msgid "Near-field height/grid size must be positive and its frequency must be non-negative."
+msgstr "Champ proche height/grid size doit être positif et its frequency doit être positif ou nul."
+
+msgid "Near-field probe height must be positive."
+msgstr "Champ proche probe height doit être positif."
+
+msgid "Near-field simulation"
+msgstr "Simulation en champ proche"
+
+msgid "Negative net"
+msgstr "Réseau négatif"
+
+msgid "Negative net:"
+msgstr "Réseau négatif :"
+
+msgid "Net"
+msgstr "Net"
+
+msgid "Net:"
+msgstr "Net :"
+
+msgid "Nets: {nets}"
+msgstr "Réseaux : {nets}"
+
+msgid "nets="
+msgstr "nets="
+
+msgid "No"
+msgstr "Non"
+
+msgid "No components found on this net."
+msgstr "Aucun composant trouvé sur ce net."
+
+msgid "No continuous reference plane is available."
+msgstr "Aucun plan de référence continu n’est disponible."
+
+msgid "No copper geometry found for rail '{p0}'."
+msgstr "Aucune géométrie cuivre trouvée pour le rail « {p0} »."
+
+msgid "No copper geometry found for return net '{p0}'."
+msgstr "Aucune géométrie cuivre trouvée pour le réseau de retour « {p0} »."
+
+msgid "No current DC result; running DC analysis before enclosure CFD."
+msgstr "Aucun résultat DC actuel ; exécution de l’analyse DC avant le calcul CFD volumique."
+
+msgid "No EMI/EMC analysis has been run in this session."
+msgstr "Aucune analyse EMI/CEM n’a été exécutée pendant cette session."
+
+msgid "No enabled differential pairs are available. Scan or add a pair first."
+msgstr "Aucune paire différentielle activée n’est disponible. Lancez d’abord une détection ou ajoutez une paire."
+
+msgid "No enabled EMI/EMC source has routed copper available for field simulation."
+msgstr "Aucune source EMI/CEM activée ne possède de cuivre routé utilisable pour la simulation de champ."
+
+msgid "No finding was generated by the enabled deterministic checks."
+msgstr "Les contrôles déterministes activés n’ont généré aucune observation."
+
+msgid "No ground plane detected"
+msgstr "Aucun plan de masse détecté"
+
+msgid "No nearby decoupling capacitor"
+msgstr "Aucun condensateur de découplage proche"
+
+msgid "No PCB stackup is available for differential impedance analysis."
+msgstr "Aucun empilage PCB n’est disponible pour l’analyse d’impédance différentielle."
+
+msgid "No power rails defined."
+msgstr "Aucun rail d’alimentation défini."
+
+msgid "No remaining candidate improves the target-impedance score."
+msgstr "Aucun candidat restant n’améliore le score d’impédance cible."
+
+msgid "No thermal temperatures are available for an overlay scale."
+msgstr "Aucune température thermique n’est disponible pour l’échelle du calque."
+
+msgid "No unused KiCad User layer is available for X.Thermal. Free two User.n layers or remove a previous custom layer assignment."
+msgstr "Aucune couche utilisateur KiCad inutilisée n’est disponible pour X.Thermal. Libérez deux couches User.n ou supprimez une affectation personnalisée existante."
+
+msgid "No {p0} thermal surface cells are available."
+msgstr "Aucune cellule de surface thermique {p0} n’est disponible."
+
+msgid "Nominal Voltage (V):"
+msgstr "Nominal Tension (V):"
+
+msgid "Normal (1.0 mm)"
+msgstr "Normal (1,0 mm)"
+
+msgid "not installed"
+msgstr "non installed"
+
+msgid "Not run"
+msgstr "Non exécuté"
+
+msgid "Observation: {description}"
+msgstr "Observation : {description}"
+
+msgid "Offset X (mm):"
+msgstr "Décalage X (mm) :"
+
+msgid "Offset Y (mm):"
+msgstr "Décalage Y (mm) :"
+
+msgid "One resistance scale is required for every mesh branch."
+msgstr "Une valeur de résistance est requise pour chaque branche du maillage."
+
+msgid "Optimise capacitor values/placement and rerun the AC impedance analysis."
+msgstr "Optimise capacitor values/placement et rerun le AC impedance analysis."
+
+msgid "Optimize Decoupling"
+msgstr "Optimize Découplage"
+
+msgid "Orientation:"
+msgstr "Orientation :"
+
+msgid "Origin"
+msgstr "Origine"
+
+msgid "Outlet"
+msgstr "Sortie"
+
+msgid "Output Component:"
+msgstr "Output Composant:"
+
+msgid "Output Pads:"
+msgstr "Pastilles de sortie :"
+
+msgid "Output Rail:"
+msgstr "Rail de sortie :"
+
+msgid "Output Side"
+msgstr "Côté sortie"
+
+msgid "OVER LIMIT"
+msgstr "LIMITE DÉPASSÉE"
+
+msgid "Pads"
+msgstr "Pastilles"
+
+msgid "Pair"
+msgstr "Paire"
+
+msgid "Parameters"
+msgstr "Paramètres"
+
+msgid "Patch"
+msgstr "Patch"
+
+msgid "Patch center and size values must be between 0 and 1."
+msgstr "Le centre et la taille de la zone doivent être compris entre 0 et 1."
+
+msgid "PCB geometry, return paths, PDN reuse and relative source harmonics are covered."
+msgstr "PCB geometry, return paths, PDN reuse et relative source harmonics sont covered."
+
+msgid "PCB Stackup"
+msgstr "PCB Empilage"
+
+msgid "PCB stackup — {source}"
+msgstr "PCB empilage — {source}"
+
+msgid "PDN impedance exceeds target"
+msgstr "L’impédance du PDN dépasse la cible"
+
+msgid "PDN remains within target"
+msgstr "PDN remains avecin target"
+
+msgid "Per-net risk scores"
+msgstr "Per-net risque scores"
+
+msgid "Perform a baseline conducted and radiated pre-scan across the configured band."
+msgstr "Perform a baseline conducted et radiated pre-scan across le configured band."
+
+msgid "Phase (deg)"
+msgstr "Pae (deg)"
+
+msgid "Phase 4 Enclosure CFD Results"
+msgstr "Phase 4 Enclosure CFD Résultats"
+
+msgid "Physical thickness from bottom to top (mm)"
+msgstr "Physical thickness depuis bottom to top (mm)"
+
+msgid "Pillow is required to create a KiCad heat overlay scale."
+msgstr "Pillow est required to create a KiCad heat overlay scale."
+
+msgid "Pillow is required to create a KiCad heat overlay."
+msgstr "Pillow est required to create a KiCad heat overlay."
+
+msgid "Place a ground stitching via beside each signal transition."
+msgstr "Placez un via de couture de masse près de chaque transition de signal."
+
+msgid "Place ESD protection and any interface filtering next to the connector entry point."
+msgstr "Placez la protection ESD et le filtrage d’interface au plus près de l’entrée du connecteur."
+
+msgid "Place the TVS at the connector and route the discharge path directly to chassis/ground."
+msgstr "Placez la TVS au connecteur et routez directement le chemin de décharge vers le châssis ou la masse."
+
+msgid "Plasma"
+msgstr "Plasma"
+
+msgid "Please enter a valid numeric value."
+msgstr "Please enter a valide numeric value."
+
+msgid "Please select at least one pad."
+msgstr "Sélectionnez au moins une pastille."
+
+msgid "Plot"
+msgstr "Graphique"
+
+msgid "plot-*.png"
+msgstr "plot-*.png"
+
+msgid "Plugin and Python Runtime"
+msgstr "Plugin et environnement Python"
+
+msgid "Populated"
+msgstr "Monté"
+
+msgid "PopupWindow"
+msgstr "PopupWindow"
+
+msgid "Positive net"
+msgstr "Réseau positif"
+
+msgid "Positive net:"
+msgstr "Réseau positif :"
+
+msgid "Power (W)"
+msgstr "Puissance (W)"
+
+msgid "Power (W):"
+msgstr "Puissance (W):"
+
+msgid "Power rail '{p0}' is not available."
+msgstr "Rail d’alimentation '{p0}' est indisponible."
+
+msgid "Power rail:"
+msgstr "Rail d’alimentation :"
+
+msgid "Power Tree & Config"
+msgstr "Puissance Tree & Config"
+
+msgid "Pre-compliance Target"
+msgstr "Cible de préconformité"
+
+msgid "Pre-compliance test plan"
+msgstr "Préconformité test plan"
+
+msgid "Predicted Z"
+msgstr "Z prédit"
+
+msgid "Prefer a well-referenced stripline layer when stackup and fabrication permit it."
+msgstr "Prefer a well-referenced stripline layer when empilage et fabrication permit it."
+
+msgid "Prefer stripline routing between reference planes where practical."
+msgstr "Privilégiez un routage stripline entre plans de référence lorsque cela est possible."
+
+msgid "Preferred backend:"
+msgstr "Backend préféré :"
+
+msgid "Prepared {p0} colour scale ({p1} to {p2} C, {p3} DPI)."
+msgstr "Préparé {p0} colour scale ({p1} to {p2} C, {p3} DPI)."
+
+msgid "Prepared {p0} heat image ({p1} KiB, {p2} DPI)."
+msgstr "Préparé {p0} heat image ({p1} KiB, {p2} DPI)."
+
+msgid "Pressure iterations:"
+msgstr "Pressure itérations:"
+
+msgid "Pressure XY"
+msgstr "Pression XY"
+
+msgid "Prioritise harmonic checks near: "
+msgstr "Prioriser les contrôles harmoniques près de : "
+
+msgid "Probe height (mm):"
+msgstr "Probe hauteur (mm):"
+
+msgid "Processing Rail: {p0} (Sources: {p1}, Loads: {p2})"
+msgstr "Traitement du rail : {p0} (sources : {p1}, charges : {p2})"
+
+msgid "Project: {p0} at {p1}"
+msgstr "Project: {p0} à {p1}"
+
+msgid "Pseudo dt (s):"
+msgstr "Pseudo-pas de temps (s) :"
+
+msgid "Python: detecting..."
+msgstr "Python : détection..."
+
+msgid "Python: {version} — {executable}"
+msgstr "Python: {version} — {executable}"
+
+msgid "Quasi-static engineering estimate. Source voltage/current are edited in the source list; return paths, enclosure scattering and absolute phase are not solved."
+msgstr "Estimation d’ingénierie quasi statique. La tension ou le courant des sources se règle dans la liste ; les chemins de retour, la diffusion par l’enclosure et la phase absolue ne sont pas résolus."
+
+msgid "Rail Properties"
+msgstr "Propriétés du rail"
+
+msgid "Rail solve order: {p0}"
+msgstr "Rail résolution order: {p0}"
+
+msgid "Rail-to-ground impedance"
+msgstr "Rail-to-masse impedance"
+
+msgid "Rail: {net}\n"
+msgstr "Rail : {net}\n"
+
+msgid "Recommendation"
+msgstr "Recommandation"
+
+msgid "Recommendation: {recommendation}"
+msgstr "Recommandation : {recommendation}"
+
+msgid "Recommendations"
+msgstr "Recommandations"
+
+msgid "Reduce signal-to-reference spacing in the fabrication stackup."
+msgstr "Reduce signal-to-reference spacing dans le fabrication empilage."
+
+msgid "Ref"
+msgstr "Ref"
+
+msgid "Refresh Detection"
+msgstr "Actualiser la détection"
+
+msgid "Refresh Diagnostics"
+msgstr "Actualiser les diagnostics"
+
+msgid "Refresh from KiCad"
+msgstr "Actualiser depuis KiCad"
+
+msgid "Refresh Power Estimates"
+msgstr "Actualiser Puissance Estimates"
+
+msgid "Refreshed live PCB geometry and component discovery."
+msgstr "Actualisered live PCB geometry et component discovery."
+
+msgid "Regulator added to {p0}"
+msgstr "Régulateur ajouté à {p0}"
+
+msgid "Regulator moved to {p0}"
+msgstr "Régulateur déplacé vers {p0}"
+
+msgid "Regulator Name:"
+msgstr "Nom du régulateur :"
+
+msgid "Regulatory coverage"
+msgstr "Regulatory couverture"
+
+msgid "Relative EMI source spectrum — not an absolute compliance level"
+msgstr "Relative EMI source spectrum — non an absolu compliance level"
+
+msgid "Relative emission estimates typically carry at least +/-10 to 20 dB uncertainty."
+msgstr "Les estimations relatives d’émission présentent généralement une incertitude d’au moins ±10 à 20 dB."
+
+msgid "Relative harmonic envelope (dB)"
+msgstr "Enveloppe harmonique relative (dB)"
+
+msgid "Relative Spectrum"
+msgstr "Spectre relatif"
+
+msgid "Relative XY cells: invalid"
+msgstr "Cellules XY relatives : valeur non valide"
+
+msgid "Relaxation:"
+msgstr "Relaxation :"
+
+msgid "Remove isolated islands or join them with ground copper and stitching vias."
+msgstr "Supprimer isolated islands ou join them avec ground copper et stitching vias."
+
+msgid "Remove Patch"
+msgstr "Supprimer Patch"
+
+msgid "Removed {p0} Ki-PIDA thermal overlay image(s)."
+msgstr "{p0} image(s) de calque thermique Ki-PIDA supprimée(s)."
+
+msgid "Rendering"
+msgstr "Rendu"
+
+msgid "Rendering thermal plots in background..."
+msgstr "Rendering thermal plots dans background..."
+
+msgid "Requested {p0} mm projects {p1} nodes; using {p2} mm for the {p3}-node {p4} safety budget."
+msgstr "Le pas demandé de {p0} mm produirait {p1} nœuds ; utilisation de {p2} mm pour respecter le budget de sécurité {p4} de {p3} nœuds."
+
+msgid "Reroute over continuous ground or restore the reference plane below the segment."
+msgstr "Reroute over continuous ground ou restore le reference plane below le segment."
+
+msgid "Residual"
+msgstr "Résidu"
+
+msgid "Residuals"
+msgstr "Résidus"
+
+msgid "Restrict SW/PH/LX copper to the shortest IC-to-inductor connection."
+msgstr "Restrict SW/PH/LX copper to le shortest IC-to-inductor connection."
+
+msgid "Result"
+msgstr "Résultat"
+
+msgid "Result History Error"
+msgstr "Résultat History Erreur"
+
+msgid "Results"
+msgstr "Résultats"
+
+msgid "Retain the analysed capacitor population and verify on the assembled board."
+msgstr "Retain le analysed capacitor population et verify sur le assembled board."
+
+msgid "Return net:"
+msgstr "Réseau de retour :"
+
+msgid "Return paths"
+msgstr "Chemins de retour"
+
+msgid "Reusing cached merged copper geometry for the live board."
+msgstr "Réutilisation de la géométrie cuivre fusionnée mise en cache pour la carte active."
+
+msgid "Reusing cached {p0}-entry thermal CSR matrix; CUDA keeps its CSR workspace resident in VRAM."
+msgstr "Reusing cached {p0}-entry thermal CSR matrix; CUDA keeps its CSR workspace resident dans VRAM."
+
+msgid "Rise ns"
+msgstr "Temps de montée (ns)"
+
+msgid "Rise time (ns):"
+msgstr "Rise temps (ns):"
+
+msgid "Risk analyzer only; it cannot certify FCC/CISPR/MIL compliance."
+msgstr "Analyseur de risques uniquement ; il ne peut pas certifier la conformité FCC, CISPR ou MIL."
+
+msgid "Risk Map"
+msgstr "Carte des risques"
+
+msgid "Risk score {score}/100 — {total} findings: {critical} critical, {high} high, {medium} medium."
+msgstr "Risk score {score}/100 — {total} findings: {critical} critique, {high} élevé, {medium} moyen."
+
+msgid "Risk score: {score}/100"
+msgstr "Score de risque : {score}/100"
+
+msgid "Role"
+msgstr "Rôle"
+
+msgid "Rule Families"
+msgstr "Familles de règles"
+
+msgid "Rule: {rule}"
+msgstr "Règle : {rule}"
+
+msgid "Run a DC analysis before coupled electro-thermal analysis."
+msgstr "Exécutez une analyse DC avant l’analyse électrothermique couplée."
+
+msgid "Run a thermal analysis before injecting its KiCad heat overlay."
+msgstr "Exécutez une analyse thermique avant d’injecter son calque thermique dans KiCad."
+
+msgid "Run AC Analysis"
+msgstr "Exécuter l’analyse CA"
+
+msgid "Run Coupled"
+msgstr "Exécuter l’analyse couplée"
+
+msgid "Run DC Simulation"
+msgstr "Exécuter la simulation CC"
+
+msgid "Run differential impedance analysis first."
+msgstr "Exécutez d’abord l’analyse d’impédance différentielle."
+
+msgid "Run Differential Z"
+msgstr "Exécuter Différentiel Z"
+
+msgid "Run EMI/EMC"
+msgstr "Exécuter EMI/EMC"
+
+msgid "Run Enclosure CFD"
+msgstr "Exécuter la CFD du boîtier"
+
+msgid "Run Thermal"
+msgstr "Exécuter l’analyse thermique"
+
+msgid "Running fresh DC analysis for the current live PCB geometry."
+msgstr "Exécution d’une nouvelle analyse DC sur la géométrie actuelle du PCB."
+
+msgid "Runtime & Acceleration"
+msgstr "Exécution et accélération"
+
+msgid "Runtime settings saved to {path}"
+msgstr "Paramètres d’exécution enregistrés dans {path}"
+
+msgid "Sampling {p0} thermal layers as {p1} row-band work items with {p2} CPU workers."
+msgstr "Sampling {p0} thermal layers as {p1} row-band work items avec {p2} CPU workers."
+
+msgid "Save Config"
+msgstr "Enregistrer la configuration"
+
+msgid "Save Runtime Settings"
+msgstr "Enregistrer les paramètres d’exécution"
+
+msgid "Saved results:"
+msgstr "Résultats enregistrés :"
+
+msgid "Saved {p0} result history entry."
+msgstr "Résultat {p0} ajouté à l’historique."
+
+msgid "Scan Board"
+msgstr "Analyser la carte"
+
+msgid "Scan complete. Discovered {p0} power rail candidates."
+msgstr "Scan complete. Discovered {p0} rail d’alimentation candidates."
+
+msgid "Scan Live PCB"
+msgstr "Analyser Live PCB"
+
+msgid "SciPy SuperLU"
+msgstr "SciPy SuperLU"
+
+msgid "Select a measurement component in the AC Impedance tab."
+msgstr "Sélectionner a measurement component dans le AC Impedance tab."
+
+msgid "Select a power rail for AC analysis."
+msgstr "Sélectionnez un rail d’alimentation pour l’analyse AC."
+
+msgid "Select a source component in the AC Impedance tab."
+msgstr "Sélectionner a source component dans le AC Impedance tab."
+
+msgid "Select at least one recommendation with a feasible width and gap."
+msgstr "Sélectionnez au moins une recommandation dont la largeur et l’écartement sont réalisables."
+
+msgid "Select both Input and Output rails."
+msgstr "Sélectionnez les rails d’entrée et de sortie."
+
+msgid "Select Component"
+msgstr "Sélectionner un composant"
+
+msgid "Select Component to use as Load:"
+msgstr "Sélectionner Composant to use as Charger:"
+
+msgid "Select Component to use as Voltage Source:"
+msgstr "Sélectionnez le composant à utiliser comme source de tension :"
+
+msgid "Select Component:"
+msgstr "Sélectionner Composant:"
+
+msgid "Select Input Component and at least one Pad."
+msgstr "Sélectionnez le composant d’entrée et au moins une pastille."
+
+msgid "Select Net"
+msgstr "Sélectionner un net"
+
+msgid "Select one or more geometry recommendations first."
+msgstr "Sélectionnez d’abord une ou plusieurs recommandations géométriques."
+
+msgid "Select Output Component and at least one Pad."
+msgstr "Sélectionnez le composant de sortie et au moins une pastille."
+
+msgid "Select Pads (Disabled = Already Used):"
+msgstr "Sélectionnez les pastilles (désactivée = déjà utilisée) :"
+
+msgid "Select Pads:"
+msgstr "Sélectionner Pads:"
+
+msgid "Select the component that dissipates the regulator loss."
+msgstr "Sélectionner le component that dissipates le regulator loss."
+
+msgid "selected envelope at {frequency:g} MHz"
+msgstr "sélectionné envelope à {frequency:g} MHz"
+
+msgid "Selected recommendations did not contain valid differential net pairs."
+msgstr "Les recommandations sélectionnées ne contiennent aucune paire de réseaux différentiels valide."
+
+msgid "Selected {p0} = {p1} F (score {p2})."
+msgstr "Sélection : {p0} = {p1} F (score {p2})."
+
+msgid "Severity: {severity}"
+msgstr "Gravité : {severity}"
+
+msgid "Shielding"
+msgstr "Blindage"
+
+msgid "Shorten the route and keep it referenced to uninterrupted ground."
+msgstr "Raccourcissez le routage et conservez une référence à un plan de masse ininterrompu."
+
+msgid "Show internal copper maps in Results"
+msgstr "Show internal copper maps dans Résultats"
+
+msgid "Signal crosses a reference-plane void"
+msgstr "Signal crosses a reference-plan void"
+
+msgid "Signal layer far from reference"
+msgstr "Signal layer far depuis reference"
+
+msgid "Signal routed near board edge"
+msgstr "Signal routed near PCB edge"
+
+msgid "Signals and edges"
+msgstr "Signals et edges"
+
+msgid "Simulation:"
+msgstr "Simulation :"
+
+msgid "Size"
+msgstr "Taille"
+
+msgid "Size (mm)"
+msgstr "Taille (mm)"
+
+msgid "Size U (0..1):"
+msgstr "Taille U (0..1):"
+
+msgid "Size V (0..1):"
+msgstr "Taille V (0..1):"
+
+msgid "Skipping {p0}: pads could not be mapped to both meshes."
+msgstr "{p0} ignoré : les pastilles n’ont pas pu être associées aux deux maillages."
+
+msgid "Solve time: {solve:.4g} s (transfer {transfer:.4g} s)"
+msgstr "Temps de résolution : {solve:.4g} s (transfert {transfer:.4g} s)"
+
+msgid "Solved {p0} cells in {p1} iterations; Vmax={p2} m/s, mass error={p3}%."
+msgstr "Solved {p0} cellules dans {p1} itérations; Vmax={p2} m/s, mass erreur={p3}%."
+
+msgid "Solved {p0} nodes; hotspot {p1} C, energy error {p2}%; backend {p3}, residual {p4}."
+msgstr "Solved {p0} nœuds; hotspot {p1} C, energy erreur {p2}%; backend {p3}, résidu {p4}."
+
+msgid "Solved {p0} points; worst |Z|={p1} ohm at {p2} Hz."
+msgstr "Solved {p0} points; worst |Z|={p1} ohm à {p2} Hz."
+
+msgid "Solver Exception: {p0}"
+msgstr "Exception du solveur : {p0}"
+
+msgid "Source"
+msgstr "Source"
+
+msgid "Source component:"
+msgstr "Composant source :"
+
+msgid "Source harmonic envelopes estimated"
+msgstr "Enveloppes harmoniques des sources estimées"
+
+msgid "Source L (nH):"
+msgstr "Inductance de source (nH) :"
+
+msgid "Source R (mOhm):"
+msgstr "Résistance de source (mOhm) :"
+
+msgid "Source: {source} ({trust})"
+msgstr "Source : {source} ({trust})"
+
+msgid "Sparse matrix path: {path}"
+msgstr "Sparse matrice path: {path}"
+
+msgid "Sparse solve time: {solve:.4g} s (transfer {transfer:.4g} s)"
+msgstr "Temps de résolution creuse : {solve:.4g} s (transfert {transfer:.4g} s)"
+
+msgid "Stackup"
+msgstr "Empilage"
+
+msgid "Stackup Error"
+msgstr "Erreur d’empilage"
+
+msgid "Stackup Import Error"
+msgstr "Empilage Import Erreur"
+
+msgid "Stackup not loaded"
+msgstr "Empilage non chargé"
+
+msgid "Stackup warning: {p0}"
+msgstr "Empilage warning: {p0}"
+
+msgid "Stackup warnings:"
+msgstr "Empilage warnings:"
+
+msgid "Stackup-aware differential impedance"
+msgstr "Empilage-aware differential impedance"
+
+msgid "Stackup: {source} ({trust})"
+msgstr "Empilage: {source} ({trust})"
+
+msgid "Standard:"
+msgstr "Norme :"
+
+msgid "Start frequency (Hz):"
+msgstr "Fréquence de début (Hz) :"
+
+msgid "Start frequency (MHz):"
+msgstr "Fréquence de début (MHz) :"
+
+msgid "Start frequency must be greater than zero."
+msgstr "Start frequency doit être supérieur à zero."
+
+msgid "Startup Error"
+msgstr "Erreur au démarrage"
+
+msgid "Status"
+msgstr "État"
+
+msgid "Status: {status}"
+msgstr "État : {status}"
+
+msgid "Steady incompressible laminar CFD with Boussinesq buoyancy and conjugate solid-air energy. Fans are represented as boundary-flow patches."
+msgstr "Steady incompressible laminar CFD avec Boussinesq buoyancy et conjugate solid-air energy. Fans sont represented as boundary-flow patches."
+
+msgid "Steady-state 3D solid conduction with convective boundaries. Estimated powers and package models must be reviewed before sign-off."
+msgstr "Conduction 3D stationnaire dans les solides avec limites convectives. Les puissances estimées et les modèles de boîtiers doivent être vérifiés avant validation."
+
+msgid "Stop frequency (Hz):"
+msgstr "Fréquence de fin (Hz) :"
+
+msgid "Stop frequency (MHz):"
+msgstr "Fréquence de fin (MHz) :"
+
+msgid "Stop frequency must be greater than start frequency."
+msgstr "Stop frequency doit être supérieur à start frequency."
+
+msgid "Stripline dimensions must be positive."
+msgstr "Stripline dimensions doit être positif."
+
+msgid "Success"
+msgstr "Réussite"
+
+msgid "Suggested W/G"
+msgstr "W/G suggéré"
+
+msgid "Super (0.1 mm)"
+msgstr "Super (0,1 mm)"
+
+msgid "Swing V"
+msgstr "Excursion (V)"
+
+msgid "Switching"
+msgstr "Commutation"
+
+msgid "Switching harmonics enter the emissions band"
+msgstr "Switching harmonics enter le emissions band"
+
+msgid "Switching sources"
+msgstr "Sources de commutation"
+
+msgid "System default"
+msgstr "Valeur par défaut du système"
+
+msgid "System RAM: {available:.1f}/{total:.1f} GiB available"
+msgstr "RAM système : {available:.1f}/{total:.1f} Gio disponibles"
+
+msgid "System Simulation Results:"
+msgstr "System Simulation Résultats:"
+
+msgid "System Solve Error: {p0}"
+msgstr "Erreur de résolution du système : {p0}"
+
+msgid "Target"
+msgstr "Cible"
+
+msgid "Target impedance must be positive."
+msgstr "Cible impedance doit être positif."
+
+msgid "TARGET NOT MET"
+msgstr "CIBLE NON ATTEINTE"
+
+msgid "Target tolerance (%):"
+msgstr "Tolérance de cible (%) :"
+
+msgid "Target tolerance must be positive."
+msgstr "Cible tolerance doit être positif."
+
+msgid "Target Zdiff (ohm):"
+msgstr "Cible Zdiff (ohm):"
+
+msgid "Target |Z| (mOhm):"
+msgstr "Cible |Z| (mOhm):"
+
+msgid "Target: {standard} ({market})"
+msgstr "Cible: {standard} ({market})"
+
+msgid "Target: {target:.6g} ohm"
+msgstr "Cible: {target:.6g} ohm"
+
+msgid "Temp"
+msgstr "Température"
+
+msgid "Temperature (C)"
+msgstr "Température (C)"
+
+msgid "Temperature (C):"
+msgstr "Température (C) :"
+
+msgid "Temperature XY"
+msgstr "Température XY"
+
+msgid "Temperature XZ"
+msgstr "Température XZ"
+
+msgid "Test CPU"
+msgstr "Tester CPU"
+
+msgid "Test CUDA"
+msgstr "Tester CUDA"
+
+msgid "The AC network contains an invalid node reference."
+msgstr "Le réseau AC contient une référence de nœud non valide."
+
+msgid "The AC rail-to-ground mesh is empty."
+msgstr "Le maillage AC entre le rail et la masse est vide."
+
+msgid "The AC source must map to pads on both the rail and the return net."
+msgstr "La source AC doit être associée à des pastilles du rail et du réseau de retour."
+
+msgid "The enclosure CFD mesh has no fluid cells."
+msgstr "Le maillage CFD volumique ne contient aucune cellule fluide."
+
+msgid "The language change will be applied the next time the Ki-PIDA window is opened."
+msgstr "Le changement de langue sera appliqué à la prochaine ouverture de la fenêtre Ki-PIDA."
+
+msgid "The measurement port contains an invalid node reference."
+msgstr "Le port de mesure contient une référence de nœud non valide."
+
+msgid "The measurement port is not electrically connected to the AC source."
+msgstr "Le port de mesure n’est pas connecté électriquement à la source AC."
+
+msgid "The measurement port must map to pads on both the rail and the return net."
+msgstr "Le port de mesure doit être associé à des pastilles du rail et du réseau de retour."
+
+msgid "The multilayer board has no filled zone on a configured ground net."
+msgstr "La carte multicouche ne possède aucune zone remplie sur un réseau de masse configuré."
+
+msgid "The PCB outline is empty; near-field simulation cannot build a grid."
+msgstr "Le contour du PCB est vide ; la simulation de champ proche ne peut pas construire de grille."
+
+msgid "The selected language is applied the next time the Ki-PIDA window is opened."
+msgstr "La langue sélectionnée sera appliquée à la prochaine ouverture de la fenêtre Ki-PIDA."
+
+msgid "The thermal mesh is empty."
+msgstr "Le maillage thermique est vide."
+
+msgid "Thermal"
+msgstr "Thermique"
+
+msgid "Thermal 3D"
+msgstr "Thermique 3D"
+
+msgid "Thermal analysis completed in {p0} s."
+msgstr "Analyse thermique terminée en {p0} s."
+
+msgid "Thermal Analysis Error"
+msgstr "Erreur d’analyse thermique"
+
+msgid "Thermal Analysis Error: {p0}"
+msgstr "Erreur d’analyse thermique : {p0}"
+
+msgid "Thermal boundary arrays must have matching lengths."
+msgstr "Les tableaux de limites thermiques doivent avoir des longueurs identiques."
+
+msgid "Thermal branch arrays must have matching lengths."
+msgstr "Les tableaux de branches thermiques doivent avoir des longueurs identiques."
+
+msgid "Thermal colors:"
+msgstr "Couleurs thermiques :"
+
+msgid "Thermal colors: {palette}"
+msgstr "Thermique colors: {palette}"
+
+msgid "Thermal colour maximum must be greater than the colour minimum."
+msgstr "Le maximum de l’échelle thermique doit être supérieur à son minimum."
+
+msgid "Thermal colour maximum: {value}"
+msgstr "Thermique colour maximum: {value}"
+
+msgid "Thermal colour minimum: {value}"
+msgstr "Thermique colour minimum: {value}"
+
+msgid "Thermal grid size must be between 0.01 and 5 mm; coupled iterations must be positive."
+msgstr "La taille de la grille thermique doit être comprise entre 0,01 et 5 mm ; le nombre d’itérations couplées doit être positif."
+
+msgid "Thermal grid: {grid:.4g} mm"
+msgstr "Thermique grid: {grid:.4g} mm"
+
+msgid "Thermal heat vector does not match thermal mesh nodes."
+msgstr "Le vecteur de chaleur ne correspond pas aux nœuds du maillage thermique."
+
+msgid "Thermal interaction"
+msgstr "Interaction thermique"
+
+msgid "Thermal load:"
+msgstr "Charge thermique :"
+
+msgid "Thermal loss component:"
+msgstr "Composant de pertes thermiques :"
+
+msgid "Thermal mesh uses the explicit {p0} GiB host-RAM ceiling ({p1}-node limit)."
+msgstr "Le maillage thermique utilise la limite explicite de {p0} Gio de RAM hôte ({p1} nœuds au maximum)."
+
+msgid "Thermal model values must be non-negative and physically valid."
+msgstr "Les valeurs du modèle thermique doivent être positives ou nulles et physiquement valides."
+
+msgid "Thermal Model: {reference}"
+msgstr "Modèle thermique : {reference}"
+
+msgid "Thermal overlay"
+msgstr "Surcouche thermique"
+
+msgid "Thermal overlay clear error: {p0}"
+msgstr "Thermique overlay clear erreur: {p0}"
+
+msgid "Thermal overlay injection error: {p0}"
+msgstr "Thermique overlay injection erreur: {p0}"
+
+msgid "Thermal plot rendering error: {p0}"
+msgstr "Thermique plot rendering erreur: {p0}"
+
+msgid "Thermal plot rendering failed; see Log for details."
+msgstr "Échec du rendu du graphique thermique ; consultez le journal pour plus de détails."
+
+msgid "Thermal probe  {temperature:.2f} C  |  X {x:.2f} mm, Y {y:.2f} mm, Z {z:.3f} mm  |  {layer}"
+msgstr "Sonde thermique  {temperature:.2f} C  |  X {x:.2f} mm, Y {y:.2f} mm, Z {z:.3f} mm  |  {layer}"
+
+msgid "Thermal progress: {p0}/{p1} ({p2})"
+msgstr "Thermique progress: {p0}/{p1} ({p2})"
+
+msgid "Thermal RAM ceiling: {ceiling}"
+msgstr "Thermique RAM plafond: {ceiling}"
+
+msgid "Thermal RAM limit GiB (0 = conservative default):"
+msgstr "Thermique RAM limite GiB (0 = prudent par défaut):"
+
+msgid "Thermal result plots ready."
+msgstr "Graphiques de résultats thermiques prêts."
+
+msgid "Thermal solution contains non-finite temperatures."
+msgstr "Thermique solution contient non-finite temperatures."
+
+msgid "Thermal solve complete; rendering plots in background."
+msgstr "Calcul thermique terminé ; rendu des graphiques en arrière-plan."
+
+msgid "Theta JB"
+msgstr "Theta JB"
+
+msgid "Theta JB (C/W):"
+msgstr "Theta JB (C/W):"
+
+msgid "Thickness (mm)"
+msgstr "Épaisseur (mm)"
+
+msgid "This KiCad IPC API does not expose user drawing layers."
+msgstr "Cette API IPC de KiCad n’expose pas les couches de dessin utilisateur."
+
+msgid "This KiCad IPC version cannot rename User layers; reserved User.n layers remain dedicated to X.Thermal for this board."
+msgstr "Cette version de l’IPC KiCad ne peut pas renommer les couches utilisateur ; les couches User.n réservées restent dédiées à X.Thermal pour cette carte."
+
+msgid "This net pair already exists."
+msgstr "Cette paire de réseaux existe déjà."
+
+msgid "Thread control: {state}"
+msgstr "Contrôle des threads : {state}"
+
+msgid "Tj max"
+msgstr "Tj max"
+
+msgid "Tolerance:"
+msgstr "Tolérance :"
+
+msgid "Top exposed"
+msgstr "Supérieure exposed"
+
+msgid "Top Surface"
+msgstr "Surface supérieure"
+
+msgid "Total elapsed time: {seconds:.3f} s"
+msgstr "Total écoulé temps: {seconds:.3f} s"
+
+msgid "Trace current (A):"
+msgstr "Courant de piste (A) :"
+
+msgid "Trace is too wide for the microstrip approximation."
+msgstr "La piste est trop large pour l’approximation microstrip."
+
+msgid "Trace is too wide for the stripline approximation."
+msgstr "La piste est trop large pour l’approximation stripline."
+
+msgid "Treat amplitudes as relative ranking only; measure absolute field strength."
+msgstr "Utilisez les amplitudes uniquement comme classement relatif ; mesurez la valeur absolue du champ."
+
+msgid "trusted"
+msgstr "fiable"
+
+msgid "Turbo"
+msgstr "Turbo"
+
+msgid "TVS has insufficient nearby ground vias"
+msgstr "TVS a insufficient nearby masse vias"
+
+msgid "Type"
+msgstr "Type"
+
+msgid "Type:"
+msgstr "Type :"
+
+msgid "Unable to determine project path. Cannot load config."
+msgstr "Impossible de déterminer le chemin du projet. La configuration ne peut pas être chargée."
+
+msgid "Unable to determine project path. Cannot save config."
+msgstr "Impossible de déterminer le chemin du projet. La configuration ne peut pas être enregistrée."
+
+msgid "Unsupported CFD patch face: {p0}"
+msgstr "Face de zone CFD non prise en charge : {p0}"
+
+msgid "Unsupported CFD patch type: {p0}"
+msgstr "Type de zone CFD non pris en charge : {p0}"
+
+msgid "Unsupported config version: {p0}"
+msgstr "Version de configuration non prise en charge : {p0}"
+
+msgid "Use"
+msgstr "Utiliser"
+
+msgid "Use a short, wide discharge path and at least two nearby ground/chassis vias."
+msgstr "Utilisez un chemin de décharge court et large, avec au moins deux vias de masse ou de châssis à proximité."
+
+msgid "Use all connected pads"
+msgstr "Utiliser toutes les pastilles connectées"
+
+msgid "Use an adjacent solid ground plane or route the layers in orthogonal directions."
+msgstr "Use an adjacent solid ground plane ou route le layers dans orthogonal directions."
+
+msgid "Use Phase 3 heat sources"
+msgstr "Use Pae 3 heat sources"
+
+msgid "Use these frequencies to prioritise near-field and chamber measurements."
+msgstr "Utilisez ces fréquences pour prioriser les mesures en champ proche et en chambre."
+
+msgid "user-confirmed"
+msgstr "confirmé par l’utilisateur"
+
+msgid "user-defined"
+msgstr "défini par l’utilisateur"
+
+msgid "user-edited"
+msgstr "modifié par l’utilisateur"
+
+msgid "Using legacy edge iteration for matrix build."
+msgstr "Utilisation de l’ancienne itération sur les arêtes pour construire la matrice."
+
+msgid "Using pre-computed sparse matrix ({p0} entries)."
+msgstr "Utilisation de précalculée creuse matrice ({p0} entrées)."
+
+msgid "utf-8"
+msgstr "utf-8"
+
+msgid "Validation Error"
+msgstr "Erreur de validation"
+
+msgid "Value"
+msgstr "Valeur"
+
+msgid "Value (V or A):"
+msgstr "Valeur (V ou A):"
+
+msgid "Value cannot be zero."
+msgstr "La valeur ne peut pas être nulle."
+
+msgid "Value:"
+msgstr "Valeur:"
+
+msgid "Velocity"
+msgstr "Vitesse"
+
+msgid "Velocity (m/s):"
+msgstr "Vitesse (m/s) :"
+
+msgid "Velocity XY"
+msgstr "Vitesse XY"
+
+msgid "Verify every supply pin and place its high-frequency capacitor at the pin/via pair."
+msgstr "Vérifiez chaque broche d’alimentation et placez son condensateur haute fréquence au niveau de la paire broche/via."
+
+msgid "Verify intentional single-point connections and prevent signals crossing domain boundaries."
+msgstr "Verify intentional single-point connections et prevent signals crossing domain boundaries."
+
+msgid "Verify MLCC DC-bias/SRF and ferrite impedance at the local operating temperature."
+msgstr "Verify MLCC DC-bias/SRF et ferrite impedance à le local operating temperature."
+
+msgid "Verify the connector shell connection and provide a short high-frequency chassis return."
+msgstr "Verify le connector shell connection et provide a short high-frequency chassis return."
+
+msgid "Via stitching"
+msgstr "Vias de liaison"
+
+msgid "Vias and reference-plane transitions are reported as discontinuities; this is not a 3D full-wave solver."
+msgstr "Les vias et transitions de plans de référence sont signalés comme des discontinuités ; il ne s’agit pas d’un solveur 3D pleine onde."
+
+msgid "Viridis"
+msgstr "Viridis"
+
+msgid "Voltage (V)"
+msgstr "Tension (V)"
+
+msgid "Voltage swing (V):"
+msgstr "Tension swing (V):"
+
+msgid "Volumetric CFD Solver"
+msgstr "Solveur CFD volumique"
+
+msgid "Wall h (W/m2K):"
+msgstr "Coefficient h des parois (W/m2K) :"
+
+msgid "WARNING: No project object available."
+msgstr "WARNING: Aucun project object disponible."
+
+msgid "Warning: Solution contains NaN values."
+msgstr "Avertissement : la solution contient des valeurs NaN."
+
+msgid "Width (mm):"
+msgstr "Largeur (mm) :"
+
+msgid "Worst frequency: {frequency:.6g} Hz"
+msgstr "Fréquence la plus défavorable : {frequency:.6g} Hz"
+
+msgid "Worst |Z|: {value:.6g} ohm"
+msgstr "|Z| le plus défavorable : {value:.6g} ohm"
+
+msgid "X (mm)"
+msgstr "X (mm)"
+
+msgid "Y (mm)"
+msgstr "Y (mm)"
+
+msgid "Yes"
+msgstr "Oui"
+
+msgid "Z (mm)"
+msgstr "Z (mm)"
+
+msgid "Zdiff"
+msgstr "Zdiff"
+
+msgid "{layer} temperature"
+msgstr "Température de {layer}"
+
+msgid "{p0} Analysis Error: {p1}"
+msgstr "{p0} Analyse Erreur: {p1}"
+
+msgid "{p0} does not fit inside the configured enclosure."
+msgstr "{p0} ne tient pas dans l’enclosure configurée."
+
+msgid "{title} at {height:g} mm — {mode}"
+msgstr "{title} à {height:g} mm — {mode}"
+
+msgid "{value:g} GiB (expert override)"
+msgstr "{value:g} Gio (valeur experte)"
+
+msgid "|Z| (ohm)"
+msgstr "|Z| (ohm)"
+
+msgid "~{nodes:,} nodes / {branches:,} branches — host peak {host:.0f} MiB, GPU {gpu:.0f} MiB — limit {limit:,} nodes{ceiling} — recommended: {backend}"
+msgstr "~{nodes:,} nœuds / {branches:,} branches — host pic {host:.0f} MiB, GPU {gpu:.0f} MiB — limite {limit:,} nœuds{ceiling} — recommandé: {backend}"

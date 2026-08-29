@@ -10,6 +10,8 @@ import numpy as np
 import scipy.sparse
 import wx
 
+from i18n import _, SYSTEM_LANGUAGE, available_languages
+
 try:
     from compute_backend import SparseComputeBackend, cuda_diagnostics
     from runtime_config import load_runtime_settings, save_runtime_settings, system_memory_info
@@ -36,13 +38,25 @@ class RuntimeSettingsPanel(wx.Panel):
     def _init_ui(self):
         main = wx.BoxSizer(wx.VERTICAL)
 
-        identity = wx.StaticBoxSizer(wx.VERTICAL, self, "Plugin and Python Runtime")
+        language_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Language")
+        language_parent = language_box.GetStaticBox()
+        language_row = wx.BoxSizer(wx.HORIZONTAL)
+        language_row.Add(wx.StaticText(language_parent, label="Interface language:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        self.choice_language = wx.Choice(language_parent)
+        self._language_codes = [SYSTEM_LANGUAGE] + list(available_languages())
+        self.choice_language.Append(_("System default"))
+        for code, label in available_languages().items():
+            self.choice_language.Append(label)
+        language_row.Add(self.choice_language, 1, wx.EXPAND)
+        language_box.Add(language_row, 0, wx.EXPAND | wx.ALL, 8)
+        language_box.Add(wx.StaticText(
+            language_parent,
+            label="The selected language is applied the next time the Ki-PIDA window is opened.",
+        ), 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+        main.Add(language_box, 0, wx.EXPAND | wx.ALL, 6)
+
         root = Path(__file__).resolve().parent.parent
-        self.lbl_version = wx.StaticText(identity.GetStaticBox(), label=f"Ki-PIDA version: {plugin_version(root)}")
-        self.lbl_python = wx.StaticText(identity.GetStaticBox(), label="Python: detecting...")
-        identity.Add(self.lbl_version, 0, wx.ALL, 5)
-        identity.Add(self.lbl_python, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
-        main.Add(identity, 0, wx.EXPAND | wx.ALL, 6)
+        self._plugin_version = plugin_version(root)
 
         compute = wx.StaticBoxSizer(wx.VERTICAL, self, "Compute Backend")
         parent = compute.GetStaticBox()
@@ -94,9 +108,15 @@ class RuntimeSettingsPanel(wx.Panel):
         self.btn_test_cpu.Bind(wx.EVT_BUTTON, lambda event: self._start_test("CPU"))
         self.btn_test_cuda.Bind(wx.EVT_BUTTON, lambda event: self._start_test("CUDA"))
         self.btn_install_cuda.Bind(wx.EVT_BUTTON, self._on_install_cuda)
+        self.choice_language.Bind(wx.EVT_CHOICE, self._on_language_selected)
         self._set_controls(self.settings)
 
     def _set_controls(self, settings):
+        try:
+            language_index = self._language_codes.index(settings.ui_language)
+        except ValueError:
+            language_index = 0
+        self.choice_language.SetSelection(language_index)
         index = self.choice_backend.FindString(settings.backend)
         self.choice_backend.SetSelection(index if index != wx.NOT_FOUND else 0)
         self.chk_cpu_threads.SetValue(settings.cpu_multithread)
@@ -106,6 +126,11 @@ class RuntimeSettingsPanel(wx.Panel):
         self.spin_memory_limit.SetValue(settings.memory_limit_gib)
 
     def get_settings(self, persist=False):
+        language_index = self.choice_language.GetSelection()
+        self.settings.ui_language = (
+            self._language_codes[language_index]
+            if 0 <= language_index < len(self._language_codes) else SYSTEM_LANGUAGE
+        )
         self.settings.backend = self.choice_backend.GetStringSelection() or "AUTO"
         self.settings.cpu_multithread = self.chk_cpu_threads.GetValue()
         self.settings.cpu_threads = self.spin_cpu_threads.GetValue()
@@ -120,8 +145,33 @@ class RuntimeSettingsPanel(wx.Panel):
         return replace(self.settings)
 
     def _on_save(self, event):
-        path = save_runtime_settings(self.get_settings())
-        self._log(f"Runtime settings saved to {path}")
+        previous_language = self.settings.ui_language
+        saved = self.get_settings()
+        path = save_runtime_settings(saved)
+        self.settings = replace(saved)
+        self._log(_("Runtime settings saved to {path}").format(path=path))
+        if self.settings.ui_language != previous_language:
+            wx.MessageBox(
+                _("The language change will be applied the next time the Ki-PIDA window is opened."),
+                _("Language change"), wx.OK | wx.ICON_INFORMATION,
+            )
+
+    def _on_language_selected(self, event):
+        """Persist the language immediately so closing the dialog cannot lose it."""
+        language_index = self.choice_language.GetSelection()
+        selected = (
+            self._language_codes[language_index]
+            if 0 <= language_index < len(self._language_codes) else SYSTEM_LANGUAGE
+        )
+        if selected != self.settings.ui_language:
+            self.settings.ui_language = selected
+            path = save_runtime_settings(self.settings)
+            self._log(_("Runtime settings saved to {path}").format(path=path))
+            wx.MessageBox(
+                _("The language change will be applied the next time the Ki-PIDA window is opened."),
+                _("Language change"), wx.OK | wx.ICON_INFORMATION,
+            )
+        event.Skip()
 
     def refresh_status(self):
         summary = runtime_summary()
@@ -135,34 +185,44 @@ class RuntimeSettingsPanel(wx.Panel):
         if self._devices:
             selected = min(self.settings.cuda_device, len(self._devices) - 1)
             self.choice_device.SetSelection(selected)
-        self.lbl_python.SetLabel(f"Python: {summary['python']} — {summary['executable']}")
         lines = [
-            f"CPU logical processors: {os.cpu_count() or 1}",
-            f"CPU sparse backend: {'PARDISO' if summary['pypardiso'] else 'SciPy SuperLU'}",
-            f"Thread control: {'available' if summary['threadpoolctl'] else 'not installed'}",
-            f"CuPy: {diagnostics['cupy_version']}",
-            f"CUDA available: {'Yes' if diagnostics['available'] else 'No'}",
+            _("Ki-PIDA version: {version}").format(version=self._plugin_version),
+            _("Python: {version} — {executable}").format(
+                version=summary['python'], executable=summary['executable'],
+            ),
+            _("CPU logical processors: {count}").format(count=os.cpu_count() or 1),
+            _("CPU sparse backend: {backend}").format(backend='PARDISO' if summary['pypardiso'] else 'SciPy SuperLU'),
+            _("Thread control: {state}").format(state=_("available") if summary['threadpoolctl'] else _("not installed")),
+            _("CuPy: {version}").format(version=diagnostics['cupy_version']),
+            _("CUDA available: {state}").format(state=_("Yes") if diagnostics['available'] else _("No")),
         ]
         if memory["total_bytes"]:
             lines.append(
-                f"System RAM: {memory['available_bytes'] / (1024 ** 3):.1f}/"
-                f"{memory['total_bytes'] / (1024 ** 3):.1f} GiB available"
+                _("System RAM: {available:.1f}/{total:.1f} GiB available").format(
+                    available=memory['available_bytes'] / (1024 ** 3),
+                    total=memory['total_bytes'] / (1024 ** 3),
+                )
             )
         ceiling = self.settings.memory_limit_gib
         lines.append(
-            "Thermal RAM ceiling: " +
-            (f"{ceiling:g} GiB (expert override)" if ceiling > 0 else "conservative default")
+            _("Thermal RAM ceiling: {ceiling}").format(ceiling=(
+                _("{value:g} GiB (expert override)").format(value=ceiling)
+                if ceiling > 0 else _("conservative default")
+            ))
         )
         if diagnostics["driver_version"] is not None:
-            lines.append(f"CUDA driver/runtime: {diagnostics['driver_version']} / {diagnostics['runtime_version']}")
+            lines.append(_("CUDA driver/runtime: {driver} / {runtime}").format(
+                driver=diagnostics['driver_version'], runtime=diagnostics['runtime_version'],
+            ))
         for device in self._devices:
             lines.append(
-                f"GPU {device['index']}: {device['name']} — "
-                f"{device['free_bytes'] / (1024 ** 3):.1f}/"
-                f"{device['total_bytes'] / (1024 ** 3):.1f} GiB free"
+                _("GPU {index}: {name} — {free:.1f}/{total:.1f} GiB free").format(
+                    index=device['index'], name=device['name'],
+                    free=device['free_bytes'] / (1024 ** 3), total=device['total_bytes'] / (1024 ** 3),
+                )
             )
         if diagnostics["error"]:
-            lines.append(f"CUDA diagnostic: {diagnostics['error']}")
+            lines.append(_("CUDA diagnostic: {error}").format(error=diagnostics['error']))
         self.txt_status.SetValue("\n".join(lines))
 
     def _start_test(self, backend_name):
@@ -170,7 +230,7 @@ class RuntimeSettingsPanel(wx.Panel):
         settings.backend = backend_name
         if backend_name == "CUDA":
             settings.cuda_enabled = True
-        self.txt_status.AppendText(f"\nTesting {backend_name} backend...\n")
+        self.txt_status.AppendText(_("\nTesting {backend} backend...\n").format(backend=backend_name))
         thread = threading.Thread(
             target=self._test_worker, args=(settings,), daemon=True,
             name=f"KiPIDA-{backend_name}-Test",
@@ -193,7 +253,7 @@ class RuntimeSettingsPanel(wx.Panel):
                 f"{elapsed:.3f} s, residual={result.metadata.relative_residual:.3e}"
             )
         except Exception as exc:
-            message = f"Backend test failed: {exc}"
+            message = _("Backend test failed: {error}").format(error=exc)
         wx.CallAfter(self.txt_status.AppendText, message + "\n")
 
     def _on_install_cuda(self, event):

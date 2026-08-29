@@ -2,6 +2,8 @@
 
 import wx
 
+from i18n import _
+
 try:
     from emc_analyzer import EMCSourceDiscoverer
     from extractor import GeometryExtractor
@@ -13,22 +15,22 @@ except (ImportError, ValueError):
 
 
 STANDARD_CHOICES = [
-    ("CISPR 32 Class B", "CISPR_32_CLASS_B"),
-    ("CISPR 32 Class A", "CISPR_32_CLASS_A"),
-    ("FCC Part 15 Class B", "FCC_PART_15_CLASS_B"),
-    ("FCC Part 15 Class A", "FCC_PART_15_CLASS_A"),
-    ("CISPR 25 Class 5", "CISPR_25_CLASS_5"),
-    ("MIL-STD-461G RE102", "MIL_STD_461G_RE102"),
+    (_("CISPR 32 Class B"), "CISPR_32_CLASS_B"),
+    (_("CISPR 32 Class A"), "CISPR_32_CLASS_A"),
+    (_("FCC Part 15 Class B"), "FCC_PART_15_CLASS_B"),
+    (_("FCC Part 15 Class A"), "FCC_PART_15_CLASS_A"),
+    (_("CISPR 25 Class 5"), "CISPR_25_CLASS_5"),
+    (_("MIL-STD-461G RE102"), "MIL_STD_461G_RE102"),
 ]
 CATEGORIES = [
-    ("Ground planes", "GROUND"), ("Decoupling", "DECOUPLING"),
-    ("I/O filtering", "IO"), ("Switching", "SWITCHING"),
-    ("Clocks", "CLOCK"), ("Stackup", "STACKUP"),
-    ("Differential pairs", "DIFFERENTIAL"), ("Board edge", "BOARD_EDGE"),
-    ("PDN", "PDN"), ("Return paths", "RETURN_PATH"),
-    ("Crosstalk", "CROSSTALK"), ("ESD", "ESD"),
-    ("Shielding", "SHIELDING"), ("Via stitching", "STITCHING"),
-    ("Thermal interaction", "THERMAL"), ("Emission estimates", "EMISSIONS"),
+    (_("Ground planes"), "GROUND"), (_("Decoupling"), "DECOUPLING"),
+    (_("I/O filtering"), "IO"), (_("Switching"), "SWITCHING"),
+    (_("Clocks"), "CLOCK"), (_("Stackup"), "STACKUP"),
+    (_("Differential pairs"), "DIFFERENTIAL"), (_("Board edge"), "BOARD_EDGE"),
+    (_("PDN"), "PDN"), (_("Return paths"), "RETURN_PATH"),
+    (_("Crosstalk"), "CROSSTALK"), (_("ESD"), "ESD"),
+    (_("Shielding"), "SHIELDING"), (_("Via stitching"), "STITCHING"),
+    (_("Thermal interaction"), "THERMAL"), (_("Emission estimates"), "EMISSIONS"),
 ]
 
 
@@ -333,7 +335,12 @@ class EMCAnalysisPanel(wx.Panel):
         self.results = result
         counts = result.severity_counts
         self.summary.SetLabel(
-            f"Risk score {result.risk_score}/100 — {len(result.findings)} findings: "
-            f"{counts.get('CRITICAL', 0)} critical, {counts.get('HIGH', 0)} high, "
-            f"{counts.get('MEDIUM', 0)} medium."
+            _(
+                "Risk score {score}/100 — {total} findings: {critical} critical, "
+                "{high} high, {medium} medium."
+            ).format(
+                score=result.risk_score, total=len(result.findings),
+                critical=counts.get('CRITICAL', 0), high=counts.get('HIGH', 0),
+                medium=counts.get('MEDIUM', 0),
+            )
         )
