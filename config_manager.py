@@ -417,6 +417,11 @@ def _emc_settings_to_dict(settings: EMCAnalysisSettings) -> dict:
         "enabled_categories": list(settings.enabled_categories),
         "maximum_findings_per_rule_for_score": settings.maximum_findings_per_rule_for_score,
         "external_connector_prefixes": list(settings.external_connector_prefixes),
+        "field_simulation_enabled": settings.field_simulation_enabled,
+        "field_probe_height_mm": settings.field_probe_height_mm,
+        "field_grid_size_mm": settings.field_grid_size_mm,
+        "field_frequency_hz": settings.field_frequency_hz,
+        "field_maximum_cells": settings.field_maximum_cells,
         "sources": [{
             "name": source.name,
             "net_name": source.net_name,
@@ -427,6 +432,8 @@ def _emc_settings_to_dict(settings: EMCAnalysisSettings) -> dict:
             "cable_length_m": source.cable_length_m,
             "enabled": source.enabled,
             "source": source.source,
+            "voltage_swing_v": source.voltage_swing_v,
+            "current_a": source.current_a,
         } for source in settings.sources],
     }
 
@@ -446,6 +453,21 @@ def _dict_to_emc_settings(data: dict) -> EMCAnalysisSettings:
         external_connector_prefixes=list(data.get(
             "external_connector_prefixes", defaults.external_connector_prefixes
         )),
+        field_simulation_enabled=bool(data.get(
+            "field_simulation_enabled", defaults.field_simulation_enabled
+        )),
+        field_probe_height_mm=float(data.get(
+            "field_probe_height_mm", defaults.field_probe_height_mm
+        )),
+        field_grid_size_mm=float(data.get(
+            "field_grid_size_mm", defaults.field_grid_size_mm
+        )),
+        field_frequency_hz=float(data.get(
+            "field_frequency_hz", defaults.field_frequency_hz
+        )),
+        field_maximum_cells=int(data.get(
+            "field_maximum_cells", defaults.field_maximum_cells
+        )),
         sources=[EMCSignalSource(
             name=source.get("name", source.get("net_name", "Source")),
             net_name=source.get("net_name", ""),
@@ -456,6 +478,8 @@ def _dict_to_emc_settings(data: dict) -> EMCAnalysisSettings:
             cable_length_m=float(source.get("cable_length_m", 0.0)),
             enabled=bool(source.get("enabled", True)),
             source=source.get("source", "auto"),
+            voltage_swing_v=float(source.get("voltage_swing_v", 3.3)),
+            current_a=float(source.get("current_a", 0.1)),
         ) for source in data.get("sources", [])],
     )
 

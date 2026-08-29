@@ -3,6 +3,7 @@ import matplotlib
 # Use Agg backend to avoid GUI requirement for matplotlib, since we just want images
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 from mpl_toolkits.mplot3d import Axes3D
 import io
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ import wx
 import numpy as np
 
 from thermal_probe import ThermalMapProbe
+from field_probe import EMFieldMapProbe
 from emc_probe import EMCProbeReading, capture_axis_points
 
 
@@ -25,6 +27,7 @@ class EMCPlotPayload:
     """PNG data plus click-probe metadata for an EMI/EMC plot."""
     png_bytes: bytes
     click_probe: object = None
+    hover_probe: object = None
 
 class Plotter:
     def __init__(self, debug=False):
@@ -374,6 +377,62 @@ class Plotter:
         except Exception as exc:
             if self.debug:
                 print(f"EMC spectrum plot error: {exc}")
+            return None
+
+    def plot_em_field(self, result, quantity="E", as_png=False, with_hover_probe=False):
+        """Render a quasi-static near-field magnitude map in native PCB coordinates."""
+        try:
+            quantity = str(quantity).upper()
+            if quantity == "H":
+                values = np.asarray(result.magnetic_field_a_m, dtype=float)
+                label, unit, title = "H", "A/m", "Magnetic near field"
+            else:
+                values = np.asarray(result.electric_field_v_m, dtype=float)
+                label, unit, title = "E", "V/m", "Electric near field"
+            x_values = np.asarray(result.x_coordinates_mm, dtype=float)
+            y_values = np.asarray(result.y_coordinates_mm, dtype=float)
+            if values.size == 0 or values.shape != (y_values.size, x_values.size):
+                return None
+            bounds = (
+                float(x_values[0]), float(y_values[0]),
+                float(x_values[-1]), float(y_values[-1]),
+            )
+            positive = values[np.isfinite(values) & (values > 0.0)]
+            norm = None
+            if positive.size:
+                low = max(float(np.percentile(positive, 1.0)), float(np.max(positive)) * 1.0e-6)
+                high = float(np.max(positive))
+                if high > low * 20.0:
+                    norm = LogNorm(vmin=low, vmax=high)
+            fig, axis = plt.subplots(figsize=self._figsize(bounds), constrained_layout=True)
+            plot = axis.pcolormesh(
+                x_values, y_values, np.maximum(values, np.finfo(float).tiny),
+                shading="nearest", cmap="magma", norm=norm,
+                edgecolors="none", linewidth=0.0, antialiased=False, rasterized=True,
+            )
+            self._fit_xy(axis, bounds)
+            axis.invert_yaxis()
+            axis.set_xlabel("X (mm)")
+            axis.set_ylabel("Y (mm)")
+            mode = (
+                f"{result.frequency_hz / 1e6:g} MHz envelope"
+                if result.frequency_hz > 0.0 else "configured source fundamentals"
+            )
+            axis.set_title(
+                f"{title} at {result.probe_height_mm:g} mm — {mode}"
+            )
+            fig.colorbar(plot, ax=axis, label=f"Estimated |{label}| ({unit})")
+            if with_hover_probe:
+                fig.canvas.draw()
+                probe = EMFieldMapProbe(
+                    x_values, y_values, values, label, unit, result.probe_height_mm,
+                    axis.get_position().bounds, axis.get_xlim(), axis.get_ylim(),
+                )
+                return EMCPlotPayload(self._fig_to_png(fig), hover_probe=probe)
+            return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
+        except Exception as exc:
+            if self.debug:
+                print(f"EM field plot error: {exc}")
             return None
 
     def plot_thermal_3d(

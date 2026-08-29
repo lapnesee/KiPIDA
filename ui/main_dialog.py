@@ -20,6 +20,7 @@ from ac_solver import ACSolver
 from decoupling_optimizer import DecouplingOptimizer
 from differential_impedance import DifferentialGeometrySnapshot, DifferentialImpedanceSolver
 from emc_analyzer import EMCAnalyzer, EMCGeometrySnapshot
+from em_field_solver import EMNearFieldSolver
 from conjugate_heat_transfer import ConjugateHeatTransferSolver
 from electrothermal import ElectroThermalSolver
 from thermal_mesh import ThermalMesher
@@ -1168,6 +1169,29 @@ class KiPIDA_MainDialog(wx.Dialog):
                 log_callback=lambda message: wx.CallAfter(self.log, message),
             )
             result = analyzer.analyze(progress_callback=self._emc_progress)
+            field_result = None
+            if settings.field_simulation_enabled:
+                try:
+                    field_solver = EMNearFieldSolver(
+                        snapshot, settings,
+                        log_callback=lambda message: wx.CallAfter(self.log, message),
+                    )
+                    field_result = field_solver.solve(
+                        progress_callback=lambda completed, total, detail: wx.CallAfter(
+                            self.log,
+                            f"EM field progress: {completed}/{total} ({detail})",
+                        )
+                    )
+                    result.field_simulation = field_result
+                    result.elapsed_seconds += field_result.elapsed_seconds
+                    result.limitations.extend([
+                        "Near-field E/H maps use quasi-static line-charge and Biot-Savart trace elements; they are not a full-wave Maxwell solution.",
+                        "Field magnitude depends on the configured source voltage/current and does not solve return-current cancellation, dielectric boundaries, phase or enclosure scattering.",
+                    ])
+                except Exception as field_exc:
+                    warning = f"Near-field simulation skipped: {field_exc}"
+                    wx.CallAfter(self.log, f"[EM FIELD] {warning}")
+                    result.limitations.append(warning)
             with self._plot_lock:
                 plotter = Plotter(debug=debug_mode)
                 risk_png = plotter.plot_emc_risk_map(
@@ -1177,8 +1201,17 @@ class KiPIDA_MainDialog(wx.Dialog):
                     result, settings.frequency_start_hz, settings.frequency_stop_hz, as_png=True,
                     with_click_probe=True,
                 )
+                field_e_png = plotter.plot_em_field(
+                    field_result, "E", as_png=True, with_hover_probe=True,
+                ) if field_result is not None else None
+                field_h_png = plotter.plot_em_field(
+                    field_result, "H", as_png=True, with_hover_probe=True,
+                ) if field_result is not None else None
             if not self._closing:
-                wx.CallAfter(self._finish_emc_analysis, settings, result, risk_png, spectrum_png)
+                wx.CallAfter(
+                    self._finish_emc_analysis, settings, result,
+                    risk_png, spectrum_png, field_e_png, field_h_png,
+                )
         except Exception as exc:
             if not self._closing:
                 wx.CallAfter(self._fail_emc_analysis, exc)
@@ -1211,6 +1244,24 @@ class KiPIDA_MainDialog(wx.Dialog):
                 )
         else:
             lines.append("  - None; geometry-only analysis.")
+        field_result = getattr(result, "field_simulation", None)
+        lines.extend(["", "Near-field simulation", "---------------------"])
+        if field_result is None:
+            lines.append("  - Disabled or unavailable for this run.")
+        else:
+            mode = (
+                f"selected envelope at {field_result.frequency_hz / 1e6:g} MHz"
+                if field_result.frequency_hz > 0.0 else "each source at its configured fundamental"
+            )
+            lines.extend([
+                f"  - Observation plane: {field_result.probe_height_mm:g} mm above PCB; grid {settings.field_grid_size_mm:g} mm.",
+                f"  - Frequency mode: {mode}.",
+                f"  - Sources / trace elements: {field_result.source_count} / {field_result.segment_count}.",
+                f"  - Maximum |E|: {field_result.maximum_e_v_m:.6g} V/m at ({field_result.maximum_e_position_mm[0]:.3f}, {field_result.maximum_e_position_mm[1]:.3f}) mm.",
+                f"  - Maximum |H|: {field_result.maximum_h_a_m:.6g} A/m at ({field_result.maximum_h_position_mm[0]:.3f}, {field_result.maximum_h_position_mm[1]:.3f}) mm.",
+                f"  - Backend / elapsed: {field_result.compute_backend}; {field_result.elapsed_seconds:.3f} s.",
+            ])
+            lines.extend(f"  - Warning: {warning}" for warning in field_result.warnings)
         lines.extend([
             "",
             "Findings",
@@ -1253,7 +1304,9 @@ class KiPIDA_MainDialog(wx.Dialog):
         lines.extend(f"  - {item}" for item in result.limitations)
         return "\n".join(lines)
 
-    def _finish_emc_analysis(self, settings, result, risk_png, spectrum_png):
+    def _finish_emc_analysis(
+        self, settings, result, risk_png, spectrum_png, field_e_png=None, field_h_png=None,
+    ):
         self._emc_thread = None
         self.btn_run_emc.Enable()
         self.emc_panel.apply_results(result)
@@ -1267,6 +1320,16 @@ class KiPIDA_MainDialog(wx.Dialog):
             plots.append((
                 "Relative Spectrum", Plotter.bitmap_from_png(spectrum_png.png_bytes), None,
                 spectrum_png.click_probe,
+            ))
+        if field_e_png:
+            plots.append((
+                "Electric Field", Plotter.bitmap_from_png(field_e_png.png_bytes),
+                field_e_png.hover_probe, None,
+            ))
+        if field_h_png:
+            plots.append((
+                "Magnetic Field", Plotter.bitmap_from_png(field_h_png.png_bytes),
+                field_h_png.hover_probe, None,
             ))
         self._publish_results("EMC", self._format_emc_report(settings, result), plots)
         self.log("EMI/EMC pre-compliance results ready.")

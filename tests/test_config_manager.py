@@ -495,7 +495,11 @@ class TestConfigManager(unittest.TestCase):
             sources=[EMCSignalSource(
                 "Main clock", "MCLK", "CLOCK", 24.576e6, 1.2,
                 external=True, cable_length_m=0.5, source="manual",
+                voltage_swing_v=1.8, current_a=0.075,
             )],
+            field_probe_height_mm=4.5,
+            field_grid_size_mm=0.75,
+            field_frequency_hz=98.304e6,
         )
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as f:
             filepath = f.name
@@ -507,6 +511,11 @@ class TestConfigManager(unittest.TestCase):
             self.assertAlmostEqual(loaded.frequency_stop_hz, 2e9)
             self.assertEqual(loaded.sources[0].net_name, "MCLK")
             self.assertTrue(loaded.sources[0].external)
+            self.assertAlmostEqual(loaded.sources[0].voltage_swing_v, 1.8)
+            self.assertAlmostEqual(loaded.sources[0].current_a, 0.075)
+            self.assertAlmostEqual(loaded.field_probe_height_mm, 4.5)
+            self.assertAlmostEqual(loaded.field_grid_size_mm, 0.75)
+            self.assertAlmostEqual(loaded.field_frequency_hz, 98.304e6)
         finally:
             if Path(filepath).exists():
                 os.unlink(filepath)

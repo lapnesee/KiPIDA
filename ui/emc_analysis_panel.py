@@ -45,9 +45,12 @@ class EMCSourceDialog(wx.Dialog):
         self.rise = wx.TextCtrl(self, value="2")
         self.external = wx.CheckBox(self, label="Connected to an external cable")
         self.cable = wx.TextCtrl(self, value="0")
+        self.voltage = wx.TextCtrl(self, value="3.3")
+        self.current = wx.TextCtrl(self, value="0.1")
         for label, control in (
             ("Name:", self.name), ("Net:", self.net), ("Type:", self.kind),
             ("Fundamental (MHz):", self.frequency), ("Rise time (ns):", self.rise),
+            ("Voltage swing (V):", self.voltage), ("Trace current (A):", self.current),
             ("External interface:", self.external), ("Cable length (m):", self.cable),
         ):
             grid.Add(wx.StaticText(self, label=label), 0, wx.ALIGN_CENTER_VERTICAL)
@@ -56,7 +59,7 @@ class EMCSourceDialog(wx.Dialog):
         sizer.Add(grid, 1, wx.EXPAND | wx.ALL, 10)
         sizer.Add(self.CreateButtonSizer(wx.OK | wx.CANCEL), 0, wx.EXPAND | wx.ALL, 10)
         self.SetSizerAndFit(sizer)
-        self.SetMinSize((440, 330))
+        self.SetMinSize((440, 400))
         if source is not None:
             self.name.SetValue(source.name)
             self.net.SetValue(source.net_name)
@@ -65,6 +68,8 @@ class EMCSourceDialog(wx.Dialog):
             self.rise.SetValue(f"{source.rise_time_ns:g}")
             self.external.SetValue(source.external)
             self.cable.SetValue(f"{source.cable_length_m:g}")
+            self.voltage.SetValue(f"{source.voltage_swing_v:g}")
+            self.current.SetValue(f"{source.current_a:g}")
 
     def get_source(self):
         net_name = self.net.GetValue().strip()
@@ -73,12 +78,25 @@ class EMCSourceDialog(wx.Dialog):
         frequency = float(self.frequency.GetValue()) * 1e6
         rise_time = float(self.rise.GetValue())
         cable = float(self.cable.GetValue())
-        if frequency < 0 or rise_time <= 0 or cable < 0:
-            raise ValueError("Frequency/cable must be non-negative and rise time must be positive.")
+        voltage = float(self.voltage.GetValue())
+        current = float(self.current.GetValue())
+        if frequency < 0 or rise_time <= 0 or cable < 0 or voltage < 0 or current < 0:
+            raise ValueError(
+                "Frequency, cable length, voltage and current must be non-negative; "
+                "rise time must be positive."
+            )
         return EMCSignalSource(
-            self.name.GetValue().strip() or net_name, net_name,
-            self.kind.GetStringSelection() or "DIGITAL", frequency, rise_time,
-            self.external.GetValue(), cable, True, "manual",
+            name=self.name.GetValue().strip() or net_name,
+            net_name=net_name,
+            kind=self.kind.GetStringSelection() or "DIGITAL",
+            frequency_hz=frequency,
+            rise_time_ns=rise_time,
+            external=self.external.GetValue(),
+            cable_length_m=cable,
+            enabled=True,
+            source="manual",
+            voltage_swing_v=voltage,
+            current_a=current,
         )
 
 
@@ -123,12 +141,40 @@ class EMCAnalysisPanel(wx.Panel):
         setup.Add(grid, 0, wx.EXPAND | wx.ALL, 7)
         main.Add(setup, 0, wx.EXPAND | wx.ALL, 5)
 
+        field_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Near-field E/H Simulation")
+        field_parent = field_box.GetStaticBox()
+        field_grid = wx.FlexGridSizer(cols=4, hgap=8, vgap=7)
+        field_grid.AddGrowableCol(1, 1); field_grid.AddGrowableCol(3, 1)
+        self.field_enabled = wx.CheckBox(field_parent, label="Compute electric and magnetic maps")
+        self.field_enabled.SetValue(True)
+        self.field_height = wx.TextCtrl(field_parent, value="3")
+        self.field_grid_size = wx.TextCtrl(field_parent, value="1")
+        self.field_frequency = wx.TextCtrl(field_parent, value="0")
+        field_grid.Add(wx.StaticText(field_parent, label="Simulation:"), 0, wx.ALIGN_CENTER_VERTICAL)
+        field_grid.Add(self.field_enabled, 1, wx.EXPAND)
+        field_grid.Add(wx.StaticText(field_parent, label="Probe height (mm):"), 0, wx.ALIGN_CENTER_VERTICAL)
+        field_grid.Add(self.field_height, 1, wx.EXPAND)
+        field_grid.Add(wx.StaticText(field_parent, label="Grid size (mm):"), 0, wx.ALIGN_CENTER_VERTICAL)
+        field_grid.Add(self.field_grid_size, 1, wx.EXPAND)
+        field_grid.Add(wx.StaticText(field_parent, label="Frequency (MHz, 0=source fundamentals):"), 0, wx.ALIGN_CENTER_VERTICAL)
+        field_grid.Add(self.field_frequency, 1, wx.EXPAND)
+        field_box.Add(field_grid, 0, wx.EXPAND | wx.ALL, 7)
+        field_box.Add(wx.StaticText(
+            field_parent,
+            label=(
+                "Quasi-static engineering estimate. Source voltage/current are edited in the source list; "
+                "return paths, enclosure scattering and absolute phase are not solved."
+            ),
+        ), 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 7)
+        main.Add(field_box, 0, wx.EXPAND | wx.ALL, 5)
+
         source_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Detected and Manual Emission Sources")
         source_parent = source_box.GetStaticBox()
         self.source_list = wx.ListCtrl(source_parent, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
         for index, (title, width) in enumerate((
             ("Use", 45), ("Name", 145), ("Net", 180), ("Type", 95),
             ("MHz", 80), ("Rise ns", 75), ("External", 70), ("Cable m", 70), ("Origin", 100),
+            ("Swing V", 70), ("Current A", 75),
         )):
             self.source_list.InsertColumn(index, title, width=width)
         source_box.Add(self.source_list, 1, wx.EXPAND | wx.ALL, 5)
@@ -183,7 +229,8 @@ class EMCAnalysisPanel(wx.Panel):
             row = self.source_list.InsertItem(self.source_list.GetItemCount(), "Yes" if source.enabled else "No")
             values = (source.name, source.net_name, source.kind, f"{source.frequency_hz / 1e6:g}",
                       f"{source.rise_time_ns:g}", "Yes" if source.external else "No",
-                      f"{source.cable_length_m:g}", source.source)
+                      f"{source.cable_length_m:g}", source.source,
+                      f"{source.voltage_swing_v:g}", f"{source.current_a:g}")
             for column, value in enumerate(values, start=1):
                 self.source_list.SetItem(row, column, str(value))
 
@@ -247,6 +294,17 @@ class EMCAnalysisPanel(wx.Panel):
         self.settings.reference_net_names = [item.strip() for item in self.ground_nets.GetValue().split(",") if item.strip()]
         self.settings.external_connector_prefixes = [item.strip() for item in self.connector_prefixes.GetValue().split(",") if item.strip()]
         self.settings.enabled_categories = [key for key, check in self._category_checks.items() if check.GetValue()]
+        height = float(self.field_height.GetValue())
+        grid_size = float(self.field_grid_size.GetValue())
+        frequency = float(self.field_frequency.GetValue()) * 1e6
+        if height <= 0 or grid_size <= 0 or frequency < 0:
+            raise ValueError(
+                "Near-field height/grid size must be positive and its frequency must be non-negative."
+            )
+        self.settings.field_simulation_enabled = self.field_enabled.GetValue()
+        self.settings.field_probe_height_mm = height
+        self.settings.field_grid_size_mm = grid_size
+        self.settings.field_frequency_hz = frequency
         if not self.settings.reference_net_names:
             raise ValueError("Enter at least one ground-net alias.")
         return self.settings
@@ -262,6 +320,10 @@ class EMCAnalysisPanel(wx.Panel):
         self.frequency_stop.SetValue(f"{self.settings.frequency_stop_hz / 1e6:g}")
         self.ground_nets.SetValue(", ".join(self.settings.reference_net_names))
         self.connector_prefixes.SetValue(", ".join(self.settings.external_connector_prefixes))
+        self.field_enabled.SetValue(self.settings.field_simulation_enabled)
+        self.field_height.SetValue(f"{self.settings.field_probe_height_mm:g}")
+        self.field_grid_size.SetValue(f"{self.settings.field_grid_size_mm:g}")
+        self.field_frequency.SetValue(f"{self.settings.field_frequency_hz / 1e6:g}")
         enabled = set(self.settings.enabled_categories)
         for key, check in self._category_checks.items():
             check.SetValue(key in enabled)

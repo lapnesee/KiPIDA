@@ -61,6 +61,7 @@ Power-delivery and thermal issues are often discovered late: an undersized coppe
 - Clock, switching-node area, differential skew/reference changes, long parallel-route crosstalk, decoupling, connector filtering, ESD-return, and shield-return risk checks.
 - Reuse of the latest AC impedance, differential-pair, and thermal results when available, with explicit confidence levels when only geometric evidence exists.
 - Severity-ranked findings with stable rule identifiers, per-net scores, board-coordinate evidence, a PCB risk map, relative harmonic/cavity-resonance plot, and a near-field pre-compliance test plan.
+- Quasi-static electric and magnetic near-field maps above the PCB, with configurable probe height, grid size, frequency envelope, per-source voltage swing/current, CPU/CUDA execution, hotspot coordinates, and live field readout under the mouse.
 - Results are engineering risk estimates rather than a compliance certificate; absolute emissions, immunity, enclosure seams, and real cable behaviour still require measurement.
 
 ### Results and interaction
@@ -175,11 +176,12 @@ Differential impedance uses quasi-static transmission-line approximations. Vias,
 1. Open **EMI / EMC** and select the target standard, market, and frequency band.
 2. Click **Scan Live PCB** and review the detected clocks, switching nodes, fast interfaces, and differential sources.
 3. Edit their fundamental frequency and rise time; add manual sources and cable information where detection cannot infer the design intent.
-4. Check the ground-net aliases and enable the relevant rule families.
-5. Click **Run EMI/EMC**.
-6. In **Results**, review critical/high findings first, then inspect the board risk map, relative source spectrum, per-net scores, and suggested near-field probe points.
+4. For near-field maps, edit each source voltage/current and choose the observation height, grid size, and optional frequency envelope (`0` evaluates each configured source fundamental).
+5. Check the ground-net aliases and enable the relevant rule families.
+6. Click **Run EMI/EMC**.
+7. In **Results**, review critical/high findings first, then inspect the board risk map, relative source spectrum, E/H field maps, per-net scores, and suggested near-field probe points.
 
-Each finding records its rule ID, confidence, affected nets/components, board coordinates when available, and a concrete correction. Geometry checks are refreshed from the live PCB before every run. The relative spectrum ranks frequencies for investigation but does not plot or predict an absolute regulatory limit.
+Each finding records its rule ID, confidence, affected nets/components, board coordinates when available, and a concrete correction. Geometry checks are refreshed from the live PCB before every run. The relative spectrum ranks frequencies for investigation but does not plot or predict an absolute regulatory limit. The near-field model uses quasi-static line-charge and Biot-Savart trace elements; it does not solve return-current cancellation, dielectric boundaries, phase, enclosure scattering, or full-wave Maxwell coupling.
 
 ## 🧭 Results and Saved History
 
@@ -198,7 +200,7 @@ Ki-PIDA is built as a modular Python application around KiCad's IPC API.
 | Thermal | `thermal_model.py`, `thermal_mesh.py`, `thermal_solver.py`, `electrothermal.py`, `thermal_overlay.py` | 3D board conduction, coupling, plots, and KiCad overlays |
 | CFD | `cfd_model.py`, `cfd_mesh.py`, `cfd_solver.py`, `conjugate_heat_transfer.py` | Enclosure airflow and conjugate heat transfer |
 | Differential pairs | `differential_discovery.py`, `reference_plane_analyzer.py`, `differential_impedance.py`, `differential_recommender.py` | Discovery, stackup/reference-plane checks, impedance, recommendations |
-| EMI/EMC | `emc_analyzer.py`, `ui/emc_analysis_panel.py` | Source discovery, geometric rules, coupled-analysis reuse, risk scoring, spectrum and test plan |
+| EMI/EMC | `emc_analyzer.py`, `em_field_solver.py`, `ui/emc_analysis_panel.py` | Source discovery, geometric rules, coupled-analysis reuse, risk scoring, spectrum, quasi-static E/H fields and test plan |
 | Runtime and UI | `compute_backend.py`, `runtime_config.py`, `ui/` | CPU/CUDA selection, controls, history, and interactive views |
 
 Electrical analysis uses a hybrid 2.5D finite-difference mesh: each copper layer is a 2D grid with vertical via/PTH connections. EMI/EMC analysis combines deterministic geometric rules with relative analytical source/resonance estimates. Thermal analysis uses a separate 3D finite-volume solid mesh through the physical stackup. Enclosure CFD adds a structured volumetric air mesh and conjugate energy equation. These models are intended for design guidance and comparison; they are not full-wave electromagnetic, turbulent CFD, or sign-off solvers.

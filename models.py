@@ -275,6 +275,8 @@ class EMCSignalSource:
     cable_length_m: float = 0.0
     enabled: bool = True
     source: str = "auto"
+    voltage_swing_v: float = 3.3
+    current_a: float = 0.1
 
 
 @dataclass
@@ -295,6 +297,11 @@ class EMCAnalysisSettings:
     ])
     maximum_findings_per_rule_for_score: int = 3
     external_connector_prefixes: List[str] = field(default_factory=lambda: ["J", "P", "CN"])
+    field_simulation_enabled: bool = True
+    field_probe_height_mm: float = 3.0
+    field_grid_size_mm: float = 1.0
+    field_frequency_hz: float = 0.0  # 0 = each source at its configured fundamental
+    field_maximum_cells: int = 250000
 
 
 @dataclass
@@ -341,6 +348,27 @@ class EMCFrequencyRisk:
 
 
 @dataclass
+class EMFieldSimulationResult:
+    """Quasi-static PCB near-field estimate on a regular observation plane."""
+    x_coordinates_mm: List[float] = field(default_factory=list)
+    y_coordinates_mm: List[float] = field(default_factory=list)
+    electric_field_v_m: List[List[float]] = field(default_factory=list)
+    magnetic_field_a_m: List[List[float]] = field(default_factory=list)
+    probe_height_mm: float = 0.0
+    frequency_hz: float = 0.0
+    frequency_mode: str = "SOURCE_FUNDAMENTALS"
+    source_count: int = 0
+    segment_count: int = 0
+    maximum_e_v_m: float = 0.0
+    maximum_h_a_m: float = 0.0
+    maximum_e_position_mm: tuple = (0.0, 0.0)
+    maximum_h_position_mm: tuple = (0.0, 0.0)
+    compute_backend: str = "CPU_NUMPY"
+    elapsed_seconds: float = 0.0
+    warnings: List[str] = field(default_factory=list)
+
+
+@dataclass
 class EMCAnalysisResult:
     """Aggregated EMI/EMC pre-compliance result."""
     findings: List[EMCFinding] = field(default_factory=list)
@@ -355,6 +383,7 @@ class EMCAnalysisResult:
     regulatory_coverage: List[str] = field(default_factory=list)
     elapsed_seconds: float = 0.0
     limitations: List[str] = field(default_factory=list)
+    field_simulation: Optional[EMFieldSimulationResult] = None
 
 
 @dataclass

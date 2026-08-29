@@ -138,6 +138,25 @@ class TestPlotter(unittest.TestCase):
         self.assertTrue(interactive.png_bytes.startswith(b"\x89PNG"))
         self.assertTrue(interactive.click_probe.points)
 
+    def test_plot_em_near_field_with_hover_probe(self):
+        result = SimpleNamespace(
+            x_coordinates_mm=[0.0, 1.0, 2.0],
+            y_coordinates_mm=[0.0, 1.0],
+            electric_field_v_m=[[1.0, 2.0, 4.0], [0.5, 1.0, 2.0]],
+            magnetic_field_a_m=[[0.1, 0.2, 0.4], [0.05, 0.1, 0.2]],
+            probe_height_mm=3.0,
+            frequency_hz=25e6,
+        )
+        electric = self.plotter.plot_em_field(
+            result, "E", as_png=True, with_hover_probe=True,
+        )
+        magnetic = self.plotter.plot_em_field(
+            result, "H", as_png=True, with_hover_probe=True,
+        )
+        self.assertTrue(electric.png_bytes.startswith(b"\x89PNG"))
+        self.assertTrue(magnetic.png_bytes.startswith(b"\x89PNG"))
+        self.assertIsNotNone(electric.hover_probe)
+
     def test_plot_thermal_views(self):
         thermal_mesh = SimpleNamespace(
             nodes=[0, 1, 2, 3],
