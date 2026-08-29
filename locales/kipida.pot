@@ -3,12 +3,12 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Ki-PIDA\n"
-"POT-Creation-Date: 2026-08-29 10:30+0000\n"
+"POT-Creation-Date: 2026-08-29 15:51+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: ui/runtime_settings_panel.py:222
+#: ui/runtime_settings_panel.py:213
 #, python-brace-format
 msgid "\nTesting {backend} backend...\n"
 msgstr ""
@@ -519,7 +519,7 @@ msgstr ""
 msgid "At least two frequency points are required."
 msgstr ""
 
-#: ui/runtime_settings_panel.py:87
+#: ui/runtime_settings_panel.py:79
 msgid "AUTO CUDA threshold (nodes):"
 msgstr ""
 
@@ -535,11 +535,11 @@ msgstr ""
 msgid "Automatically detected source frequencies are editable defaults until confirmed by the designer."
 msgstr ""
 
-#: ui/runtime_settings_panel.py:184
+#: ui/runtime_settings_panel.py:175
 msgid "available"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:245
+#: ui/runtime_settings_panel.py:236
 #, python-brace-format
 msgid "Backend test failed: {error}"
 msgstr ""
@@ -812,7 +812,7 @@ msgstr ""
 msgid "components="
 msgstr ""
 
-#: ui/runtime_settings_panel.py:69
+#: ui/runtime_settings_panel.py:61
 msgid "Compute Backend"
 msgstr ""
 
@@ -864,7 +864,7 @@ msgstr ""
 msgid "Connector shield return not identified"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:199
+#: ui/runtime_settings_panel.py:190
 msgid "conservative default"
 msgstr ""
 
@@ -922,21 +922,21 @@ msgstr ""
 msgid "Coupled Thermal Analysis Error: {p0}"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:182
+#: ui/runtime_settings_panel.py:173
 #, python-brace-format
 msgid "CPU logical processors: {count}"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:83
+#: ui/runtime_settings_panel.py:75
 msgid "CPU multithreading:"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:183
+#: ui/runtime_settings_panel.py:174
 #, python-brace-format
 msgid "CPU sparse backend: {backend}"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:84
+#: ui/runtime_settings_panel.py:76
 msgid "CPU threads (0 = Auto):"
 msgstr ""
 
@@ -953,21 +953,21 @@ msgstr ""
 msgid "Crosstalk"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:186
+#: ui/runtime_settings_panel.py:177
 #, python-brace-format
 msgid "CUDA available: {state}"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:86
+#: ui/runtime_settings_panel.py:78
 msgid "CUDA device:"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:214
+#: ui/runtime_settings_panel.py:205
 #, python-brace-format
 msgid "CUDA diagnostic: {error}"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:203
+#: ui/runtime_settings_panel.py:194
 #, python-brace-format
 msgid "CUDA driver/runtime: {driver} / {runtime}"
 msgstr ""
@@ -998,11 +998,11 @@ msgstr ""
 msgid "CUDA was forced but CUDA acceleration is disabled."
 msgstr ""
 
-#: ui/runtime_settings_panel.py:85
+#: ui/runtime_settings_panel.py:77
 msgid "CUDA:"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:185
+#: ui/runtime_settings_panel.py:176
 #, python-brace-format
 msgid "CuPy: {version}"
 msgstr ""
@@ -1348,11 +1348,11 @@ msgstr ""
 msgid "Enable / Disable Selected"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:74
+#: ui/runtime_settings_panel.py:66
 msgid "Enable CPU multithreading"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:76
+#: ui/runtime_settings_panel.py:68
 msgid "Enable CUDA acceleration"
 msgstr ""
 
@@ -1726,7 +1726,7 @@ msgstr ""
 msgid "GND, AGND, DGND, PGND"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:208
+#: ui/runtime_settings_panel.py:199
 #, python-brace-format
 msgid "GPU {index}: {name} — {free:.1f}/{total:.1f} GiB free"
 msgstr ""
@@ -1864,15 +1864,15 @@ msgstr ""
 msgid "Input Side"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:99
+#: ui/runtime_settings_panel.py:91
 msgid "Install / Repair CUDA"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:252
+#: ui/runtime_settings_panel.py:243
 msgid "Install CUDA Backend"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:250
+#: ui/runtime_settings_panel.py:241
 msgid "Install or update the optional CuPy CUDA environment in the Python runtime used by KiCad?\n\nA KiCad restart will be required afterwards."
 msgstr ""
 
@@ -1942,7 +1942,7 @@ msgstr ""
 msgid "Ki-PIDA UI Initialized."
 msgstr ""
 
-#: ui/runtime_settings_panel.py:62
+#: ui/runtime_settings_panel.py:169
 #, python-brace-format
 msgid "Ki-PIDA version: {version}"
 msgstr ""
@@ -2017,7 +2017,7 @@ msgstr ""
 msgid "Language"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:161
+#: ui/runtime_settings_panel.py:153
 msgid "Language change"
 msgstr ""
 
@@ -2343,7 +2343,7 @@ msgstr ""
 msgid "nets="
 msgstr ""
 
-#: ui/ac_analysis_panel.py:233 ui/differential_analysis_panel.py:194 ui/emc_analysis_panel.py:231 ui/emc_analysis_panel.py:233 ui/runtime_settings_panel.py:186 ui/thermal_analysis_panel.py:346
+#: ui/ac_analysis_panel.py:233 ui/differential_analysis_panel.py:194 ui/emc_analysis_panel.py:231 ui/emc_analysis_panel.py:233 ui/runtime_settings_panel.py:177 ui/thermal_analysis_panel.py:346
 msgid "No"
 msgstr ""
 
@@ -2426,7 +2426,7 @@ msgstr ""
 msgid "Normal (1.0 mm)"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:184
+#: ui/runtime_settings_panel.py:175
 msgid "not installed"
 msgstr ""
 
@@ -2592,10 +2592,6 @@ msgstr ""
 msgid "plot-*.png"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:58
-msgid "Plugin and Python Runtime"
-msgstr ""
-
 #: ui/ac_analysis_panel.py:238
 msgid "Populated"
 msgstr ""
@@ -2653,7 +2649,7 @@ msgstr ""
 msgid "Prefer stripline routing between reference planes where practical."
 msgstr ""
 
-#: ui/runtime_settings_panel.py:82
+#: ui/runtime_settings_panel.py:74
 msgid "Preferred backend:"
 msgstr ""
 
@@ -2697,11 +2693,7 @@ msgstr ""
 msgid "Pseudo dt (s):"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:64
-msgid "Python: detecting..."
-msgstr ""
-
-#: ui/runtime_settings_panel.py:177
+#: ui/runtime_settings_panel.py:170
 #, python-brace-format
 msgid "Python: {version} — {executable}"
 msgstr ""
@@ -2753,7 +2745,7 @@ msgstr ""
 msgid "Refresh Detection"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:96
+#: ui/runtime_settings_panel.py:88
 msgid "Refresh Diagnostics"
 msgstr ""
 
@@ -2973,7 +2965,7 @@ msgstr ""
 msgid "Runtime & Acceleration"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:157
+#: ui/runtime_settings_panel.py:149
 #, python-brace-format
 msgid "Runtime settings saved to {path}"
 msgstr ""
@@ -2987,7 +2979,7 @@ msgstr ""
 msgid "Save Config"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:100
+#: ui/runtime_settings_panel.py:92
 msgid "Save Runtime Settings"
 msgstr ""
 
@@ -3013,7 +3005,7 @@ msgstr ""
 msgid "Scan Live PCB"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:183
+#: ui/runtime_settings_panel.py:174
 msgid "SciPy SuperLU"
 msgstr ""
 
@@ -3332,7 +3324,7 @@ msgstr ""
 msgid "System default"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:190
+#: ui/runtime_settings_panel.py:181
 #, python-brace-format
 msgid "System RAM: {available:.1f}/{total:.1f} GiB available"
 msgstr ""
@@ -3404,11 +3396,11 @@ msgstr ""
 msgid "Temperature XZ"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:97
+#: ui/runtime_settings_panel.py:89
 msgid "Test CPU"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:98
+#: ui/runtime_settings_panel.py:90
 msgid "Test CUDA"
 msgstr ""
 
@@ -3428,7 +3420,7 @@ msgstr ""
 msgid "The enclosure CFD mesh has no fluid cells."
 msgstr ""
 
-#: ui/runtime_settings_panel.py:160
+#: ui/runtime_settings_panel.py:152
 msgid "The language change will be applied the next time the Ki-PIDA window is opened."
 msgstr ""
 
@@ -3585,12 +3577,12 @@ msgstr ""
 msgid "Thermal progress: {p0}/{p1} ({p2})"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:197
+#: ui/runtime_settings_panel.py:188
 #, python-brace-format
 msgid "Thermal RAM ceiling: {ceiling}"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:88
+#: ui/runtime_settings_panel.py:80
 msgid "Thermal RAM limit GiB (0 = conservative default):"
 msgstr ""
 
@@ -3630,7 +3622,7 @@ msgstr ""
 msgid "This net pair already exists."
 msgstr ""
 
-#: ui/runtime_settings_panel.py:184
+#: ui/runtime_settings_panel.py:175
 #, python-brace-format
 msgid "Thread control: {state}"
 msgstr ""
@@ -3870,7 +3862,7 @@ msgstr ""
 msgid "Y (mm)"
 msgstr ""
 
-#: ui/ac_analysis_panel.py:233 ui/differential_analysis_panel.py:194 ui/emc_analysis_panel.py:231 ui/emc_analysis_panel.py:233 ui/runtime_settings_panel.py:186 ui/thermal_analysis_panel.py:346
+#: ui/ac_analysis_panel.py:233 ui/differential_analysis_panel.py:194 ui/emc_analysis_panel.py:231 ui/emc_analysis_panel.py:233 ui/runtime_settings_panel.py:177 ui/thermal_analysis_panel.py:346
 msgid "Yes"
 msgstr ""
 
@@ -3902,7 +3894,7 @@ msgstr ""
 msgid "{title} at {height:g} mm — {mode}"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:198
+#: ui/runtime_settings_panel.py:189
 #, python-brace-format
 msgid "{value:g} GiB (expert override)"
 msgstr ""

@@ -55,16 +55,8 @@ class RuntimeSettingsPanel(wx.Panel):
         ), 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         main.Add(language_box, 0, wx.EXPAND | wx.ALL, 6)
 
-        identity = wx.StaticBoxSizer(wx.VERTICAL, self, "Plugin and Python Runtime")
         root = Path(__file__).resolve().parent.parent
-        self.lbl_version = wx.StaticText(
-            identity.GetStaticBox(),
-            label=_("Ki-PIDA version: {version}").format(version=plugin_version(root)),
-        )
-        self.lbl_python = wx.StaticText(identity.GetStaticBox(), label="Python: detecting...")
-        identity.Add(self.lbl_version, 0, wx.ALL, 5)
-        identity.Add(self.lbl_python, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
-        main.Add(identity, 0, wx.EXPAND | wx.ALL, 6)
+        self._plugin_version = plugin_version(root)
 
         compute = wx.StaticBoxSizer(wx.VERTICAL, self, "Compute Backend")
         parent = compute.GetStaticBox()
@@ -173,12 +165,11 @@ class RuntimeSettingsPanel(wx.Panel):
         if self._devices:
             selected = min(self.settings.cuda_device, len(self._devices) - 1)
             self.choice_device.SetSelection(selected)
-        self.lbl_python.SetLabel(
+        lines = [
+            _("Ki-PIDA version: {version}").format(version=self._plugin_version),
             _("Python: {version} — {executable}").format(
                 version=summary['python'], executable=summary['executable'],
-            )
-        )
-        lines = [
+            ),
             _("CPU logical processors: {count}").format(count=os.cpu_count() or 1),
             _("CPU sparse backend: {backend}").format(backend='PARDISO' if summary['pypardiso'] else 'SciPy SuperLU'),
             _("Thread control: {state}").format(state=_("available") if summary['threadpoolctl'] else _("not installed")),

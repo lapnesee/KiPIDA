@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 import i18n
-from tools.i18n_catalog import compile_mo, validate_po
+from tools.i18n_catalog import compile_mo, parse_po, validate_po
 
 
 class I18NTests(unittest.TestCase):
@@ -55,6 +55,12 @@ class I18NTests(unittest.TestCase):
         errors = validate_po(po, root / "locales" / "kipida.pot", require_complete=True)
         self.assertEqual(errors, [])
         self.assertTrue((po.parent / "kipida.mo").is_file())
+
+        untranslated = [
+            entry["msgid"] for entry in parse_po(po)
+            if entry.get("msgid") and entry.get("msgstr") == entry["msgid"]
+        ]
+        self.assertLessEqual(len(untranslated), 60)
 
     def test_wx_display_boundaries_use_the_selected_catalog(self):
         root = Path(__file__).resolve().parent.parent
