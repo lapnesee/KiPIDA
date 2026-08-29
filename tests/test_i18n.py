@@ -51,6 +51,17 @@ class I18NTests(unittest.TestCase):
         self.assertEqual(i18n.configure("fr"), "fr")
         self.assertEqual(i18n.gettext_text(""), "")
 
+    def test_thermal_probe_readout_is_translated(self):
+        self.assertEqual(i18n.configure("fr"), "fr")
+        template = (
+            "Thermal probe  {temperature:.2f} C  |  X {x:.2f} mm, Y {y:.2f} mm, "
+            "Z {z:.3f} mm  |  {layer}"
+        )
+        rendered = i18n.gettext_text(template).format(
+            temperature=42.5, x=10.0, y=20.0, z=1.6, layer="F.Cu",
+        )
+        self.assertTrue(rendered.startswith("Sonde thermique"))
+
     def test_committed_french_catalog_is_complete_and_placeholder_safe(self):
         root = Path(__file__).resolve().parent.parent
         po = root / "locales" / "fr" / "LC_MESSAGES" / "kipida.po"

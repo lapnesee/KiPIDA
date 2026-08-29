@@ -232,6 +232,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         
         # 2. Action Buttons (Bottom)
         action_panel = wx.Panel(self)
+        self.action_panel = action_panel
         action_sizer = wx.BoxSizer(wx.VERTICAL)
         self.lbl_interaction_status = wx.StaticText(
             action_panel, label="", style=getattr(wx, "ST_ELLIPSIZE_END", 0),
@@ -410,6 +411,10 @@ class KiPIDA_MainDialog(wx.Dialog):
         value = str(text or "")
         self.lbl_interaction_status.SetLabel(value.replace("\n", " — "))
         self.lbl_interaction_status.SetToolTip(value)
+        available_width = max(100, self.action_panel.GetClientSize().width - 16)
+        self.lbl_interaction_status.Wrap(available_width)
+        self.action_panel.Layout()
+        self.lbl_interaction_status.Refresh()
 
     def _results_history_directory(self):
         """Keep analysis archives alongside the active KiCad board/project."""

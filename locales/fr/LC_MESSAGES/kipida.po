@@ -2519,7 +2519,7 @@ msgid "Thermal plot rendering failed; see Log for details."
 msgstr "Échec du rendu du graphique thermique ; consultez le journal pour plus de détails."
 
 msgid "Thermal probe  {temperature:.2f} C  |  X {x:.2f} mm, Y {y:.2f} mm, Z {z:.3f} mm  |  {layer}"
-msgstr "Thermique probe  {temperature:.2f} C  |  X {x:.2f} mm, Y {y:.2f} mm, Z {z:.3f} mm  |  {layer}"
+msgstr "Sonde thermique  {temperature:.2f} C  |  X {x:.2f} mm, Y {y:.2f} mm, Z {z:.3f} mm  |  {layer}"
 
 msgid "Thermal progress: {p0}/{p1} ({p2})"
 msgstr "Thermique progress: {p0}/{p1} ({p2})"

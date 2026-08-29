@@ -273,7 +273,9 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
                 wx.TheClipboard.Close()
 
     def _on_leave(self, event):
-        self._set_status("")
+        # Keep the last valid probe value visible in the shared bottom status
+        # bar.  wx may emit leave events while moving between the bitmap and
+        # its scrolled parent, which previously erased a freshly sampled value.
         event.Skip()
 
     def _on_motion(self, event):

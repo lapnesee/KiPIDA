@@ -108,6 +108,7 @@ class RuntimeSettingsPanel(wx.Panel):
         self.btn_test_cpu.Bind(wx.EVT_BUTTON, lambda event: self._start_test("CPU"))
         self.btn_test_cuda.Bind(wx.EVT_BUTTON, lambda event: self._start_test("CUDA"))
         self.btn_install_cuda.Bind(wx.EVT_BUTTON, self._on_install_cuda)
+        self.choice_language.Bind(wx.EVT_CHOICE, self._on_language_selected)
         self._set_controls(self.settings)
 
     def _set_controls(self, settings):
@@ -145,13 +146,32 @@ class RuntimeSettingsPanel(wx.Panel):
 
     def _on_save(self, event):
         previous_language = self.settings.ui_language
-        path = save_runtime_settings(self.get_settings())
+        saved = self.get_settings()
+        path = save_runtime_settings(saved)
+        self.settings = replace(saved)
         self._log(_("Runtime settings saved to {path}").format(path=path))
         if self.settings.ui_language != previous_language:
             wx.MessageBox(
                 _("The language change will be applied the next time the Ki-PIDA window is opened."),
                 _("Language change"), wx.OK | wx.ICON_INFORMATION,
             )
+
+    def _on_language_selected(self, event):
+        """Persist the language immediately so closing the dialog cannot lose it."""
+        language_index = self.choice_language.GetSelection()
+        selected = (
+            self._language_codes[language_index]
+            if 0 <= language_index < len(self._language_codes) else SYSTEM_LANGUAGE
+        )
+        if selected != self.settings.ui_language:
+            self.settings.ui_language = selected
+            path = save_runtime_settings(self.settings)
+            self._log(_("Runtime settings saved to {path}").format(path=path))
+            wx.MessageBox(
+                _("The language change will be applied the next time the Ki-PIDA window is opened."),
+                _("Language change"), wx.OK | wx.ICON_INFORMATION,
+            )
+        event.Skip()
 
     def refresh_status(self):
         summary = runtime_summary()
