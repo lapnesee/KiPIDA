@@ -1,0 +1,3917 @@
+# Ki-PIDA translation template.
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Ki-PIDA\n"
+"POT-Creation-Date: 2026-08-29 10:30+0000\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: ui/runtime_settings_panel.py:222
+#, python-brace-format
+msgid "\nTesting {backend} backend...\n"
+msgstr ""
+
+#: mesh.py:745
+#, python-brace-format
+msgid "      [VIA] Failed to connect layers @ ({p0}, {p1}): found nodes on layers {p2}"
+msgstr ""
+
+#: ui/main_dialog.py:1278
+#, python-brace-format
+msgid "  - Backend / elapsed: {backend}; {seconds:.3f} s."
+msgstr ""
+
+#: ui/main_dialog.py:1266
+msgid "  - Disabled or unavailable for this run."
+msgstr ""
+
+#: ui/main_dialog.py:1274
+#, python-brace-format
+msgid "  - Frequency mode: {mode}."
+msgstr ""
+
+#: ui/main_dialog.py:1276
+#, python-brace-format
+msgid "  - Maximum |E|: {value:.6g} V/m at ({x:.3f}, {y:.3f}) mm."
+msgstr ""
+
+#: ui/main_dialog.py:1277
+#, python-brace-format
+msgid "  - Maximum |H|: {value:.6g} A/m at ({x:.3f}, {y:.3f}) mm."
+msgstr ""
+
+#: ui/main_dialog.py:966
+msgid "  - No capacitor changes recommended."
+msgstr ""
+
+#: ui/main_dialog.py:1657
+msgid "  - No mapped component heat source."
+msgstr ""
+
+#: ui/main_dialog.py:1314
+msgid "  - No net-specific penalty."
+msgstr ""
+
+#: ui/main_dialog.py:1262
+msgid "  - None; geometry-only analysis."
+msgstr ""
+
+#: ui/main_dialog.py:1273
+#, python-brace-format
+msgid "  - Observation plane: {height:g} mm above PCB; grid {grid:g} mm."
+msgstr ""
+
+#: ui/main_dialog.py:1275
+#, python-brace-format
+msgid "  - Sources / trace elements: {sources} / {segments}."
+msgstr ""
+
+#: ui/main_dialog.py:1093 ui/main_dialog.py:1094
+#, python-brace-format
+msgid "  - {action} [{feasibility}; {confidence}]: {geometry}; predicted Zdiff={impedance:.3f} ohm; GND clearance >= {clearance:.3f} mm"
+msgstr ""
+
+#: ui/main_dialog.py:1647 ui/main_dialog.py:1648
+#, python-brace-format
+msgid "  - {reference}: Tj={junction:.2f} C, P={power:.4g} W, margin={margin:.2f} C [{status}; {source}]"
+msgstr ""
+
+#: ui/main_dialog.py:453
+#, python-brace-format
+msgid "  [_get_mesh_nodes] Looking up {p0} pads={p1}"
+msgstr ""
+
+#: ui/main_dialog.py:1946
+#, python-brace-format
+msgid "  Backend: {backend} ({device}), solve {solve:.4g} s, residual {residual:.3g}\n\n"
+msgstr ""
+
+#: ui/main_dialog.py:1940
+#, python-brace-format
+msgid "  DC grid: {grid:.4g} mm{suffix}\n"
+msgstr ""
+
+#: ui/main_dialog.py:1935
+#, python-brace-format
+msgid "  Drop:  {drop:.4f} V\n\n"
+msgstr ""
+
+#: ui/main_dialog.py:1300
+#, python-brace-format
+msgid "  Evidence targets: {targets}"
+msgstr ""
+
+#: ui/main_dialog.py:687
+#, python-brace-format
+msgid "  Extracting copper geometry for {p0}..."
+msgstr ""
+
+#: ui/main_dialog.py:689
+#, python-brace-format
+msgid "  Geometry ready for {p0}: {p1} layer(s) in {p2} s."
+msgstr ""
+
+#: mesh.py:541
+#, python-brace-format
+msgid "  Layer {p0} vectorized mesh: {p1} nodes."
+msgstr ""
+
+#: ui/main_dialog.py:703
+#, python-brace-format
+msgid "  Mesh ready for {p0}: {p1} nodes in {p2} s."
+msgstr ""
+
+#: ui/main_dialog.py:523
+#, python-brace-format
+msgid "  No pads found for {p0} matching {p1}"
+msgstr ""
+
+#: ui/main_dialog.py:562
+#, python-brace-format
+msgid "  Pad {p0} at ({p1},{p2}) not on mesh."
+msgstr ""
+
+#: ui/main_dialog.py:1069
+#, python-brace-format
+msgid "  Range: {minimum:.3f} .. {maximum:.3f} ohm; length mismatch={mismatch:.3f} mm"
+msgstr ""
+
+#: ui/main_dialog.py:1934
+#, python-brace-format
+msgid "  Range: {minimum:.4f} - {maximum:.4f} V\n"
+msgstr ""
+
+#: ui/main_dialog.py:1308
+#, python-brace-format
+msgid "  Recommendation: {recommendation}"
+msgstr ""
+
+#: ui/main_dialog.py:1085
+msgid "  Recommendations:"
+msgstr ""
+
+#: ui/main_dialog.py:804
+#, python-brace-format
+msgid "  Regulator {p0} draws {p1}A from {p2} ({p3})"
+msgstr ""
+
+#: ui/main_dialog.py:764
+#, python-brace-format
+msgid "  Regulator {p0} has no load on output rail {p1}"
+msgstr ""
+
+#: ui/main_dialog.py:739
+#, python-brace-format
+msgid "  Regulator {p0} output {p1} pads {p2} -> {p3} nodes"
+msgstr ""
+
+#: ui/main_dialog.py:1942
+#, python-brace-format
+msgid "  Requested DC grid: {grid:.4g} mm\n"
+msgstr ""
+
+#: ui/main_dialog.py:709
+#, python-brace-format
+msgid "  Skipping {p0}: Mesh empty."
+msgstr ""
+
+#: ui/main_dialog.py:694
+#, python-brace-format
+msgid "  Skipping {p0}: No geometry."
+msgstr ""
+
+#: ui/main_dialog.py:835
+#, python-brace-format
+msgid "  Solved {p0}: Drop {p1} V"
+msgstr ""
+
+#: ui/main_dialog.py:837
+#, python-brace-format
+msgid "  Solved {p0}: No result."
+msgstr ""
+
+#: ui/main_dialog.py:722
+#, python-brace-format
+msgid "  Source {p0} pads {p1} -> {p2} nodes"
+msgstr ""
+
+#: ui/main_dialog.py:1063
+#, python-brace-format
+msgid "  Status: {status}; Zdiff={impedance:.3f} ohm; target={target:g} ohm; error={error:+.2f}%"
+msgstr ""
+
+#: ui/main_dialog.py:503
+#, python-brace-format
+msgid "  Warning: Footprint {p0} not found."
+msgstr ""
+
+#: ui/main_dialog.py:808
+#, python-brace-format
+msgid "  Warning: No sources for {p0}. Skipping solve."
+msgstr ""
+
+#: ui/main_dialog.py:796
+#, python-brace-format
+msgid "  WARNING: Regulator {p0} input at {p1} pads {p2} found NO mesh nodes!"
+msgstr ""
+
+#: ui/main_dialog.py:741
+#, python-brace-format
+msgid "  WARNING: Regulator {p0} output {p1} pads {p2} found NO mesh nodes!"
+msgstr ""
+
+#: ui/main_dialog.py:724
+#, python-brace-format
+msgid "  WARNING: Source {p0} pads {p1} found NO mesh nodes!"
+msgstr ""
+
+#: ui/main_dialog.py:1083
+#, python-brace-format
+msgid "  WARNING: {warning}"
+msgstr ""
+
+#: ui/main_dialog.py:1939
+msgid " (adapted for mesh safety)"
+msgstr ""
+
+#: ui/main_dialog.py:1614
+#, python-brace-format
+msgid " (requested {requested:.4g} mm; adapted)"
+msgstr ""
+
+#: emc_analyzer.py:758
+msgid " MHz."
+msgstr ""
+
+#: ui/power_tree_panel.py:127
+msgid "+ Load"
+msgstr ""
+
+#: ui/power_tree_panel.py:128
+msgid "+ Regulator"
+msgstr ""
+
+#: ui/power_tree_panel.py:126
+msgid "+ Source"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:304
+#, python-brace-format
+msgid ", RAM ceiling {memory:g} GiB"
+msgstr ""
+
+#: ui/power_tree_panel.py:129
+msgid "- Remove"
+msgstr ""
+
+#: ui/main_dialog.py:1390
+msgid "--- Starting 3D Thermal Analysis ---"
+msgstr ""
+
+#: ui/main_dialog.py:899
+msgid "--- Starting AC Impedance Analysis ---"
+msgstr ""
+
+#: ui/main_dialog.py:1401
+msgid "--- Starting Coupled DC / 3D Thermal Analysis ---"
+msgstr ""
+
+#: ui/main_dialog.py:916
+msgid "--- Starting Decoupling Optimization ---"
+msgstr ""
+
+#: ui/main_dialog.py:1004
+msgid "--- Starting Differential Pair Impedance Analysis ---"
+msgstr ""
+
+#: ui/main_dialog.py:1153
+msgid "--- Starting EMI / EMC Pre-compliance Analysis ---"
+msgstr ""
+
+#: ui/main_dialog.py:1823
+msgid "--- Starting Phase 4 Enclosure CFD Analysis ---"
+msgstr ""
+
+#: ui/main_dialog.py:656
+#, python-brace-format
+msgid "--- Starting System Simulation ({p0} rails) ---"
+msgstr ""
+
+#: plotter.py:472
+msgid "3D board temperature"
+msgstr ""
+
+#: ui/main_dialog.py:199 ui/results_workspace.py:200
+msgid "3D Thermal"
+msgstr ""
+
+#: ui/main_dialog.py:1600
+msgid "3D Thermal Analysis Results"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:101
+msgid "3D Thermal and Airflow Setup"
+msgstr ""
+
+#: ui/main_dialog.py:1993
+msgid "3D View"
+msgstr ""
+
+#: ui/setup_dialogs.py:108
+msgid "[ALREADY USED] "
+msgstr ""
+
+#: discovery.py:83
+#, python-brace-format
+msgid "[DEBUG] Error calling {p0}: {p1}"
+msgstr ""
+
+#: discovery.py:326
+#, python-brace-format
+msgid "[DEBUG] Found {p0} nets by scanning items"
+msgstr ""
+
+#: discovery.py:306
+#, python-brace-format
+msgid "[DEBUG] Found {p0} nets via board.nets collection"
+msgstr ""
+
+#: em_field_solver.py:244
+#, python-brace-format
+msgid "[EM FIELD] Complete in {p0} s: Emax={p1} V/m, Hmax={p2} A/m."
+msgstr ""
+
+#: em_field_solver.py:118
+#, python-brace-format
+msgid "[EM FIELD] CUDA unavailable; using NumPy: {p0}"
+msgstr ""
+
+#: em_field_solver.py:166
+#, python-brace-format
+msgid "[EM FIELD] Solving {p0} observation cells at {p1} mm with {p2} trace elements on {p3}."
+msgstr ""
+
+#: ipc_entry.py:147
+#, python-brace-format
+msgid "[INIT] {p0}"
+msgstr ""
+
+#: stackup_io.py:43
+msgid "A stackup requires at least two copper layers."
+msgstr ""
+
+#: emc_analyzer.py:764
+msgid "Absolute emissions, immunity, enclosure seams and cable routing require physical tests."
+msgstr ""
+
+#: ui/main_dialog.py:912
+msgid "AC Analysis Error"
+msgstr ""
+
+#: ui/main_dialog.py:911
+#, python-brace-format
+msgid "AC Analysis Error: {p0}"
+msgstr ""
+
+#: ui/main_dialog.py:151 ui/main_dialog.py:976 ui/results_workspace.py:197
+msgid "AC Impedance"
+msgstr ""
+
+#: ui/main_dialog.py:941
+msgid "AC Impedance Analysis Results"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:67
+msgid "AC Impedance Setup"
+msgstr ""
+
+#: ui/main_dialog.py:894
+#, python-brace-format
+msgid "AC progress: {p0}/{p1} ({p2})"
+msgstr ""
+
+#: ac_solver.py:180
+#, python-brace-format
+msgid "AC solve failed at {p0} Hz: {p1}"
+msgstr ""
+
+#: ac_solver.py:124
+msgid "AC source is not connected to the network."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:147
+msgid "Action"
+msgstr ""
+
+#: emc_analyzer.py:302
+msgid "Add a continuous ground plane and verify the configured ground-net aliases."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:25
+msgid "Add Differential Pair"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:39
+msgid "Add EMI/EMC Source"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:147
+msgid "Add Fan Pair"
+msgstr ""
+
+#: emc_analyzer.py:541
+msgid "Add ground stitching around board edges, connectors and reference transitions."
+msgstr ""
+
+#: ui/power_tree_panel.py:86
+msgid "Add Manual Net"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:132
+msgid "Add Manual Pair"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:185
+msgid "Add Manual Source"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:144
+msgid "Add Patch"
+msgstr ""
+
+#: ui/power_tree_panel.py:568
+msgid "Add Regulator"
+msgstr ""
+
+#: emc_analyzer.py:601
+msgid "Add symmetric transitions and adjacent ground vias at every layer change."
+msgstr ""
+
+#: stackup_io.py:56
+msgid "Adjacent copper layers require a dielectric between them."
+msgstr ""
+
+#: emc_analyzer.py:336
+msgid "Adjacent signal layers"
+msgstr ""
+
+#: thermal_model.py:342
+#, python-brace-format
+msgid "Aggregated copper for {p0}/{p1} nets."
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:142
+msgid "Air direction (deg):"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:141
+msgid "Air speed (m/s):"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:141
+msgid "Airflow mode:"
+msgstr ""
+
+#: ui/power_tree_panel.py:313
+msgid "All components on this net have been assigned."
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:121 ui/thermal_analysis_panel.py:140
+msgid "Ambient (C):"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:26
+msgid "Ambient temperature"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:63
+msgid "An inlet or fan patch requires a positive velocity."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:441
+msgid "Applied KiCad differential classes: "
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:136
+msgid "Applied to results and KiCad overlay"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:436
+msgid "Apply KiCad Design Rules"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:154
+msgid "Apply Selected to KiCad Rules"
+msgstr ""
+
+#: thermal_solver.py:67
+#, python-brace-format
+msgid "Assembling sparse thermal matrix from {p0} branches and {p1} boundaries."
+msgstr ""
+
+#: thermal_solver.py:45
+msgid "At least one exposed convective surface is required."
+msgstr ""
+
+#: ac_solver.py:118
+msgid "At least two frequency points are required."
+msgstr ""
+
+#: ui/runtime_settings_panel.py:87
+msgid "AUTO CUDA threshold (nodes):"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:32
+msgid "Automatic (calculated hotspot)"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:27
+msgid "Automatic (calculated minimum)"
+msgstr ""
+
+#: emc_analyzer.py:770
+msgid "Automatically detected source frequencies are editable defaults until confirmed by the designer."
+msgstr ""
+
+#: ui/runtime_settings_panel.py:184
+msgid "available"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:245
+#, python-brace-format
+msgid "Backend test failed: {error}"
+msgstr ""
+
+#: emc_analyzer.py:699
+msgid "Board cavity resonances estimated"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:29
+msgid "Board edge"
+msgstr ""
+
+#: ui/main_dialog.py:97
+#, python-brace-format
+msgid "Board object connected: {p0}"
+msgstr ""
+
+#: cfd_model.py:64
+msgid "Board orientation must be XY, XZ, or YZ."
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:93
+msgid "Board Z (mm):"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:175
+msgid "Bottom exposed"
+msgstr ""
+
+#: ui/main_dialog.py:1725
+msgid "Bottom Surface"
+msgstr ""
+
+#: ui/main_dialog.py:1607
+#, python-brace-format
+msgid "Boundary heat: {power:.6g} W"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:114
+msgid "Boussinesq buoyancy"
+msgstr ""
+
+#: thermal_mesh.py:625
+msgid "Building thermal branch/boundary arrays with vectorized grid connectivity."
+msgstr ""
+
+#: thermal_model.py:354
+#, python-brace-format
+msgid "Built merged thermal copper for {p0} layer(s) in {p1} s."
+msgstr ""
+
+#: thermal_mesh.py:746
+#, python-brace-format
+msgid "Built {p0} branches and {p1} boundaries in {p2} s using vectorized arrays."
+msgstr ""
+
+#: cfd_model.py:131
+#, python-brace-format
+msgid "Built {p0} x {p1} x {p2} mm enclosure with {p3} solid obstacles."
+msgstr ""
+
+#: ui/emc_analysis_panel.py:56
+msgid "Cable length (m):"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:178
+msgid "Cable m"
+msgstr ""
+
+#: ui/main_dialog.py:1510
+msgid "Cached thermal mesh and sparse solver workspace for unchanged-session reruns."
+msgstr ""
+
+#: electrothermal.py:81
+#, python-brace-format
+msgid "Cached {p0} electrical-branch to thermal-cell mappings in {p1} s."
+msgstr ""
+
+#: ui/main_dialog.py:1624
+msgid "calculated hotspot"
+msgstr ""
+
+#: ui/main_dialog.py:1620
+msgid "calculated minimum"
+msgstr ""
+
+#: ui/component_selector.py:93
+msgid "Cancel"
+msgstr ""
+
+#: ui/main_dialog.py:1832
+msgid "Cancel Enclosure CFD"
+msgstr ""
+
+#: ui/main_dialog.py:1819
+msgid "Cancellation requested for enclosure CFD."
+msgstr ""
+
+#: ui/main_dialog.py:1818 ui/main_dialog.py:2019
+msgid "Cancelling CFD..."
+msgstr ""
+
+#: ui/ac_analysis_panel.py:238
+msgid "Candidate/DNP"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:105
+msgid "Capacitance"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:23
+msgid "Capacitance:"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:15
+#, python-brace-format
+msgid "Capacitor Model: {reference}"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:121
+msgid "Cell (mm):"
+msgstr ""
+
+#: ui/main_dialog.py:1887
+#, python-brace-format
+msgid "Cells: {count:,} ({nx} x {ny} x {nz})"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:138
+msgid "Center"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:35
+msgid "Center U (0..1):"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:35
+msgid "Center V (0..1):"
+msgstr ""
+
+#: ui/main_dialog.py:1902
+msgid "CFD 3D"
+msgstr ""
+
+#: cfd_mesh.py:128
+#, python-brace-format
+msgid "CFD boundary patch '{p0}' coordinates must be between 0 and 1."
+msgstr ""
+
+#: cfd_mesh.py:139
+#, python-brace-format
+msgid "CFD boundary patch '{p0}' has no fluid cells on its face."
+msgstr ""
+
+#: cfd_mesh.py:132
+#, python-brace-format
+msgid "CFD boundary patch '{p0}' must have a positive size."
+msgstr ""
+
+#: cfd_mesh.py:144
+#, python-brace-format
+msgid "CFD boundary patch '{p0}' overlaps another patch."
+msgstr ""
+
+#: cfd_mesh.py:134
+#, python-brace-format
+msgid "CFD boundary patch '{p0}' requires a positive velocity."
+msgstr ""
+
+#: cfd_solver.py:339
+msgid "CFD energy solution contains non-finite temperatures."
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:258
+msgid "CFD iteration limits must be greater than zero."
+msgstr ""
+
+#: cfd_mesh.py:86
+#, python-brace-format
+msgid "CFD mesh would contain {p0} cells. Increase the CFD cell size."
+msgstr ""
+
+#: ui/main_dialog.py:1243
+#, python-brace-format
+msgid "Checks evaluated: {count}"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:22
+msgid "CISPR 25 Class 5"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:19
+msgid "CISPR 32 Class A"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:18
+msgid "CISPR 32 Class B"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:22
+msgid "Cividis"
+msgstr ""
+
+#: ui/results_workspace.py:221
+msgid "Clear history"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:190
+msgid "Clear KiCad Heat Overlay"
+msgstr ""
+
+#: ui/results_workspace.py:294
+msgid "Clear result history"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:191
+msgid "Clear Thermal Cache"
+msgstr ""
+
+#: ui/main_dialog.py:358
+msgid "Cleared the in-session thermal mesh, CSR, CUDA workspace and copper-geometry cache."
+msgstr ""
+
+#: emc_analyzer.py:424
+msgid "Clock close to connector"
+msgstr ""
+
+#: emc_analyzer.py:412
+msgid "Clock routed mostly on outer copper"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:28
+msgid "Clocks"
+msgstr ""
+
+#: ui/main_dialog.py:251
+msgid "Close"
+msgstr ""
+
+#: ui/main_dialog.py:2020
+msgid "Close requested; cancelling enclosure CFD first."
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:146
+msgid "Color scale maximum:"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:145
+msgid "Color scale minimum:"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:202
+msgid "Component Heat Sources"
+msgstr ""
+
+#: ui/main_dialog.py:1642
+msgid "Component junction estimates:"
+msgstr ""
+
+#: emc_analyzer.py:784
+msgid "Components and I/O"
+msgstr ""
+
+#: emc_probe.py:41
+#, python-brace-format
+msgid "Components: {components}"
+msgstr ""
+
+#: ui/main_dialog.py:1293
+msgid "components="
+msgstr ""
+
+#: ui/runtime_settings_panel.py:69
+msgid "Compute Backend"
+msgstr ""
+
+#: ui/main_dialog.py:1628 ui/main_dialog.py:1895 ui/main_dialog.py:947
+#, python-brace-format
+msgid "Compute backend: {backend} ({device})"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:150
+msgid "Compute electric and magnetic maps"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:125 ui/differential_analysis_panel.py:148
+msgid "Confidence"
+msgstr ""
+
+#: emc_probe.py:31
+#, python-brace-format
+msgid "Confidence: {confidence}"
+msgstr ""
+
+#: ui/power_tree_panel.py:686
+#, python-brace-format
+msgid "Configuration saved to {p0}"
+msgstr ""
+
+#: ui/main_dialog.py:1250
+msgid "Configured emission sources"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:134
+msgid "Confirm Selected"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:48
+msgid "Connected to an external cable"
+msgstr ""
+
+#: solver.py:202
+#, python-brace-format
+msgid "Connectivity diagnostic failed: {p0}"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:139
+msgid "Connector prefixes:"
+msgstr ""
+
+#: emc_analyzer.py:516
+msgid "Connector shield return not identified"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:199
+msgid "conservative default"
+msgstr ""
+
+#: ui/main_dialog.py:1611 ui/main_dialog.py:1888
+msgid "converged"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:143
+msgid "Convergence (C):"
+msgstr ""
+
+#: stackup_io.py:48
+msgid "Copper layer_id values must be unique."
+msgstr ""
+
+#: ui/main_dialog.py:1688
+msgid "copper-layer"
+msgstr ""
+
+#: ui/power_tree_panel.py:520
+msgid "Could not locate regulator."
+msgstr ""
+
+#: thermal_overlay.py:423
+#, python-brace-format
+msgid "Could not verify KiCad group membership: {p0}"
+msgstr ""
+
+#: ui/main_dialog.py:1469
+msgid "Coupled analysis requires a successful DC analysis."
+msgstr ""
+
+#: ui/main_dialog.py:1423
+msgid "Coupled analysis requires at least one configured power rail."
+msgstr ""
+
+#: ui/main_dialog.py:1602
+msgid "Coupled DC / thermal"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:143
+msgid "Coupled iterations:"
+msgstr ""
+
+#: ui/main_dialog.py:1588
+msgid "Coupled Thermal"
+msgstr ""
+
+#: ui/main_dialog.py:1406
+msgid "Coupled Thermal Analysis Error"
+msgstr ""
+
+#: ui/main_dialog.py:1405
+#, python-brace-format
+msgid "Coupled Thermal Analysis Error: {p0}"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:182
+#, python-brace-format
+msgid "CPU logical processors: {count}"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:83
+msgid "CPU multithreading:"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:183
+#, python-brace-format
+msgid "CPU sparse backend: {backend}"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:84
+msgid "CPU threads (0 = Auto):"
+msgstr ""
+
+#: ui/main_dialog.py:1632
+#, python-brace-format
+msgid "CPU threads: {count}"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:435
+msgid "Create/update KiPIDA_DIFF net classes and predefined differential sizes in this project?\n\n"
+msgstr ""
+
+#: emc_analyzer.py:787 ui/emc_analysis_panel.py:31
+msgid "Crosstalk"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:186
+#, python-brace-format
+msgid "CUDA available: {state}"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:86
+msgid "CUDA device:"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:214
+#, python-brace-format
+msgid "CUDA diagnostic: {error}"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:203
+#, python-brace-format
+msgid "CUDA driver/runtime: {driver} / {runtime}"
+msgstr ""
+
+#: compute_backend.py:150
+#, python-brace-format
+msgid "CUDA fallback to CPU: {p0}"
+msgstr ""
+
+#: compute_backend.py:318
+#, python-brace-format
+msgid "CUDA iterative solver did not converge (status={p0}){p1}."
+msgstr ""
+
+#: compute_backend.py:329
+msgid "CUDA solution contains non-finite values."
+msgstr ""
+
+#: ui/main_dialog.py:1630
+msgid "CUDA warm start: device-resident previous thermal solution"
+msgstr ""
+
+#: ui/main_dialog.py:1631
+msgid "CUDA warm start: unavailable (first solve or CPU backend)"
+msgstr ""
+
+#: compute_backend.py:105
+msgid "CUDA was forced but CUDA acceleration is disabled."
+msgstr ""
+
+#: ui/runtime_settings_panel.py:85
+msgid "CUDA:"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:185
+#, python-brace-format
+msgid "CuPy: {version}"
+msgstr ""
+
+#: ui/component_selector.py:29
+msgid "Current (A):"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:179
+msgid "Current A"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:147
+msgid "Current W/G"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:142
+msgid "Custom h (W/m2K):"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:146
+msgid "Custom maximum (C):"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:145
+msgid "Custom minimum (C):"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:28 ui/thermal_analysis_panel.py:33
+msgid "Custom temperature"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:423
+msgid "Custom thermal colour maximum must be above absolute zero."
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:412
+msgid "Custom thermal colour minimum must be above absolute zero."
+msgstr ""
+
+#: ui/main_dialog.py:596
+#, python-brace-format
+msgid "Cycle detected in power rail dependencies involving '{p0}'"
+msgstr ""
+
+#: ui/results_workspace.py:196
+msgid "DC Power"
+msgstr ""
+
+#: ui/results_workspace.py:202
+msgid "Debug"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:26
+msgid "Decoupling"
+msgstr ""
+
+#: ui/main_dialog.py:934
+msgid "Decoupling Optimization Error"
+msgstr ""
+
+#: ui/main_dialog.py:933
+#, python-brace-format
+msgid "Decoupling Optimization Error: {p0}"
+msgstr ""
+
+#: ui/main_dialog.py:956
+msgid "Decoupling recommendations:"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:197
+msgid "Dedicated non-electrical layers: X.Thermal.Top / X.Thermal.Bottom."
+msgstr ""
+
+#: ui/results_workspace.py:294
+msgid "Delete every saved Ki-PIDA result for this PCB?"
+msgstr ""
+
+#: ui/results_workspace.py:285
+msgid "Delete saved result"
+msgstr ""
+
+#: ui/results_workspace.py:220
+msgid "Delete selected"
+msgstr ""
+
+#: ui/results_workspace.py:289
+msgid "Deleted saved Ki-PIDA result."
+msgstr ""
+
+#: ui/results_workspace.py:299
+#, python-brace-format
+msgid "Deleted {p0} saved Ki-PIDA result(s)."
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:91 ui/thermal_analysis_panel.py:54
+msgid "Depth (mm):"
+msgstr ""
+
+#: thermal_overlay.py:418
+#, python-brace-format
+msgid "Detached {p0} overlay image(s) from active KiCad group(s)."
+msgstr ""
+
+#: ui/emc_analysis_panel.py:173
+msgid "Detected and Manual Emission Sources"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:120
+msgid "Detected Differential Pairs"
+msgstr ""
+
+#: ui/power_tree_panel.py:81
+msgid "Detected Power Rails"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:101
+msgid "Detected Rail-to-Ground Capacitors"
+msgstr ""
+
+#: solver.py:172
+#, python-brace-format
+msgid "Detected {p0} copper islands before source constraints."
+msgstr ""
+
+#: stackup_io.py:53
+#, python-brace-format
+msgid "Dielectric {p0} requires epsilon_r > 1."
+msgstr ""
+
+#: ui/main_dialog.py:1120
+msgid "Differential Analysis Error"
+msgstr ""
+
+#: ui/main_dialog.py:1119
+#, python-brace-format
+msgid "Differential Analysis Error: {p0}"
+msgstr ""
+
+#: plotter.py:229
+msgid "Differential impedance (ohm)"
+msgstr ""
+
+#: differential_impedance.py:301
+#, python-brace-format
+msgid "Differential impedance analysis complete for {p0} pairs."
+msgstr ""
+
+#: ui/main_dialog.py:1114
+msgid "Differential impedance results ready."
+msgstr ""
+
+#: emc_analyzer.py:599
+msgid "Differential pair changes reference layer"
+msgstr ""
+
+#: ui/main_dialog.py:1045
+msgid "Differential Pair Impedance Results"
+msgstr ""
+
+#: emc_analyzer.py:606
+msgid "Differential pair mostly on outer layers"
+msgstr ""
+
+#: emc_analyzer.py:786 ui/emc_analysis_panel.py:29
+msgid "Differential pairs"
+msgstr ""
+
+#: ui/main_dialog.py:166 ui/results_workspace.py:198
+msgid "Differential Pairs"
+msgstr ""
+
+#: differential_discovery.py:299
+#, python-brace-format
+msgid "Differential scan complete. Discovered {p0} pair candidates."
+msgstr ""
+
+#: ui/main_dialog.py:1009
+msgid "Differential Setup Error"
+msgstr ""
+
+#: ui/main_dialog.py:1008
+#, python-brace-format
+msgid "Differential Setup Error: {p0}"
+msgstr ""
+
+#: ui/main_dialog.py:1110
+msgid "Differential Z"
+msgstr ""
+
+#: emc_analyzer.py:594
+msgid "Differential-pair skew"
+msgstr ""
+
+#: emc_analyzer.py:206
+msgid "differential-scan"
+msgstr ""
+
+#: emc_analyzer.py:471
+msgid "Distant decoupling capacitor"
+msgstr ""
+
+#: ui/main_dialog.py:1270
+msgid "each source at its configured fundamental"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:176
+msgid "Edges exposed"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:25
+msgid "Edit Differential Pair"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:39
+msgid "Edit EMI/EMC Source"
+msgstr ""
+
+#: ui/power_tree_panel.py:436
+msgid "Edit Load"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:145
+msgid "Edit Patch"
+msgstr ""
+
+#: ui/power_tree_panel.py:462 ui/power_tree_panel.py:527
+msgid "Edit Regulator"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:133 ui/emc_analysis_panel.py:186
+msgid "Edit Selected"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:114 ui/thermal_analysis_panel.py:214
+msgid "Edit Selected Model"
+msgstr ""
+
+#: ui/power_tree_panel.py:392
+msgid "Edit Source"
+msgstr ""
+
+#: ui/main_dialog.py:1609
+#, python-brace-format
+msgid "Effective h: {coefficient:.4g} W/m2K"
+msgstr ""
+
+#: ui/regulator_dialog.py:99
+msgid "Efficiency (0.0-1.0):"
+msgstr ""
+
+#: ui/regulator_dialog.py:282
+msgid "Efficiency must be between 0.0 and 1.0"
+msgstr ""
+
+#: ui/main_dialog.py:1342
+msgid "Electric Field"
+msgstr ""
+
+#: mesh.py:442
+#, python-brace-format
+msgid "Electrical mesh for {p0} still contains about {p1} nodes at {p2} mm. Increase the DC grid size."
+msgstr ""
+
+#: field_probe.py:21
+#, python-brace-format
+msgid "EM {quantity}-field  {value:.5g} {unit}  |  X {x:.2f} mm, Y {y:.2f} mm  |  probe height {height:g} mm"
+msgstr ""
+
+#: ui/main_dialog.py:181 ui/results_workspace.py:199
+msgid "EMI / EMC"
+msgstr ""
+
+#: ui/main_dialog.py:1238
+msgid "EMI / EMC Pre-compliance Results"
+msgstr ""
+
+#: emc_analyzer.py:773
+#, python-brace-format
+msgid "EMI/EMC analysis completed: {p0} findings, score {p1}/100."
+msgstr ""
+
+#: ui/main_dialog.py:1357
+msgid "EMI/EMC Analysis Error"
+msgstr ""
+
+#: ui/main_dialog.py:1356
+#, python-brace-format
+msgid "EMI/EMC Analysis Error: {p0}"
+msgstr ""
+
+#: plotter.py:312
+msgid "EMI/EMC geometric risk map"
+msgstr ""
+
+#: ui/main_dialog.py:1127
+msgid "EMI/EMC note: no clock or switching source is enabled; geometry-only rules will run."
+msgstr ""
+
+#: ui/interactive_views.py:242
+msgid "EMI/EMC Observation"
+msgstr ""
+
+#: ui/interactive_views.py:271
+msgid "EMI/EMC observation copied to clipboard"
+msgstr ""
+
+#: ui/main_dialog.py:1351
+msgid "EMI/EMC pre-compliance results ready."
+msgstr ""
+
+#: ui/main_dialog.py:1158
+msgid "EMI/EMC Setup Error"
+msgstr ""
+
+#: ui/main_dialog.py:1157
+#, python-brace-format
+msgid "EMI/EMC Setup Error: {p0}"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:267 ui/emc_analysis_panel.py:279
+msgid "EMI/EMC source"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:245
+#, python-brace-format
+msgid "EMI/EMC source scan complete: {p0} candidate(s)."
+msgstr ""
+
+#: ui/emc_analysis_panel.py:291
+msgid "EMI/EMC stop frequency must be greater than the positive start frequency."
+msgstr ""
+
+#: emc_analyzer.py:789 ui/emc_analysis_panel.py:33
+msgid "Emission estimates"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:135 ui/emc_analysis_panel.py:187
+msgid "Enable / Disable"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:113 ui/thermal_analysis_panel.py:213
+msgid "Enable / Disable Selected"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:74
+msgid "Enable CPU multithreading"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:76
+msgid "Enable CUDA acceleration"
+msgstr ""
+
+#: ui/main_dialog.py:132
+msgid "Enable Debug Log"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:61
+msgid "Enabled:"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:76
+msgid "Enclosure and PCB"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:17
+msgid "Enclosure Boundary Patch"
+msgstr ""
+
+#: ui/main_dialog.py:209 ui/results_workspace.py:201
+msgid "Enclosure CFD"
+msgstr ""
+
+#: cfd_solver.py:431
+msgid "Enclosure CFD analysis cancelled."
+msgstr ""
+
+#: ui/main_dialog.py:1866
+#, python-brace-format
+msgid "Enclosure CFD complete: {p0} iterations, Vmax={p1} m/s."
+msgstr ""
+
+#: plotter.py:730
+msgid "Enclosure CFD convergence"
+msgstr ""
+
+#: ui/main_dialog.py:1879
+msgid "Enclosure CFD Error"
+msgstr ""
+
+#: ui/main_dialog.py:1877
+#, python-brace-format
+msgid "Enclosure CFD error: {p0}"
+msgstr ""
+
+#: ui/main_dialog.py:1828
+msgid "Enclosure CFD Setup Error"
+msgstr ""
+
+#: ui/main_dialog.py:1827
+#, python-brace-format
+msgid "Enclosure CFD setup error: {p0}"
+msgstr ""
+
+#: plotter.py:710
+msgid "Enclosure CFD volumetric temperature"
+msgstr ""
+
+#: plotter.py:687
+#, python-brace-format
+msgid "Enclosure CFD {field} - {plane} slice"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:256
+msgid "Enclosure dimensions and CFD cell size must be greater than zero."
+msgstr ""
+
+#: cfd_model.py:56
+msgid "Enclosure dimensions must be greater than zero."
+msgstr ""
+
+#: ui/main_dialog.py:1608 ui/main_dialog.py:1894
+#, python-brace-format
+msgid "Energy balance error: {error:.4g}%"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:79
+msgid "Enter a source net name."
+msgstr ""
+
+#: ui/ac_analysis_panel.py:38
+msgid "Enter a valid capacitance such as 100n, 4u7, or 10uF."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:370
+msgid "Enter at least one ground reference net."
+msgstr ""
+
+#: ui/emc_analysis_panel.py:311
+msgid "Enter at least one ground-net alias."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:59
+msgid "Enter two different, non-empty net names."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:114
+msgid "Er"
+msgstr ""
+
+#: ui/power_tree_panel.py:663 ui/power_tree_panel.py:690 ui/power_tree_panel.py:696 ui/power_tree_panel.py:700 ui/power_tree_panel.py:733 ui/regulator_dialog.py:252 ui/regulator_dialog.py:259 ui/regulator_dialog.py:262 ui/regulator_dialog.py:266 ui/regulator_dialog.py:270 ui/regulator_dialog.py:274 ui/regulator_dialog.py:282
+msgid "Error"
+msgstr ""
+
+#: ui/main_dialog.py:663
+#, python-brace-format
+msgid "Error extracting stackup: {p0}"
+msgstr ""
+
+#: ui/power_tree_panel.py:656
+#, python-brace-format
+msgid "Error getting config path: {p0}"
+msgstr ""
+
+#: ui/power_tree_panel.py:605
+msgid "Error locating input rail."
+msgstr ""
+
+#: ui/power_tree_panel.py:644
+msgid "ERROR: Cannot determine project path - no project object and board has no filename attribute."
+msgstr ""
+
+#: solver.py:188
+#, python-brace-format
+msgid "ERROR: Island #{p0} ({p1} nodes) has {p2} load node(s) but no voltage source; its loads and voltages are excluded."
+msgstr ""
+
+#: ui/main_dialog.py:95
+msgid "ERROR: No board object connected. Plugin will not function properly."
+msgstr ""
+
+#: ui/main_dialog.py:675
+#, python-brace-format
+msgid "ERROR: {p0}"
+msgstr ""
+
+#: emc_analyzer.py:497
+msgid "ESD path is missing or too long"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:106
+msgid "ESL (nH)"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:25
+msgid "ESL (nH):"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:105
+msgid "ESR (mOhm)"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:24
+msgid "ESR (mOhm):"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:42
+msgid "ESR and ESL must be zero or greater."
+msgstr ""
+
+#: ui/ac_analysis_panel.py:123
+msgid "ESR/ESL values inferred from package are estimates. Review them before sign-off."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:228 ui/main_dialog.py:1048
+msgid "estimate only"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:130
+msgid "Estimated cells: --"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:176
+msgid "Estimated cells: invalid settings"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:174
+#, python-brace-format
+msgid "Estimated cells: {count:,}"
+msgstr ""
+
+#: plotter.py:428
+#, python-brace-format
+msgid "Estimated |{label}| ({unit})"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:167
+msgid "Estimating mesh..."
+msgstr ""
+
+#: stackup_io.py:46
+msgid "Every copper layer requires its KiCad layer_id."
+msgstr ""
+
+#: emc_probe.py:45
+#, python-brace-format
+msgid "Evidence: {evidence}"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:161
+msgid "Expert / custom"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:178
+msgid "External"
+msgstr ""
+
+#: emc_analyzer.py:483
+msgid "External connector lacks nearby EMC protection"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:56
+msgid "External interface:"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:138
+msgid "Face"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:34
+msgid "Face:"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:448
+#, python-brace-format
+msgid "Failed to apply KiCad differential rules: {p0}"
+msgstr ""
+
+#: ui/power_tree_panel.py:732
+#, python-brace-format
+msgid "Failed to load config: {p0}"
+msgstr ""
+
+#: ui/power_tree_panel.py:178
+#, python-brace-format
+msgid "Failed to load config: {p0}. Running auto-scan instead."
+msgstr ""
+
+#: ui/power_tree_panel.py:689
+#, python-brace-format
+msgid "Failed to save config: {p0}"
+msgstr ""
+
+#: ipc_entry.py:138
+#, python-brace-format
+msgid "Failed to start Ki-PIDA: {error}\n\nCheck logs for details."
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:217
+msgid "Fan Inlet"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:160
+msgid "Fast (1.5 mm)"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:21
+msgid "FCC Part 15 Class A"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:20
+msgid "FCC Part 15 Class B"
+msgstr ""
+
+#: ui/main_dialog.py:1204
+msgid "Field magnitude depends on the configured source voltage/current and does not solve return-current cancellation, dielectric boundaries, phase or enclosure scattering."
+msgstr ""
+
+#: emc_analyzer.py:323
+msgid "Filled copper exists on multiple configured grounds: "
+msgstr ""
+
+#: ui/main_dialog.py:1283
+msgid "Findings"
+msgstr ""
+
+#: ui/main_dialog.py:1244
+#, python-brace-format
+msgid "Findings: {total} — critical {critical}, high {high}, medium {medium}, low {low}, info {info}"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:160
+msgid "Fine (0.5 mm)"
+msgstr ""
+
+#: emc_analyzer.py:700
+msgid "First rectangular-board modes: "
+msgstr ""
+
+#: ui/interactive_views.py:269
+msgid "Flush"
+msgstr ""
+
+#: emc_analyzer.py:769
+msgid "Footprint-name decoupling and connector checks have low confidence without schematic pin metadata."
+msgstr ""
+
+#: cfd_mesh.py:154
+msgid "Forced enclosure flow requires at least one OUTLET or VENT patch."
+msgstr ""
+
+#: ui/power_tree_panel.py:201
+#, python-brace-format
+msgid "Found {p0} total nets on board."
+msgstr ""
+
+#: emc_analyzer.py:309
+msgid "Fragmented ground plane"
+msgstr ""
+
+#: plotter.py:198 plotter.py:370
+msgid "Frequency (Hz)"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:161
+msgid "Frequency (MHz, 0=source fundamentals):"
+msgstr ""
+
+#: ui/main_dialog.py:1241
+#, python-brace-format
+msgid "Frequency band: {start:g} .. {stop:g} MHz"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:89
+msgid "Frequency points:"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:86 ui/emc_analysis_panel.py:87
+msgid "Frequency, cable length, voltage and current must be non-negative; rise time must be positive."
+msgstr ""
+
+#: ui/emc_analysis_panel.py:54
+msgid "Fundamental (MHz):"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:38
+msgid "Gauge pressure (Pa):"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:153
+msgid "Generate Recommendations"
+msgstr ""
+
+#: thermal_mesh.py:794
+#, python-brace-format
+msgid "Generated {p0} nodes, {p1} branches, {p2} W heat."
+msgstr ""
+
+#: cfd_mesh.py:166
+#, python-brace-format
+msgid "Generated {p0} x {p1} x {p2} = {p3} cells ({p4} fluid)."
+msgstr ""
+
+#: ui/main_dialog.py:1916
+msgid "Geometry Debug"
+msgstr ""
+
+#: ui/main_dialog.py:1916
+msgid "Geometry debug plot"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:142
+msgid "Geometry Recommendations"
+msgstr ""
+
+#: ui/main_dialog.py:1090
+msgid "geometry unavailable"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:165 ui/emc_analysis_panel.py:132
+msgid "GND, AGND, DGND, PGND"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:208
+#, python-brace-format
+msgid "GPU {index}: {name} — {free:.1f}/{total:.1f} GiB free"
+msgstr ""
+
+#: mesh.py:399
+#, python-brace-format
+msgid "Grid setup: {p0}x{p1} points, bounds ({p2},{p3}) to ({p4},{p5})"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:159 ui/thermal_analysis_panel.py:140
+msgid "Grid size (mm):"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:148
+msgid "Ground clearance"
+msgstr ""
+
+#: emc_analyzer.py:779 ui/emc_analysis_panel.py:26
+msgid "Ground planes"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:164
+msgid "Ground reference nets:"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:138
+msgid "Ground-net aliases:"
+msgstr ""
+
+#: emc_analyzer.py:539
+msgid "Ground-via stitching is sparse"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:91 ui/thermal_analysis_panel.py:55
+msgid "Height (mm):"
+msgstr ""
+
+#: emc_analyzer.py:725
+msgid "High temperature may alter EMC components"
+msgstr ""
+
+#: ui/main_dialog.py:1603
+#, python-brace-format
+msgid "Hotspot: {temperature:.3f} C at ({x:.2f}, {y:.2f}, {z:.3f}) mm"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:27
+msgid "I/O filtering"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:136
+msgid "Ignore Selected"
+msgstr ""
+
+#: solver.py:194
+#, python-brace-format
+msgid "Ignoring floating island #{p0} ({p1} nodes): no voltage source or load."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:106
+msgid "Import JSON"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:339
+msgid "Import Ki-PIDA stackup"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:348
+#, python-brace-format
+msgid "Imported stackup from {p0} ({p1} layers)."
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:49
+msgid "Include as heat source"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:118 ui/thermal_analysis_panel.py:178
+msgid "Include DC copper losses"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:177
+msgid "Include radiation"
+msgstr ""
+
+#: emc_analyzer.py:317
+msgid "Increase continuous ground coverage, prioritising regions below fast signals."
+msgstr ""
+
+#: emc_analyzer.py:426
+msgid "Increase separation to reduce coupling onto attached cables."
+msgstr ""
+
+#: emc_analyzer.py:657
+msgid "Increase spacing to at least 3H, change layer, or insert a grounded guard."
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:18
+msgid "Inferno (default)"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:189
+msgid "Inject KiCad Heat Overlay"
+msgstr ""
+
+#: thermal_overlay.py:486
+msgid "Injected thermal overlays and colour scales on X.Thermal.Top and X.Thermal.Bottom. Toggle those layers in Appearance to inspect each side."
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:134
+msgid "Inlets, Outlets, Fans, and Vents"
+msgstr ""
+
+#: ui/regulator_dialog.py:262
+msgid "Input and Output rails cannot be the same."
+msgstr ""
+
+#: ui/regulator_dialog.py:49
+msgid "Input Component:"
+msgstr ""
+
+#: ui/main_dialog.py:1606
+#, python-brace-format
+msgid "Input heat: {power:.6g} W"
+msgstr ""
+
+#: ui/regulator_dialog.py:55
+msgid "Input Pads:"
+msgstr ""
+
+#: ui/regulator_dialog.py:42
+msgid "Input Rail:"
+msgstr ""
+
+#: ui/regulator_dialog.py:38
+msgid "Input Side"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:99
+msgid "Install / Repair CUDA"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:252
+msgid "Install CUDA Backend"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:250
+msgid "Install or update the optional CuPy CUDA environment in the Python runtime used by KiCad?\n\nA KiCad restart will be required afterwards."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:125
+msgid "Interface"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:44
+msgid "Interface language:"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:38
+msgid "Interface:"
+msgstr ""
+
+#: ui/main_dialog.py:1627
+msgid "Internal copper maps: disabled"
+msgstr ""
+
+#: ui/main_dialog.py:1626
+msgid "Internal copper maps: enabled"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:269
+msgid "Invalid Capacitor Model"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:190 ui/cfd_analysis_panel.py:204
+msgid "Invalid CFD Patch"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:267 ui/differential_analysis_panel.py:306
+msgid "Invalid Differential Pair"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:380
+msgid "Invalid Thermal Model"
+msgstr ""
+
+#: plotter.py:729
+msgid "Iteration"
+msgstr ""
+
+#: electrothermal.py:166
+#, python-brace-format
+msgid "Iteration {p0}/{p1}: max delta {p2} C, copper loss {p3} W; DC/map {p4} s, total {p5} s."
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:121
+msgid "Iterations:"
+msgstr ""
+
+#: ui/main_dialog.py:1610 ui/main_dialog.py:1888
+#, python-brace-format
+msgid "Iterations: {iterations} ({state})"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:133
+msgid "J, P, CN"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:339
+msgid "JSON files (*.json)|*.json"
+msgstr ""
+
+#: ui/main_dialog.py:93
+msgid "Ki-PIDA UI Initialized."
+msgstr ""
+
+#: ui/runtime_settings_panel.py:62
+#, python-brace-format
+msgid "Ki-PIDA version: {version}"
+msgstr ""
+
+#: ui/main_dialog.py:54
+msgid "Ki-PIDA: Power Integrity Analyzer"
+msgstr ""
+
+#: thermal_overlay.py:364
+msgid "KiCad could not create the dedicated X.Thermal user layers."
+msgstr ""
+
+#: thermal_overlay.py:315
+msgid "KiCad could not query the board user-layer configuration."
+msgstr ""
+
+#: thermal_overlay.py:383
+msgid "KiCad did not expose board reference-image IPC operations. Update KiCad 10 to a current maintenance release."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:114
+msgid "KiCad ID"
+msgstr ""
+
+#: thermal_overlay.py:447
+msgid "KiCad IPC geometry bindings are not available."
+msgstr ""
+
+#: thermal_overlay.py:46
+msgid "KiCad IPC Python bindings are not available."
+msgstr ""
+
+#: design_rule_injector.py:19
+msgid "KiCad project file path is required to inject design rules."
+msgstr ""
+
+#: design_rule_injector.py:33
+#, python-brace-format
+msgid "KiCad project file was not found: {p0}"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:428
+msgid "KiCad project path is unavailable; rules were not changed."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:443
+msgid "KiCad project rules were updated. Open Board Setup or rerun DRC to inspect the new KiPIDA_DIFF classes.\nThe current Ki-PIDA session can continue analysing immediately."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:424 ui/differential_analysis_panel.py:428 ui/differential_analysis_panel.py:449
+msgid "KiCad Rules"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:445
+msgid "KiCad Rules Applied"
+msgstr ""
+
+#: ui/main_dialog.py:384
+#, python-brace-format
+msgid "KiCad thermal overlay clear completed ({p0} image(s))."
+msgstr ""
+
+#: ui/main_dialog.py:375
+msgid "KiCad thermal overlay injection completed."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:113
+msgid "Kind"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:41
+msgid "Language"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:161
+msgid "Language change"
+msgstr ""
+
+#: emc_analyzer.py:560
+msgid "Large switching-node copper area"
+msgstr ""
+
+#: ui/main_dialog.py:1140
+msgid "Last analysed rail"
+msgstr ""
+
+#: ui/main_dialog.py:1896
+#, python-brace-format
+msgid "Last energy solve: {seconds:.4g} s, residual {residual:.4g}"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:113 ui/differential_analysis_panel.py:147
+msgid "Layer"
+msgstr ""
+
+#: plotter.py:97
+msgid "Layer (pseudo)"
+msgstr ""
+
+#: emc_analyzer.py:448
+msgid "Layer transition lacks a nearby ground via"
+msgstr ""
+
+#: stackup_io.py:51
+#, python-brace-format
+msgid "Layer {p0} ({p1}) has no positive thickness."
+msgstr ""
+
+#: plotter.py:164
+#, python-brace-format
+msgid "Layer: {layer}"
+msgstr ""
+
+#: emc_analyzer.py:595
+msgid "Length-match the pair while preserving constant spacing and reference."
+msgstr ""
+
+#: ui/main_dialog.py:1611 ui/main_dialog.py:1888
+msgid "limit reached"
+msgstr ""
+
+#: ui/main_dialog.py:1636
+#, python-brace-format
+msgid "Linear residual: {residual:.4g} ({iterations} iteration(s))"
+msgstr ""
+
+#: ui/main_dialog.py:951
+#, python-brace-format
+msgid "Linear residual: {residual:.4g}; CUDA structure cache hits: {hits}"
+msgstr ""
+
+#: ui/main_dialog.py:313
+msgid "Live PCB geometry changed; invalidated thermal mesh/CSR cache."
+msgstr ""
+
+#: ui/main_dialog.py:315
+msgid "Live PCB geometry unchanged; thermal mesh/CSR cache remains eligible."
+msgstr ""
+
+#: ui/main_dialog.py:322
+#, python-brace-format
+msgid "Live PCB refresh warning: {p0}"
+msgstr ""
+
+#: ui/power_tree_panel.py:92
+msgid "Load Config"
+msgstr ""
+
+#: ui/power_tree_panel.py:176 ui/power_tree_panel.py:716
+#, python-brace-format
+msgid "Loaded configuration from {p0} ({p1} rails)"
+msgstr ""
+
+#: ui/results_workspace.py:277
+#, python-brace-format
+msgid "Loaded saved {p0} result from history."
+msgstr ""
+
+#: ui/main_dialog.py:229
+msgid "Log"
+msgstr ""
+
+#: emc_analyzer.py:417
+msgid "Long clock route"
+msgstr ""
+
+#: emc_analyzer.py:655
+msgid "Long parallel trace coupling"
+msgstr ""
+
+#: emc_analyzer.py:315
+msgid "Low ground-plane coverage"
+msgstr ""
+
+#: ui/main_dialog.py:1347
+msgid "Magnetic Field"
+msgstr ""
+
+#: ui/main_dialog.py:1892
+#, python-brace-format
+msgid "Mapped heat: {value:.6g} W"
+msgstr ""
+
+#: thermal_model.py:427
+#, python-brace-format
+msgid "Mapped {p0} Top / {p1} Bottom footprint placements (F.Cu={p2}, B.Cu={p3})."
+msgstr ""
+
+#: ui/emc_analysis_panel.py:135
+msgid "Market:"
+msgstr ""
+
+#: ui/main_dialog.py:1893
+#, python-brace-format
+msgid "Mass balance error: {value:.4g}%"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:114
+msgid "Material"
+msgstr ""
+
+#: ui/main_dialog.py:1745
+msgid "Matplotlib did not produce any thermal plot."
+msgstr ""
+
+#: ui/ac_analysis_panel.py:91
+msgid "Max capacitor additions:"
+msgstr ""
+
+#: ui/main_dialog.py:127
+msgid "Max Drop %:"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:57
+msgid "Max junction (C):"
+msgstr ""
+
+#: ui/main_dialog.py:1890
+#, python-brace-format
+msgid "Maximum air temperature: {value:.3f} C"
+msgstr ""
+
+#: ui/main_dialog.py:1891
+#, python-brace-format
+msgid "Maximum solid temperature: {value:.3f} C"
+msgstr ""
+
+#: ui/main_dialog.py:1889
+#, python-brace-format
+msgid "Maximum velocity: {value:.6g} m/s"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:87
+msgid "Measurement component:"
+msgstr ""
+
+#: ac_solver.py:120
+msgid "Measurement port is not connected to the AC network."
+msgstr ""
+
+#: thermal_model.py:349
+#, python-brace-format
+msgid "Merged {p0} copper shapes on layer {p1} in {p2} s."
+msgstr ""
+
+#: ui/main_dialog.py:1924
+msgid "Mesh Debug"
+msgstr ""
+
+#: ui/main_dialog.py:1924
+msgid "Mesh debug plot"
+msgstr ""
+
+#: solver.py:53
+msgid "Mesh has no nodes. Returning empty result."
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:156
+msgid "Mesh preset:"
+msgstr ""
+
+#: ui/main_dialog.py:122
+msgid "Mesh Resolution (mm):"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:178
+msgid "MHz"
+msgstr ""
+
+#: differential_impedance.py:155
+msgid "Microstrip dimensions must be positive."
+msgstr ""
+
+#: ui/emc_analysis_panel.py:23
+msgid "MIL-STD-461G RE102"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:167
+msgid "Min W/G/GND (mm):"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:364
+msgid "Min W/G/GND must contain three positive mm values, e.g. 0.10 / 0.10 / 0.15."
+msgstr ""
+
+#: emc_analyzer.py:571
+msgid "Minimise hot-loop area and verify this band with a near-field probe."
+msgstr ""
+
+#: ui/main_dialog.py:1886
+msgid "Mode: steady incompressible laminar flow with Boussinesq buoyancy"
+msgstr ""
+
+#: ui/main_dialog.py:1602
+#, python-brace-format
+msgid "Mode: {mode}"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:106
+msgid "Model"
+msgstr ""
+
+#: ui/main_dialog.py:1319
+msgid "Model limitations"
+msgstr ""
+
+#: ui/main_dialog.py:969
+msgid "Model note: ESR/ESL and distributed inductance may be estimates; review before sign-off."
+msgstr ""
+
+#: ui/main_dialog.py:1105
+msgid "Model scope: quasi-static coupled microstrip/stripline estimates. "
+msgstr ""
+
+#: ui/main_dialog.py:1660
+msgid "Model scope: steady-state 3D solid conduction with convective boundaries; this is not a volumetric CFD airflow solution."
+msgstr ""
+
+#: ui/main_dialog.py:1898
+msgid "Model scope: structured volumetric CFD, boundary-patch fans/vents, and conjugate solid-air heat transfer. Fan blades, turbulence, radiation, and transient effects are outside this Phase 4 solver."
+msgstr ""
+
+#: emc_analyzer.py:473
+msgid "Move the high-frequency capacitor closer and minimise pad-to-via inductance."
+msgstr ""
+
+#: emc_analyzer.py:404
+msgid "Move the route inward or add a grounded edge guard with stitching vias."
+msgstr ""
+
+#: emc_analyzer.py:322
+msgid "Multiple ground domains"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:138 ui/emc_analysis_panel.py:177
+msgid "Name"
+msgstr ""
+
+#: ui/regulator_dialog.py:252
+msgid "Name is required."
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:34 ui/differential_analysis_panel.py:35 ui/emc_analysis_panel.py:53
+msgid "Name:"
+msgstr ""
+
+#: ui/main_dialog.py:1203
+msgid "Near-field E/H maps use quasi-static line-charge and Biot-Savart trace elements; they are not a full-wave Maxwell solution."
+msgstr ""
+
+#: ui/emc_analysis_panel.py:146
+msgid "Near-field E/H Simulation"
+msgstr ""
+
+#: em_field_solver.py:132
+msgid "Near-field grid size must be positive."
+msgstr ""
+
+#: em_field_solver.py:142
+#, python-brace-format
+msgid "Near-field grid would contain {p0} cells; increase the grid size to at least {p1} mm (limit {p2})."
+msgstr ""
+
+#: ui/emc_analysis_panel.py:303 ui/emc_analysis_panel.py:304
+msgid "Near-field height/grid size must be positive and its frequency must be non-negative."
+msgstr ""
+
+#: em_field_solver.py:130
+msgid "Near-field probe height must be positive."
+msgstr ""
+
+#: ui/main_dialog.py:1264
+msgid "Near-field simulation"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:124
+msgid "Negative net"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:37
+msgid "Negative net:"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:177
+msgid "Net"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:53
+msgid "Net:"
+msgstr ""
+
+#: emc_probe.py:39
+#, python-brace-format
+msgid "Nets: {nets}"
+msgstr ""
+
+#: ui/main_dialog.py:1291
+msgid "nets="
+msgstr ""
+
+#: ui/ac_analysis_panel.py:233 ui/differential_analysis_panel.py:194 ui/emc_analysis_panel.py:231 ui/emc_analysis_panel.py:233 ui/runtime_settings_panel.py:186 ui/thermal_analysis_panel.py:346
+msgid "No"
+msgstr ""
+
+#: ui/power_tree_panel.py:285 ui/power_tree_panel.py:367 ui/power_tree_panel.py:411
+msgid "No components found on this net."
+msgstr ""
+
+#: differential_recommender.py:48
+msgid "No continuous reference plane is available."
+msgstr ""
+
+#: ac_model.py:275
+#, python-brace-format
+msgid "No copper geometry found for rail '{p0}'."
+msgstr ""
+
+#: ac_model.py:277
+#, python-brace-format
+msgid "No copper geometry found for return net '{p0}'."
+msgstr ""
+
+#: ui/main_dialog.py:1785
+msgid "No current DC result; running DC analysis before enclosure CFD."
+msgstr ""
+
+#: ui/emc_analysis_panel.py:204
+msgid "No EMI/EMC analysis has been run in this session."
+msgstr ""
+
+#: ui/main_dialog.py:983
+msgid "No enabled differential pairs are available. Scan or add a pair first."
+msgstr ""
+
+#: em_field_solver.py:163
+msgid "No enabled EMI/EMC source has routed copper available for field simulation."
+msgstr ""
+
+#: ui/main_dialog.py:1287
+msgid "No finding was generated by the enabled deterministic checks."
+msgstr ""
+
+#: emc_analyzer.py:300
+msgid "No ground plane detected"
+msgstr ""
+
+#: emc_analyzer.py:465
+msgid "No nearby decoupling capacitor"
+msgstr ""
+
+#: ui/main_dialog.py:986
+msgid "No PCB stackup is available for differential impedance analysis."
+msgstr ""
+
+#: ui/main_dialog.py:850
+msgid "No power rails defined."
+msgstr ""
+
+#: decoupling_optimizer.py:103
+msgid "No remaining candidate improves the target-impedance score."
+msgstr ""
+
+#: thermal_overlay.py:164
+msgid "No thermal temperatures are available for an overlay scale."
+msgstr ""
+
+#: thermal_overlay.py:325
+msgid "No unused KiCad User layer is available for X.Thermal. Free two User.n layers or remove a previous custom layer assignment."
+msgstr ""
+
+#: thermal_overlay.py:215
+#, python-brace-format
+msgid "No {p0} thermal surface cells are available."
+msgstr ""
+
+#: ui/power_tree_panel.py:107
+msgid "Nominal Voltage (V):"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:160
+msgid "Normal (1.0 mm)"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:184
+msgid "not installed"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:199 ui/differential_analysis_panel.py:200
+msgid "Not run"
+msgstr ""
+
+#: emc_probe.py:36
+#, python-brace-format
+msgid "Observation: {description}"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:92
+msgid "Offset X (mm):"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:92
+msgid "Offset Y (mm):"
+msgstr ""
+
+#: solver.py:281 solver.py:66
+msgid "One resistance scale is required for every mesh branch."
+msgstr ""
+
+#: emc_analyzer.py:674
+msgid "Optimise capacitor values/placement and rerun the AC impedance analysis."
+msgstr ""
+
+#: ui/main_dialog.py:245
+msgid "Optimize Decoupling"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:92
+msgid "Orientation:"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:178
+msgid "Origin"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:218
+msgid "Outlet"
+msgstr ""
+
+#: ui/regulator_dialog.py:75
+msgid "Output Component:"
+msgstr ""
+
+#: ui/regulator_dialog.py:81
+msgid "Output Pads:"
+msgstr ""
+
+#: ui/regulator_dialog.py:68
+msgid "Output Rail:"
+msgstr ""
+
+#: ui/regulator_dialog.py:64
+msgid "Output Side"
+msgstr ""
+
+#: ui/main_dialog.py:1645
+msgid "OVER LIMIT"
+msgstr ""
+
+#: ui/power_tree_panel.py:120
+msgid "Pads"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:124 ui/differential_analysis_panel.py:147
+msgid "Pair"
+msgstr ""
+
+#: ui/regulator_dialog.py:90
+msgid "Parameters"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:18 ui/cfd_analysis_panel.py:49
+msgid "Patch"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:61
+msgid "Patch center and size values must be between 0 and 1."
+msgstr ""
+
+#: emc_analyzer.py:763
+msgid "PCB geometry, return paths, PDN reuse and relative source harmonics are covered."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:101
+msgid "PCB Stackup"
+msgstr ""
+
+#: plotter.py:261
+#, python-brace-format
+msgid "PCB stackup — {source}"
+msgstr ""
+
+#: emc_analyzer.py:672
+msgid "PDN impedance exceeds target"
+msgstr ""
+
+#: emc_analyzer.py:677
+msgid "PDN remains within target"
+msgstr ""
+
+#: ui/main_dialog.py:1309
+msgid "Per-net risk scores"
+msgstr ""
+
+#: emc_analyzer.py:760
+msgid "Perform a baseline conducted and radiated pre-scan across the configured band."
+msgstr ""
+
+#: plotter.py:199
+msgid "Phase (deg)"
+msgstr ""
+
+#: ui/main_dialog.py:1884
+msgid "Phase 4 Enclosure CFD Results"
+msgstr ""
+
+#: plotter.py:260
+msgid "Physical thickness from bottom to top (mm)"
+msgstr ""
+
+#: thermal_overlay.py:242
+msgid "Pillow is required to create a KiCad heat overlay scale."
+msgstr ""
+
+#: thermal_overlay.py:197 thermal_overlay.py:210
+msgid "Pillow is required to create a KiCad heat overlay."
+msgstr ""
+
+#: emc_analyzer.py:450
+msgid "Place a ground stitching via beside each signal transition."
+msgstr ""
+
+#: emc_analyzer.py:485
+msgid "Place ESD protection and any interface filtering next to the connector entry point."
+msgstr ""
+
+#: emc_analyzer.py:499
+msgid "Place the TVS at the connector and route the discharge path directly to chassis/ground."
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:21
+msgid "Plasma"
+msgstr ""
+
+#: ui/setup_dialogs.py:67
+msgid "Please enter a valid numeric value."
+msgstr ""
+
+#: ui/setup_dialogs.py:72
+msgid "Please select at least one pad."
+msgstr ""
+
+#: ui/results_workspace.py:170
+msgid "Plot"
+msgstr ""
+
+#: ui/results_workspace.py:132
+msgid "plot-*.png"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:58
+msgid "Plugin and Python Runtime"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:238
+msgid "Populated"
+msgstr ""
+
+#: ui/interactive_views.py:233
+msgid "PopupWindow"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:124
+msgid "Positive net"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:36
+msgid "Positive net:"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:206
+msgid "Power (W)"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:52
+msgid "Power (W):"
+msgstr ""
+
+#: ui/main_dialog.py:876
+#, python-brace-format
+msgid "Power rail '{p0}' is not available."
+msgstr ""
+
+#: ui/ac_analysis_panel.py:86
+msgid "Power rail:"
+msgstr ""
+
+#: ui/main_dialog.py:138
+msgid "Power Tree & Config"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:122
+msgid "Pre-compliance Target"
+msgstr ""
+
+#: ui/main_dialog.py:1315
+msgid "Pre-compliance test plan"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:148
+msgid "Predicted Z"
+msgstr ""
+
+#: emc_analyzer.py:608
+msgid "Prefer a well-referenced stripline layer when stackup and fabrication permit it."
+msgstr ""
+
+#: emc_analyzer.py:414
+msgid "Prefer stripline routing between reference planes where practical."
+msgstr ""
+
+#: ui/runtime_settings_panel.py:82
+msgid "Preferred backend:"
+msgstr ""
+
+#: thermal_overlay.py:477
+#, python-brace-format
+msgid "Prepared {p0} colour scale ({p1} to {p2} C, {p3} DPI)."
+msgstr ""
+
+#: thermal_overlay.py:476
+#, python-brace-format
+msgid "Prepared {p0} heat image ({p1} KiB, {p2} DPI)."
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:123
+msgid "Pressure iterations:"
+msgstr ""
+
+#: ui/main_dialog.py:1906
+msgid "Pressure XY"
+msgstr ""
+
+#: emc_analyzer.py:758
+msgid "Prioritise harmonic checks near: "
+msgstr ""
+
+#: ui/emc_analysis_panel.py:157
+msgid "Probe height (mm):"
+msgstr ""
+
+#: ui/main_dialog.py:680
+#, python-brace-format
+msgid "Processing Rail: {p0} (Sources: {p1}, Loads: {p2})"
+msgstr ""
+
+#: ui/main_dialog.py:100
+#, python-brace-format
+msgid "Project: {p0} at {p1}"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:122
+msgid "Pseudo dt (s):"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:64
+msgid "Python: detecting..."
+msgstr ""
+
+#: ui/runtime_settings_panel.py:177
+#, python-brace-format
+msgid "Python: {version} — {executable}"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:167
+msgid "Quasi-static engineering estimate. Source voltage/current are edited in the source list; return paths, enclosure scattering and absolute phase are not solved."
+msgstr ""
+
+#: ui/power_tree_panel.py:104
+msgid "Rail Properties"
+msgstr ""
+
+#: ui/main_dialog.py:673
+#, python-brace-format
+msgid "Rail solve order: {p0}"
+msgstr ""
+
+#: plotter.py:195
+msgid "Rail-to-ground impedance"
+msgstr ""
+
+#: ui/main_dialog.py:1933
+#, python-brace-format
+msgid "Rail: {net}\n"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:126
+msgid "Recommendation"
+msgstr ""
+
+#: emc_probe.py:47
+#, python-brace-format
+msgid "Recommendation: {recommendation}"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:406
+msgid "Recommendations"
+msgstr ""
+
+#: emc_analyzer.py:347
+msgid "Reduce signal-to-reference spacing in the fabrication stackup."
+msgstr ""
+
+#: ui/ac_analysis_panel.py:105 ui/power_tree_panel.py:118 ui/thermal_analysis_panel.py:206
+msgid "Ref"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:112
+msgid "Refresh Detection"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:96
+msgid "Refresh Diagnostics"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:105
+msgid "Refresh from KiCad"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:212
+msgid "Refresh Power Estimates"
+msgstr ""
+
+#: ui/main_dialog.py:320
+msgid "Refreshed live PCB geometry and component discovery."
+msgstr ""
+
+#: ui/power_tree_panel.py:603
+#, python-brace-format
+msgid "Regulator added to {p0}"
+msgstr ""
+
+#: ui/power_tree_panel.py:493 ui/power_tree_panel.py:557
+#, python-brace-format
+msgid "Regulator moved to {p0}"
+msgstr ""
+
+#: ui/regulator_dialog.py:32
+msgid "Regulator Name:"
+msgstr ""
+
+#: ui/main_dialog.py:1317
+msgid "Regulatory coverage"
+msgstr ""
+
+#: plotter.py:372
+msgid "Relative EMI source spectrum — not an absolute compliance level"
+msgstr ""
+
+#: emc_analyzer.py:768
+msgid "Relative emission estimates typically carry at least +/-10 to 20 dB uncertainty."
+msgstr ""
+
+#: plotter.py:371
+msgid "Relative harmonic envelope (dB)"
+msgstr ""
+
+#: ui/main_dialog.py:1337
+msgid "Relative Spectrum"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:329
+msgid "Relative XY cells: invalid"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:122
+msgid "Relaxation:"
+msgstr ""
+
+#: emc_analyzer.py:311
+msgid "Remove isolated islands or join them with ground copper and stitching vias."
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:146
+msgid "Remove Patch"
+msgstr ""
+
+#: thermal_overlay.py:393
+#, python-brace-format
+msgid "Removed {p0} Ki-PIDA thermal overlay image(s)."
+msgstr ""
+
+#: ui/results_workspace.py:67
+msgid "Rendering"
+msgstr ""
+
+#: ui/main_dialog.py:1667
+msgid "Rendering thermal plots in background..."
+msgstr ""
+
+#: thermal_mesh.py:483
+#, python-brace-format
+msgid "Requested {p0} mm projects {p1} nodes; using {p2} mm for the {p3}-node {p4} safety budget."
+msgstr ""
+
+#: emc_analyzer.py:384
+msgid "Reroute over continuous ground or restore the reference plane below the segment."
+msgstr ""
+
+#: plotter.py:729
+msgid "Residual"
+msgstr ""
+
+#: ui/main_dialog.py:1907
+msgid "Residuals"
+msgstr ""
+
+#: emc_analyzer.py:562
+msgid "Restrict SW/PH/LX copper to the shortest IC-to-inductor connection."
+msgstr ""
+
+#: ui/results_workspace.py:242
+msgid "Result"
+msgstr ""
+
+#: ui/results_workspace.py:270
+msgid "Result History Error"
+msgstr ""
+
+#: ui/main_dialog.py:224
+msgid "Results"
+msgstr ""
+
+#: emc_analyzer.py:679
+msgid "Retain the analysed capacitor population and verify on the assembled board."
+msgstr ""
+
+#: ui/ac_analysis_panel.py:86
+msgid "Return net:"
+msgstr ""
+
+#: emc_analyzer.py:782 ui/emc_analysis_panel.py:30
+msgid "Return paths"
+msgstr ""
+
+#: thermal_model.py:321
+msgid "Reusing cached merged copper geometry for the live board."
+msgstr ""
+
+#: thermal_solver.py:61
+#, python-brace-format
+msgid "Reusing cached {p0}-entry thermal CSR matrix; CUDA keeps its CSR workspace resident in VRAM."
+msgstr ""
+
+#: ui/emc_analysis_panel.py:178
+msgid "Rise ns"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:54
+msgid "Rise time (ns):"
+msgstr ""
+
+#: emc_analyzer.py:767
+msgid "Risk analyzer only; it cannot certify FCC/CISPR/MIL compliance."
+msgstr ""
+
+#: ui/main_dialog.py:1332
+msgid "Risk Map"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:338 ui/emc_analysis_panel.py:339
+#, python-brace-format
+msgid "Risk score {score}/100 — {total} findings: {critical} critical, {high} high, {medium} medium."
+msgstr ""
+
+#: ui/main_dialog.py:1242
+#, python-brace-format
+msgid "Risk score: {score}/100"
+msgstr ""
+
+#: ui/power_tree_panel.py:117
+msgid "Role"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:193
+msgid "Rule Families"
+msgstr ""
+
+#: emc_probe.py:27
+#, python-brace-format
+msgid "Rule: {rule}"
+msgstr ""
+
+#: electrothermal.py:89
+msgid "Run a DC analysis before coupled electro-thermal analysis."
+msgstr ""
+
+#: ui/main_dialog.py:362
+msgid "Run a thermal analysis before injecting its KiCad heat overlay."
+msgstr ""
+
+#: ui/main_dialog.py:244
+msgid "Run AC Analysis"
+msgstr ""
+
+#: ui/main_dialog.py:249
+msgid "Run Coupled"
+msgstr ""
+
+#: ui/main_dialog.py:243
+msgid "Run DC Simulation"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:406
+msgid "Run differential impedance analysis first."
+msgstr ""
+
+#: ui/main_dialog.py:246
+msgid "Run Differential Z"
+msgstr ""
+
+#: ui/main_dialog.py:247
+msgid "Run EMI/EMC"
+msgstr ""
+
+#: ui/main_dialog.py:1863 ui/main_dialog.py:1875 ui/main_dialog.py:250
+msgid "Run Enclosure CFD"
+msgstr ""
+
+#: ui/main_dialog.py:248
+msgid "Run Thermal"
+msgstr ""
+
+#: ui/main_dialog.py:1462
+msgid "Running fresh DC analysis for the current live PCB geometry."
+msgstr ""
+
+#: ui/main_dialog.py:219
+msgid "Runtime & Acceleration"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:157
+#, python-brace-format
+msgid "Runtime settings saved to {path}"
+msgstr ""
+
+#: thermal_mesh.py:571
+#, python-brace-format
+msgid "Sampling {p0} thermal layers as {p1} row-band work items with {p2} CPU workers."
+msgstr ""
+
+#: ui/power_tree_panel.py:91
+msgid "Save Config"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:100
+msgid "Save Runtime Settings"
+msgstr ""
+
+#: ui/results_workspace.py:217
+msgid "Saved results:"
+msgstr ""
+
+#: ui/results_workspace.py:325
+#, python-brace-format
+msgid "Saved {p0} result history entry."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:131
+msgid "Scan Board"
+msgstr ""
+
+#: ui/power_tree_panel.py:180 ui/power_tree_panel.py:183
+#, python-brace-format
+msgid "Scan complete. Discovered {p0} power rail candidates."
+msgstr ""
+
+#: ui/emc_analysis_panel.py:184
+msgid "Scan Live PCB"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:183
+msgid "SciPy SuperLU"
+msgstr ""
+
+#: ui/main_dialog.py:880
+msgid "Select a measurement component in the AC Impedance tab."
+msgstr ""
+
+#: ui/main_dialog.py:872
+msgid "Select a power rail for AC analysis."
+msgstr ""
+
+#: ui/main_dialog.py:878
+msgid "Select a source component in the AC Impedance tab."
+msgstr ""
+
+#: design_rule_injector.py:29
+msgid "Select at least one recommendation with a feasible width and gap."
+msgstr ""
+
+#: ui/regulator_dialog.py:259
+msgid "Select both Input and Output rails."
+msgstr ""
+
+#: ui/power_tree_panel.py:316
+msgid "Select Component"
+msgstr ""
+
+#: ui/component_selector.py:28
+msgid "Select Component to use as Load:"
+msgstr ""
+
+#: ui/component_selector.py:21
+msgid "Select Component to use as Voltage Source:"
+msgstr ""
+
+#: ui/component_selector.py:40
+msgid "Select Component:"
+msgstr ""
+
+#: ui/regulator_dialog.py:266
+msgid "Select Input Component and at least one Pad."
+msgstr ""
+
+#: ui/power_tree_panel.py:20
+msgid "Select Net"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:424
+msgid "Select one or more geometry recommendations first."
+msgstr ""
+
+#: ui/regulator_dialog.py:270
+msgid "Select Output Component and at least one Pad."
+msgstr ""
+
+#: ui/setup_dialogs.py:28
+msgid "Select Pads (Disabled = Already Used):"
+msgstr ""
+
+#: ui/component_selector.py:80
+msgid "Select Pads:"
+msgstr ""
+
+#: ui/regulator_dialog.py:274
+msgid "Select the component that dissipates the regulator loss."
+msgstr ""
+
+#: ui/main_dialog.py:1269
+#, python-brace-format
+msgid "selected envelope at {frequency:g} MHz"
+msgstr ""
+
+#: design_rule_injector.py:72
+msgid "Selected recommendations did not contain valid differential net pairs."
+msgstr ""
+
+#: decoupling_optimizer.py:115
+#, python-brace-format
+msgid "Selected {p0} = {p1} F (score {p2})."
+msgstr ""
+
+#: emc_probe.py:29
+#, python-brace-format
+msgid "Severity: {severity}"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:32
+msgid "Shielding"
+msgstr ""
+
+#: emc_analyzer.py:419
+msgid "Shorten the route and keep it referenced to uninterrupted ground."
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:179
+msgid "Show internal copper maps in Results"
+msgstr ""
+
+#: emc_analyzer.py:382
+msgid "Signal crosses a reference-plane void"
+msgstr ""
+
+#: emc_analyzer.py:345
+msgid "Signal layer far from reference"
+msgstr ""
+
+#: emc_analyzer.py:402
+msgid "Signal routed near board edge"
+msgstr ""
+
+#: emc_analyzer.py:781
+msgid "Signals and edges"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:155
+msgid "Simulation:"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:139
+msgid "Size"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:206
+msgid "Size (mm)"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:36
+msgid "Size U (0..1):"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:36
+msgid "Size V (0..1):"
+msgstr ""
+
+#: ac_model.py:335
+#, python-brace-format
+msgid "Skipping {p0}: pads could not be mapped to both meshes."
+msgstr ""
+
+#: ui/main_dialog.py:1633
+#, python-brace-format
+msgid "Solve time: {solve:.4g} s (transfer {transfer:.4g} s)"
+msgstr ""
+
+#: cfd_solver.py:486
+#, python-brace-format
+msgid "Solved {p0} cells in {p1} iterations; Vmax={p2} m/s, mass error={p3}%."
+msgstr ""
+
+#: thermal_solver.py:206
+#, python-brace-format
+msgid "Solved {p0} nodes; hotspot {p1} C, energy error {p2}%; backend {p3}, residual {p4}."
+msgstr ""
+
+#: ac_solver.py:194
+#, python-brace-format
+msgid "Solved {p0} points; worst |Z|={p1} ohm at {p2} Hz."
+msgstr ""
+
+#: solver.py:252
+#, python-brace-format
+msgid "Solver Exception: {p0}"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:207
+msgid "Source"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:87
+msgid "Source component:"
+msgstr ""
+
+#: emc_analyzer.py:714
+msgid "Source harmonic envelopes estimated"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:90
+msgid "Source L (nH):"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:90
+msgid "Source R (mOhm):"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:230
+#, python-brace-format
+msgid "Source: {source} ({trust})"
+msgstr ""
+
+#: ui/main_dialog.py:1629
+#, python-brace-format
+msgid "Sparse matrix path: {path}"
+msgstr ""
+
+#: ui/main_dialog.py:948
+#, python-brace-format
+msgid "Sparse solve time: {solve:.4g} s (transfer {transfer:.4g} s)"
+msgstr ""
+
+#: emc_analyzer.py:780 ui/emc_analysis_panel.py:28 ui/main_dialog.py:1112
+msgid "Stackup"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:335
+msgid "Stackup Error"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:350
+msgid "Stackup Import Error"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:104 ui/differential_analysis_panel.py:226
+msgid "Stackup not loaded"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:333
+#, python-brace-format
+msgid "Stackup warning: {p0}"
+msgstr ""
+
+#: ui/main_dialog.py:1053
+msgid "Stackup warnings:"
+msgstr ""
+
+#: plotter.py:230
+msgid "Stackup-aware differential impedance"
+msgstr ""
+
+#: ui/main_dialog.py:1047
+#, python-brace-format
+msgid "Stackup: {source} ({trust})"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:135
+msgid "Standard:"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:88
+msgid "Start frequency (Hz):"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:136
+msgid "Start frequency (MHz):"
+msgstr ""
+
+#: ac_solver.py:114
+msgid "Start frequency must be greater than zero."
+msgstr ""
+
+#: ipc_entry.py:139
+msgid "Startup Error"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:106 ui/differential_analysis_panel.py:126
+msgid "Status"
+msgstr ""
+
+#: ui/main_dialog.py:943
+#, python-brace-format
+msgid "Status: {status}"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:153
+msgid "Steady incompressible laminar CFD with Boussinesq buoyancy and conjugate solid-air energy. Fans are represented as boundary-flow patches."
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:222
+msgid "Steady-state 3D solid conduction with convective boundaries. Estimated powers and package models must be reviewed before sign-off."
+msgstr ""
+
+#: ui/ac_analysis_panel.py:88
+msgid "Stop frequency (Hz):"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:137
+msgid "Stop frequency (MHz):"
+msgstr ""
+
+#: ac_solver.py:116
+msgid "Stop frequency must be greater than start frequency."
+msgstr ""
+
+#: differential_impedance.py:166
+msgid "Stripline dimensions must be positive."
+msgstr ""
+
+#: ui/power_tree_panel.py:687 ui/power_tree_panel.py:730
+msgid "Success"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:148
+msgid "Suggested W/G"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:161
+msgid "Super (0.1 mm)"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:179
+msgid "Swing V"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:27
+msgid "Switching"
+msgstr ""
+
+#: emc_analyzer.py:569
+msgid "Switching harmonics enter the emissions band"
+msgstr ""
+
+#: emc_analyzer.py:785
+msgid "Switching sources"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:47
+msgid "System default"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:190
+#, python-brace-format
+msgid "System RAM: {available:.1f}/{total:.1f} GiB available"
+msgstr ""
+
+#: ui/main_dialog.py:1930
+msgid "System Simulation Results:"
+msgstr ""
+
+#: ui/main_dialog.py:841
+#, python-brace-format
+msgid "System Solve Error: {p0}"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:125
+msgid "Target"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:62
+msgid "Target impedance must be positive."
+msgstr ""
+
+#: ui/main_dialog.py:939
+msgid "TARGET NOT MET"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:161
+msgid "Target tolerance (%):"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:357
+msgid "Target tolerance must be positive."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:39
+msgid "Target Zdiff (ohm):"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:89
+msgid "Target |Z| (mOhm):"
+msgstr ""
+
+#: ui/main_dialog.py:1240
+#, python-brace-format
+msgid "Target: {standard} ({market})"
+msgstr ""
+
+#: ui/main_dialog.py:946
+#, python-brace-format
+msgid "Target: {target:.6g} ohm"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:139
+msgid "Temp"
+msgstr ""
+
+#: plotter.py:480 plotter.py:544
+msgid "Temperature (C)"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:37
+msgid "Temperature (C):"
+msgstr ""
+
+#: ui/main_dialog.py:1903
+msgid "Temperature XY"
+msgstr ""
+
+#: ui/main_dialog.py:1904
+msgid "Temperature XZ"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:97
+msgid "Test CPU"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:98
+msgid "Test CUDA"
+msgstr ""
+
+#: ac_solver.py:62
+msgid "The AC network contains an invalid node reference."
+msgstr ""
+
+#: ac_model.py:283
+msgid "The AC rail-to-ground mesh is empty."
+msgstr ""
+
+#: ac_model.py:320
+msgid "The AC source must map to pads on both the rail and the return net."
+msgstr ""
+
+#: cfd_solver.py:414
+msgid "The enclosure CFD mesh has no fluid cells."
+msgstr ""
+
+#: ui/runtime_settings_panel.py:160
+msgid "The language change will be applied the next time the Ki-PIDA window is opened."
+msgstr ""
+
+#: ac_solver.py:103
+msgid "The measurement port contains an invalid node reference."
+msgstr ""
+
+#: ac_solver.py:105
+msgid "The measurement port is not electrically connected to the AC source."
+msgstr ""
+
+#: ac_model.py:322
+msgid "The measurement port must map to pads on both the rail and the return net."
+msgstr ""
+
+#: emc_analyzer.py:301
+msgid "The multilayer board has no filled zone on a configured ground net."
+msgstr ""
+
+#: em_field_solver.py:135
+msgid "The PCB outline is empty; near-field simulation cannot build a grid."
+msgstr ""
+
+#: ui/runtime_settings_panel.py:54
+msgid "The selected language is applied the next time the Ki-PIDA window is opened."
+msgstr ""
+
+#: thermal_solver.py:43
+msgid "The thermal mesh is empty."
+msgstr ""
+
+#: ui/main_dialog.py:1588 ui/main_dialog.py:1602
+msgid "Thermal"
+msgstr ""
+
+#: ui/main_dialog.py:1702
+msgid "Thermal 3D"
+msgstr ""
+
+#: ui/main_dialog.py:1582
+#, python-brace-format
+msgid "Thermal analysis completed in {p0} s."
+msgstr ""
+
+#: ui/main_dialog.py:1395
+msgid "Thermal Analysis Error"
+msgstr ""
+
+#: ui/main_dialog.py:1394
+#, python-brace-format
+msgid "Thermal Analysis Error: {p0}"
+msgstr ""
+
+#: thermal_mesh.py:173
+msgid "Thermal boundary arrays must have matching lengths."
+msgstr ""
+
+#: thermal_mesh.py:105
+msgid "Thermal branch arrays must have matching lengths."
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:144
+msgid "Thermal colors:"
+msgstr ""
+
+#: ui/main_dialog.py:1617
+#, python-brace-format
+msgid "Thermal colors: {palette}"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:428
+msgid "Thermal colour maximum must be greater than the colour minimum."
+msgstr ""
+
+#: ui/main_dialog.py:1622
+#, python-brace-format
+msgid "Thermal colour maximum: {value}"
+msgstr ""
+
+#: ui/main_dialog.py:1618
+#, python-brace-format
+msgid "Thermal colour minimum: {value}"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:433
+msgid "Thermal grid size must be between 0.01 and 5 mm; coupled iterations must be positive."
+msgstr ""
+
+#: ui/main_dialog.py:1613
+#, python-brace-format
+msgid "Thermal grid: {grid:.4g} mm"
+msgstr ""
+
+#: thermal_solver.py:133
+msgid "Thermal heat vector does not match thermal mesh nodes."
+msgstr ""
+
+#: emc_analyzer.py:790 ui/emc_analysis_panel.py:33
+msgid "Thermal interaction"
+msgstr ""
+
+#: ui/component_selector.py:68
+msgid "Thermal load:"
+msgstr ""
+
+#: ui/regulator_dialog.py:106
+msgid "Thermal loss component:"
+msgstr ""
+
+#: thermal_mesh.py:489
+#, python-brace-format
+msgid "Thermal mesh uses the explicit {p0} GiB host-RAM ceiling ({p1}-node limit)."
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:77
+msgid "Thermal model values must be non-negative and physically valid."
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:39
+#, python-brace-format
+msgid "Thermal Model: {reference}"
+msgstr ""
+
+#: ui/main_dialog.py:364 ui/main_dialog.py:378 ui/main_dialog.py:387
+msgid "Thermal overlay"
+msgstr ""
+
+#: ui/main_dialog.py:386
+#, python-brace-format
+msgid "Thermal overlay clear error: {p0}"
+msgstr ""
+
+#: ui/main_dialog.py:377
+#, python-brace-format
+msgid "Thermal overlay injection error: {p0}"
+msgstr ""
+
+#: ui/main_dialog.py:1775
+#, python-brace-format
+msgid "Thermal plot rendering error: {p0}"
+msgstr ""
+
+#: ui/main_dialog.py:1773
+msgid "Thermal plot rendering failed; see Log for details."
+msgstr ""
+
+#: thermal_probe.py:18
+#, python-brace-format
+msgid "Thermal probe  {temperature:.2f} C  |  X {x:.2f} mm, Y {y:.2f} mm, Z {z:.3f} mm  |  {layer}"
+msgstr ""
+
+#: ui/main_dialog.py:1383
+#, python-brace-format
+msgid "Thermal progress: {p0}/{p1} ({p2})"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:197
+#, python-brace-format
+msgid "Thermal RAM ceiling: {ceiling}"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:88
+msgid "Thermal RAM limit GiB (0 = conservative default):"
+msgstr ""
+
+#: ui/main_dialog.py:1759
+msgid "Thermal result plots ready."
+msgstr ""
+
+#: thermal_solver.py:154
+msgid "Thermal solution contains non-finite temperatures."
+msgstr ""
+
+#: ui/main_dialog.py:1668
+msgid "Thermal solve complete; rendering plots in background."
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:207
+msgid "Theta JB"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:56
+msgid "Theta JB (C/W):"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:113
+msgid "Thickness (mm)"
+msgstr ""
+
+#: thermal_overlay.py:302
+msgid "This KiCad IPC API does not expose user drawing layers."
+msgstr ""
+
+#: thermal_overlay.py:366
+msgid "This KiCad IPC version cannot rename User layers; reserved User.n layers remain dedicated to X.Thermal for this board."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:261 ui/differential_analysis_panel.py:294
+msgid "This net pair already exists."
+msgstr ""
+
+#: ui/runtime_settings_panel.py:184
+#, python-brace-format
+msgid "Thread control: {state}"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:207
+msgid "Tj max"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:122
+msgid "Tolerance:"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:174
+msgid "Top exposed"
+msgstr ""
+
+#: ui/main_dialog.py:1707
+msgid "Top Surface"
+msgstr ""
+
+#: ui/main_dialog.py:1248 ui/main_dialog.py:1641
+#, python-brace-format
+msgid "Total elapsed time: {seconds:.3f} s"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:55
+msgid "Trace current (A):"
+msgstr ""
+
+#: differential_impedance.py:158
+msgid "Trace is too wide for the microstrip approximation."
+msgstr ""
+
+#: differential_impedance.py:172
+msgid "Trace is too wide for the stripline approximation."
+msgstr ""
+
+#: emc_analyzer.py:716
+msgid "Treat amplitudes as relative ranking only; measure absolute field strength."
+msgstr ""
+
+#: ui/main_dialog.py:1048
+msgid "trusted"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:20
+msgid "Turbo"
+msgstr ""
+
+#: emc_analyzer.py:508
+msgid "TVS has insufficient nearby ground vias"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:138 ui/emc_analysis_panel.py:177
+msgid "Type"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:34 ui/emc_analysis_panel.py:53 ui/regulator_dialog.py:93
+msgid "Type:"
+msgstr ""
+
+#: ui/power_tree_panel.py:696
+msgid "Unable to determine project path. Cannot load config."
+msgstr ""
+
+#: ui/power_tree_panel.py:663
+msgid "Unable to determine project path. Cannot save config."
+msgstr ""
+
+#: cfd_mesh.py:71
+#, python-brace-format
+msgid "Unsupported CFD patch face: {p0}"
+msgstr ""
+
+#: cfd_mesh.py:125
+#, python-brace-format
+msgid "Unsupported CFD patch type: {p0}"
+msgstr ""
+
+#: config_manager.py:91
+#, python-brace-format
+msgid "Unsupported config version: {p0}"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:105 ui/differential_analysis_panel.py:124 ui/emc_analysis_panel.py:177 ui/thermal_analysis_panel.py:206
+msgid "Use"
+msgstr ""
+
+#: emc_analyzer.py:510
+msgid "Use a short, wide discharge path and at least two nearby ground/chassis vias."
+msgstr ""
+
+#: ui/component_selector.py:82
+msgid "Use all connected pads"
+msgstr ""
+
+#: emc_analyzer.py:338
+msgid "Use an adjacent solid ground plane or route the layers in orthogonal directions."
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:116
+msgid "Use Phase 3 heat sources"
+msgstr ""
+
+#: emc_analyzer.py:701
+msgid "Use these frequencies to prioritise near-field and chamber measurements."
+msgstr ""
+
+#: ui/differential_analysis_panel.py:275 ui/differential_analysis_panel.py:276
+msgid "user-confirmed"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:71
+msgid "user-defined"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:296 ui/differential_analysis_panel.py:297
+msgid "user-edited"
+msgstr ""
+
+#: solver.py:120
+msgid "Using legacy edge iteration for matrix build."
+msgstr ""
+
+#: solver.py:96
+#, python-brace-format
+msgid "Using pre-computed sparse matrix ({p0} entries)."
+msgstr ""
+
+#: ui/results_workspace.py:123 ui/results_workspace.py:153 ui/results_workspace.py:159 ui/results_workspace.py:94
+msgid "utf-8"
+msgstr ""
+
+#: ui/setup_dialogs.py:64 ui/setup_dialogs.py:67 ui/setup_dialogs.py:72
+msgid "Validation Error"
+msgstr ""
+
+#: ui/power_tree_panel.py:119
+msgid "Value"
+msgstr ""
+
+#: ui/setup_dialogs.py:25
+msgid "Value (V or A):"
+msgstr ""
+
+#: ui/setup_dialogs.py:64
+msgid "Value cannot be zero."
+msgstr ""
+
+#: ui/component_selector.py:61
+msgid "Value:"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:139
+msgid "Velocity"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:37
+msgid "Velocity (m/s):"
+msgstr ""
+
+#: ui/main_dialog.py:1905
+msgid "Velocity XY"
+msgstr ""
+
+#: emc_analyzer.py:467
+msgid "Verify every supply pin and place its high-frequency capacitor at the pin/via pair."
+msgstr ""
+
+#: emc_analyzer.py:324
+msgid "Verify intentional single-point connections and prevent signals crossing domain boundaries."
+msgstr ""
+
+#: emc_analyzer.py:727
+msgid "Verify MLCC DC-bias/SRF and ferrite impedance at the local operating temperature."
+msgstr ""
+
+#: emc_analyzer.py:518
+msgid "Verify the connector shell connection and provide a short high-frequency chassis return."
+msgstr ""
+
+#: emc_analyzer.py:783 ui/emc_analysis_panel.py:32
+msgid "Via stitching"
+msgstr ""
+
+#: ui/main_dialog.py:1106
+msgid "Vias and reference-plane transitions are reported as discontinuities; this is not a 3D full-wave solver."
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:19
+msgid "Viridis"
+msgstr ""
+
+#: plotter.py:156 plotter.py:95
+msgid "Voltage (V)"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:55
+msgid "Voltage swing (V):"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:102
+msgid "Volumetric CFD Solver"
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:93
+msgid "Wall h (W/m2K):"
+msgstr ""
+
+#: ui/main_dialog.py:102
+msgid "WARNING: No project object available."
+msgstr ""
+
+#: solver.py:250
+msgid "Warning: Solution contains NaN values."
+msgstr ""
+
+#: ui/cfd_analysis_panel.py:91 ui/thermal_analysis_panel.py:53
+msgid "Width (mm):"
+msgstr ""
+
+#: ui/main_dialog.py:945
+#, python-brace-format
+msgid "Worst frequency: {frequency:.6g} Hz"
+msgstr ""
+
+#: ui/main_dialog.py:944
+#, python-brace-format
+msgid "Worst |Z|: {value:.6g} ohm"
+msgstr ""
+
+#: plotter.py:165 plotter.py:311 plotter.py:417 plotter.py:469 plotter.py:538 plotter.py:709 plotter.py:97
+msgid "X (mm)"
+msgstr ""
+
+#: plotter.py:166 plotter.py:311 plotter.py:418 plotter.py:470 plotter.py:539 plotter.py:709 plotter.py:97
+msgid "Y (mm)"
+msgstr ""
+
+#: ui/ac_analysis_panel.py:233 ui/differential_analysis_panel.py:194 ui/emc_analysis_panel.py:231 ui/emc_analysis_panel.py:233 ui/runtime_settings_panel.py:186 ui/thermal_analysis_panel.py:346
+msgid "Yes"
+msgstr ""
+
+#: plotter.py:471 plotter.py:709
+msgid "Z (mm)"
+msgstr ""
+
+#: ui/differential_analysis_panel.py:126
+msgid "Zdiff"
+msgstr ""
+
+#: plotter.py:543
+#, python-brace-format
+msgid "{layer} temperature"
+msgstr ""
+
+#: ui/main_dialog.py:1589
+#, python-brace-format
+msgid "{p0} Analysis Error: {p1}"
+msgstr ""
+
+#: cfd_model.py:128
+#, python-brace-format
+msgid "{p0} does not fit inside the configured enclosure."
+msgstr ""
+
+#: plotter.py:424
+#, python-brace-format
+msgid "{title} at {height:g} mm — {mode}"
+msgstr ""
+
+#: ui/runtime_settings_panel.py:198
+#, python-brace-format
+msgid "{value:g} GiB (expert override)"
+msgstr ""
+
+#: plotter.py:194
+msgid "|Z| (ohm)"
+msgstr ""
+
+#: ui/thermal_analysis_panel.py:310 ui/thermal_analysis_panel.py:311
+#, python-brace-format
+msgid "~{nodes:,} nodes / {branches:,} branches — host peak {host:.0f} MiB, GPU {gpu:.0f} MiB — limit {limit:,} nodes{ceiling} — recommended: {backend}"
+msgstr ""

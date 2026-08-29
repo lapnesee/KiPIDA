@@ -11,9 +11,16 @@ plugin_dir = os.path.dirname(os.path.abspath(__file__))
 if plugin_dir not in sys.path:
     sys.path.insert(0, plugin_dir)
 
-from ui.main_dialog import KiPIDA_MainDialog
+from i18n import _, configure, install_wx_translation_hooks
+from runtime_config import load_runtime_settings
 
 def main():
+    runtime_settings = load_runtime_settings()
+    configure(runtime_settings.ui_language)
+    install_wx_translation_hooks(wx)
+    # UI modules must be imported only after the active catalog and wx display
+    # boundaries are configured.
+    from ui.main_dialog import KiPIDA_MainDialog
     # Setup logging to file for debugging
     log_file = os.path.join(tempfile.gettempdir(), 'kipida_entry.log')
     logging.basicConfig(filename=log_file, level=logging.INFO, filemode='w')
@@ -126,7 +133,11 @@ def main():
         import traceback
         early_log(traceback.format_exc())
         # Show a simple message box if possible
-        dlg_err = wx.MessageDialog(None, f"Failed to start Ki-PIDA: {e}\n\nCheck logs for details.", "Startup Error", wx.OK | wx.ICON_ERROR)
+        dlg_err = wx.MessageDialog(
+            None,
+            _("Failed to start Ki-PIDA: {error}\n\nCheck logs for details.").format(error=e),
+            _("Startup Error"), wx.OK | wx.ICON_ERROR,
+        )
         dlg_err.ShowModal()
         dlg_err.Destroy()
         return

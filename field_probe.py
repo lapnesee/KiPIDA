@@ -5,6 +5,8 @@ from typing import Optional
 
 import numpy as np
 
+from i18n import _
+
 
 @dataclass(frozen=True)
 class EMFieldProbeReading:
@@ -16,10 +18,12 @@ class EMFieldProbeReading:
     probe_height_mm: float
 
     def label(self):
-        return (
-            f"EM {self.quantity}-field  {self.value:.5g} {self.unit}  |  "
-            f"X {self.x_mm:.2f} mm, Y {self.y_mm:.2f} mm  |  "
-            f"probe height {self.probe_height_mm:g} mm"
+        return _(
+            "EM {quantity}-field  {value:.5g} {unit}  |  X {x:.2f} mm, Y {y:.2f} mm  |  "
+            "probe height {height:g} mm"
+        ).format(
+            quantity=self.quantity, value=self.value, unit=self.unit,
+            x=self.x_mm, y=self.y_mm, height=self.probe_height_mm,
         )
 
 

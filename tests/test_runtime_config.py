@@ -15,6 +15,7 @@ class RuntimeConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "runtime.json"
             settings = RuntimeComputeSettings(
+                ui_language="fr",
                 backend="CUDA", cpu_multithread=False, cpu_threads=3,
                 cuda_enabled=True, cuda_device=1, cuda_min_nodes=42000,
                 memory_limit_gib=48.0,
@@ -22,13 +23,14 @@ class RuntimeConfigTests(unittest.TestCase):
             save_runtime_settings(settings, path)
             loaded = load_runtime_settings(path)
             self.assertEqual(loaded.backend, "CUDA")
+            self.assertEqual(loaded.ui_language, "fr")
             self.assertFalse(loaded.cpu_multithread)
             self.assertEqual(loaded.cpu_threads, 3)
             self.assertTrue(loaded.cuda_enabled)
             self.assertEqual(loaded.cuda_device, 1)
             self.assertEqual(loaded.cuda_min_nodes, 42000)
             self.assertEqual(loaded.memory_limit_gib, 48.0)
-            self.assertEqual(json.loads(path.read_text())["version"], "1.1")
+            self.assertEqual(json.loads(path.read_text())["version"], "1.2")
 
     def test_invalid_config_uses_defaults(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -38,7 +40,7 @@ class RuntimeConfigTests(unittest.TestCase):
 
     def test_plugin_version_is_read_from_manifest(self):
         root = Path(__file__).resolve().parent.parent
-        self.assertEqual(plugin_version(root), "0.16.0")
+        self.assertEqual(plugin_version(root), "0.17.0")
 
     @patch("runtime_environment.subprocess.run")
     def test_cuda_wheel_family_follows_driver_runtime(self, run):

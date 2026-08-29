@@ -81,6 +81,13 @@ Power-delivery and thermal issues are often discovered late: an undersized coppe
 - CUDA float64 sparse solves, numerical residual reporting, CSR reuse during coupled thermal iterations, and GPU-resident compatible matrix/preconditioner data.
 - Machine-local CPU/GPU memory ceiling and a backend self-test. Runtime settings are stored outside the PCB project.
 
+### Interface languages
+
+- Automatic language selection from the operating-system UI locale.
+- English is the canonical source language and is always available as the fallback.
+- A complete French interface catalog covers panels, dialogs, reports, plots, probes, diagnostics, and user-facing logs.
+- The language can be overridden with **System default**, **English**, or **Français** in **Runtime & Acceleration**. The selection is applied the next time the Ki-PIDA window is opened and does not change numeric parsing or project-file formats.
+
 ## 📦 Installation
 
 Ki-PIDA targets KiCad 10 with the IPC-based Python API enabled.
@@ -103,6 +110,8 @@ Ki-PIDA targets KiCad 10 with the IPC-based Python API enabled.
    ```
 
 4. Restart KiCad and open a PCB in Pcbnew. **Ki-PIDA Simulation** is available from the PCB editor toolbar/action menu.
+
+To change the interface language, open **Runtime & Acceleration**, select a language, save the runtime settings, close Ki-PIDA, and open it again. Saved result snapshots remain in the language used when they were generated.
 
 For optional NVIDIA acceleration, install the CuPy package matching the installed CUDA runtime:
 
@@ -187,7 +196,7 @@ Each finding records its rule ID, confidence, affected nets/components, board co
 
 The **Results** tab keeps each analysis type separate for the current session. Result snapshots are also saved under `KiPIDA-results` beside the PCB/project. Select a previous snapshot from the history menu to inspect it, or use the deletion control to remove stored results from the GUI.
 
-The project configuration is saved as `<project>.kipida.json` beside the `.kicad_pro` file. It stores project-scoped settings such as rails, loads, AC profiles, thermal configuration, CFD settings, differential-pair choices, and EMI/EMC sources and target profile. Runtime acceleration settings intentionally remain machine-local.
+The project configuration is saved as `<project>.kipida.json` beside the `.kicad_pro` file. It stores project-scoped settings such as rails, loads, AC profiles, thermal configuration, CFD settings, differential-pair choices, and EMI/EMC sources and target profile. Runtime acceleration and interface-language settings intentionally remain machine-local.
 
 ## 🛠️ Technical Overview
 
@@ -210,6 +219,9 @@ Electrical analysis uses a hybrid 2.5D finite-difference mesh: each copper layer
 ```bash
 python -m pip install -r requirements.txt
 python -m unittest discover -s tests
+python tools/i18n_catalog.py extract
+python tools/i18n_catalog.py validate locales/fr/LC_MESSAGES/kipida.po --complete
+python tools/i18n_catalog.py compile locales/fr/LC_MESSAGES/kipida.po locales/fr/LC_MESSAGES/kipida.mo
 ```
 
 The project uses Python, wxPython, NumPy, SciPy, Shapely, Matplotlib, and the KiCad Python IPC API. Optional CUDA support uses CuPy.

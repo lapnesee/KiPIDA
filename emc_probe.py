@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 import math
 
+from i18n import _
+
 
 @dataclass(frozen=True)
 class EMCProbeReading:
@@ -19,30 +21,30 @@ class EMCProbeReading:
     evidence: str = ""
 
     def label(self):
-        heading = self.title
+        heading = _(self.title)
         qualifiers = []
         if self.rule_id:
-            qualifiers.append(f"Rule: {self.rule_id}")
+            qualifiers.append(_("Rule: {rule}").format(rule=self.rule_id))
         if self.severity:
-            qualifiers.append(f"Severity: {self.severity}")
+            qualifiers.append(_("Severity: {severity}").format(severity=self.severity))
         if self.confidence:
-            qualifiers.append(f"Confidence: {self.confidence}")
+            qualifiers.append(_("Confidence: {confidence}").format(confidence=self.confidence))
         lines = [heading]
         if qualifiers:
             lines.append(" | ".join(qualifiers))
         if self.description:
-            lines.extend(("", f"Observation: {self.description}"))
+            lines.extend(("", _("Observation: {description}").format(description=_(self.description))))
         targets = []
         if self.nets:
-            targets.append("Nets: " + ", ".join(self.nets))
+            targets.append(_("Nets: {nets}").format(nets=", ".join(self.nets)))
         if self.components:
-            targets.append("Components: " + ", ".join(self.components))
+            targets.append(_("Components: {components}").format(components=", ".join(self.components)))
         if targets:
             lines.append("; ".join(targets))
         if self.evidence:
-            lines.append(f"Evidence: {self.evidence}")
+            lines.append(_("Evidence: {evidence}").format(evidence=_(self.evidence)))
         if self.recommendation:
-            lines.extend(("", f"Recommendation: {self.recommendation}"))
+            lines.extend(("", _("Recommendation: {recommendation}").format(recommendation=_(self.recommendation))))
         return "\n".join(lines)
 
     def to_dict(self):

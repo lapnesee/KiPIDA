@@ -4,6 +4,8 @@ import math
 
 import wx
 
+from i18n import _
+
 try:
     from models import CFDBoundaryPatch, EnclosureCFDSettings
 except (ImportError, ValueError):
@@ -169,7 +171,7 @@ class CFDAnalysisPanel(wx.Panel):
             count = (max(3, math.ceil(width / cell)) *
                      max(3, math.ceil(depth / cell)) *
                      max(3, math.ceil(height / cell)))
-            self.estimate.SetLabel(f"Estimated cells: {count:,}")
+            self.estimate.SetLabel(_("Estimated cells: {count:,}").format(count=count))
         except ValueError:
             self.estimate.SetLabel("Estimated cells: invalid settings")
         if event:
