@@ -264,6 +264,129 @@ class DifferentialPairResult:
 
 
 @dataclass
+class EMCSignalSource:
+    """Clock, switching node, or cable source used by the EMC risk model."""
+    name: str
+    net_name: str
+    kind: str = "DIGITAL"
+    frequency_hz: float = 0.0
+    rise_time_ns: float = 5.0
+    external: bool = False
+    cable_length_m: float = 0.0
+    enabled: bool = True
+    source: str = "auto"
+    voltage_swing_v: float = 3.3
+    current_a: float = 0.1
+
+
+@dataclass
+class EMCAnalysisSettings:
+    """Persisted pre-compliance intent and rule-selection settings."""
+    standard: str = "CISPR_32_CLASS_B"
+    market: str = "EU"
+    frequency_start_hz: float = 30.0e6
+    frequency_stop_hz: float = 1.0e9
+    reference_net_names: List[str] = field(
+        default_factory=lambda: ["GND", "AGND", "DGND", "PGND"]
+    )
+    sources: List[EMCSignalSource] = field(default_factory=list)
+    enabled_categories: List[str] = field(default_factory=lambda: [
+        "GROUND", "DECOUPLING", "IO", "SWITCHING", "CLOCK", "STACKUP",
+        "DIFFERENTIAL", "BOARD_EDGE", "PDN", "RETURN_PATH", "CROSSTALK",
+        "ESD", "SHIELDING", "STITCHING", "THERMAL", "EMISSIONS",
+    ])
+    maximum_findings_per_rule_for_score: int = 3
+    external_connector_prefixes: List[str] = field(default_factory=lambda: ["J", "P", "CN"])
+    field_simulation_enabled: bool = True
+    field_probe_height_mm: float = 3.0
+    field_grid_size_mm: float = 1.0
+    field_frequency_hz: float = 0.0  # 0 = each source at its configured fundamental
+    field_maximum_cells: int = 250000
+
+
+@dataclass
+class EMCEvidence:
+    """Traceable board-space evidence attached to one EMC finding."""
+    source: str
+    detail: str
+    x_mm: Optional[float] = None
+    y_mm: Optional[float] = None
+    layer_id: Optional[int] = None
+
+
+@dataclass
+class EMCFinding:
+    """One deterministic and actionable pre-compliance finding."""
+    rule_id: str
+    category: str
+    severity: str
+    title: str
+    description: str
+    recommendation: str
+    confidence: str = "MEDIUM"
+    nets: List[str] = field(default_factory=list)
+    components: List[str] = field(default_factory=list)
+    evidence: List[EMCEvidence] = field(default_factory=list)
+
+
+@dataclass
+class EMCProbePoint:
+    """Suggested near-field probe location derived from a finding."""
+    x_mm: float
+    y_mm: float
+    reason: str
+    rule_id: str = ""
+
+
+@dataclass
+class EMCFrequencyRisk:
+    """Frequency-domain risk marker for plots and lab preparation."""
+    frequency_hz: float
+    level_db: float
+    source_name: str
+    kind: str = "HARMONIC"
+
+
+@dataclass
+class EMFieldSimulationResult:
+    """Quasi-static PCB near-field estimate on a regular observation plane."""
+    x_coordinates_mm: List[float] = field(default_factory=list)
+    y_coordinates_mm: List[float] = field(default_factory=list)
+    electric_field_v_m: List[List[float]] = field(default_factory=list)
+    magnetic_field_a_m: List[List[float]] = field(default_factory=list)
+    probe_height_mm: float = 0.0
+    frequency_hz: float = 0.0
+    frequency_mode: str = "SOURCE_FUNDAMENTALS"
+    source_count: int = 0
+    segment_count: int = 0
+    maximum_e_v_m: float = 0.0
+    maximum_h_a_m: float = 0.0
+    maximum_e_position_mm: tuple = (0.0, 0.0)
+    maximum_h_position_mm: tuple = (0.0, 0.0)
+    compute_backend: str = "CPU_NUMPY"
+    elapsed_seconds: float = 0.0
+    warnings: List[str] = field(default_factory=list)
+
+
+@dataclass
+class EMCAnalysisResult:
+    """Aggregated EMI/EMC pre-compliance result."""
+    findings: List[EMCFinding] = field(default_factory=list)
+    risk_score: int = 100
+    total_checks: int = 0
+    severity_counts: Dict[str, int] = field(default_factory=dict)
+    per_net_scores: Dict[str, int] = field(default_factory=dict)
+    probe_points: List[EMCProbePoint] = field(default_factory=list)
+    frequency_risks: List[EMCFrequencyRisk] = field(default_factory=list)
+    cavity_resonances_hz: List[float] = field(default_factory=list)
+    test_plan: List[str] = field(default_factory=list)
+    regulatory_coverage: List[str] = field(default_factory=list)
+    elapsed_seconds: float = 0.0
+    limitations: List[str] = field(default_factory=list)
+    field_simulation: Optional[EMFieldSimulationResult] = None
+
+
+@dataclass
 class ProjectConfig:
     """Complete persisted Ki-PIDA project configuration."""
     rails: List[PowerRail] = field(default_factory=list)
@@ -271,6 +394,7 @@ class ProjectConfig:
     thermal_profile: Optional["ThermalAnalysisSettings"] = None
     cfd_profile: Optional["EnclosureCFDSettings"] = None
     differential_profile: Optional[DifferentialAnalysisSettings] = None
+    emc_profile: Optional[EMCAnalysisSettings] = None
 
 
 @dataclass
@@ -351,10 +475,10 @@ class ThermalAnalysisSettings:
     emissivity: float = 0.9
     include_dc_copper_losses: bool = True
     color_map: str = "inferno"
-    # The thermal colour maximum always follows the solved hotspot.  Only the
-    # low end is configurable so a room-temperature board remains visibly cold.
     color_scale_minimum_mode: str = "AMBIENT"
     color_scale_minimum_c: Optional[float] = None
+    color_scale_maximum_mode: str = "AUTO"
+    color_scale_maximum_c: Optional[float] = None
     show_internal_copper_layers: bool = True
     coupled_iterations: int = 10
     convergence_c: float = 0.1
@@ -370,6 +494,11 @@ class ThermalAnalysisSettings:
         if mode == "CUSTOM":
             return self.color_scale_minimum_c
         return float(self.ambient_c)
+
+    def resolved_color_scale_maximum_c(self) -> Optional[float]:
+        """Return the requested upper colour bound, or None for hotspot auto."""
+        mode = str(self.color_scale_maximum_mode or "AUTO").upper()
+        return self.color_scale_maximum_c if mode == "CUSTOM" else None
 
 
 @dataclass

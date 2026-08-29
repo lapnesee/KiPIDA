@@ -53,6 +53,8 @@ class PowerTreePanel(wx.Panel):
         self.cfd_profile_consumer = None
         self.differential_profile_provider = None
         self.differential_profile_consumer = None
+        self.emc_profile_provider = None
+        self.emc_profile_consumer = None
         
         self._init_ui()
 
@@ -169,6 +171,8 @@ class PowerTreePanel(wx.Panel):
                     self.cfd_profile_consumer(project_config.cfd_profile)
                 if self.differential_profile_consumer:
                     self.differential_profile_consumer(project_config.differential_profile)
+                if self.emc_profile_consumer:
+                    self.emc_profile_consumer(project_config.emc_profile)
                 self.log(f"Loaded configuration from {config_path.name} ({len(self.rails)} rails)")
             except Exception as e:
                 self.log(f"Failed to load config: {e}. Running auto-scan instead.")
@@ -669,6 +673,7 @@ class PowerTreePanel(wx.Panel):
                 self.differential_profile_provider()
                 if self.differential_profile_provider else None
             )
+            emc_profile = self.emc_profile_provider() if self.emc_profile_provider else None
             save_config(
                 self.rails,
                 str(config_path),
@@ -676,6 +681,7 @@ class PowerTreePanel(wx.Panel):
                 thermal_profile=thermal_profile,
                 cfd_profile=cfd_profile,
                 differential_profile=differential_profile,
+                emc_profile=emc_profile,
             )
             self.log(f"Configuration saved to {config_path.name}")
             wx.MessageBox(f"Configuration saved successfully to:\n{config_path}", "Success", wx.OK | wx.ICON_INFORMATION)
@@ -705,6 +711,8 @@ class PowerTreePanel(wx.Panel):
                 self.cfd_profile_consumer(project_config.cfd_profile)
             if self.differential_profile_consumer:
                 self.differential_profile_consumer(project_config.differential_profile)
+            if self.emc_profile_consumer:
+                self.emc_profile_consumer(project_config.emc_profile)
             self.log(f"Loaded configuration from {config_path.name} ({len(self.rails)} rails)")
             
             # Refresh UI
