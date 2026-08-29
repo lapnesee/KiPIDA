@@ -108,6 +108,11 @@ def _build_template_translations(translation):
 @lru_cache(maxsize=4096)
 def gettext_text(message):
     message = str(message)
+    # GNU gettext reserves the empty msgid for catalog metadata.  wxPython
+    # commonly creates placeholder controls with label=""; asking gettext to
+    # translate those labels would display the PO header throughout the UI.
+    if not message:
+        return ""
     with _lock:
         translated = _translation.gettext(message)
         if translated != message:

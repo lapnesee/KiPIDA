@@ -47,6 +47,10 @@ class I18NTests(unittest.TestCase):
             self.assertEqual(i18n.gettext_text("Results"), "Résultats")
             self.assertEqual(i18n.gettext_text("Risk score 42/100"), "Score de risque 42/100")
 
+    def test_empty_labels_never_render_catalog_metadata(self):
+        self.assertEqual(i18n.configure("fr"), "fr")
+        self.assertEqual(i18n.gettext_text(""), "")
+
     def test_committed_french_catalog_is_complete_and_placeholder_safe(self):
         root = Path(__file__).resolve().parent.parent
         po = root / "locales" / "fr" / "LC_MESSAGES" / "kipida.po"
@@ -69,8 +73,9 @@ class I18NTests(unittest.TestCase):
             "from i18n import configure,install_wx_translation_hooks; "
             "configure('fr'); install_wx_translation_hooks(wx); "
             "app=wx.App(False); d=wx.Dialog(None,title='Startup Error'); p=wx.Panel(d); "
-            "t=wx.StaticText(p,label='Results'); b=wx.Button(p,label='Close'); "
+            "t=wx.StaticText(p,label='Results'); b=wx.Button(p,label='Close'); e=wx.StaticText(p,label=''); "
             "assert t.GetLabel() != 'Results'; assert b.GetLabel() != 'Close'; "
+            "assert e.GetLabel() == ''; "
             "d.Destroy()"
         )
         completed = subprocess.run(
