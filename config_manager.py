@@ -8,6 +8,7 @@ try:
         AirflowSettings, CFDBoundaryPatch, CFDSolverSettings, ComponentRef,
         EnclosureCFDSettings, EnclosureGeometrySettings, FluidProperties,
         DifferentialAnalysisSettings, DifferentialPairCandidate,
+        EMCAnalysisSettings, EMCSignalSource,
         PowerRail, ProjectConfig, StackupLayerModel, StackupProfile,
         ThermalAnalysisSettings, ThermalComponentModel, UnifiedLoad,
         UnifiedSource, VoltageRegulator,
@@ -18,13 +19,14 @@ except (ImportError, ValueError):
         AirflowSettings, CFDBoundaryPatch, CFDSolverSettings, ComponentRef,
         EnclosureCFDSettings, EnclosureGeometrySettings, FluidProperties,
         DifferentialAnalysisSettings, DifferentialPairCandidate,
+        EMCAnalysisSettings, EMCSignalSource,
         PowerRail, ProjectConfig, StackupLayerModel, StackupProfile,
         ThermalAnalysisSettings, ThermalComponentModel, UnifiedLoad,
         UnifiedSource, VoltageRegulator,
     )
 
-CONFIG_VERSION = "1.6"
-SUPPORTED_CONFIG_VERSIONS = {"1.0", "1.1", "1.2", "1.3", "1.4", "1.5", CONFIG_VERSION}
+CONFIG_VERSION = "1.7"
+SUPPORTED_CONFIG_VERSIONS = {"1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", CONFIG_VERSION}
 
 
 def get_project_config_path(
@@ -51,7 +53,7 @@ def get_project_config_path(
 
 def save_config(
     rails: List[PowerRail], filepath: str, ac_profiles=None,
-    thermal_profile=None, cfd_profile=None, differential_profile=None,
+    thermal_profile=None, cfd_profile=None, differential_profile=None, emc_profile=None,
 ):
     """Save the power tree and optional analysis profiles."""
     config = {
@@ -69,6 +71,7 @@ def save_config(
             _differential_settings_to_dict(differential_profile)
             if differential_profile is not None else None
         ),
+        "emc_profile": _emc_settings_to_dict(emc_profile) if emc_profile is not None else None,
     }
     
     with open(filepath, 'w') as f:
@@ -100,12 +103,15 @@ def load_project_config(filepath: str) -> ProjectConfig:
     differential_profile = (
         _dict_to_differential_settings(differential_data) if differential_data else None
     )
+    emc_data = config.get("emc_profile")
+    emc_profile = _dict_to_emc_settings(emc_data) if emc_data else None
     return ProjectConfig(
         rails=rails,
         ac_profiles=ac_profiles,
         thermal_profile=thermal_profile,
         cfd_profile=cfd_profile,
         differential_profile=differential_profile,
+        emc_profile=emc_profile,
     )
 
 
@@ -128,6 +134,10 @@ def load_cfd_profile(filepath: str):
 
 def load_differential_profile(filepath: str):
     return load_project_config(filepath).differential_profile
+
+
+def load_emc_profile(filepath: str):
+    return load_project_config(filepath).emc_profile
 
 def _rail_to_dict(rail: PowerRail) -> dict:
     """Convert PowerRail to dictionary."""
@@ -397,6 +407,83 @@ def _dict_to_differential_settings(data: dict) -> DifferentialAnalysisSettings:
     )
 
 
+def _emc_settings_to_dict(settings: EMCAnalysisSettings) -> dict:
+    return {
+        "standard": settings.standard,
+        "market": settings.market,
+        "frequency_start_hz": settings.frequency_start_hz,
+        "frequency_stop_hz": settings.frequency_stop_hz,
+        "reference_net_names": list(settings.reference_net_names),
+        "enabled_categories": list(settings.enabled_categories),
+        "maximum_findings_per_rule_for_score": settings.maximum_findings_per_rule_for_score,
+        "external_connector_prefixes": list(settings.external_connector_prefixes),
+        "field_simulation_enabled": settings.field_simulation_enabled,
+        "field_probe_height_mm": settings.field_probe_height_mm,
+        "field_grid_size_mm": settings.field_grid_size_mm,
+        "field_frequency_hz": settings.field_frequency_hz,
+        "field_maximum_cells": settings.field_maximum_cells,
+        "sources": [{
+            "name": source.name,
+            "net_name": source.net_name,
+            "kind": source.kind,
+            "frequency_hz": source.frequency_hz,
+            "rise_time_ns": source.rise_time_ns,
+            "external": source.external,
+            "cable_length_m": source.cable_length_m,
+            "enabled": source.enabled,
+            "source": source.source,
+            "voltage_swing_v": source.voltage_swing_v,
+            "current_a": source.current_a,
+        } for source in settings.sources],
+    }
+
+
+def _dict_to_emc_settings(data: dict) -> EMCAnalysisSettings:
+    defaults = EMCAnalysisSettings()
+    return EMCAnalysisSettings(
+        standard=data.get("standard", defaults.standard),
+        market=data.get("market", defaults.market),
+        frequency_start_hz=float(data.get("frequency_start_hz", defaults.frequency_start_hz)),
+        frequency_stop_hz=float(data.get("frequency_stop_hz", defaults.frequency_stop_hz)),
+        reference_net_names=list(data.get("reference_net_names", defaults.reference_net_names)),
+        enabled_categories=list(data.get("enabled_categories", defaults.enabled_categories)),
+        maximum_findings_per_rule_for_score=int(data.get(
+            "maximum_findings_per_rule_for_score", defaults.maximum_findings_per_rule_for_score
+        )),
+        external_connector_prefixes=list(data.get(
+            "external_connector_prefixes", defaults.external_connector_prefixes
+        )),
+        field_simulation_enabled=bool(data.get(
+            "field_simulation_enabled", defaults.field_simulation_enabled
+        )),
+        field_probe_height_mm=float(data.get(
+            "field_probe_height_mm", defaults.field_probe_height_mm
+        )),
+        field_grid_size_mm=float(data.get(
+            "field_grid_size_mm", defaults.field_grid_size_mm
+        )),
+        field_frequency_hz=float(data.get(
+            "field_frequency_hz", defaults.field_frequency_hz
+        )),
+        field_maximum_cells=int(data.get(
+            "field_maximum_cells", defaults.field_maximum_cells
+        )),
+        sources=[EMCSignalSource(
+            name=source.get("name", source.get("net_name", "Source")),
+            net_name=source.get("net_name", ""),
+            kind=source.get("kind", "DIGITAL"),
+            frequency_hz=float(source.get("frequency_hz", 0.0)),
+            rise_time_ns=float(source.get("rise_time_ns", 5.0)),
+            external=bool(source.get("external", False)),
+            cable_length_m=float(source.get("cable_length_m", 0.0)),
+            enabled=bool(source.get("enabled", True)),
+            source=source.get("source", "auto"),
+            voltage_swing_v=float(source.get("voltage_swing_v", 3.3)),
+            current_a=float(source.get("current_a", 0.1)),
+        ) for source in data.get("sources", [])],
+    )
+
+
 def _thermal_settings_to_dict(settings: ThermalAnalysisSettings) -> dict:
     return {
         "ambient_c": settings.ambient_c,
@@ -416,6 +503,8 @@ def _thermal_settings_to_dict(settings: ThermalAnalysisSettings) -> dict:
         "color_map": settings.color_map,
         "color_scale_minimum_mode": settings.color_scale_minimum_mode,
         "color_scale_minimum_c": settings.color_scale_minimum_c,
+        "color_scale_maximum_mode": settings.color_scale_maximum_mode,
+        "color_scale_maximum_c": settings.color_scale_maximum_c,
         "show_internal_copper_layers": settings.show_internal_copper_layers,
         "coupled_iterations": settings.coupled_iterations,
         "convergence_c": settings.convergence_c,
@@ -457,6 +546,11 @@ def _dict_to_thermal_settings(data: dict) -> ThermalAnalysisSettings:
         color_scale_minimum_c=(
             float(data["color_scale_minimum_c"])
             if data.get("color_scale_minimum_c") is not None else None
+        ),
+        color_scale_maximum_mode=str(data.get("color_scale_maximum_mode", "AUTO")).upper(),
+        color_scale_maximum_c=(
+            float(data["color_scale_maximum_c"])
+            if data.get("color_scale_maximum_c") is not None else None
         ),
         show_internal_copper_layers=bool(data.get("show_internal_copper_layers", True)),
         coupled_iterations=int(data.get("coupled_iterations", 10)),

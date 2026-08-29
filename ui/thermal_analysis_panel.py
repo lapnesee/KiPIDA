@@ -26,6 +26,11 @@ THERMAL_COLOR_MINIMUM_MODES = (
     ("Custom temperature", "CUSTOM"),
 )
 
+THERMAL_COLOR_MAXIMUM_MODES = (
+    ("Automatic (calculated hotspot)", "AUTO"),
+    ("Custom temperature", "CUSTOM"),
+)
+
 
 class ThermalComponentDialog(wx.Dialog):
     def __init__(self, parent, component):
@@ -99,7 +104,7 @@ class ThermalAnalysisPanel(wx.Panel):
 
         self.txt_ambient = wx.TextCtrl(settings_parent, value="25")
         self.txt_grid = wx.SpinCtrlDouble(
-            settings_parent, min=0.1, max=5.0, initial=1.0, inc=0.1,
+            settings_parent, min=0.01, max=5.0, initial=1.0, inc=0.01,
         )
         self.txt_grid.SetDigits(2)
         self.choice_airflow = wx.Choice(settings_parent, choices=["NATURAL", "FORCED", "CUSTOM"])
@@ -119,6 +124,12 @@ class ThermalAnalysisPanel(wx.Panel):
         self.choice_color_minimum.SetSelection(0)
         self.txt_color_minimum = wx.TextCtrl(settings_parent, value="25")
         self.txt_color_minimum.Enable(False)
+        self.choice_color_maximum = wx.Choice(
+            settings_parent, choices=[label for label, _ in THERMAL_COLOR_MAXIMUM_MODES],
+        )
+        self.choice_color_maximum.SetSelection(0)
+        self.txt_color_maximum = wx.TextCtrl(settings_parent, value="125")
+        self.txt_color_maximum.Enable(False)
         colour_note = wx.StaticText(
             settings_parent, label="Applied to results and KiCad overlay",
         )
@@ -130,6 +141,7 @@ class ThermalAnalysisPanel(wx.Panel):
             ("Coupled iterations:", self.txt_iterations, "Convergence (C):", self.txt_convergence),
             ("Thermal colors:", self.choice_color_map, "", colour_note),
             ("Color scale minimum:", self.choice_color_minimum, "Custom minimum (C):", self.txt_color_minimum),
+            ("Color scale maximum:", self.choice_color_maximum, "Custom maximum (C):", self.txt_color_maximum),
         ]
         for left_label, left_control, right_label, right_control in rows:
             grid.Add(wx.StaticText(settings_parent, label=left_label), 0, wx.ALIGN_CENTER_VERTICAL)
@@ -142,7 +154,10 @@ class ThermalAnalysisPanel(wx.Panel):
         mesh_controls.Add(wx.StaticText(settings_parent, label="Mesh preset:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         self.choice_mesh_preset = wx.Choice(
             settings_parent,
-            choices=["Fast (1.5 mm)", "Normal (1.0 mm)", "Fine (0.5 mm)", "Expert / custom"],
+            choices=[
+                "Fast (1.5 mm)", "Normal (1.0 mm)", "Fine (0.5 mm)",
+                "Super (0.1 mm)", "Expert / custom",
+            ],
         )
         self.choice_mesh_preset.SetSelection(1)
         self.txt_expert_grid = wx.TextCtrl(settings_parent, value="1.0", size=(75, -1))
@@ -213,6 +228,7 @@ class ThermalAnalysisPanel(wx.Panel):
         self.component_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit)
         self.choice_mesh_preset.Bind(wx.EVT_CHOICE, self._on_mesh_preset)
         self.choice_color_minimum.Bind(wx.EVT_CHOICE, self._on_color_minimum_mode)
+        self.choice_color_maximum.Bind(wx.EVT_CHOICE, self._on_color_maximum_mode)
         self.txt_grid.Bind(wx.EVT_SPINCTRLDOUBLE, self._on_grid_changed)
         self.txt_grid.Bind(wx.EVT_TEXT, self._on_grid_changed)
         self.txt_expert_grid.Bind(wx.EVT_TEXT, self._on_expert_grid_changed)
@@ -233,12 +249,12 @@ class ThermalAnalysisPanel(wx.Panel):
             self.clear_cache_callback()
 
     def _on_mesh_preset(self, event):
-        values = {0: 1.5, 1: 1.0, 2: 0.5}
+        values = {0: 1.5, 1: 1.0, 2: 0.5, 3: 0.1}
         selected = self.choice_mesh_preset.GetSelection()
         if selected in values:
             self.txt_grid.SetValue(values[selected])
-        self.txt_expert_grid.Show(selected == 3)
-        if selected == 3:
+        self.txt_expert_grid.Show(selected == 4)
+        if selected == 4:
             self.txt_expert_grid.SetValue(f"{self.txt_grid.GetValue():g}")
             self.txt_expert_grid.SetFocus()
         self.Layout()
@@ -254,10 +270,18 @@ class ThermalAnalysisPanel(wx.Panel):
             self.txt_color_minimum.SetValue(self.txt_ambient.GetValue())
         event.Skip()
 
+    def _on_color_maximum_mode(self, event):
+        selected = self.choice_color_maximum.GetSelection()
+        mode = THERMAL_COLOR_MAXIMUM_MODES[
+            selected if selected != wx.NOT_FOUND else 0
+        ][1]
+        self.txt_color_maximum.Enable(mode == "CUSTOM")
+        event.Skip()
+
     def _on_expert_grid_changed(self, event):
         try:
             value = float(self.txt_expert_grid.GetValue().replace(",", "."))
-            if 0.1 <= value <= 5.0:
+            if 0.01 <= value <= 5.0:
                 self.txt_grid.SetValue(value)
         except ValueError:
             pass
@@ -270,7 +294,7 @@ class ThermalAnalysisPanel(wx.Panel):
 
     def _update_mesh_cost(self):
         try:
-            size = max(0.1, float(self.txt_grid.GetValue()))
+            size = max(0.01, float(self.txt_grid.GetValue()))
             context = self.mesh_context_provider() if self.mesh_context_provider else {}
             estimate = estimate_thermal_mesh_cost(context, size)
             mib = 1024 ** 2
@@ -288,7 +312,10 @@ class ThermalAnalysisPanel(wx.Panel):
                 wx.Colour(190, 105, 0) if estimate["nodes"] > node_limit * 0.7 else wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOWTEXT)
             )
             self.lbl_mesh_cost.SetForegroundColour(colour)
-            self.lbl_mesh_cost.GetParent().Layout()
+            # The StaticBoxSizer is owned by this panel, not by the StaticBox
+            # child. Laying out the child can move wx.Choice controls to (0,0)
+            # until their next native selection event.
+            self.Layout()
         except (TypeError, ValueError):
             self.lbl_mesh_cost.SetLabel("Relative XY cells: invalid")
 
@@ -375,11 +402,26 @@ class ThermalAnalysisPanel(wx.Panel):
             if not math.isfinite(minimum) or minimum <= -273.15:
                 raise ValueError("Custom thermal colour minimum must be above absolute zero.")
             self.settings.color_scale_minimum_c = minimum
+        maximum_selected = self.choice_color_maximum.GetSelection()
+        maximum_mode = THERMAL_COLOR_MAXIMUM_MODES[
+            maximum_selected if maximum_selected != wx.NOT_FOUND else 0
+        ][1]
+        self.settings.color_scale_maximum_mode = maximum_mode
+        self.settings.color_scale_maximum_c = None
+        if maximum_mode == "CUSTOM":
+            maximum = float(self.txt_color_maximum.GetValue())
+            if not math.isfinite(maximum) or maximum <= -273.15:
+                raise ValueError("Custom thermal colour maximum must be above absolute zero.")
+            self.settings.color_scale_maximum_c = maximum
+        minimum = self.settings.resolved_color_scale_minimum_c()
+        maximum = self.settings.resolved_color_scale_maximum_c()
+        if minimum is not None and maximum is not None and maximum <= minimum:
+            raise ValueError("Thermal colour maximum must be greater than the colour minimum.")
         self.settings.show_internal_copper_layers = self.chk_internal_layers.GetValue()
         self.settings.coupled_iterations = int(self.txt_iterations.GetValue())
         self.settings.convergence_c = float(self.txt_convergence.GetValue())
-        if not 0.1 <= self.settings.grid_size_mm <= 5.0 or self.settings.coupled_iterations < 1:
-            raise ValueError("Thermal grid size must be between 0.1 and 5 mm; coupled iterations must be positive.")
+        if not 0.01 <= self.settings.grid_size_mm <= 5.0 or self.settings.coupled_iterations < 1:
+            raise ValueError("Thermal grid size must be between 0.01 and 5 mm; coupled iterations must be positive.")
         return self.settings
 
     def set_settings(self, settings):
@@ -387,10 +429,12 @@ class ThermalAnalysisPanel(wx.Panel):
         airflow = self.settings.airflow
         self.txt_ambient.SetValue(f"{self.settings.ambient_c:g}")
         self.txt_grid.SetValue(float(self.settings.grid_size_mm))
-        preset = {1.5: 0, 1.0: 1, 0.5: 2}.get(round(float(self.settings.grid_size_mm), 2), 3)
+        preset = {1.5: 0, 1.0: 1, 0.5: 2, 0.1: 3}.get(
+            round(float(self.settings.grid_size_mm), 2), 4,
+        )
         self.choice_mesh_preset.SetSelection(preset)
         self.txt_expert_grid.SetValue(f"{self.settings.grid_size_mm:g}")
-        self.txt_expert_grid.Show(preset == 3)
+        self.txt_expert_grid.Show(preset == 4)
         self._update_mesh_cost()
         index = self.choice_airflow.FindString(airflow.mode)
         self.choice_airflow.SetSelection(index if index != wx.NOT_FOUND else 0)
@@ -429,6 +473,22 @@ class ThermalAnalysisPanel(wx.Panel):
         )
         self.txt_color_minimum.Enable(
             THERMAL_COLOR_MINIMUM_MODES[minimum_index][1] == "CUSTOM"
+        )
+        maximum_mode = str(
+            getattr(self.settings, "color_scale_maximum_mode", "AUTO")
+        ).upper()
+        maximum_index = next(
+            (index for index, (_, value) in enumerate(THERMAL_COLOR_MAXIMUM_MODES)
+             if value == maximum_mode),
+            0,
+        )
+        self.choice_color_maximum.SetSelection(maximum_index)
+        maximum_value = getattr(self.settings, "color_scale_maximum_c", None)
+        self.txt_color_maximum.SetValue(
+            f"{float(maximum_value):g}" if maximum_value is not None else "125"
+        )
+        self.txt_color_maximum.Enable(
+            THERMAL_COLOR_MAXIMUM_MODES[maximum_index][1] == "CUSTOM"
         )
         # Recompute all automatic entries when loading a project so configs
         # saved by older versions cannot retain V*I connector heat or output-

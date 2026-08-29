@@ -19,6 +19,8 @@ from ac_model import ACModelBuilder, format_capacitance
 from ac_solver import ACSolver
 from decoupling_optimizer import DecouplingOptimizer
 from differential_impedance import DifferentialGeometrySnapshot, DifferentialImpedanceSolver
+from emc_analyzer import EMCAnalyzer, EMCGeometrySnapshot
+from em_field_solver import EMNearFieldSolver
 from conjugate_heat_transfer import ConjugateHeatTransferSolver
 from electrothermal import ElectroThermalSolver
 from thermal_mesh import ThermalMesher
@@ -28,6 +30,7 @@ from thermal_overlay import ThermalOverlayManager
 from ui.ac_analysis_panel import ACAnalysisPanel
 from ui.cfd_analysis_panel import CFDAnalysisPanel
 from ui.differential_analysis_panel import DifferentialAnalysisPanel
+from ui.emc_analysis_panel import EMCAnalysisPanel
 from ui.thermal_analysis_panel import ThermalAnalysisPanel
 from ui.runtime_settings_panel import RuntimeSettingsPanel
 from ui.power_tree_panel import PowerTreePanel
@@ -39,11 +42,12 @@ class KiPIDA_MainDialog(wx.Dialog):
     PAGE_CONFIG = 0
     PAGE_AC = 1
     PAGE_DIFFERENTIAL = 2
-    PAGE_THERMAL = 3
-    PAGE_CFD = 4
-    PAGE_RUNTIME = 5
-    PAGE_RESULTS = 6
-    PAGE_LOG = 7
+    PAGE_EMC = 3
+    PAGE_THERMAL = 4
+    PAGE_CFD = 5
+    PAGE_RUNTIME = 6
+    PAGE_RESULTS = 7
+    PAGE_LOG = 8
 
     def __init__(self, parent, board_adapter, project=None):
         super(KiPIDA_MainDialog, self).__init__(parent, title="Ki-PIDA: Power Integrity Analyzer", 
@@ -56,6 +60,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.project = project
         self._cfd_thread = None
         self._differential_thread = None
+        self._emc_thread = None
         self._cfd_cancel_requested = False
         self._thermal_plot_thread = None
         self._thermal_thread = None
@@ -161,7 +166,22 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.power_tree.differential_profile_provider = self.differential_panel.get_settings
         self.power_tree.differential_profile_consumer = self.differential_panel.set_settings
 
-        # Tab 4: 3D Thermal Configuration
+        # Tab 4: EMI/EMC pre-compliance configuration
+        self.tab_emc = wx.Panel(self.notebook)
+        emc_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.emc_panel = EMCAnalysisPanel(
+            self.tab_emc,
+            self.board,
+            differential_pairs_provider=lambda: self.differential_panel.settings.pairs,
+            log_callback=self.log,
+        )
+        emc_sizer.Add(self.emc_panel, 1, wx.EXPAND | wx.ALL, 5)
+        self.tab_emc.SetSizer(emc_sizer)
+        self.notebook.AddPage(self.tab_emc, "EMI / EMC")
+        self.power_tree.emc_profile_provider = self.emc_panel.get_settings
+        self.power_tree.emc_profile_consumer = self.emc_panel.set_settings
+
+        # Tab 5: 3D Thermal Configuration
         self.tab_thermal = wx.Panel(self.notebook)
         thermal_sizer = wx.BoxSizer(wx.VERTICAL)
         self.thermal_panel = ThermalAnalysisPanel(
@@ -210,28 +230,39 @@ class KiPIDA_MainDialog(wx.Dialog):
         main_sizer.Add(self.notebook, 1, wx.EXPAND | wx.ALL, 5)
         
         # 2. Action Buttons (Bottom)
+        action_panel = wx.Panel(self)
+        action_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.lbl_interaction_status = wx.StaticText(
+            action_panel, label="", style=getattr(wx, "ST_ELLIPSIZE_END", 0),
+        )
+        self.lbl_interaction_status.SetMinSize((-1, 22))
+        action_sizer.Add(self.lbl_interaction_status, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 8)
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
         
-        self.btn_run = wx.Button(self, label="Run DC Simulation")
-        self.btn_run_ac = wx.Button(self, label="Run AC Analysis")
-        self.btn_optimize = wx.Button(self, label="Optimize Decoupling")
-        self.btn_run_differential = wx.Button(self, label="Run Differential Z")
-        self.btn_run_thermal = wx.Button(self, label="Run Thermal")
-        self.btn_run_coupled = wx.Button(self, label="Run Coupled")
-        self.btn_run_cfd = wx.Button(self, label="Run Enclosure CFD")
-        self.btn_cancel = wx.Button(self, wx.ID_CANCEL, "Close")
+        self.btn_run = wx.Button(action_panel, label="Run DC Simulation")
+        self.btn_run_ac = wx.Button(action_panel, label="Run AC Analysis")
+        self.btn_optimize = wx.Button(action_panel, label="Optimize Decoupling")
+        self.btn_run_differential = wx.Button(action_panel, label="Run Differential Z")
+        self.btn_run_emc = wx.Button(action_panel, label="Run EMI/EMC")
+        self.btn_run_thermal = wx.Button(action_panel, label="Run Thermal")
+        self.btn_run_coupled = wx.Button(action_panel, label="Run Coupled")
+        self.btn_run_cfd = wx.Button(action_panel, label="Run Enclosure CFD")
+        self.btn_cancel = wx.Button(action_panel, wx.ID_CANCEL, "Close")
         
         btn_sizer.AddStretchSpacer()
         btn_sizer.Add(self.btn_run, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_run_ac, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_optimize, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_run_differential, 0, wx.ALL, 5)
+        btn_sizer.Add(self.btn_run_emc, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_run_thermal, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_run_coupled, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_run_cfd, 0, wx.ALL, 5)
         btn_sizer.Add(self.btn_cancel, 0, wx.ALL, 5)
         
-        main_sizer.Add(btn_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        action_sizer.Add(btn_sizer, 0, wx.EXPAND)
+        action_panel.SetSizer(action_sizer)
+        main_sizer.Add(action_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
         
         self.SetSizer(main_sizer)
         
@@ -240,6 +271,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.btn_run_ac.Bind(wx.EVT_BUTTON, self.on_run_ac)
         self.btn_optimize.Bind(wx.EVT_BUTTON, self.on_optimize_decoupling)
         self.btn_run_differential.Bind(wx.EVT_BUTTON, self.on_run_differential)
+        self.btn_run_emc.Bind(wx.EVT_BUTTON, self.on_run_emc)
         self.btn_run_thermal.Bind(wx.EVT_BUTTON, self.on_run_thermal)
         self.btn_run_coupled.Bind(wx.EVT_BUTTON, self.on_run_coupled_thermal)
         self.btn_run_cfd.Bind(wx.EVT_BUTTON, self.on_run_cfd)
@@ -255,6 +287,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             wx.CallAfter(self.ac_panel.refresh)
         elif event.GetSelection() == self.PAGE_DIFFERENTIAL:
             wx.CallAfter(self.differential_panel.refresh)
+        elif event.GetSelection() == self.PAGE_EMC:
+            wx.CallAfter(self.emc_panel.refresh_live_board)
         elif event.GetSelection() == self.PAGE_THERMAL:
             if not self.thermal_panel.settings.components:
                 wx.CallAfter(self.thermal_panel.refresh_components)
@@ -280,6 +314,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                 self.log("Live PCB geometry unchanged; thermal mesh/CSR cache remains eligible.")
             self.ac_panel.refresh(force_discovery=True)
             self.differential_panel.refresh_live_board()
+            self.emc_panel.refresh_live_board()
             self.thermal_panel.refresh_components(preserve_user=True)
             self.log("Refreshed live PCB geometry and component discovery.")
         except Exception as exc:
@@ -334,6 +369,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                 self.thermal_mesh, self.thermal_result,
                 color_map=settings.color_map,
                 color_scale_minimum_c=settings.resolved_color_scale_minimum_c(),
+                color_scale_maximum_c=settings.resolved_color_scale_maximum_c(),
             )
             self.log("KiCad thermal overlay injection completed.")
         except Exception as exc:
@@ -362,9 +398,17 @@ class KiPIDA_MainDialog(wx.Dialog):
             parent,
             history_directory=self._results_history_directory(),
             log_callback=self.log,
+            interaction_status_callback=self._set_interaction_status,
         )
         sizer.Add(self.results_workspace, 1, wx.EXPAND | wx.ALL, 5)
         parent.SetSizer(sizer)
+
+    def _set_interaction_status(self, text):
+        if not hasattr(self, "lbl_interaction_status"):
+            return
+        value = str(text or "")
+        self.lbl_interaction_status.SetLabel(value.replace("\n", " — "))
+        self.lbl_interaction_status.SetToolTip(value)
 
     def _results_history_directory(self):
         """Keep analysis archives alongside the active KiCad board/project."""
@@ -1060,6 +1104,242 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.log(f"Differential Analysis Error: {exc}")
         wx.MessageBox(str(exc), "Differential Analysis Error", wx.OK | wx.ICON_ERROR)
 
+    def _prepare_emc_analysis(self):
+        self._refresh_live_board_state()
+        settings = self.emc_panel.get_settings()
+        enabled_sources = [source for source in settings.sources if source.enabled]
+        if not enabled_sources:
+            self.log("EMI/EMC note: no clock or switching source is enabled; geometry-only rules will run.")
+        pairs = [pair for pair in self.differential_panel.settings.pairs if pair.enabled]
+        snapshot = EMCGeometrySnapshot.capture(
+            self.board,
+            settings,
+            rails=self.power_tree.rails,
+            differential_pairs=pairs,
+            board_file_path=self._board_file_path(),
+            log_callback=self.log,
+        )
+        ac_results = []
+        ac_result = getattr(self, "ac_result", None)
+        if ac_result is not None:
+            rail_name = self.ac_panel._selected_text(self.ac_panel.choice_rail) or "Last analysed rail"
+            ac_results.append((rail_name, ac_result))
+        differential_results = dict(self.differential_panel.results)
+        thermal_result = getattr(self, "thermal_result", None)
+        return settings, pairs, snapshot, ac_results, differential_results, thermal_result
+
+    def _emc_progress(self, completed, total, detail):
+        wx.CallAfter(self.log, f"EMI/EMC progress: {completed}/{total} ({detail})")
+
+    def on_run_emc(self, _event):
+        if self._emc_thread is not None and self._emc_thread.is_alive():
+            return
+        self.notebook.SetSelection(self.PAGE_LOG)
+        self.log("--- Starting EMI / EMC Pre-compliance Analysis ---")
+        try:
+            settings, pairs, snapshot, ac_results, differential_results, thermal_result = self._prepare_emc_analysis()
+        except Exception as exc:
+            self.log(f"EMI/EMC Setup Error: {exc}")
+            wx.MessageBox(str(exc), "EMI/EMC Setup Error", wx.OK | wx.ICON_ERROR)
+            return
+        self.btn_run_emc.Disable()
+        self._emc_thread = threading.Thread(
+            target=self._run_emc_worker,
+            args=(
+                settings, pairs, snapshot, ac_results, differential_results,
+                thermal_result, self.chk_debug.GetValue(),
+            ),
+            name="KiPIDA-EMI-EMC",
+            daemon=True,
+        )
+        self._emc_thread.start()
+
+    def _run_emc_worker(
+        self, settings, pairs, snapshot, ac_results, differential_results,
+        thermal_result, debug_mode,
+    ):
+        try:
+            analyzer = EMCAnalyzer(
+                snapshot,
+                settings,
+                differential_pairs=pairs,
+                differential_results=differential_results,
+                ac_results=ac_results,
+                thermal_result=thermal_result,
+                log_callback=lambda message: wx.CallAfter(self.log, message),
+            )
+            result = analyzer.analyze(progress_callback=self._emc_progress)
+            field_result = None
+            if settings.field_simulation_enabled:
+                try:
+                    field_solver = EMNearFieldSolver(
+                        snapshot, settings,
+                        log_callback=lambda message: wx.CallAfter(self.log, message),
+                    )
+                    field_result = field_solver.solve(
+                        progress_callback=lambda completed, total, detail: wx.CallAfter(
+                            self.log,
+                            f"EM field progress: {completed}/{total} ({detail})",
+                        )
+                    )
+                    result.field_simulation = field_result
+                    result.elapsed_seconds += field_result.elapsed_seconds
+                    result.limitations.extend([
+                        "Near-field E/H maps use quasi-static line-charge and Biot-Savart trace elements; they are not a full-wave Maxwell solution.",
+                        "Field magnitude depends on the configured source voltage/current and does not solve return-current cancellation, dielectric boundaries, phase or enclosure scattering.",
+                    ])
+                except Exception as field_exc:
+                    warning = f"Near-field simulation skipped: {field_exc}"
+                    wx.CallAfter(self.log, f"[EM FIELD] {warning}")
+                    result.limitations.append(warning)
+            with self._plot_lock:
+                plotter = Plotter(debug=debug_mode)
+                risk_png = plotter.plot_emc_risk_map(
+                    snapshot, result, as_png=True, with_click_probe=True,
+                )
+                spectrum_png = plotter.plot_emc_spectrum(
+                    result, settings.frequency_start_hz, settings.frequency_stop_hz, as_png=True,
+                    with_click_probe=True,
+                )
+                field_e_png = plotter.plot_em_field(
+                    field_result, "E", as_png=True, with_hover_probe=True,
+                ) if field_result is not None else None
+                field_h_png = plotter.plot_em_field(
+                    field_result, "H", as_png=True, with_hover_probe=True,
+                ) if field_result is not None else None
+            if not self._closing:
+                wx.CallAfter(
+                    self._finish_emc_analysis, settings, result,
+                    risk_png, spectrum_png, field_e_png, field_h_png,
+                )
+        except Exception as exc:
+            if not self._closing:
+                wx.CallAfter(self._fail_emc_analysis, exc)
+
+    @staticmethod
+    def _format_emc_report(settings, result):
+        counts = result.severity_counts
+        lines = [
+            "EMI / EMC Pre-compliance Results",
+            "================================",
+            f"Target: {settings.standard} ({settings.market})",
+            f"Frequency band: {settings.frequency_start_hz / 1e6:g} .. {settings.frequency_stop_hz / 1e6:g} MHz",
+            f"Risk score: {result.risk_score}/100",
+            f"Checks evaluated: {result.total_checks}",
+            f"Findings: {len(result.findings)} — critical {counts.get('CRITICAL', 0)}, "
+            f"high {counts.get('HIGH', 0)}, medium {counts.get('MEDIUM', 0)}, "
+            f"low {counts.get('LOW', 0)}, info {counts.get('INFO', 0)}",
+            f"Total elapsed time: {result.elapsed_seconds:.3f} s",
+            "",
+            "Configured emission sources",
+            "---------------------------",
+        ]
+        enabled_sources = [source for source in settings.sources if source.enabled]
+        if enabled_sources:
+            for source in enabled_sources:
+                lines.append(
+                    f"  - {source.name}: {source.net_name}, {source.kind}, "
+                    f"{source.frequency_hz / 1e6:g} MHz, rise {source.rise_time_ns:g} ns "
+                    f"[{source.source}]"
+                )
+        else:
+            lines.append("  - None; geometry-only analysis.")
+        field_result = getattr(result, "field_simulation", None)
+        lines.extend(["", "Near-field simulation", "---------------------"])
+        if field_result is None:
+            lines.append("  - Disabled or unavailable for this run.")
+        else:
+            mode = (
+                f"selected envelope at {field_result.frequency_hz / 1e6:g} MHz"
+                if field_result.frequency_hz > 0.0 else "each source at its configured fundamental"
+            )
+            lines.extend([
+                f"  - Observation plane: {field_result.probe_height_mm:g} mm above PCB; grid {settings.field_grid_size_mm:g} mm.",
+                f"  - Frequency mode: {mode}.",
+                f"  - Sources / trace elements: {field_result.source_count} / {field_result.segment_count}.",
+                f"  - Maximum |E|: {field_result.maximum_e_v_m:.6g} V/m at ({field_result.maximum_e_position_mm[0]:.3f}, {field_result.maximum_e_position_mm[1]:.3f}) mm.",
+                f"  - Maximum |H|: {field_result.maximum_h_a_m:.6g} A/m at ({field_result.maximum_h_position_mm[0]:.3f}, {field_result.maximum_h_position_mm[1]:.3f}) mm.",
+                f"  - Backend / elapsed: {field_result.compute_backend}; {field_result.elapsed_seconds:.3f} s.",
+            ])
+            lines.extend(f"  - Warning: {warning}" for warning in field_result.warnings)
+        lines.extend([
+            "",
+            "Findings",
+            "--------",
+        ])
+        if not result.findings:
+            lines.append("No finding was generated by the enabled deterministic checks.")
+        for finding in result.findings:
+            targets = []
+            if finding.nets:
+                targets.append("nets=" + ", ".join(finding.nets))
+            if finding.components:
+                targets.append("components=" + ", ".join(finding.components))
+            lines.append(
+                f"[{finding.severity}] {finding.rule_id} — {finding.title} "
+                f"(confidence {finding.confidence})"
+            )
+            lines.append(f"  {finding.description}")
+            if targets:
+                lines.append("  Evidence targets: " + "; ".join(targets))
+            for evidence in finding.evidence:
+                position = ""
+                if evidence.x_mm is not None and evidence.y_mm is not None:
+                    position = f" at ({evidence.x_mm:.3f}, {evidence.y_mm:.3f}) mm"
+                    if evidence.layer_id is not None:
+                        position += f" on layer {evidence.layer_id}"
+                lines.append(f"  Evidence [{evidence.source}]{position}: {evidence.detail}")
+            lines.append(f"  Recommendation: {finding.recommendation}")
+        lines.extend(["", "Per-net risk scores", "-------------------"])
+        if result.per_net_scores:
+            for net, score in sorted(result.per_net_scores.items(), key=lambda item: (item[1], item[0])):
+                lines.append(f"  - {net}: {score}/100")
+        else:
+            lines.append("  - No net-specific penalty.")
+        lines.extend(["", "Pre-compliance test plan", "------------------------"])
+        lines.extend(f"  - {item}" for item in result.test_plan)
+        lines.extend(["", "Regulatory coverage", "-------------------"])
+        lines.extend(f"  - {item}" for item in result.regulatory_coverage)
+        lines.extend(["", "Model limitations", "-----------------"])
+        lines.extend(f"  - {item}" for item in result.limitations)
+        return "\n".join(lines)
+
+    def _finish_emc_analysis(
+        self, settings, result, risk_png, spectrum_png, field_e_png=None, field_h_png=None,
+    ):
+        self._emc_thread = None
+        self.btn_run_emc.Enable()
+        self.emc_panel.apply_results(result)
+        plots = []
+        if risk_png:
+            plots.append((
+                "Risk Map", Plotter.bitmap_from_png(risk_png.png_bytes), None,
+                risk_png.click_probe,
+            ))
+        if spectrum_png:
+            plots.append((
+                "Relative Spectrum", Plotter.bitmap_from_png(spectrum_png.png_bytes), None,
+                spectrum_png.click_probe,
+            ))
+        if field_e_png:
+            plots.append((
+                "Electric Field", Plotter.bitmap_from_png(field_e_png.png_bytes),
+                field_e_png.hover_probe, None,
+            ))
+        if field_h_png:
+            plots.append((
+                "Magnetic Field", Plotter.bitmap_from_png(field_h_png.png_bytes),
+                field_h_png.hover_probe, None,
+            ))
+        self._publish_results("EMC", self._format_emc_report(settings, result), plots)
+        self.log("EMI/EMC pre-compliance results ready.")
+
+    def _fail_emc_analysis(self, exc):
+        self._emc_thread = None
+        self.btn_run_emc.Enable()
+        self.log(f"EMI/EMC Analysis Error: {exc}")
+        wx.MessageBox(str(exc), "EMI/EMC Analysis Error", wx.OK | wx.ICON_ERROR)
+
     def _dc_copper_loss_points(self, system_results=None):
         losses = []
         results = system_results if system_results is not None else getattr(self, "system_results", {})
@@ -1252,6 +1532,8 @@ class KiPIDA_MainDialog(wx.Dialog):
                     settings.color_map,
                     settings.resolved_color_scale_minimum_c(),
                     settings.color_scale_minimum_mode,
+                    settings.resolved_color_scale_maximum_c(),
+                    settings.color_scale_maximum_mode,
                     settings.show_internal_copper_layers,
                 )
         except Exception as exc:
@@ -1261,6 +1543,7 @@ class KiPIDA_MainDialog(wx.Dialog):
     def _finish_thermal_worker(
         self, mesh, result, coupled, coupled_result, system_results, elapsed_seconds,
         color_map, color_scale_minimum_c, color_scale_minimum_mode,
+        color_scale_maximum_c, color_scale_maximum_mode,
         show_internal_copper_layers,
     ):
         self._thermal_thread = None
@@ -1276,6 +1559,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             mesh, result, coupled=coupled, elapsed_seconds=elapsed_seconds, color_map=color_map,
             color_scale_minimum_c=color_scale_minimum_c,
             color_scale_minimum_mode=color_scale_minimum_mode,
+            color_scale_maximum_c=color_scale_maximum_c,
+            color_scale_maximum_mode=color_scale_maximum_mode,
             show_internal_copper_layers=show_internal_copper_layers,
         )
         self.log(f"Thermal analysis completed in {elapsed_seconds:.3f} s.")
@@ -1291,6 +1576,7 @@ class KiPIDA_MainDialog(wx.Dialog):
     def _update_thermal_results_ui(
         self, mesh, result, coupled=False, elapsed_seconds=None, color_map="inferno",
         color_scale_minimum_c=None, color_scale_minimum_mode="AUTO",
+        color_scale_maximum_c=None, color_scale_maximum_mode="AUTO",
         show_internal_copper_layers=True,
     ):
         hotspot = result.hotspot
@@ -1313,6 +1599,10 @@ class KiPIDA_MainDialog(wx.Dialog):
             "Thermal colour minimum: " + (
                 f"{float(color_scale_minimum_c):.3g} C ({str(color_scale_minimum_mode).lower()})"
                 if color_scale_minimum_c is not None else "calculated minimum"
+            ),
+            "Thermal colour maximum: " + (
+                f"{float(color_scale_maximum_c):.3g} C ({str(color_scale_maximum_mode).lower()})"
+                if color_scale_maximum_c is not None else "calculated hotspot"
             ),
             "Internal copper maps: enabled" if show_internal_copper_layers else
             "Internal copper maps: disabled",
@@ -1356,6 +1646,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             target=self._render_thermal_plots_worker,
             args=(
                 mesh, result, generation, color_map, color_scale_minimum_c,
+                color_scale_maximum_c,
                 show_internal_copper_layers,
             ),
             name="KiPIDA-Thermal-Plots",
@@ -1375,6 +1666,7 @@ class KiPIDA_MainDialog(wx.Dialog):
 
     def _render_thermal_plots_worker(
         self, mesh, result, generation, color_map, color_scale_minimum_c,
+        color_scale_maximum_c,
         show_internal_copper_layers,
     ):
         try:
@@ -1385,10 +1677,12 @@ class KiPIDA_MainDialog(wx.Dialog):
                     ("Thermal 3D", plotter.plot_thermal_3d(
                         mesh, result, as_png=True, board_bounds=board_bounds, color_map=color_map,
                         color_scale_minimum_c=color_scale_minimum_c,
+                        color_scale_maximum_c=color_scale_maximum_c,
                     )),
                     ("Top Surface", plotter.plot_thermal_surface(
                         mesh, result, "TOP", as_png=True, board_bounds=board_bounds, color_map=color_map,
                         color_scale_minimum_c=color_scale_minimum_c,
+                        color_scale_maximum_c=color_scale_maximum_c,
                         with_hover_probe=True,
                     )),
                 ]
@@ -1398,6 +1692,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                             mesh, result, index, str(spec.name), as_png=True,
                             board_bounds=board_bounds, color_map=color_map,
                             color_scale_minimum_c=color_scale_minimum_c,
+                            color_scale_maximum_c=color_scale_maximum_c,
                             with_hover_probe=True,
                         ))
                         for index, spec in self._internal_copper_slices(mesh)
@@ -1405,6 +1700,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                 plots.append(("Bottom Surface", plotter.plot_thermal_surface(
                     mesh, result, "BOTTOM", as_png=True, board_bounds=board_bounds, color_map=color_map,
                     color_scale_minimum_c=color_scale_minimum_c,
+                    color_scale_maximum_c=color_scale_maximum_c,
                     with_hover_probe=True,
                 )))
             if not self._closing:

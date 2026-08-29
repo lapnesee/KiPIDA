@@ -77,14 +77,14 @@ class TestElectroThermalSolver(unittest.TestCase):
             airflow=AirflowSettings(expose_top=True, expose_bottom=True, expose_edges=True),
         )
         board_model = ThermalBoardModel(
-            bounds_mm=(0.0, 0.0, 20.0, 20.0),
-            outline=box(0.0, 0.0, 20.0, 20.0),
+            bounds_mm=(0.0, 0.0, 100.0, 100.0),
+            outline=box(0.0, 0.0, 100.0, 100.0),
             stackup={
                 "copper": {0: {"name": "F.Cu", "thickness_mm": 0.035}, 31: {"name": "B.Cu", "thickness_mm": 0.035}},
                 "layer_order": [0, 31],
                 "substrate": [{"between": [0, 31], "thickness_mm": 1.53}],
             },
-            copper_by_layer={0: box(0.0, 0.0, 20.0, 20.0), 31: box(0.0, 0.0, 20.0, 20.0)},
+            copper_by_layer={0: box(0.0, 0.0, 100.0, 100.0), 31: box(0.0, 0.0, 100.0, 100.0)},
         )
         messages = []
         parallel = ThermalMesher(

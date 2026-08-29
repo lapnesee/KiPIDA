@@ -104,6 +104,59 @@ class TestPlotter(unittest.TestCase):
         self.assertIsNotNone(self.plotter.plot_differential_impedance([result]))
         self.assertIsNotNone(self.plotter.plot_stackup_profile(stackup))
 
+    def test_plot_emc_risk_map_and_relative_spectrum(self):
+        snapshot = SimpleNamespace(
+            bounds_mm=(0.0, 0.0, 100.0, 80.0),
+            tracks=[SimpleNamespace(
+                start=(5.0, 10.0), end=(95.0, 10.0), width_mm=0.2,
+            )],
+        )
+        finding = SimpleNamespace(
+            severity="HIGH",
+            rule_id="RET-001", title="Return path", confidence="HIGH",
+            description="Reference discontinuity", recommendation="Add return vias",
+            nets=["CLK"], components=["U1"],
+            evidence=[SimpleNamespace(
+                x_mm=50.0, y_mm=10.0, source="BOARD_GEOMETRY", detail="Crossing",
+            )],
+        )
+        result = SimpleNamespace(
+            findings=[finding],
+            frequency_risks=[SimpleNamespace(
+                source_name="CLK", frequency_hz=100e6, level_db=-12.0,
+            )],
+            cavity_resonances_hz=[714e6],
+        )
+        risk = self.plotter.plot_emc_risk_map(snapshot, result, as_png=True)
+        spectrum = self.plotter.plot_emc_spectrum(result, 30e6, 1e9, as_png=True)
+        self.assertTrue(risk.startswith(b"\x89PNG"))
+        self.assertTrue(spectrum.startswith(b"\x89PNG"))
+
+        interactive = self.plotter.plot_emc_risk_map(
+            snapshot, result, as_png=True, with_click_probe=True,
+        )
+        self.assertTrue(interactive.png_bytes.startswith(b"\x89PNG"))
+        self.assertTrue(interactive.click_probe.points)
+
+    def test_plot_em_near_field_with_hover_probe(self):
+        result = SimpleNamespace(
+            x_coordinates_mm=[0.0, 1.0, 2.0],
+            y_coordinates_mm=[0.0, 1.0],
+            electric_field_v_m=[[1.0, 2.0, 4.0], [0.5, 1.0, 2.0]],
+            magnetic_field_a_m=[[0.1, 0.2, 0.4], [0.05, 0.1, 0.2]],
+            probe_height_mm=3.0,
+            frequency_hz=25e6,
+        )
+        electric = self.plotter.plot_em_field(
+            result, "E", as_png=True, with_hover_probe=True,
+        )
+        magnetic = self.plotter.plot_em_field(
+            result, "H", as_png=True, with_hover_probe=True,
+        )
+        self.assertTrue(electric.png_bytes.startswith(b"\x89PNG"))
+        self.assertTrue(magnetic.png_bytes.startswith(b"\x89PNG"))
+        self.assertIsNotNone(electric.hover_probe)
+
     def test_plot_thermal_views(self):
         thermal_mesh = SimpleNamespace(
             nodes=[0, 1, 2, 3],
@@ -144,6 +197,16 @@ class TestPlotter(unittest.TestCase):
         self.assertEqual(
             self.plotter._thermal_limits(result, color_scale_minimum_c=25.0),
             (25.0, 35.0),
+        )
+        self.assertEqual(
+            self.plotter._thermal_limits(
+                result, color_scale_minimum_c=25.0, color_scale_maximum_c=31.0,
+            ),
+            (25.0, 31.0),
+        )
+        self.assertEqual(
+            self.plotter._thermal_limits(result, color_scale_maximum_c=20.0),
+            (19.0, 20.0),
         )
 
         x_edges, y_edges, field = self.plotter._thermal_surface_grid(

@@ -74,6 +74,7 @@ class TestThermalOverlayLayers(unittest.TestCase):
         result = type("Result", (), {"temperature_vector_c": [31.25, 48.5, 92.75]})()
         self.assertEqual(_temperature_limits(result), (31.25, 92.75))
         self.assertEqual(_temperature_limits(result, 25.0), (25.0, 92.75))
+        self.assertEqual(_temperature_limits(result, 25.0, 80.0), (25.0, 80.0))
 
     def test_overlay_and_scale_pngs_embed_the_owner_marker(self):
         mesh = type("Mesh", (), {

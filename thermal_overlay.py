@@ -151,7 +151,9 @@ def _surface_field(mesh, result, side, max_dimension=1800):
     return field, min_x, min_y, max_x, max_y
 
 
-def _temperature_limits(result, color_scale_minimum_c=None):
+def _temperature_limits(
+    result, color_scale_minimum_c=None, color_scale_maximum_c=None,
+):
     """Return one stable scale shared by every thermal surface overlay."""
     temperatures = result.temperature_vector_c
     if temperatures is None:
@@ -164,8 +166,16 @@ def _temperature_limits(result, color_scale_minimum_c=None):
         float(np.min(values)) if color_scale_minimum_c is None
         else float(color_scale_minimum_c)
     )
-    high = float(np.max(values))
-    return (low, high if high - low >= 1.0e-9 else low + 1.0)
+    high = (
+        float(np.max(values)) if color_scale_maximum_c is None
+        else float(color_scale_maximum_c)
+    )
+    if high <= low:
+        if color_scale_maximum_c is not None and color_scale_minimum_c is None:
+            low = high - max(1.0, abs(high) * 1.0e-6)
+        else:
+            high = low + 1.0
+    return low, high
 
 
 def _colorize(values, name):
@@ -425,7 +435,10 @@ class ThermalOverlayManager:
         image.locked = True
         return image
 
-    def inject(self, mesh, result, color_map="inferno", color_scale_minimum_c=None):
+    def inject(
+        self, mesh, result, color_map="inferno", color_scale_minimum_c=None,
+        color_scale_maximum_c=None,
+    ):
         ReferenceImage = _reference_image_type()
         top_layer, bottom_layer = self._layers()
         try:
@@ -434,7 +447,9 @@ class ThermalOverlayManager:
             raise RuntimeError("KiCad IPC geometry bindings are not available.") from exc
 
         color_map = str(color_map or "inferno").lower()
-        limits = _temperature_limits(result, color_scale_minimum_c)
+        limits = _temperature_limits(
+            result, color_scale_minimum_c, color_scale_maximum_c,
+        )
         min_x, min_y, max_x, max_y = mesh.bounds_mm
         prepared = []
         for side, layer in (("TOP", top_layer), ("BOTTOM", bottom_layer)):

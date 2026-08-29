@@ -10,6 +10,7 @@ if plugin_dir not in sys.path:
     sys.path.insert(0, plugin_dir)
 
 from config_manager import get_project_config_path, save_config, load_config, load_project_config
+from models import EMCAnalysisSettings, EMCSignalSource
 from models import (
     ACAnalysisSettings, ACMeasurementPort, ACSourceModel, AirflowSettings, CapacitorModel,
     CFDBoundaryPatch, CFDSolverSettings, EnclosureCFDSettings, EnclosureGeometrySettings,
@@ -104,7 +105,7 @@ class TestConfigManager(unittest.TestCase):
             with open(filepath, 'r') as f:
                 data = json.load(f)
             
-            self.assertEqual(data["version"], "1.6")
+            self.assertEqual(data["version"], "1.7")
             self.assertEqual(len(data["rails"]), 3)
             
             # Verify 12V rail
@@ -289,6 +290,8 @@ class TestConfigManager(unittest.TestCase):
             color_map="turbo",
             color_scale_minimum_mode="CUSTOM",
             color_scale_minimum_c=30.0,
+            color_scale_maximum_mode="CUSTOM",
+            color_scale_maximum_c=95.0,
             show_internal_copper_layers=False,
             components=[ThermalComponentModel(
                 ref_des="U2", power_w=1.25, width_mm=4.0, depth_mm=4.0,
@@ -311,6 +314,8 @@ class TestConfigManager(unittest.TestCase):
             self.assertEqual(loaded.color_map, "turbo")
             self.assertEqual(loaded.color_scale_minimum_mode, "CUSTOM")
             self.assertEqual(loaded.color_scale_minimum_c, 30.0)
+            self.assertEqual(loaded.color_scale_maximum_mode, "CUSTOM")
+            self.assertEqual(loaded.color_scale_maximum_c, 95.0)
             self.assertFalse(loaded.show_internal_copper_layers)
             self.assertEqual(loaded.components[0].ref_des, "U2")
             self.assertAlmostEqual(loaded.components[0].power_w, 1.25)
@@ -481,6 +486,40 @@ class TestConfigManager(unittest.TestCase):
             if Path(filepath).exists():
                 os.unlink(filepath)
     
+    def test_emc_profile_round_trip(self):
+        profile = EMCAnalysisSettings(
+            standard="FCC_PART_15_CLASS_B",
+            market="US",
+            frequency_start_hz=30e6,
+            frequency_stop_hz=2e9,
+            sources=[EMCSignalSource(
+                "Main clock", "MCLK", "CLOCK", 24.576e6, 1.2,
+                external=True, cable_length_m=0.5, source="manual",
+                voltage_swing_v=1.8, current_a=0.075,
+            )],
+            field_probe_height_mm=4.5,
+            field_grid_size_mm=0.75,
+            field_frequency_hz=98.304e6,
+        )
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as f:
+            filepath = f.name
+        try:
+            save_config(self.rails, filepath, emc_profile=profile)
+            loaded = load_project_config(filepath).emc_profile
+            self.assertEqual(loaded.standard, "FCC_PART_15_CLASS_B")
+            self.assertEqual(loaded.market, "US")
+            self.assertAlmostEqual(loaded.frequency_stop_hz, 2e9)
+            self.assertEqual(loaded.sources[0].net_name, "MCLK")
+            self.assertTrue(loaded.sources[0].external)
+            self.assertAlmostEqual(loaded.sources[0].voltage_swing_v, 1.8)
+            self.assertAlmostEqual(loaded.sources[0].current_a, 0.075)
+            self.assertAlmostEqual(loaded.field_probe_height_mm, 4.5)
+            self.assertAlmostEqual(loaded.field_grid_size_mm, 0.75)
+            self.assertAlmostEqual(loaded.field_frequency_hz, 98.304e6)
+        finally:
+            if Path(filepath).exists():
+                os.unlink(filepath)
+
     def test_file_not_found(self):
         """Test that FileNotFoundError is raised for missing file."""
         with self.assertRaises(FileNotFoundError):

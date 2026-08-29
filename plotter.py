@@ -3,6 +3,7 @@ import matplotlib
 # Use Agg backend to avoid GUI requirement for matplotlib, since we just want images
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 from mpl_toolkits.mplot3d import Axes3D
 import io
 from dataclasses import dataclass
@@ -10,12 +11,22 @@ import wx
 import numpy as np
 
 from thermal_probe import ThermalMapProbe
+from field_probe import EMFieldMapProbe
+from emc_probe import EMCProbeReading, capture_axis_points
 
 
 @dataclass(frozen=True)
 class ThermalPlotPayload:
     """PNG data plus optional live-probe mapping for a rendered thermal map."""
     png_bytes: bytes
+    hover_probe: object = None
+
+
+@dataclass(frozen=True)
+class EMCPlotPayload:
+    """PNG data plus click-probe metadata for an EMI/EMC plot."""
+    png_bytes: bytes
+    click_probe: object = None
     hover_probe: object = None
 
 class Plotter:
@@ -252,9 +263,181 @@ class Plotter:
                 print(f"Stackup plot error: {e}")
             return None
 
+    def plot_emc_risk_map(self, snapshot, result, as_png=False, with_click_probe=False):
+        """Render board-space EMC evidence without implying field strength."""
+        try:
+            bounds = snapshot.bounds_mm
+            fig, axis = plt.subplots(figsize=self._figsize(bounds), constrained_layout=True)
+            for track in snapshot.tracks:
+                axis.plot(
+                    [track.start[0], track.end[0]], [track.start[1], track.end[1]],
+                    color="#b8bec8", linewidth=max(0.35, min(1.2, track.width_mm)), alpha=0.45,
+                )
+            colours = {"CRITICAL": "#7a0019", "HIGH": "#d62728", "MEDIUM": "#ff9800",
+                       "LOW": "#f4d03f", "INFO": "#3498db"}
+            sizes = {"CRITICAL": 130, "HIGH": 100, "MEDIUM": 75, "LOW": 55, "INFO": 40}
+            labelled = set()
+            probe_points = []
+            for finding in result.findings:
+                for evidence in finding.evidence:
+                    if evidence.x_mm is None or evidence.y_mm is None:
+                        continue
+                    label = finding.severity if finding.severity not in labelled else None
+                    axis.scatter(
+                        [evidence.x_mm], [evidence.y_mm], marker="o",
+                        s=sizes.get(finding.severity, 50), color=colours.get(finding.severity, "gray"),
+                        edgecolor="white", linewidth=0.7, alpha=0.9, label=label,
+                    )
+                    labelled.add(finding.severity)
+                    probe_points.append((
+                        evidence.x_mm,
+                        evidence.y_mm,
+                        EMCProbeReading(
+                            title=finding.title,
+                            rule_id=finding.rule_id,
+                            severity=finding.severity,
+                            confidence=finding.confidence,
+                            description=finding.description,
+                            recommendation=finding.recommendation,
+                            nets=tuple(finding.nets),
+                            components=tuple(finding.components),
+                            evidence=f"{evidence.source}: {evidence.detail}",
+                        ),
+                    ))
+            self._fit_xy(axis, bounds)
+            axis.invert_yaxis()
+            axis.set_xlabel("X (mm)"); axis.set_ylabel("Y (mm)")
+            axis.set_title("EMI/EMC geometric risk map")
+            axis.grid(True, alpha=0.18)
+            if labelled:
+                handles, labels = axis.get_legend_handles_labels()
+                order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
+                pairs = sorted(zip(handles, labels), key=lambda item: order.get(item[1], 9))
+                axis.legend([item[0] for item in pairs], [item[1] for item in pairs], loc="best")
+            if with_click_probe:
+                probe = capture_axis_points(fig, axis, probe_points, maximum_distance_px=20.0)
+                return EMCPlotPayload(self._fig_to_png(fig), probe)
+            return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
+        except Exception as exc:
+            if self.debug:
+                print(f"EMC risk-map plot error: {exc}")
+            return None
+
+    def plot_emc_spectrum(
+        self, result, frequency_start_hz, frequency_stop_hz, as_png=False,
+        with_click_probe=False,
+    ):
+        """Plot relative source harmonics and cavity modes for test planning."""
+        try:
+            if not result.frequency_risks and not result.cavity_resonances_hz:
+                return None
+            fig, axis = plt.subplots(figsize=(8.5, 5.2), constrained_layout=True)
+            grouped = {}
+            probe_points = []
+            for marker in result.frequency_risks:
+                grouped.setdefault(marker.source_name, [[], []])
+                grouped[marker.source_name][0].append(marker.frequency_hz)
+                grouped[marker.source_name][1].append(marker.level_db)
+                probe_points.append((
+                    marker.frequency_hz,
+                    marker.level_db,
+                    EMCProbeReading(
+                        title=f"{marker.source_name} — {getattr(marker, 'kind', 'harmonic').lower()}",
+                        severity="INFO",
+                        confidence="RELATIVE",
+                        description=(
+                            f"Relative spectral marker at {marker.frequency_hz / 1e6:.6g} MHz "
+                            f"with envelope level {marker.level_db:.2f} dB."
+                        ),
+                        recommendation=(
+                            "Inspect this frequency with a near-field probe and receiver; if excessive, "
+                            "reduce the source loop area or edge rate and review filtering and return paths."
+                        ),
+                        evidence="Analytical harmonic envelope; this is not an absolute emission level.",
+                    ),
+                ))
+            for name, (frequencies, levels) in grouped.items():
+                axis.scatter(frequencies, levels, s=18, alpha=0.75, label=name)
+            for index, frequency in enumerate(result.cavity_resonances_hz):
+                axis.axvline(
+                    frequency, color="#8e44ad", linestyle="--", alpha=0.55,
+                    label="Board cavity modes" if index == 0 else None,
+                )
+            axis.set_xscale("log")
+            axis.set_xlim(max(float(frequency_start_hz), 1.0), max(float(frequency_stop_hz), frequency_start_hz * 1.01))
+            axis.set_xlabel("Frequency (Hz)")
+            axis.set_ylabel("Relative harmonic envelope (dB)")
+            axis.set_title("Relative EMI source spectrum — not an absolute compliance level")
+            axis.grid(True, which="both", alpha=0.25)
+            axis.legend(fontsize=8, loc="best")
+            if with_click_probe:
+                probe = capture_axis_points(fig, axis, probe_points, maximum_distance_px=16.0)
+                return EMCPlotPayload(self._fig_to_png(fig), probe)
+            return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
+        except Exception as exc:
+            if self.debug:
+                print(f"EMC spectrum plot error: {exc}")
+            return None
+
+    def plot_em_field(self, result, quantity="E", as_png=False, with_hover_probe=False):
+        """Render a quasi-static near-field magnitude map in native PCB coordinates."""
+        try:
+            quantity = str(quantity).upper()
+            if quantity == "H":
+                values = np.asarray(result.magnetic_field_a_m, dtype=float)
+                label, unit, title = "H", "A/m", "Magnetic near field"
+            else:
+                values = np.asarray(result.electric_field_v_m, dtype=float)
+                label, unit, title = "E", "V/m", "Electric near field"
+            x_values = np.asarray(result.x_coordinates_mm, dtype=float)
+            y_values = np.asarray(result.y_coordinates_mm, dtype=float)
+            if values.size == 0 or values.shape != (y_values.size, x_values.size):
+                return None
+            bounds = (
+                float(x_values[0]), float(y_values[0]),
+                float(x_values[-1]), float(y_values[-1]),
+            )
+            positive = values[np.isfinite(values) & (values > 0.0)]
+            norm = None
+            if positive.size:
+                low = max(float(np.percentile(positive, 1.0)), float(np.max(positive)) * 1.0e-6)
+                high = float(np.max(positive))
+                if high > low * 20.0:
+                    norm = LogNorm(vmin=low, vmax=high)
+            fig, axis = plt.subplots(figsize=self._figsize(bounds), constrained_layout=True)
+            plot = axis.pcolormesh(
+                x_values, y_values, np.maximum(values, np.finfo(float).tiny),
+                shading="nearest", cmap="magma", norm=norm,
+                edgecolors="none", linewidth=0.0, antialiased=False, rasterized=True,
+            )
+            self._fit_xy(axis, bounds)
+            axis.invert_yaxis()
+            axis.set_xlabel("X (mm)")
+            axis.set_ylabel("Y (mm)")
+            mode = (
+                f"{result.frequency_hz / 1e6:g} MHz envelope"
+                if result.frequency_hz > 0.0 else "configured source fundamentals"
+            )
+            axis.set_title(
+                f"{title} at {result.probe_height_mm:g} mm — {mode}"
+            )
+            fig.colorbar(plot, ax=axis, label=f"Estimated |{label}| ({unit})")
+            if with_hover_probe:
+                fig.canvas.draw()
+                probe = EMFieldMapProbe(
+                    x_values, y_values, values, label, unit, result.probe_height_mm,
+                    axis.get_position().bounds, axis.get_xlim(), axis.get_ylim(),
+                )
+                return EMCPlotPayload(self._fig_to_png(fig), hover_probe=probe)
+            return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
+        except Exception as exc:
+            if self.debug:
+                print(f"EM field plot error: {exc}")
+            return None
+
     def plot_thermal_3d(
         self, mesh, result, as_png=False, board_bounds=None, color_map='inferno',
-        color_scale_minimum_c=None,
+        color_scale_minimum_c=None, color_scale_maximum_c=None,
     ):
         """Render the solved volumetric temperature field."""
         try:
@@ -272,7 +455,9 @@ class Plotter:
             # orientation: KiCad's upper-right stays upper-right in 3D.
             display_y = -coords[:, 1]
             color_map = color_map if color_map in plt.colormaps() else 'inferno'
-            vmin, vmax = self._thermal_limits(result, color_scale_minimum_c)
+            vmin, vmax = self._thermal_limits(
+                result, color_scale_minimum_c, color_scale_maximum_c,
+            )
             scatter = axis.scatter(
                 coords[:, 0], display_y, coords[:, 2], c=temperatures,
                 cmap=color_map, vmin=vmin, vmax=vmax, s=5, alpha=0.8,
@@ -297,7 +482,7 @@ class Plotter:
 
     def plot_thermal_surface(
         self, mesh, result, side='TOP', as_png=False, board_bounds=None, color_map='inferno',
-        color_scale_minimum_c=None, with_hover_probe=False,
+        color_scale_minimum_c=None, color_scale_maximum_c=None, with_hover_probe=False,
     ):
         """Render a named exterior board temperature map."""
         if not mesh.node_map:
@@ -307,13 +492,14 @@ class Plotter:
             mesh, result, target_iz, f'{side.title()} surface', as_png=as_png,
             board_bounds=board_bounds, color_map=color_map,
             color_scale_minimum_c=color_scale_minimum_c,
+            color_scale_maximum_c=color_scale_maximum_c,
             with_hover_probe=with_hover_probe,
         )
 
     def plot_thermal_layer(
         self, mesh, result, layer_index, layer_name=None, as_png=False,
         board_bounds=None, color_map='inferno', color_scale_minimum_c=None,
-        with_hover_probe=False,
+        color_scale_maximum_c=None, with_hover_probe=False,
     ):
         """Render one physical thermal slice, including an internal copper layer."""
         try:
@@ -331,7 +517,9 @@ class Plotter:
             # thermal mesh is already a regular finite-volume grid: render
             # its cells directly, without visible marker borders.
             color_map = color_map if color_map in plt.colormaps() else 'inferno'
-            vmin, vmax = self._thermal_limits(result, color_scale_minimum_c)
+            vmin, vmax = self._thermal_limits(
+                result, color_scale_minimum_c, color_scale_maximum_c,
+            )
             plot = axis.pcolormesh(
                 x_edges, y_edges, temperatures,
                 cmap=color_map, vmin=vmin, vmax=vmax, shading='flat', edgecolors='none',
@@ -366,7 +554,9 @@ class Plotter:
             return None
 
     @staticmethod
-    def _thermal_limits(result, color_scale_minimum_c=None):
+    def _thermal_limits(
+        result, color_scale_minimum_c=None, color_scale_maximum_c=None,
+    ):
         """Keep every thermal result tab on one comparable colour scale."""
         values = getattr(result, 'temperature_vector_c', None)
         if values is None:
@@ -379,8 +569,19 @@ class Plotter:
             float(np.min(values)) if color_scale_minimum_c is None
             else float(color_scale_minimum_c)
         )
-        high = float(np.max(values))
-        return low, high if high - low >= 1.0e-9 else low + 1.0
+        high = (
+            float(np.max(values)) if color_scale_maximum_c is None
+            else float(color_scale_maximum_c)
+        )
+        if high <= low:
+            # A custom upper threshold below every solved temperature means
+            # every cell must saturate at the hottest colour. Keep Matplotlib
+            # normalization valid without changing that interpretation.
+            if color_scale_maximum_c is not None and color_scale_minimum_c is None:
+                low = high - max(1.0, abs(high) * 1.0e-6)
+            else:
+                high = low + 1.0
+        return low, high
 
     @staticmethod
     def _thermal_surface_grid(mesh, result, target_iz):
