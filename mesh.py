@@ -1,6 +1,15 @@
 
 import sys
 import math
+import os
+import threading
+import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
+try:
+    from .models import MeshBranch
+except (ImportError, ValueError):
+    from models import MeshBranch
 
 # Use explicit check if needed, but we assume kipy objects are passed
 def to_mm(val):
@@ -9,12 +18,21 @@ def to_mm(val):
 try:
     import numpy as np
     from shapely.geometry import Point, box
+    from shapely.ops import unary_union
     from shapely.prepared import prep
     import matplotlib.path
 except ImportError:
     np = None
-    Point = box = prep = None
+    Point = box = prep = unary_union = None
     matplotlib = None
+
+try:
+    from shapely import from_wkb, intersects_xy, prepare as prepare_geometry
+except ImportError:
+    from_wkb = intersects_xy = prepare_geometry = None
+
+
+_raster_geometry_local = threading.local()
 
 class Mesh:
     def __init__(self):
@@ -24,15 +42,29 @@ class Mesh:
         self.node_map = {} # { (x_idx, y_idx, layer_id): node_id }
         self.grid_origin = (0, 0)
         self.grid_step = 0
+        self.requested_grid_step = 0
+        self.adaptive_grid = False
         
         # New sparse matrix components
         self.G_coo_data = [] # [g, g, -g, -g, ...]
         self.G_coo_row = []
         self.G_coo_col = []
         self.G_final_csr = None # To be filled by solver or mesher if configured
+        self.branches = [] # List[MeshBranch], retained for AC analysis
         
-    def add_edge_direct(self, u, v, g):
+    def add_edge_direct(self, u, v, g, inductance_h=0.0, kind="lateral"):
         """Adds an edge directly to the sparse data arrays."""
+        if g <= 0:
+            return
+
+        self.branches.append(MeshBranch(
+            node_a=int(u),
+            node_b=int(v),
+            resistance_ohm=1.0 / float(g),
+            inductance_h=max(0.0, float(inductance_h)),
+            kind=kind,
+        ))
+
         # G[u,u] += g
         self.G_coo_row.append(u)
         self.G_coo_col.append(u)
@@ -54,10 +86,12 @@ class Mesh:
         self.G_coo_data.append(-g)
 
 class Mesher:
-    def __init__(self, board, debug=False, log_callback=None):
+    MAX_ELECTRICAL_NODES = 400000
+    def __init__(self, board, debug=False, log_callback=None, compute_settings=None):
         self.board = board
         self.debug = debug
         self.log_callback = log_callback
+        self.compute_settings = compute_settings
         if np is None or Point is None or matplotlib is None:
             raise ImportError("NumPy, Shapely, and Matplotlib are required for Meshing.")
     
@@ -91,13 +125,239 @@ class Mesher:
         if self.debug and self.log_callback:
             self.log_callback(f"[MESH] {msg}")
 
-    def generate_mesh(self, net_name, geometry_by_layer, stackup, grid_size_mm=0.5):
+    def _status(self, msg):
+        if self.log_callback:
+            self.log_callback(f"[MESH] {msg}")
+
+    def _worker_count(self):
+        settings = self.compute_settings
+        if settings is not None and not settings.cpu_multithread:
+            return 1
+        configured = int(getattr(settings, "cpu_threads", 0) or 0) if settings else 0
+        return max(1, configured or (os.cpu_count() or 1))
+
+    @staticmethod
+    def _geometry_count(geometry):
+        """Return the number of primitive geometries without flattening coordinates."""
+        if geometry is None or geometry.is_empty:
+            return 0
+        if hasattr(geometry, "geoms"):
+            return len(geometry.geoms)
+        return 1
+
+    def _prepare_raster_geometry(self, geometry_by_layer):
+        """Merge multi-part copper once before rasterisation.
+
+        GeometryExtractor intentionally returns unmerged collections for DC so
+        extraction stays cheap.  Rasterising hundreds of overlapping tracks and
+        pads independently, however, creates thousands of duplicate row jobs.
+        A single union preserves the exact occupied copper area while allowing
+        a reliable node-count preflight below.
+        """
+        prepared = {}
+        for layer_id, geometry in geometry_by_layer.items():
+            if geometry is None or geometry.is_empty:
+                continue
+            shape_count = self._geometry_count(geometry)
+            if shape_count > 1 and unary_union is not None:
+                started = time.perf_counter()
+                geometry = unary_union(geometry.geoms)
+                elapsed = time.perf_counter() - started
+                if shape_count >= 32:
+                    self._status(
+                        f"Merged {shape_count:,} copper shapes on layer {layer_id} in {elapsed:.3f} s "
+                        "for efficient rasterisation."
+                    )
+            prepared[layer_id] = geometry
+        return prepared
+
+    def _preflight_grid_size(self, geometry_by_layer, requested_grid_size):
+        """Estimate a safe grid from exact merged copper area before sampling.
+
+        The prior adaptive path fully rasterised an oversized requested grid,
+        then discarded it.  For planar copper, occupied grid nodes scale with
+        area / step².  The 5% headroom matches the existing adaptive retry and
+        preserves its final accuracy target (~90% of the node budget).
+        """
+        copper_area_mm2 = sum(
+            max(0.0, float(geometry.area))
+            for geometry in geometry_by_layer.values()
+            if geometry is not None and not geometry.is_empty
+        )
+        estimated_nodes = copper_area_mm2 / max(requested_grid_size ** 2, 1.0e-18)
+        if estimated_nodes <= self.MAX_ELECTRICAL_NODES:
+            return requested_grid_size, int(round(estimated_nodes))
+        scale = math.sqrt(estimated_nodes / float(self.MAX_ELECTRICAL_NODES)) * 1.05
+        return min(5.0, max(requested_grid_size + 0.01, requested_grid_size * scale)), int(round(estimated_nodes))
+
+    @staticmethod
+    def _polygons(geometry):
+        if geometry.geom_type == 'Polygon':
+            yield geometry
+        elif hasattr(geometry, 'geoms'):
+            for child in geometry.geoms:
+                yield from Mesher._polygons(child)
+
+    @classmethod
+    def _raster_chunks(cls, layer_id, poly, x_coords, y_coords, chunk_points=150000):
+        """Yield bounded, independent raster jobs for one copper layer."""
+        for polygon in cls._polygons(poly):
+            buffered = polygon.buffer(1e-5)
+            if intersects_xy is not None:
+                # GEOS prepared geometries are native objects.  They must not
+                # be shared between worker threads: doing so can terminate the
+                # KiCad Python process instead of raising a Python exception.
+                raster_geometry = buffered.wkb
+            else:
+                codes, vertices = [], []
+                rings = [buffered.exterior] + list(buffered.interiors)
+                for ring in rings:
+                    coords = list(ring.coords)
+                    vertices.extend(coords)
+                    codes.append(matplotlib.path.Path.MOVETO)
+                    codes.extend([matplotlib.path.Path.LINETO] * (len(coords) - 2))
+                    codes.append(matplotlib.path.Path.CLOSEPOLY)
+                raster_geometry = matplotlib.path.Path(vertices, codes)
+            min_px, min_py, max_px, max_py = buffered.bounds
+            x0 = max(0, int(np.searchsorted(x_coords, min_px, side="left")) - 1)
+            x1 = min(len(x_coords), int(np.searchsorted(x_coords, max_px, side="right")) + 1)
+            y0 = max(0, int(np.searchsorted(y_coords, min_py, side="left")) - 1)
+            y1 = min(len(y_coords), int(np.searchsorted(y_coords, max_py, side="right")) + 1)
+            width = max(1, x1 - x0)
+            rows_per_chunk = max(1, int(chunk_points) // width)
+            for row_start in range(y0, y1, rows_per_chunk):
+                row_stop = min(y1, row_start + rows_per_chunk)
+                yield layer_id, raster_geometry, row_start, row_stop, x0, x1
+
+    @staticmethod
+    def _rasterize_chunk(raster_geometry, x_coords, y_coords, row_start, row_stop, x0, x1):
+        xv, yv = np.meshgrid(x_coords[x0:x1], y_coords[row_start:row_stop])
+        if intersects_xy is not None and isinstance(raster_geometry, bytes):
+            cache = getattr(_raster_geometry_local, "prepared_geometries", None)
+            if cache is None:
+                cache = {}
+                _raster_geometry_local.prepared_geometries = cache
+            geometry = cache.get(raster_geometry)
+            if geometry is None:
+                # Bound the cache for serial calls; worker threads are short
+                # lived and release their cache with the executor.
+                if len(cache) >= 64:
+                    cache.clear()
+                geometry = from_wkb(raster_geometry)
+                prepare_geometry(geometry)
+                cache[raster_geometry] = geometry
+            return np.asarray(intersects_xy(geometry, xv, yv), dtype=bool)
+        points = np.column_stack((xv.ravel(), yv.ravel()))
+        return raster_geometry.contains_points(points, radius=1e-9).reshape(
+            (row_stop - row_start, x1 - x0)
+        )
+
+    @classmethod
+    def _rasterize_polygon(cls, poly, x_coords, y_coords, shape, chunk_points=150000):
+        layer_mask = np.zeros(shape, dtype=bool)
+        for _, raster_geometry, row_start, row_stop, x0, x1 in cls._raster_chunks(
+            None, poly, x_coords, y_coords, chunk_points=chunk_points,
+        ):
+            local = cls._rasterize_chunk(
+                raster_geometry, x_coords, y_coords, row_start, row_stop, x0, x1,
+            )
+            layer_mask[row_start:row_stop, x0:x1] |= local
+        return layer_mask
+
+    def _rasterize_layers(self, geometry_by_layer, sorted_layers, x_coords, y_coords, shape, workers):
+        """Rasterize polygon row bands concurrently with bounded memory usage."""
+        layer_masks = {layer_id: np.zeros(shape, dtype=bool) for layer_id in sorted_layers}
+        jobs = (
+            job
+            for layer_id in sorted_layers
+            for job in self._raster_chunks(
+                layer_id, geometry_by_layer[layer_id], x_coords, y_coords,
+            )
+        )
+        completed_chunks = 0
+
+        def merge_chunk(job, local):
+            nonlocal completed_chunks
+            layer_id, _, row_start, row_stop, x0, x1 = job
+            layer_masks[layer_id][row_start:row_stop, x0:x1] |= local
+            completed_chunks += 1
+
+        if workers <= 1:
+            for job in jobs:
+                layer_id, raster_geometry, row_start, row_stop, x0, x1 = job
+                local = self._rasterize_chunk(
+                    raster_geometry, x_coords, y_coords, row_start, row_stop, x0, x1,
+                )
+                merge_chunk(job, local)
+            return layer_masks, completed_chunks
+
+        max_in_flight = max(workers * 2, 2)
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="KiPIDA-Mesh") as pool:
+            pending = {}
+
+            def fill_queue():
+                while len(pending) < max_in_flight:
+                    try:
+                        job = next(jobs)
+                    except StopIteration:
+                        break
+                    layer_id, raster_geometry, row_start, row_stop, x0, x1 = job
+                    future = pool.submit(
+                        self._rasterize_chunk, raster_geometry, x_coords, y_coords,
+                        row_start, row_stop, x0, x1,
+                    )
+                    pending[future] = job
+
+            fill_queue()
+            report_every = max(16, workers * 4)
+            while pending:
+                done, _ = wait(tuple(pending), return_when=FIRST_COMPLETED)
+                for future in done:
+                    job = pending.pop(future)
+                    merge_chunk(job, future.result())
+                if completed_chunks % report_every < len(done):
+                    self._status(f"Rasterized {completed_chunks:,} copper grid chunks...")
+                fill_queue()
+        return layer_masks, completed_chunks
+
+    def generate_mesh(
+        self, net_name, geometry_by_layer, stackup, grid_size_mm=0.5,
+        _adaptive_pass=0, _requested_grid_size=None, _raster_prepared=False,
+    ):
         """
         Generates a resistive mesh from the geometry using vectorized operations.
         """
         mesh = Mesh()
         mesh.grid_step = grid_size_mm
+        mesh.requested_grid_step = (
+            float(grid_size_mm) if _requested_grid_size is None
+            else float(_requested_grid_size)
+        )
         
+        # Merge once and select a safe resolution before allocating/rasterising
+        # a potentially multi-million-node requested grid.
+        if not _raster_prepared:
+            geometry_by_layer = self._prepare_raster_geometry(geometry_by_layer)
+        if _adaptive_pass == 0:
+            preflight_grid, projected_nodes = self._preflight_grid_size(
+                geometry_by_layer, grid_size_mm,
+            )
+            if preflight_grid > grid_size_mm:
+                mesh.grid_step = preflight_grid
+                mesh.adaptive_grid = True
+                self._status(
+                    f"{net_name}: preflight estimates about {projected_nodes:,} copper nodes at "
+                    f"{grid_size_mm:.3g} mm; using {preflight_grid:.3g} mm before rasterisation "
+                    f"(safety limit {self.MAX_ELECTRICAL_NODES:,})."
+                )
+                adapted = self.generate_mesh(
+                    net_name, geometry_by_layer, stackup, preflight_grid,
+                    _adaptive_pass=1, _requested_grid_size=mesh.requested_grid_step,
+                    _raster_prepared=True,
+                )
+                adapted.adaptive_grid = True
+                return adapted
+
         # 1. Calculate Bounding Box
         min_x, min_y, max_x, max_y = float('inf'), float('inf'), float('-inf'), float('-inf')
         
@@ -135,12 +395,6 @@ class Mesher:
         x_coords = np.linspace(min_x, min_x + (nx * grid_size_mm), nx + 1)
         y_coords = np.linspace(min_y, min_y + (ny * grid_size_mm), ny + 1)
         
-        xv, yv = np.meshgrid(x_coords, y_coords) # shape (ny+1, nx+1)
-        # Flatten for vectorized checks logic
-        # But we need structure for neighbor identifying.
-        
-        grid_points = np.column_stack((xv.ravel(), yv.ravel()))
-        
         if self.debug:
             self._log(f"Grid setup: {nx+1}x{ny+1} points, bounds ({min_x:.1f},{min_y:.1f}) to ({max_x:.1f},{max_y:.1f})")
 
@@ -149,12 +403,60 @@ class Mesher:
         # But layer IDs are sparse (e.g. 0, 1, 31). So we map them.
         
         sorted_layers = sorted(valid_layers)
-        layer_map = { lid: idx for idx, lid in enumerate(sorted_layers) }
-        
-        # node_indices: [layer, y, x] -> node_id (or -1 if empty)
-        node_grid = np.full((len(sorted_layers), ny + 1, nx + 1), -1, dtype=int)
-        
         node_counter = 0
+
+        workers = self._worker_count()
+        grid_point_count = (ny + 1) * (nx + 1)
+        if workers > 1 and grid_point_count >= 10000:
+            self._status(
+                f"Rasterizing {len(sorted_layers)} electrical layers in bounded row chunks with "
+                f"{workers} CPU workers ({grid_point_count:,} envelope points per layer; "
+                f"{'Shapely vector engine' if intersects_xy is not None else 'Matplotlib fallback'})."
+            )
+            layer_masks, chunk_count = self._rasterize_layers(
+                geometry_by_layer, sorted_layers, x_coords, y_coords,
+                (ny + 1, nx + 1), workers,
+            )
+            self._status(
+                f"Rasterized {len(sorted_layers)} electrical layers in {chunk_count:,} chunks."
+            )
+        else:
+            self._status(
+                f"Rasterizing {len(sorted_layers)} electrical layer(s) "
+                f"({grid_point_count:,} envelope points per layer)."
+            )
+            layer_masks, chunk_count = self._rasterize_layers(
+                geometry_by_layer, sorted_layers, x_coords, y_coords,
+                (ny + 1, nx + 1), 1,
+            )
+            self._status(
+                f"Rasterized {len(sorted_layers)} electrical layers in {chunk_count:,} chunks."
+            )
+
+        projected_nodes = sum(int(np.count_nonzero(mask)) for mask in layer_masks.values())
+        self._status(f"Rasterization selected about {projected_nodes:,} copper nodes.")
+        if projected_nodes > self.MAX_ELECTRICAL_NODES:
+            scale = math.sqrt(projected_nodes / float(self.MAX_ELECTRICAL_NODES)) * 1.05
+            safer_grid = min(5.0, max(grid_size_mm + 0.01, grid_size_mm * scale))
+            if _adaptive_pass >= 3 or safer_grid <= grid_size_mm:
+                raise ValueError(
+                    f"Electrical mesh for {net_name} still contains about {projected_nodes:,} "
+                    f"nodes at {grid_size_mm:.3g} mm. Increase the DC grid size."
+                )
+            if self.log_callback:
+                self.log_callback(
+                    f"[MESH] {net_name}: requested {grid_size_mm:.3g} mm would create "
+                    f"about {projected_nodes:,} nodes; retrying at {safer_grid:.3g} mm "
+                    f"(safety limit {self.MAX_ELECTRICAL_NODES:,})."
+                )
+            adapted = self.generate_mesh(
+                net_name, geometry_by_layer, stackup, safer_grid,
+                _adaptive_pass=_adaptive_pass + 1,
+                _requested_grid_size=mesh.requested_grid_step,
+                _raster_prepared=True,
+            )
+            adapted.adaptive_grid = True
+            return adapted
         
         for lid in sorted_layers:
             poly = geometry_by_layer[lid]
@@ -165,54 +467,18 @@ class Mesher:
             # Matplotlib Path uses vertices. 
             # If poly is MultiPolygon, iterate parts.
             
-            polys_to_check = [poly] if poly.geom_type == 'Polygon' else list(poly.geoms)
-            
-            # Create a combined boolean mask for this layer
-            layer_mask = np.zeros(len(grid_points), dtype=bool)
-            
-            for p in polys_to_check:
-                # Buffer slightly to include points on edges
-                pb = p.buffer(1e-5) 
-                
-                # Extract exterior coords
-                
-                codes = []
-                verts = []
-                
-                # Exterior
-                ext_coords = list(pb.exterior.coords)
-                verts.extend(ext_coords)
-                codes.append(matplotlib.path.Path.MOVETO)
-                codes.extend([matplotlib.path.Path.LINETO] * (len(ext_coords) - 2))
-                codes.append(matplotlib.path.Path.CLOSEPOLY)
-                
-                # Interiors (Holes)
-                for interior in pb.interiors:
-                    int_coords = list(interior.coords)
-                    verts.extend(int_coords)
-                    codes.append(matplotlib.path.Path.MOVETO)
-                    codes.extend([matplotlib.path.Path.LINETO] * (len(int_coords) - 2))
-                    codes.append(matplotlib.path.Path.CLOSEPOLY)
-                
-                path = matplotlib.path.Path(verts, codes)
-                
-                # Check points
-                # radius=0 means exact point check. Could use small radius for tolerance.
-                mask = path.contains_points(grid_points, radius=1e-9)
-                layer_mask |= mask
-            
-            # Reshape back to grid
-            mask_2d = layer_mask.reshape((ny + 1, nx + 1))
+            mask_2d = layer_masks.pop(lid)
             
             # Assign Node IDs
             count_on_layer = np.count_nonzero(mask_2d)
             if count_on_layer > 0:
+                node_grid = np.full((ny + 1, nx + 1), -1, dtype=int)
                 # Get indices where mask is true
                 y_idxs, x_idxs = np.nonzero(mask_2d)
                 
                 # Generate new IDs
                 new_ids = np.arange(node_counter, node_counter + count_on_layer)
-                node_grid[layer_map[lid], y_idxs, x_idxs] = new_ids
+                node_grid[y_idxs, x_idxs] = new_ids
                 
                 # Save to mesh.nodes and mesh.node_coords
                 
@@ -239,6 +505,7 @@ class Mesher:
                 thick = copper_info.get('thickness_mm', 0.035)
                 rho = stackup.get('resistivity', 1.7e-5)
                 g_lat_val = thick / rho
+                l_lat_val = self._estimate_lateral_l(lid, stackup)
                 
                 # Horizontal Neighbors (x, y) <-> (x+1, y)
                 # Check where node and right-neighbor both exist
@@ -251,27 +518,28 @@ class Mesher:
                 if np.any(right_mask):
                     y_r, x_r = np.nonzero(right_mask)
                     # Nodes at (y,x)
-                    u_ids = node_grid[layer_map[lid], y_r, x_r]
+                    u_ids = node_grid[y_r, x_r]
                     # Nodes at (y, x+1)
-                    v_ids = node_grid[layer_map[lid], y_r, x_r + 1]
+                    v_ids = node_grid[y_r, x_r + 1]
                     
                     for u, v in zip(u_ids, v_ids):
-                         mesh.add_edge_direct(u, v, g_lat_val)
+                         mesh.add_edge_direct(u, v, g_lat_val, l_lat_val, "lateral")
                 
                 # Vertical (Top) Neighbors (x, y) <-> (x, y+1)
                 top_mask = mask_2d[:-1, :] & mask_2d[1:, :]
                 if np.any(top_mask):
                     y_t, x_t = np.nonzero(top_mask)
                     # Nodes at (y, x)
-                    u_ids = node_grid[layer_map[lid], y_t, x_t]
+                    u_ids = node_grid[y_t, x_t]
                     # Nodes at (y+1, x)
-                    v_ids = node_grid[layer_map[lid], y_t + 1, x_t]
+                    v_ids = node_grid[y_t + 1, x_t]
                     
                     for u, v in zip(u_ids, v_ids):
-                         mesh.add_edge_direct(u, v, g_lat_val)
+                         mesh.add_edge_direct(u, v, g_lat_val, l_lat_val, "lateral")
 
             if self.debug:
                 self._log(f"  Layer {lid} vectorized mesh: {count_on_layer} nodes.")
+            self._status(f"Built electrical layer {lid}: {count_on_layer:,} nodes.")
 
         # 5. Vertical Connections (Vias & PTH)
         if self.log_callback:
@@ -369,6 +637,41 @@ class Mesher:
         if h <= 0: h = 0.5 
         return area / (rho * h)
 
+    def _estimate_lateral_l(self, layer, stackup):
+        """Estimate per-square spreading inductance to the nearest return plane.
+
+        This quasi-static approximation intentionally avoids claiming full-wave
+        accuracy.  It gives the AC solver a stackup-sensitive loop inductance
+        while keeping the existing 2.5D mesh topology.
+        """
+        distances_mm = []
+        for sub in stackup.get('substrate', []):
+            between = sub.get('between', [])
+            if layer in between:
+                thickness = float(sub.get('thickness_mm', 0.0) or 0.0)
+                if thickness > 0:
+                    distances_mm.append(thickness)
+
+        return 4.0e-7 * math.pi * (min(distances_mm) if distances_mm else 0.2) * 1.0e-3
+
+    def _calculate_vertical_l(self, layer_a, layer_b, stackup, diameter_mm):
+        """Estimate via/PTH inductance from traversed dielectric height."""
+        l_min, l_max = min(layer_a, layer_b), max(layer_a, layer_b)
+        height_mm = 0.0
+        for sub in stackup.get('substrate', []):
+            between = sub.get('between', [])
+            if len(between) != 2 or between[0] is None or between[1] is None:
+                continue
+            if min(between) >= l_min and max(between) <= l_max:
+                height_mm += float(sub.get('thickness_mm', 0.0) or 0.0)
+
+        if height_mm <= 0:
+            height_mm = 0.5
+
+        # A conservative engineering estimate for a plated through connection.
+        diameter_factor = max(0.5, min(2.0, 0.3 / max(diameter_mm, 0.05)))
+        return max(0.05e-9, height_mm * diameter_factor * 1.0e-9)
+
     def _get_best_node_in_radius(self, mesh, x_mm, y_mm, layer, radius_mm):
         """Find a node for the via/pad on the given layer."""
         ix_center = int(round((x_mm - mesh.grid_origin[0]) / mesh.grid_step))
@@ -447,7 +750,8 @@ class Mesher:
             la = mesh.node_coords[nid_a][2]
             lb = mesh.node_coords[nid_b][2]
             g_via = self._calculate_vertical_g(la, lb, stackup, dia_mm)
-            mesh.add_edge_direct(nid_a, nid_b, g_via)
+            l_via = self._calculate_vertical_l(la, lb, stackup, dia_mm)
+            mesh.add_edge_direct(nid_a, nid_b, g_via, l_via, "via")
 
     def _add_vertical_stack(self, mesh, pos, layers, diameter, stackup):
         if layers is None or len(layers) == 0:
@@ -470,6 +774,7 @@ class Mesher:
             la = mesh.node_coords[nid_a][2]
             lb = mesh.node_coords[nid_b][2]
             g_via = self._calculate_vertical_g(la, lb, stackup, diameter)
-            mesh.add_edge_direct(nid_a, nid_b, g_via)
+            l_via = self._calculate_vertical_l(la, lb, stackup, diameter)
+            mesh.add_edge_direct(nid_a, nid_b, g_via, l_via, "pth")
 
 

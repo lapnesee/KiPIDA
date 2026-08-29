@@ -1,11 +1,14 @@
 import logging
 import math
+import re
+import time
+from pathlib import Path
 try:
-    from shapely.geometry import LineString, Polygon, MultiPolygon, Point, box
+    from shapely.geometry import LineString, Polygon, MultiPolygon, GeometryCollection, Point, box
     from shapely.ops import unary_union
     from shapely import affinity
 except ImportError:
-    LineString = Polygon = MultiPolygon = Point = box = unary_union = affinity = None
+    LineString = Polygon = MultiPolygon = GeometryCollection = Point = box = unary_union = affinity = None
 
 try:
     import kipy
@@ -29,6 +32,10 @@ class GeometryExtractor:
         self.debug = debug
         self.log_callback = log_callback
         self.logger = logging.getLogger('KiPIDA.GeometryExtractor')
+        # Stackup data belongs to one live board. A class-level cache can leak
+        # data between projects opened in the same KiCad process.
+        self._stackup_cache = None
+        self._net_item_caches = {}
         if debug:
             self.logger.setLevel(logging.DEBUG)
             # Clear any existing handlers to avoid duplicates
@@ -76,8 +83,134 @@ class GeometryExtractor:
             except: pass
         return []
 
+    def _item_matches_net(self, item, net_name):
+        """Match kipy net objects with a small legacy numeric-net fallback."""
+        net = self._get_val(item, 'net')
+        item_name = self._get_val(net, 'name', '')
+        if item_name:
+            return item_name == net_name
+        item_code = self._get_val(item, 'net_code', self._get_val(item, 'net_number', None))
+        if item_code is None:
+            return False
+        finder = getattr(self.board, 'FindNet', None) or getattr(self.board, 'find_net', None)
+        if not callable(finder):
+            return False
+        try:
+            target = finder(net_name)
+            target_code = self._get_val(target, 'code', self._get_val(target, 'number', None))
+            if target_code is None and hasattr(target, 'GetNetCode'):
+                target_code = target.GetNetCode()
+            return int(item_code) == int(target_code)
+        except Exception:
+            return False
+
+    def _get_items_for_net(self, attr_name, net_name):
+        """Index live board objects once per run instead of rescanning for every rail."""
+        cache = self._net_item_caches.get(attr_name)
+        if cache is None:
+            started = time.perf_counter()
+            cache = {}
+            if attr_name == "pads":
+                items = []
+                for footprint in self._get_board_items("footprints"):
+                    pads = self._get_val(footprint, "pads")
+                    if pads is None:
+                        definition = self._get_val(footprint, "definition")
+                        pads = self._get_val(definition, "pads", [])
+                    items.extend(list(pads or []))
+            else:
+                items = list(self._get_board_items(attr_name) or [])
+            unresolved = []
+            for item in items:
+                net = self._get_val(item, "net")
+                name = self._get_val(net, "name", "")
+                if name:
+                    cache.setdefault(str(name), []).append(item)
+                else:
+                    unresolved.append(item)
+            cache[None] = unresolved
+            self._net_item_caches[attr_name] = cache
+            if self.log_callback:
+                self.log_callback(
+                    f"[GEOMETRY] Indexed {len(items):,} {attr_name} in "
+                    f"{time.perf_counter() - started:.3f} s."
+                )
+        matches = list(cache.get(net_name, []))
+        matches.extend(
+            item for item in cache.get(None, []) if self._item_matches_net(item, net_name)
+        )
+        return matches
     # Cache for stackup data
     _stackup_cache = None
+
+    def invalidate_stackup_cache(self):
+        """Force the next stackup request to query the live KiCad board."""
+        self._stackup_cache = None
+
+    @staticmethod
+    def _edge_cuts_bounds_from_file(board_path):
+        """Read common Edge.Cuts geometry when IPC omits drawing objects."""
+        try:
+            text = Path(board_path).read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError):
+            return None
+        points = []
+        graphic_start = re.compile(r'\(gr_(?:rect|line|arc|poly|curve|circle)\b')
+        coordinate = re.compile(
+            r'\((?:start|end|mid|center|xy)\s+'
+            r'([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)'
+        )
+        for match in graphic_start.finditer(text):
+            depth = 0
+            end = None
+            for index in range(match.start(), len(text)):
+                depth += (text[index] == '(') - (text[index] == ')')
+                if depth == 0:
+                    end = index + 1
+                    break
+            if end is None:
+                continue
+            graphic = text[match.start():end]
+            if not re.search(r'\(layer\s+"Edge\.Cuts"\)', graphic):
+                continue
+            points.extend((float(x), float(y)) for x, y in coordinate.findall(graphic))
+        if not points:
+            return None
+        return min(x for x, _ in points), min(y for _, y in points), max(x for x, _ in points), max(y for _, y in points)
+
+    def get_board_bounds(self, margin_mm=1.0, board_file_path=None):
+        """Return live full-board XY bounds, not just the currently analysed net."""
+        file_bounds = self._edge_cuts_bounds_from_file(board_file_path) if board_file_path else None
+        if file_bounds is not None:
+            min_x, min_y, max_x, max_y = file_bounds
+            return (min_x - margin_mm, min_y - margin_mm, max_x + margin_mm, max_y + margin_mm)
+        points = []
+        def point(value):
+            if value is None:
+                return
+            x = self._get_val(value, 'x', None)
+            y = self._get_val(value, 'y', None)
+            if x is not None and y is not None:
+                points.append((to_mm(x), to_mm(y)))
+        for collection in ('drawings', 'graphic_items', 'tracks', 'vias', 'footprints'):
+            for item in self._get_board_items(collection) or []:
+                point(self._get_val(item, 'start'))
+                point(self._get_val(item, 'end'))
+                point(self._get_val(item, 'position'))
+                point(self._get_val(item, 'center'))
+                for pad in self._get_val(item, 'pads', []) or []:
+                    point(self._get_val(pad, 'position'))
+        for zone in self._get_board_items('zones') or []:
+            for polygon_list in (self._get_val(zone, 'filled_polygons', {}) or {}).values():
+                for polygon in polygon_list if isinstance(polygon_list, (list, tuple)) else [polygon_list]:
+                    outline = self._get_val(polygon, 'outline')
+                    for node in self._get_val(outline, 'nodes', self._get_val(outline, 'points', [])) or []:
+                        point(self._get_val(node, 'point', node))
+        if not points:
+            return None
+        min_x, min_y = min(x for x, _ in points), min(y for _, y in points)
+        max_x, max_y = max(x for x, _ in points), max(y for _, y in points)
+        return (min_x - margin_mm, min_y - margin_mm, max_x + margin_mm, max_y + margin_mm)
 
     def get_board_stackup(self):
         """
@@ -190,7 +323,10 @@ class GeometryExtractor:
                 'copper': copper_data,
                 'layer_order': layer_order,
                 'substrate': substrates,
-                'resistivity': rho_copper
+                'resistivity': rho_copper,
+                'source': 'KICAD_IPC',
+                'trustworthy': bool(copper_data and substrates),
+                'warnings': [],
             }
             
             if self.debug:
@@ -244,13 +380,141 @@ class GeometryExtractor:
             'copper': copper_data,
             'layer_order': layer_order,
             'substrate': substrates,
-            'resistivity': rho_copper
+            'resistivity': rho_copper,
+            'source': 'DEFAULT',
+            'trustworthy': False,
+            'warnings': [
+                'KiCad stackup unavailable; using a generic 2-layer FR4 profile.',
+                'Differential impedance values from this profile are estimates only.',
+            ],
         }
         
         self._stackup_cache = result
         return result
 
-    def get_net_geometry(self, net_name):
+    def get_stackup_profile(self):
+        """Return the legacy stackup dictionary as an ordered typed profile."""
+        try:
+            from .models import StackupLayerModel, StackupProfile
+        except (ImportError, ValueError):
+            from models import StackupLayerModel, StackupProfile
+
+        data = self.get_board_stackup()
+        copper = data.get('copper', {})
+        substrates = data.get('substrate', [])
+        order = list(data.get('layer_order', [])) or sorted(copper)
+        substrate_by_pair = {
+            tuple(item.get('between', [])): item for item in substrates
+            if len(item.get('between', [])) == 2
+        }
+        layers = []
+        for index, layer_id in enumerate(order):
+            layer = copper.get(layer_id, {})
+            layers.append(StackupLayerModel(
+                name=layer.get('name', str(layer_id)),
+                kind='COPPER',
+                thickness_mm=float(layer.get('thickness_mm', 0.035)),
+                layer_id=int(layer_id),
+                material='Copper',
+                epsilon_r=1.0,
+            ))
+            if index + 1 < len(order):
+                next_id = order[index + 1]
+                dielectric = substrate_by_pair.get((layer_id, next_id))
+                if dielectric is None and index < len(substrates):
+                    dielectric = substrates[index]
+                dielectric = dielectric or {}
+                layers.append(StackupLayerModel(
+                    name=f'Dielectric {index + 1}',
+                    kind='DIELECTRIC',
+                    thickness_mm=float(dielectric.get('thickness_mm', 0.0)),
+                    material=dielectric.get('material', 'FR4'),
+                    epsilon_r=float(dielectric.get('epsilon_r', 4.4)),
+                    loss_tangent=float(dielectric.get('loss_tangent', 0.0)),
+                ))
+        warnings = list(data.get('warnings', []))
+        if any(layer.kind == 'DIELECTRIC' and layer.thickness_mm <= 0 for layer in layers):
+            warnings.append('One or more dielectric thicknesses are missing.')
+        return StackupProfile(
+            layers=layers,
+            source=data.get('source', 'DEFAULT'),
+            trustworthy=bool(data.get('trustworthy', False)) and not warnings,
+            warnings=warnings,
+        )
+
+    def get_net_tracks(self, net_name):
+        """Extract immutable same-net route segments for Phase 5 analysis."""
+        result = []
+        for track in self._get_items_for_net('tracks', net_name):
+            start = self._get_val(track, 'start')
+            end = self._get_val(track, 'end')
+            if start is None or end is None:
+                continue
+            x0 = to_mm(self._get_val(start, 'x', 0))
+            y0 = to_mm(self._get_val(start, 'y', 0))
+            x1 = to_mm(self._get_val(end, 'x', 0))
+            y1 = to_mm(self._get_val(end, 'y', 0))
+            width = to_mm(self._get_val(track, 'width', 0))
+            if width <= 0:
+                continue
+            result.append({
+                'start': (x0, y0),
+                'end': (x1, y1),
+                'width_mm': width,
+                'layer_id': int(self._get_val(track, 'layer', -1)),
+                'length_mm': math.hypot(x1 - x0, y1 - y0),
+            })
+        return result
+
+    def get_zone_geometry(self, net_name):
+        """Return actual filled-zone copper only, grouped by copper layer."""
+        if Polygon is None or unary_union is None:
+            return {}
+        shapes = {}
+        for zone in self._get_items_for_net('zones', net_name):
+            net = self._get_val(zone, 'net')
+            filled = self._get_val(zone, 'filled_polygons', {})
+            if not isinstance(filled, dict):
+                continue
+            for layer_id, polygons in filled.items():
+                if not isinstance(polygons, (list, tuple)):
+                    polygons = [polygons]
+                for polygon in polygons:
+                    outline = self._get_val(polygon, 'outline')
+                    nodes = self._get_val(outline, 'nodes') or self._get_val(outline, 'points', [])
+                    points = []
+                    for node in nodes or []:
+                        point = self._get_val(node, 'point', node)
+                        if point is not None:
+                            points.append((
+                                to_mm(self._get_val(point, 'x', 0)),
+                                to_mm(self._get_val(point, 'y', 0)),
+                            ))
+                    if len(points) < 3:
+                        continue
+                    shape = Polygon(points)
+                    if not shape.is_valid:
+                        shape = shape.buffer(0)
+                    for hole in self._get_val(polygon, 'holes', []) or []:
+                        hole_nodes = self._get_val(hole, 'nodes') or self._get_val(hole, 'points', [])
+                        hole_points = []
+                        for node in hole_nodes or []:
+                            point = self._get_val(node, 'point', node)
+                            if point is not None:
+                                hole_points.append((
+                                    to_mm(self._get_val(point, 'x', 0)),
+                                    to_mm(self._get_val(point, 'y', 0)),
+                                ))
+                        if len(hole_points) >= 3:
+                            shape = shape.difference(Polygon(hole_points))
+                    if not shape.is_empty:
+                        shapes.setdefault(int(layer_id), []).append(shape)
+        return {
+            layer_id: unary_union(layer_shapes)
+            for layer_id, layer_shapes in shapes.items() if layer_shapes
+        }
+
+    def get_net_geometry(self, net_name, merge=True):
         """
         Extracts and merges geometry for a specific net.
         Returns a dictionary: { layer_id: shapely.geometry.Polygon }
@@ -267,7 +531,7 @@ class GeometryExtractor:
             return lid in stackup['copper']
             
         # 1. Process Tracks
-        tracks = self._get_board_items('tracks')
+        tracks = self._get_items_for_net('tracks', net_name)
         
         # We might want to buffer tracks slightly more than half-width to ensure 
         # grid points are caught if the track is very thin.
@@ -275,12 +539,6 @@ class GeometryExtractor:
         safety_buffer = 0.05 
         
         for track in tracks:
-            net = self._get_val(track, 'net')
-            t_net_name = self._get_val(net, 'name', "")
-            
-            if t_net_name != net_name:
-                continue
-                    
             start = self._get_val(track, 'start')
             end = self._get_val(track, 'end')
             width_mm = to_mm(self._get_val(track, 'width', 0))
@@ -394,14 +652,11 @@ class GeometryExtractor:
                 add_shape(layer, poly)
 
         # 1b. Process Vias (Essental for vertical connectivity mesh nodes)
-        vias = self._get_board_items('vias')
+        vias = self._get_items_for_net('vias', net_name)
         for via in vias:
             net = self._get_val(via, 'net')
             v_net_name = self._get_val(net, 'name', "")
             
-            if v_net_name != net_name:
-                continue
-                
             pos = self._get_val(via, 'position')
             x_mm = to_mm(self._get_val(pos, 'x', 0))
             y_mm = to_mm(self._get_val(pos, 'y', 0))
@@ -432,34 +687,10 @@ class GeometryExtractor:
                     add_shape(lid, poly)
                     
         # 2. Process Pads (Footprints)
-        footprints = self._get_board_items('footprints')
-        for fp in footprints:
-            pads = self._get_val(fp, 'pads')
-            is_def_pads = False
-            
-            if pads is None:
-                defn = self._get_val(fp, 'definition')
-                pads = self._get_val(defn, 'pads', [])
-                is_def_pads = True
-                
-            # Get footprint transforms if needed
-            fp_x, fp_y, fp_rot = 0, 0, 0
-            if is_def_pads:
-                fp_pos = self._get_val(fp, 'position')
-                fp_x = to_mm(self._get_val(fp_pos, 'x', 0))
-                fp_y = to_mm(self._get_val(fp_pos, 'y', 0))
-                fp_rot = self._get_val(fp, 'orientation', 0)
-                # Ensure float
-                try: fp_rot = float(fp_rot)
-                except: fp_rot = 0.0
-
-            for pad in pads:
+        for pad in self._get_items_for_net('pads', net_name):
                 net = self._get_val(pad, 'net')
                 p_net_name = self._get_val(net, 'name', "")
                     
-                if p_net_name != net_name:
-                    continue
-                            
                 # Geometry
                 # Position (Absolute)
                 pos = self._get_val(pad, 'position')
@@ -538,14 +769,11 @@ class GeometryExtractor:
                        add_shape(lid, pad_poly)
 
         # 3. Process Zones
-        zones = self._get_board_items('zones')
+        zones = self._get_items_for_net('zones', net_name)
         for zone in zones:
             net = self._get_val(zone, 'net')
             z_net_name = self._get_val(net, 'name', "")
             
-            if z_net_name != net_name:
-                continue
-                
             # Filled Polygons (dict mapping layer_id -> list of polygon objects)
             filled_polygons = self._get_val(zone, 'filled_polygons', {})
             
@@ -611,8 +839,20 @@ class GeometryExtractor:
         for layer, shapes in layer_shapes.items():
             if not shapes:
                 continue
-            merged = unary_union(shapes)
-            merged_geometry[layer] = merged
+            # Bulk thermal extraction visits every net on every copper layer.
+            # Logging each tiny unmerged collection can enqueue thousands of
+            # wx events and make the GUI appear frozen.  Keep only meaningful
+            # geometry summaries; indexing and thermal-layer timings remain
+            # visible in the log.
+            if self.log_callback and len(shapes) >= 100:
+                action = "Merging" if merge else "Collecting"
+                self.log_callback(
+                    f"[GEOMETRY] {action} {len(shapes):,} shape(s) for {net_name} "
+                    f"on layer {layer}."
+                )
+            merged_geometry[layer] = (
+                unary_union(shapes) if merge else GeometryCollection(shapes)
+            )
             
         return merged_geometry
 

@@ -12,6 +12,7 @@ if plugin_dir not in sys.path:
 # For CI/headless correctness without wx installed, we often mock wx.
 # Let's simple-mock wx to ensure logic runs even if system python doesn't have wx (though user python likely does)
 import types
+from types import SimpleNamespace
 if 'wx' not in sys.modules:
     wx_mock = types.ModuleType('wx')
     wx_mock.Bitmap = lambda *args: "BITMAP_OBJECT"
@@ -63,6 +64,126 @@ class TestPlotter(unittest.TestCase):
         # Layer 99 empty
         bmp = self.plotter.plot_layer_2d(self.mesh, 99, self.stackup)
         self.assertIsNone(bmp)
+
+    def test_plot_excludes_nodes_without_valid_voltage(self):
+        self.mesh.results = {0: 3.3, 1: 3.2}
+
+        self.assertIsNotNone(self.plotter.plot_3d_mesh(self.mesh, self.stackup))
+        self.assertIsNone(self.plotter.plot_layer_2d(self.mesh, 1, self.stackup))
+
+    def test_plot_impedance_sweep(self):
+        baseline = SimpleNamespace(
+            frequencies_hz=[1e3, 1e4, 1e5],
+            impedance_ohm=[0.05 + 0j, 0.04 - 0.01j, 0.08 + 0.02j],
+            target_impedance_ohm=0.06,
+        )
+        optimized = SimpleNamespace(
+            frequencies_hz=baseline.frequencies_hz,
+            impedance_ohm=[0.04 + 0j, 0.03 - 0.01j, 0.05 + 0.01j],
+        )
+
+        bitmap = self.plotter.plot_impedance_sweep(baseline, optimized)
+
+        self.assertIsNotNone(bitmap)
+
+    def test_plot_differential_impedance_and_stackup(self):
+        pair = SimpleNamespace(name="USB", target_impedance_ohm=90.0)
+        result = SimpleNamespace(
+            pair=pair, weighted_impedance_ohm=92.0,
+            minimum_impedance_ohm=88.0, maximum_impedance_ohm=96.0,
+            status="PASS",
+        )
+        stackup = SimpleNamespace(
+            source="IMPORTED",
+            layers=[
+                SimpleNamespace(name="F.Cu", kind="COPPER", thickness_mm=0.035, epsilon_r=1.0),
+                SimpleNamespace(name="Core", kind="DIELECTRIC", thickness_mm=1.5, epsilon_r=4.2),
+                SimpleNamespace(name="B.Cu", kind="COPPER", thickness_mm=0.035, epsilon_r=1.0),
+            ],
+        )
+        self.assertIsNotNone(self.plotter.plot_differential_impedance([result]))
+        self.assertIsNotNone(self.plotter.plot_stackup_profile(stackup))
+
+    def test_plot_thermal_views(self):
+        thermal_mesh = SimpleNamespace(
+            nodes=[0, 1, 2, 3],
+            node_coords={
+                0: (0.0, 0.0, 0.0),
+                1: (1.0, 0.0, 0.0),
+                2: (0.0, 1.0, 1.6),
+                3: (1.0, 1.0, 1.6),
+            },
+            layer_specs=[
+                SimpleNamespace(layer_id=0),
+                SimpleNamespace(layer_id=31),
+            ],
+            node_layers={0: 0, 1: 0, 2: 31, 3: 31},
+            node_map={
+                (0, 0, 0): 0,
+                (1, 0, 0): 1,
+                (0, 1, 1): 2,
+                (1, 1, 1): 3,
+            },
+        )
+        result = SimpleNamespace(
+            temperatures_c={0: 28.0, 1: 30.0, 2: 35.0, 3: 32.0},
+        )
+
+        self.assertIsNotNone(self.plotter.plot_thermal_3d(thermal_mesh, result))
+        self.assertIsNotNone(self.plotter.plot_thermal_surface(thermal_mesh, result, side="TOP"))
+        self.assertIsNotNone(self.plotter.plot_thermal_surface(thermal_mesh, result, side="BOTTOM"))
+
+        thermal_3d_png = self.plotter.plot_thermal_3d(thermal_mesh, result, as_png=True)
+        top_png = self.plotter.plot_thermal_surface(
+            thermal_mesh, result, side="TOP", as_png=True
+        )
+        self.assertIsInstance(thermal_3d_png, bytes)
+        self.assertIsInstance(top_png, bytes)
+        self.assertTrue(thermal_3d_png.startswith(b"\x89PNG"))
+        self.assertTrue(top_png.startswith(b"\x89PNG"))
+        self.assertEqual(
+            self.plotter._thermal_limits(result, color_scale_minimum_c=25.0),
+            (25.0, 35.0),
+        )
+
+        x_edges, y_edges, field = self.plotter._thermal_surface_grid(
+            thermal_mesh, result, target_iz=1,
+        )
+        self.assertEqual(field.shape, (1, 2))
+        self.assertEqual(field.tolist(), [[35.0, 32.0]])
+        self.assertEqual(x_edges.tolist(), [-0.5, 0.5, 1.5])
+        self.assertEqual(y_edges.tolist(), [0.5, 1.5])
+
+    def test_plot_cfd_views(self):
+        shape = (3, 3, 3)
+        count = 27
+        cfd_mesh = SimpleNamespace(
+            shape=shape,
+            spacing_m=(0.01, 0.01, 0.01),
+            dimensions_m=(0.03, 0.03, 0.03),
+        )
+        air = [25.0 + index / 100.0 for index in range(count)]
+        solid = [float('nan')] * count
+        solid[13] = 31.0
+        result = SimpleNamespace(
+            pressure_pa=[0.1 * index for index in range(count)],
+            velocity_u_m_s=[0.2] * count,
+            velocity_v_m_s=[0.0] * count,
+            velocity_w_m_s=[0.01] * count,
+            air_temperature_c=air,
+            solid_temperature_c=solid,
+            residuals=SimpleNamespace(
+                continuity=[1.0, 0.1, 0.01],
+                momentum=[0.5, 0.05, 0.005],
+                energy=[2.0, 0.2, 0.02],
+            ),
+        )
+
+        self.assertIsNotNone(self.plotter.plot_cfd_3d(cfd_mesh, result))
+        self.assertIsNotNone(self.plotter.plot_cfd_slice(cfd_mesh, result, "TEMPERATURE", "XY"))
+        self.assertIsNotNone(self.plotter.plot_cfd_slice(cfd_mesh, result, "VELOCITY", "XZ"))
+        self.assertIsNotNone(self.plotter.plot_cfd_slice(cfd_mesh, result, "PRESSURE", "YZ"))
+        self.assertIsNotNone(self.plotter.plot_cfd_residuals(result))
 
 if __name__ == '__main__':
     unittest.main()

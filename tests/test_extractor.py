@@ -114,7 +114,31 @@ class TestGeometryExtractor(unittest.TestCase):
         self.assertIn(0, geo)
         poly = geo[0]
         
-        self.assertAlmostEqual(poly.area, 5.0 + math.pi * (0.25**2), delta=0.01)
+        # Geometry extraction deliberately adds a 0.05 mm rasterization safety
+        # buffer around the physical 0.25 mm track radius.
+        buffered_radius = 0.25 + 0.05
+        self.assertAlmostEqual(
+            poly.area, 10.0 * (2.0 * buffered_radius) + math.pi * buffered_radius**2,
+            delta=0.01,
+        )
+
+    def test_unmerged_geometry_collection_for_dc_rasterization(self):
+        self.board.tracks.extend([
+            MockTrack(1, 0, (0, 0), (10000000, 0), 500000),
+            MockTrack(1, 0, (0, 1000000), (10000000, 1000000), 500000),
+        ])
+        geometry = self.extractor.get_net_geometry("TestNet", merge=False)
+        self.assertEqual(geometry[0].geom_type, "GeometryCollection")
+        self.assertEqual(len(geometry[0].geoms), 2)
+
+    def test_geometry_index_logging_does_not_depend_on_merge_scope(self):
+        messages = []
+        extractor = GeometryExtractor(self.board, log_callback=messages.append)
+        self.board.tracks.append(MockTrack(1, 0, (0, 0), (1000000, 0), 500000))
+        geometry = extractor.get_net_geometry("TestNet", merge=False)
+        self.assertIn(0, geometry)
+        self.assertTrue(any("Indexed" in message for message in messages))
+        self.assertFalse(any("Collecting" in message for message in messages))
 
 if __name__ == '__main__':
     unittest.main()

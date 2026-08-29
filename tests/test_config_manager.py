@@ -9,8 +9,16 @@ plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if plugin_dir not in sys.path:
     sys.path.insert(0, plugin_dir)
 
-from config_manager import get_project_config_path, save_config, load_config
-from models import PowerRail, UnifiedSource, UnifiedLoad, VoltageRegulator, ComponentRef
+from config_manager import get_project_config_path, save_config, load_config, load_project_config
+from models import (
+    ACAnalysisSettings, ACMeasurementPort, ACSourceModel, AirflowSettings, CapacitorModel,
+    CFDBoundaryPatch, CFDSolverSettings, EnclosureCFDSettings, EnclosureGeometrySettings,
+    FluidProperties,
+    DifferentialAnalysisSettings, DifferentialPairCandidate,
+    PowerRail, UnifiedSource, UnifiedLoad, VoltageRegulator, ComponentRef,
+    StackupLayerModel, StackupProfile,
+    ThermalAnalysisSettings, ThermalComponentModel,
+)
 
 class TestConfigManager(unittest.TestCase):
 
@@ -48,7 +56,8 @@ class TestConfigManager(unittest.TestCase):
             component_ref=ComponentRef(ref_des="U1"),
             total_current=1.5,
             pad_names=["VDD"],
-            distribution_mode="UNIFORM"
+            distribution_mode="UNIFORM",
+            thermal_mode="LOCAL",
         ))
         
         # Add regulator from 12V to 5V
@@ -61,7 +70,8 @@ class TestConfigManager(unittest.TestCase):
             output_ref_des="U2",
             output_pad_names=["VOUT"],
             reg_type="SWITCHING",
-            efficiency=0.90
+            efficiency=0.90,
+            thermal_ref_des="U2",
         ))
         
         # Add regulator from 5V to 3V3
@@ -94,7 +104,7 @@ class TestConfigManager(unittest.TestCase):
             with open(filepath, 'r') as f:
                 data = json.load(f)
             
-            self.assertEqual(data["version"], "1.0")
+            self.assertEqual(data["version"], "1.6")
             self.assertEqual(len(data["rails"]), 3)
             
             # Verify 12V rail
@@ -114,6 +124,10 @@ class TestConfigManager(unittest.TestCase):
             self.assertEqual(reg["name"], "Buck1")
             self.assertEqual(reg["reg_type"], "SWITCHING")
             self.assertEqual(reg["efficiency"], 0.90)
+            self.assertEqual(reg["thermal_ref_des"], "U2")
+
+            load = data["rails"][1]["loads"][0]
+            self.assertEqual(load["thermal_mode"], "LOCAL")
             
         finally:
             if Path(filepath).exists():
@@ -150,6 +164,7 @@ class TestConfigManager(unittest.TestCase):
             self.assertEqual(load.component_ref.ref_des, "U1")
             self.assertEqual(load.total_current, 1.5)
             self.assertEqual(load.pad_names, ["VDD"])
+            self.assertEqual(load.thermal_mode, "LOCAL")
             
             # Verify regulator
             reg = rail_12v.child_regulators[0]
@@ -158,6 +173,7 @@ class TestConfigManager(unittest.TestCase):
             self.assertEqual(reg.output_rail_name, "5V")
             self.assertEqual(reg.reg_type, "SWITCHING")
             self.assertEqual(reg.efficiency, 0.90)
+            self.assertEqual(reg.thermal_ref_des, "U2")
             
         finally:
             if Path(filepath).exists():
@@ -201,6 +217,266 @@ class TestConfigManager(unittest.TestCase):
             save_config([], filepath)
             loaded_rails = load_config(filepath)
             self.assertEqual(len(loaded_rails), 0)
+        finally:
+            if Path(filepath).exists():
+                os.unlink(filepath)
+
+    def test_ac_profile_round_trip(self):
+        """AC settings are stored beside the existing power-tree configuration."""
+        profile = ACAnalysisSettings(
+            rail_name="5V",
+            ground_net_name="GND",
+            frequency_start_hz=100.0,
+            frequency_stop_hz=20e6,
+            frequency_points=77,
+            target_impedance_ohm=0.025,
+            source=ACSourceModel(
+                ref_des="U2", rail_pad_names=["VOUT"], ground_pad_names=["GND"],
+                resistance_ohm=0.008, inductance_h=0.7e-9,
+            ),
+            measurement_port=ACMeasurementPort(
+                ref_des="U1", rail_pad_names=["VDD"], ground_pad_names=["VSS"],
+            ),
+            capacitors=[CapacitorModel(
+                ref_des="C12", rail_pad_names=["1"], ground_pad_names=["2"],
+                capacitance_f=4.7e-6, esr_ohm=0.015, esl_h=0.6e-9,
+            )],
+            optimizer_values_f=[100e-9, 1e-6],
+            optimizer_max_additions=3,
+        )
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
+            filepath = f.name
+
+        try:
+            save_config(self.rails, filepath, {"5V": profile})
+            project = load_project_config(filepath)
+            loaded = project.ac_profiles["5V"]
+
+            self.assertEqual(len(project.rails), 3)
+            self.assertEqual(loaded.source.ref_des, "U2")
+            self.assertEqual(loaded.measurement_port.ground_pad_names, ["VSS"])
+            self.assertAlmostEqual(loaded.capacitors[0].capacitance_f, 4.7e-6)
+            self.assertEqual(loaded.optimizer_max_additions, 3)
+        finally:
+            if Path(filepath).exists():
+                os.unlink(filepath)
+
+    def test_legacy_v1_config_migrates_without_ac_profiles(self):
+        """Existing Phase 1 files remain loadable after the schema extension."""
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
+            filepath = f.name
+            json.dump({"version": "1.0", "rails": []}, f)
+
+        try:
+            project = load_project_config(filepath)
+            self.assertEqual(project.rails, [])
+            self.assertEqual(project.ac_profiles, {})
+            self.assertIsNone(project.thermal_profile)
+        finally:
+            if Path(filepath).exists():
+                os.unlink(filepath)
+
+    def test_thermal_profile_round_trip(self):
+        profile = ThermalAnalysisSettings(
+            ambient_c=35.0,
+            grid_size_mm=1.5,
+            airflow=AirflowSettings(
+                mode="FORCED", velocity_m_s=2.5, direction_deg=0.0,
+                expose_top=True, expose_bottom=False, expose_edges=True,
+            ),
+            include_radiation=True,
+            emissivity=0.82,
+            color_map="turbo",
+            color_scale_minimum_mode="CUSTOM",
+            color_scale_minimum_c=30.0,
+            show_internal_copper_layers=False,
+            components=[ThermalComponentModel(
+                ref_des="U2", power_w=1.25, width_mm=4.0, depth_mm=4.0,
+                theta_jb_c_per_w=8.0, max_junction_c=150.0,
+                model_source="user",
+            )],
+        )
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
+            filepath = f.name
+
+        try:
+            save_config(self.rails, filepath, thermal_profile=profile)
+            loaded = load_project_config(filepath).thermal_profile
+
+            self.assertIsNotNone(loaded)
+            self.assertEqual(loaded.airflow.mode, "FORCED")
+            self.assertAlmostEqual(loaded.airflow.velocity_m_s, 2.5)
+            self.assertFalse(loaded.airflow.expose_bottom)
+            self.assertTrue(loaded.include_radiation)
+            self.assertEqual(loaded.color_map, "turbo")
+            self.assertEqual(loaded.color_scale_minimum_mode, "CUSTOM")
+            self.assertEqual(loaded.color_scale_minimum_c, 30.0)
+            self.assertFalse(loaded.show_internal_copper_layers)
+            self.assertEqual(loaded.components[0].ref_des, "U2")
+            self.assertAlmostEqual(loaded.components[0].power_w, 1.25)
+        finally:
+            if Path(filepath).exists():
+                os.unlink(filepath)
+
+    def test_thermal_default_allows_relaxed_coupled_convergence(self):
+        self.assertEqual(ThermalAnalysisSettings().coupled_iterations, 10)
+
+    def test_legacy_v11_config_migrates_without_thermal_profile(self):
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
+            filepath = f.name
+            json.dump({"version": "1.1", "rails": [], "ac_profiles": {}}, f)
+
+        try:
+            project = load_project_config(filepath)
+            self.assertIsNone(project.thermal_profile)
+        finally:
+            if Path(filepath).exists():
+                os.unlink(filepath)
+
+    def test_differential_profile_round_trip(self):
+        profile = DifferentialAnalysisSettings(
+            pairs=[DifferentialPairCandidate(
+                name="USB", positive_net="USB_DP", negative_net="USB_DM",
+                interface="USB", target_impedance_ohm=90.0,
+                confidence="CONFIRMED", evidence=["user-confirmed"],
+            )],
+            ignored_pair_signatures=["CLK_N|CLK_P"],
+            stackup_override=StackupProfile(
+                source="IMPORTED", trustworthy=True,
+                layers=[
+                    StackupLayerModel("F.Cu", "COPPER", 0.035, layer_id=0),
+                    StackupLayerModel("Core", "DIELECTRIC", 1.5, epsilon_r=4.2),
+                    StackupLayerModel("B.Cu", "COPPER", 0.035, layer_id=31),
+                ],
+            ),
+            target_tolerance_pct=8.0,
+            minimum_width_mm=0.11,
+            minimum_gap_mm=0.12,
+            minimum_ground_clearance_mm=0.20,
+        )
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
+            filepath = f.name
+        try:
+            save_config(self.rails, filepath, differential_profile=profile)
+            loaded = load_project_config(filepath).differential_profile
+            self.assertIsNotNone(loaded)
+            self.assertEqual(loaded.pairs[0].positive_net, "USB_DP")
+            self.assertEqual(loaded.pairs[0].confidence, "CONFIRMED")
+            self.assertEqual(loaded.stackup_override.source, "IMPORTED")
+            self.assertEqual(loaded.stackup_override.layers[2].layer_id, 31)
+            self.assertAlmostEqual(loaded.target_tolerance_pct, 8.0)
+            self.assertAlmostEqual(loaded.minimum_width_mm, 0.11)
+            self.assertAlmostEqual(loaded.minimum_gap_mm, 0.12)
+            self.assertAlmostEqual(loaded.minimum_ground_clearance_mm, 0.20)
+        finally:
+            if Path(filepath).exists():
+                os.unlink(filepath)
+
+    def test_legacy_v14_config_migrates_without_differential_profile(self):
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
+            filepath = f.name
+            json.dump({
+                "version": "1.4", "rails": [], "ac_profiles": {},
+                "thermal_profile": None, "cfd_profile": None,
+            }, f)
+        try:
+            project = load_project_config(filepath)
+            self.assertIsNone(project.differential_profile)
+        finally:
+            if Path(filepath).exists():
+                os.unlink(filepath)
+
+    def test_cfd_profile_round_trip(self):
+        profile = EnclosureCFDSettings(
+            ambient_c=32.0,
+            geometry=EnclosureGeometrySettings(
+                width_mm=180.0, depth_mm=120.0, height_mm=65.0,
+                board_orientation="XZ", board_offset_x_mm=3.0,
+                wall_heat_transfer_w_m2k=7.5,
+            ),
+            fluid=FluidProperties(density_kg_m3=1.16, conductivity_w_mk=0.027),
+            solver=CFDSolverSettings(
+                cell_size_mm=4.0, max_iterations=350, tolerance=2e-5,
+                relaxation=0.35, include_buoyancy=False, max_cells=123456,
+            ),
+            patches=[CFDBoundaryPatch(
+                "Front fan", "FAN", "XMIN", 0.5, 0.6, 0.3, 0.4,
+                velocity_m_s=1.4, temperature_c=29.0,
+            )],
+            use_phase3_heat_sources=True,
+            include_dc_copper_losses=False,
+        )
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
+            filepath = f.name
+
+        try:
+            save_config(self.rails, filepath, cfd_profile=profile)
+            loaded = load_project_config(filepath).cfd_profile
+
+            self.assertIsNotNone(loaded)
+            self.assertEqual(loaded.geometry.board_orientation, "XZ")
+            self.assertAlmostEqual(loaded.geometry.width_mm, 180.0)
+            self.assertAlmostEqual(loaded.fluid.density_kg_m3, 1.16)
+            self.assertFalse(loaded.solver.include_buoyancy)
+            self.assertEqual(loaded.solver.max_cells, 123456)
+            self.assertEqual(loaded.patches[0].kind, "FAN")
+            self.assertAlmostEqual(loaded.patches[0].velocity_m_s, 1.4)
+            self.assertFalse(loaded.include_dc_copper_losses)
+        finally:
+            if Path(filepath).exists():
+                os.unlink(filepath)
+
+    def test_legacy_v12_config_migrates_without_cfd_profile(self):
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
+            filepath = f.name
+            json.dump({
+                "version": "1.2", "rails": [], "ac_profiles": {},
+                "thermal_profile": None,
+            }, f)
+
+        try:
+            project = load_project_config(filepath)
+            self.assertIsNone(project.cfd_profile)
+        finally:
+            if Path(filepath).exists():
+                os.unlink(filepath)
+
+    def test_legacy_v13_power_tree_uses_safe_thermal_defaults(self):
+        """Existing configs gain safe semantics without manual migration."""
+        legacy = {
+            "version": "1.3",
+            "rails": [{
+                "net_name": "5V",
+                "nominal_voltage": 5.0,
+                "sources": [],
+                "loads": [{
+                    "ref_des": "J6",
+                    "total_current": 2.0,
+                    "pad_names": ["1"],
+                    "distribution_mode": "UNIFORM",
+                }],
+                "child_regulators": [{
+                    "name": "Buck",
+                    "input_rail_name": "12V",
+                    "input_ref_des": "U4",
+                    "input_pad_names": ["VIN"],
+                    "output_rail_name": "5V",
+                    "output_ref_des": "L1",
+                    "output_pad_names": ["1"],
+                    "reg_type": "SWITCHING",
+                    "efficiency": 0.9,
+                }],
+            }],
+        }
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as f:
+            json.dump(legacy, f)
+            filepath = f.name
+        try:
+            project = load_project_config(filepath)
+            load = project.rails[0].loads[0]
+            regulator = project.rails[0].child_regulators[0]
+            self.assertEqual(load.thermal_mode, "AUTO")
+            self.assertEqual(regulator.thermal_ref_des, "")
         finally:
             if Path(filepath).exists():
                 os.unlink(filepath)

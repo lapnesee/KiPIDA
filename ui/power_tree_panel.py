@@ -6,14 +6,14 @@ try:
     from ui.component_selector import ComponentSelectorDialog
     from ui.regulator_dialog import RegulatorDialog
     from discovery import NetDiscoverer
-    from config_manager import get_project_config_path, save_config, load_config
+    from config_manager import get_project_config_path, load_project_config, save_config
 except (ImportError, ValueError):
     # Fallback or just re-raise if absolute fails (shouldn't happen with sys.path set)
     from models import PowerRail, UnifiedSource, UnifiedLoad, ComponentRef, VoltageRegulator
     from ui.component_selector import ComponentSelectorDialog
     from ui.regulator_dialog import RegulatorDialog
     from discovery import NetDiscoverer
-    from config_manager import get_project_config_path, save_config, load_config
+    from config_manager import get_project_config_path, load_project_config, save_config
 
 class NetSelectionDialog(wx.Dialog):
     def __init__(self, parent, nets):
@@ -45,6 +45,14 @@ class PowerTreePanel(wx.Panel):
         # Data
         self.rails = [] # List of PowerRail objects
         self.active_rail = None
+        self.ac_profiles_provider = None
+        self.ac_profiles_consumer = None
+        self.thermal_profile_provider = None
+        self.thermal_profile_consumer = None
+        self.cfd_profile_provider = None
+        self.cfd_profile_consumer = None
+        self.differential_profile_provider = None
+        self.differential_profile_consumer = None
         
         self._init_ui()
 
@@ -151,7 +159,16 @@ class PowerTreePanel(wx.Panel):
         config_path = self._get_config_path()
         if config_path and config_path.exists():
             try:
-                self.rails = load_config(str(config_path))
+                project_config = load_project_config(str(config_path))
+                self.rails = project_config.rails
+                if self.ac_profiles_consumer:
+                    self.ac_profiles_consumer(project_config.ac_profiles)
+                if self.thermal_profile_consumer:
+                    self.thermal_profile_consumer(project_config.thermal_profile)
+                if self.cfd_profile_consumer:
+                    self.cfd_profile_consumer(project_config.cfd_profile)
+                if self.differential_profile_consumer:
+                    self.differential_profile_consumer(project_config.differential_profile)
                 self.log(f"Loaded configuration from {config_path.name} ({len(self.rails)} rails)")
             except Exception as e:
                 self.log(f"Failed to load config: {e}. Running auto-scan instead.")
@@ -304,7 +321,7 @@ class PowerTreePanel(wx.Panel):
                 s = UnifiedSource(ref, pads)
                 self.active_rail.add_source(s)
             else:
-                l = UnifiedLoad(ref, val, pads)
+                l = UnifiedLoad(ref, val, pads, thermal_mode=dlg.GetThermalMode())
                 self.active_rail.add_load(l)
                 
             self.refresh_comp_list()
@@ -414,13 +431,19 @@ class PowerTreePanel(wx.Panel):
         
         dlg = ComponentSelectorDialog(self, "Edit Load", self.active_rail.net_name, available_comps)
         dlg.set_mode("LOAD")
-        dlg.prepopulate(comp_obj.component_ref.ref_des, comp_obj.total_current, comp_obj.pad_names)
+        dlg.prepopulate(
+            comp_obj.component_ref.ref_des,
+            comp_obj.total_current,
+            comp_obj.pad_names,
+            comp_obj.thermal_mode,
+        )
         
         if dlg.ShowModal() == wx.ID_OK:
             ref_des, val, pads = dlg.GetSelection()
             comp_obj.component_ref.ref_des = ref_des
             comp_obj.pad_names = pads
             comp_obj.total_current = val
+            comp_obj.thermal_mode = dlg.GetThermalMode()
             self.refresh_comp_list()
         
         dlg.Destroy()
@@ -455,6 +478,7 @@ class PowerTreePanel(wx.Panel):
             reg.output_pad_names = data['output_pads']
             reg.reg_type = data['type']
             reg.efficiency = data['efficiency']
+            reg.thermal_ref_des = data['thermal_ref_des']
             
             # If input rail changed, move regulator to new rail
             if data['input_rail'] != self.active_rail.net_name:
@@ -518,6 +542,7 @@ class PowerTreePanel(wx.Panel):
             reg.output_pad_names = data['output_pads']
             reg.reg_type = data['type']
             reg.efficiency = data['efficiency']
+            reg.thermal_ref_des = data['thermal_ref_des']
             
             # If input rail changed, move regulator
             if data['input_rail'] != source_rail.net_name:
@@ -551,7 +576,8 @@ class PowerTreePanel(wx.Panel):
                 output_ref_des=data['output_ref_des'],
                 output_pad_names=data['output_pads'],
                 reg_type=data['type'],
-                efficiency=data['efficiency']
+                efficiency=data['efficiency'],
+                thermal_ref_des=data['thermal_ref_des'],
             )
             
             # Add to the INPUT rail (which is self.active_rail)
@@ -634,7 +660,23 @@ class PowerTreePanel(wx.Panel):
             return
         
         try:
-            save_config(self.rails, str(config_path))
+            ac_profiles = self.ac_profiles_provider() if self.ac_profiles_provider else {}
+            thermal_profile = (
+                self.thermal_profile_provider() if self.thermal_profile_provider else None
+            )
+            cfd_profile = self.cfd_profile_provider() if self.cfd_profile_provider else None
+            differential_profile = (
+                self.differential_profile_provider()
+                if self.differential_profile_provider else None
+            )
+            save_config(
+                self.rails,
+                str(config_path),
+                ac_profiles=ac_profiles,
+                thermal_profile=thermal_profile,
+                cfd_profile=cfd_profile,
+                differential_profile=differential_profile,
+            )
             self.log(f"Configuration saved to {config_path.name}")
             wx.MessageBox(f"Configuration saved successfully to:\n{config_path}", "Success", wx.OK | wx.ICON_INFORMATION)
         except Exception as e:
@@ -653,7 +695,16 @@ class PowerTreePanel(wx.Panel):
             return
         
         try:
-            self.rails = load_config(str(config_path))
+            project_config = load_project_config(str(config_path))
+            self.rails = project_config.rails
+            if self.ac_profiles_consumer:
+                self.ac_profiles_consumer(project_config.ac_profiles)
+            if self.thermal_profile_consumer:
+                self.thermal_profile_consumer(project_config.thermal_profile)
+            if self.cfd_profile_consumer:
+                self.cfd_profile_consumer(project_config.cfd_profile)
+            if self.differential_profile_consumer:
+                self.differential_profile_consumer(project_config.differential_profile)
             self.log(f"Loaded configuration from {config_path.name} ({len(self.rails)} rails)")
             
             # Refresh UI
