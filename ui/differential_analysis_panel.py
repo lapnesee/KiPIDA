@@ -437,11 +437,19 @@ class DifferentialAnalysisPanel(wx.Panel):
         ) != wx.YES:
             return
         try:
-            applied = DifferentialRuleInjector(project_path).apply(recommendations)
+            injector = DifferentialRuleInjector(project_path, project_api=self.project)
+            applied = injector.apply(recommendations)
             self.log("Applied KiCad differential classes: " + ", ".join(name for _, name, _, _ in applied))
+            if injector.live_error:
+                self.log(f"Live KiCad net-class update failed; project-file fallback retained: {injector.live_error}")
+            status = (
+                _("The classes and W/G values were also applied to the open KiCad project through IPC.")
+                if injector.live_applied else
+                _("The project file was updated, but this KiCad IPC API could not refresh net classes live; reopen the project to load them.")
+            )
             wx.MessageBox(
-                "KiCad project rules were updated. Open Board Setup or rerun DRC to inspect the new KiPIDA_DIFF classes.\n"
-                "The current Ki-PIDA session can continue analysing immediately.",
+                _("KiCad project rules were updated. Open Board Setup or rerun DRC to inspect the new KiPIDA_DIFF classes.") + "\n"
+                + status,
                 "KiCad Rules Applied", wx.OK | wx.ICON_INFORMATION,
             )
         except Exception as exc:

@@ -13,11 +13,14 @@ def _class_name(recommendation):
 class DifferentialRuleInjector:
     """Update only Ki-PIDA-owned net classes and preserve user project settings."""
 
-    def __init__(self, project_path):
+    def __init__(self, project_path, project_api=None):
         path = Path(project_path)
         if path.suffix.lower() not in {".kicad_pro", ".pro"}:
             raise ValueError("KiCad project file path is required to inject design rules.")
         self.project_path = path
+        self.project_api = project_api
+        self.live_applied = False
+        self.live_error = None
 
     @staticmethod
     def _recommended_items(recommendations):
@@ -36,7 +39,14 @@ class DifferentialRuleInjector:
         patterns = list(net_settings.get("netclass_patterns") or [])
         existing_names = {str(entry.get("name", "")) for entry in classes}
         base = next((entry for entry in classes if entry.get("name") == "Default"), {})
-        next_priority = max((int(entry.get("priority", 0)) for entry in classes if isinstance(entry, dict)), default=0) + 1
+        # KiCad reserves INT32_MAX for the Default class.  Including that
+        # sentinel used to create priority 2147483648, which KiCad rejects.
+        ordinary_priorities = [
+            int(entry.get("priority", 0)) for entry in classes
+            if isinstance(entry, dict) and entry.get("name") != "Default"
+            and 0 <= int(entry.get("priority", 0)) < 2147483647
+        ]
+        next_priority = min(max(ordinary_priorities, default=-1) + 1, 2147483646)
         applied = []
         for recommendation in recommendations:
             class_name = _class_name(recommendation)
@@ -83,4 +93,55 @@ class DifferentialRuleInjector:
         board_settings["track_widths"] = sorted(widths)
         board_settings["diff_pair_dimensions"] = sorted(dimensions, key=lambda item: (item.get("width", 0.0), item.get("gap", 0.0)))
         self.project_path.write_text(json.dumps(project, indent=2) + "\n", encoding="utf-8")
+        if self.project_api is not None:
+            try:
+                self._apply_live(applied, classes, patterns)
+            except Exception as exc:
+                # The file update remains useful on older/incomplete IPC APIs.
+                self.live_error = str(exc)
         return applied
+
+    def _apply_live(self, applied, classes, patterns):
+        """Mirror generated classes into the open KiCad project through IPC."""
+        if not all(hasattr(self.project_api, name) for name in (
+            "get_net_classes", "set_net_classes",
+            "get_net_class_assignments", "set_net_class_assignments",
+        )):
+            return
+        try:
+            from kipy.project_types import NetClass
+        except ImportError:
+            return
+        generated_names = {class_name for _, class_name, _, _ in applied}
+        generated_rules = {
+            entry["name"]: entry for entry in classes
+            if isinstance(entry, dict) and entry.get("name") in generated_names
+        }
+        existing = {item.name: item for item in self.project_api.get_net_classes()}
+        live_classes = []
+        for class_name, rule in generated_rules.items():
+            net_class = existing.get(class_name) or NetClass()
+            net_class.name = class_name
+            net_class.priority = int(rule["priority"])
+            net_class.clearance = int(round(float(rule["clearance"]) * 1_000_000))
+            net_class.track_width = int(round(float(rule["track_width"]) * 1_000_000))
+            net_class.diff_pair_track_width = int(round(float(rule["diff_pair_width"]) * 1_000_000))
+            net_class.diff_pair_gap = int(round(float(rule["diff_pair_gap"]) * 1_000_000))
+            net_class.diff_pair_via_gap = int(round(float(rule.get("diff_pair_via_gap", rule["diff_pair_gap"])) * 1_000_000))
+            live_classes.append(net_class)
+        self.project_api.set_net_classes(live_classes)
+        current_assignments = list(self.project_api.get_net_class_assignments() or [])
+        generated_pairs = {
+            (entry.get("pattern"), entry.get("netclass"))
+            for entry in patterns if entry.get("netclass") in generated_names
+        }
+        current_assignments = [
+            entry for entry in current_assignments
+            if entry.get("netclass") not in generated_names
+        ]
+        current_assignments.extend(
+            {"pattern": pattern, "netclass": netclass}
+            for pattern, netclass in sorted(generated_pairs)
+        )
+        self.project_api.set_net_class_assignments(current_assignments)
+        self.live_applied = True

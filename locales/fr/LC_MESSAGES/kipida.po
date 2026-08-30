@@ -2758,5 +2758,17 @@ msgstr "{value:g} Gio (valeur experte)"
 msgid "|Z| (ohm)"
 msgstr "|Z| (ohm)"
 
+msgid "KiCad project rules were updated. Open Board Setup or rerun DRC to inspect the new KiPIDA_DIFF classes."
+msgstr "Les règles du projet KiCad ont été mises à jour. Ouvrez Configuration de la carte ou relancez le DRC pour vérifier les nouvelles classes KiPIDA_DIFF."
+
+msgid "Live KiCad net-class update failed; project-file fallback retained: {p0}"
+msgstr "Échec de la mise à jour en direct des classes de réseaux KiCad ; la modification du fichier projet est conservée : {p0}"
+
+msgid "The classes and W/G values were also applied to the open KiCad project through IPC."
+msgstr "Les classes et valeurs W/G ont également été appliquées au projet KiCad ouvert via IPC."
+
+msgid "The project file was updated, but this KiCad IPC API could not refresh net classes live; reopen the project to load them."
+msgstr "Le fichier projet a été mis à jour, mais cette API IPC KiCad ne permet pas d’actualiser les classes de réseaux en direct ; rouvrez le projet pour les charger."
+
 msgid "~{nodes:,} nodes / {branches:,} branches — host peak {host:.0f} MiB, GPU {gpu:.0f} MiB — limit {limit:,} nodes{ceiling} — recommended: {backend}"
 msgstr "~{nodes:,} nœuds / {branches:,} branches — host pic {host:.0f} MiB, GPU {gpu:.0f} MiB — limite {limit:,} nœuds{ceiling} — recommandé: {backend}"

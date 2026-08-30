@@ -3,12 +3,12 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Ki-PIDA\n"
-"POT-Creation-Date: 2026-08-29 15:51+0000\n"
+"POT-Creation-Date: 2026-08-30 09:23+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: ui/runtime_settings_panel.py:213
+#: ui/runtime_settings_panel.py:233
 #, python-brace-format
 msgid "\nTesting {backend} backend...\n"
 msgstr ""
@@ -18,97 +18,97 @@ msgstr ""
 msgid "      [VIA] Failed to connect layers @ ({p0}, {p1}): found nodes on layers {p2}"
 msgstr ""
 
-#: ui/main_dialog.py:1278
+#: ui/main_dialog.py:1283
 #, python-brace-format
 msgid "  - Backend / elapsed: {backend}; {seconds:.3f} s."
 msgstr ""
 
-#: ui/main_dialog.py:1266
+#: ui/main_dialog.py:1271
 msgid "  - Disabled or unavailable for this run."
 msgstr ""
 
-#: ui/main_dialog.py:1274
+#: ui/main_dialog.py:1279
 #, python-brace-format
 msgid "  - Frequency mode: {mode}."
 msgstr ""
 
-#: ui/main_dialog.py:1276
+#: ui/main_dialog.py:1281
 #, python-brace-format
 msgid "  - Maximum |E|: {value:.6g} V/m at ({x:.3f}, {y:.3f}) mm."
 msgstr ""
 
-#: ui/main_dialog.py:1277
+#: ui/main_dialog.py:1282
 #, python-brace-format
 msgid "  - Maximum |H|: {value:.6g} A/m at ({x:.3f}, {y:.3f}) mm."
 msgstr ""
 
-#: ui/main_dialog.py:966
+#: ui/main_dialog.py:971
 msgid "  - No capacitor changes recommended."
 msgstr ""
 
-#: ui/main_dialog.py:1657
+#: ui/main_dialog.py:1662
 msgid "  - No mapped component heat source."
 msgstr ""
 
-#: ui/main_dialog.py:1314
+#: ui/main_dialog.py:1319
 msgid "  - No net-specific penalty."
 msgstr ""
 
-#: ui/main_dialog.py:1262
+#: ui/main_dialog.py:1267
 msgid "  - None; geometry-only analysis."
 msgstr ""
 
-#: ui/main_dialog.py:1273
+#: ui/main_dialog.py:1278
 #, python-brace-format
 msgid "  - Observation plane: {height:g} mm above PCB; grid {grid:g} mm."
 msgstr ""
 
-#: ui/main_dialog.py:1275
+#: ui/main_dialog.py:1280
 #, python-brace-format
 msgid "  - Sources / trace elements: {sources} / {segments}."
 msgstr ""
 
-#: ui/main_dialog.py:1093 ui/main_dialog.py:1094
+#: ui/main_dialog.py:1098 ui/main_dialog.py:1099
 #, python-brace-format
 msgid "  - {action} [{feasibility}; {confidence}]: {geometry}; predicted Zdiff={impedance:.3f} ohm; GND clearance >= {clearance:.3f} mm"
 msgstr ""
 
-#: ui/main_dialog.py:1647 ui/main_dialog.py:1648
+#: ui/main_dialog.py:1652 ui/main_dialog.py:1653
 #, python-brace-format
 msgid "  - {reference}: Tj={junction:.2f} C, P={power:.4g} W, margin={margin:.2f} C [{status}; {source}]"
 msgstr ""
 
-#: ui/main_dialog.py:453
+#: ui/main_dialog.py:458
 #, python-brace-format
 msgid "  [_get_mesh_nodes] Looking up {p0} pads={p1}"
 msgstr ""
 
-#: ui/main_dialog.py:1946
+#: ui/main_dialog.py:1951
 #, python-brace-format
 msgid "  Backend: {backend} ({device}), solve {solve:.4g} s, residual {residual:.3g}\n\n"
 msgstr ""
 
-#: ui/main_dialog.py:1940
+#: ui/main_dialog.py:1945
 #, python-brace-format
 msgid "  DC grid: {grid:.4g} mm{suffix}\n"
 msgstr ""
 
-#: ui/main_dialog.py:1935
+#: ui/main_dialog.py:1940
 #, python-brace-format
 msgid "  Drop:  {drop:.4f} V\n\n"
 msgstr ""
 
-#: ui/main_dialog.py:1300
+#: ui/main_dialog.py:1305
 #, python-brace-format
 msgid "  Evidence targets: {targets}"
 msgstr ""
 
-#: ui/main_dialog.py:687
+#: ui/main_dialog.py:692
 #, python-brace-format
 msgid "  Extracting copper geometry for {p0}..."
 msgstr ""
 
-#: ui/main_dialog.py:689
+#: ui/main_dialog.py:694
 #, python-brace-format
 msgid "  Geometry ready for {p0}: {p1} layer(s) in {p2} s."
 msgstr ""
@@ -118,125 +118,125 @@ msgstr ""
 msgid "  Layer {p0} vectorized mesh: {p1} nodes."
 msgstr ""
 
-#: ui/main_dialog.py:703
+#: ui/main_dialog.py:708
 #, python-brace-format
 msgid "  Mesh ready for {p0}: {p1} nodes in {p2} s."
 msgstr ""
 
-#: ui/main_dialog.py:523
+#: ui/main_dialog.py:528
 #, python-brace-format
 msgid "  No pads found for {p0} matching {p1}"
 msgstr ""
 
-#: ui/main_dialog.py:562
+#: ui/main_dialog.py:567
 #, python-brace-format
 msgid "  Pad {p0} at ({p1},{p2}) not on mesh."
 msgstr ""
 
-#: ui/main_dialog.py:1069
+#: ui/main_dialog.py:1074
 #, python-brace-format
 msgid "  Range: {minimum:.3f} .. {maximum:.3f} ohm; length mismatch={mismatch:.3f} mm"
 msgstr ""
 
-#: ui/main_dialog.py:1934
+#: ui/main_dialog.py:1939
 #, python-brace-format
 msgid "  Range: {minimum:.4f} - {maximum:.4f} V\n"
 msgstr ""
 
-#: ui/main_dialog.py:1308
+#: ui/main_dialog.py:1313
 #, python-brace-format
 msgid "  Recommendation: {recommendation}"
 msgstr ""
 
-#: ui/main_dialog.py:1085
+#: ui/main_dialog.py:1090
 msgid "  Recommendations:"
 msgstr ""
 
-#: ui/main_dialog.py:804
+#: ui/main_dialog.py:809
 #, python-brace-format
 msgid "  Regulator {p0} draws {p1}A from {p2} ({p3})"
 msgstr ""
 
-#: ui/main_dialog.py:764
+#: ui/main_dialog.py:769
 #, python-brace-format
 msgid "  Regulator {p0} has no load on output rail {p1}"
 msgstr ""
 
-#: ui/main_dialog.py:739
+#: ui/main_dialog.py:744
 #, python-brace-format
 msgid "  Regulator {p0} output {p1} pads {p2} -> {p3} nodes"
 msgstr ""
 
-#: ui/main_dialog.py:1942
+#: ui/main_dialog.py:1947
 #, python-brace-format
 msgid "  Requested DC grid: {grid:.4g} mm\n"
 msgstr ""
 
-#: ui/main_dialog.py:709
+#: ui/main_dialog.py:714
 #, python-brace-format
 msgid "  Skipping {p0}: Mesh empty."
 msgstr ""
 
-#: ui/main_dialog.py:694
+#: ui/main_dialog.py:699
 #, python-brace-format
 msgid "  Skipping {p0}: No geometry."
 msgstr ""
 
-#: ui/main_dialog.py:835
+#: ui/main_dialog.py:840
 #, python-brace-format
 msgid "  Solved {p0}: Drop {p1} V"
 msgstr ""
 
-#: ui/main_dialog.py:837
+#: ui/main_dialog.py:842
 #, python-brace-format
 msgid "  Solved {p0}: No result."
 msgstr ""
 
-#: ui/main_dialog.py:722
+#: ui/main_dialog.py:727
 #, python-brace-format
 msgid "  Source {p0} pads {p1} -> {p2} nodes"
 msgstr ""
 
-#: ui/main_dialog.py:1063
+#: ui/main_dialog.py:1068
 #, python-brace-format
 msgid "  Status: {status}; Zdiff={impedance:.3f} ohm; target={target:g} ohm; error={error:+.2f}%"
 msgstr ""
 
-#: ui/main_dialog.py:503
+#: ui/main_dialog.py:508
 #, python-brace-format
 msgid "  Warning: Footprint {p0} not found."
 msgstr ""
 
-#: ui/main_dialog.py:808
+#: ui/main_dialog.py:813
 #, python-brace-format
 msgid "  Warning: No sources for {p0}. Skipping solve."
 msgstr ""
 
-#: ui/main_dialog.py:796
+#: ui/main_dialog.py:801
 #, python-brace-format
 msgid "  WARNING: Regulator {p0} input at {p1} pads {p2} found NO mesh nodes!"
 msgstr ""
 
-#: ui/main_dialog.py:741
+#: ui/main_dialog.py:746
 #, python-brace-format
 msgid "  WARNING: Regulator {p0} output {p1} pads {p2} found NO mesh nodes!"
 msgstr ""
 
-#: ui/main_dialog.py:724
+#: ui/main_dialog.py:729
 #, python-brace-format
 msgid "  WARNING: Source {p0} pads {p1} found NO mesh nodes!"
 msgstr ""
 
-#: ui/main_dialog.py:1083
+#: ui/main_dialog.py:1088
 #, python-brace-format
 msgid "  WARNING: {warning}"
 msgstr ""
 
-#: ui/main_dialog.py:1939
+#: ui/main_dialog.py:1944
 msgid " (adapted for mesh safety)"
 msgstr ""
 
-#: ui/main_dialog.py:1614
+#: ui/main_dialog.py:1619
 #, python-brace-format
 msgid " (requested {requested:.4g} mm; adapted)"
 msgstr ""
@@ -266,35 +266,35 @@ msgstr ""
 msgid "- Remove"
 msgstr ""
 
-#: ui/main_dialog.py:1390
+#: ui/main_dialog.py:1395
 msgid "--- Starting 3D Thermal Analysis ---"
 msgstr ""
 
-#: ui/main_dialog.py:899
+#: ui/main_dialog.py:904
 msgid "--- Starting AC Impedance Analysis ---"
 msgstr ""
 
-#: ui/main_dialog.py:1401
+#: ui/main_dialog.py:1406
 msgid "--- Starting Coupled DC / 3D Thermal Analysis ---"
 msgstr ""
 
-#: ui/main_dialog.py:916
+#: ui/main_dialog.py:921
 msgid "--- Starting Decoupling Optimization ---"
 msgstr ""
 
-#: ui/main_dialog.py:1004
+#: ui/main_dialog.py:1009
 msgid "--- Starting Differential Pair Impedance Analysis ---"
 msgstr ""
 
-#: ui/main_dialog.py:1153
+#: ui/main_dialog.py:1158
 msgid "--- Starting EMI / EMC Pre-compliance Analysis ---"
 msgstr ""
 
-#: ui/main_dialog.py:1823
+#: ui/main_dialog.py:1828
 msgid "--- Starting Phase 4 Enclosure CFD Analysis ---"
 msgstr ""
 
-#: ui/main_dialog.py:656
+#: ui/main_dialog.py:661
 #, python-brace-format
 msgid "--- Starting System Simulation ({p0} rails) ---"
 msgstr ""
@@ -307,7 +307,7 @@ msgstr ""
 msgid "3D Thermal"
 msgstr ""
 
-#: ui/main_dialog.py:1600
+#: ui/main_dialog.py:1605
 msgid "3D Thermal Analysis Results"
 msgstr ""
 
@@ -315,7 +315,7 @@ msgstr ""
 msgid "3D Thermal and Airflow Setup"
 msgstr ""
 
-#: ui/main_dialog.py:1993
+#: ui/main_dialog.py:1998
 msgid "3D View"
 msgstr ""
 
@@ -353,7 +353,7 @@ msgstr ""
 msgid "[EM FIELD] Solving {p0} observation cells at {p1} mm with {p2} trace elements on {p3}."
 msgstr ""
 
-#: ipc_entry.py:147
+#: ipc_entry.py:153
 #, python-brace-format
 msgid "[INIT] {p0}"
 msgstr ""
@@ -366,20 +366,20 @@ msgstr ""
 msgid "Absolute emissions, immunity, enclosure seams and cable routing require physical tests."
 msgstr ""
 
-#: ui/main_dialog.py:912
+#: ui/main_dialog.py:917
 msgid "AC Analysis Error"
 msgstr ""
 
-#: ui/main_dialog.py:911
+#: ui/main_dialog.py:916
 #, python-brace-format
 msgid "AC Analysis Error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:151 ui/main_dialog.py:976 ui/results_workspace.py:197
+#: ui/main_dialog.py:151 ui/main_dialog.py:981 ui/results_workspace.py:197
 msgid "AC Impedance"
 msgstr ""
 
-#: ui/main_dialog.py:941
+#: ui/main_dialog.py:946
 msgid "AC Impedance Analysis Results"
 msgstr ""
 
@@ -387,7 +387,7 @@ msgstr ""
 msgid "AC Impedance Setup"
 msgstr ""
 
-#: ui/main_dialog.py:894
+#: ui/main_dialog.py:899
 #, python-brace-format
 msgid "AC progress: {p0}/{p1} ({p2})"
 msgstr ""
@@ -490,7 +490,7 @@ msgstr ""
 msgid "An inlet or fan patch requires a positive velocity."
 msgstr ""
 
-#: ui/differential_analysis_panel.py:441
+#: ui/differential_analysis_panel.py:442
 msgid "Applied KiCad differential classes: "
 msgstr ""
 
@@ -535,11 +535,11 @@ msgstr ""
 msgid "Automatically detected source frequencies are editable defaults until confirmed by the designer."
 msgstr ""
 
-#: ui/runtime_settings_panel.py:175
+#: ui/runtime_settings_panel.py:195
 msgid "available"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:236
+#: ui/runtime_settings_panel.py:256
 #, python-brace-format
 msgid "Backend test failed: {error}"
 msgstr ""
@@ -569,11 +569,11 @@ msgstr ""
 msgid "Bottom exposed"
 msgstr ""
 
-#: ui/main_dialog.py:1725
+#: ui/main_dialog.py:1730
 msgid "Bottom Surface"
 msgstr ""
 
-#: ui/main_dialog.py:1607
+#: ui/main_dialog.py:1612
 #, python-brace-format
 msgid "Boundary heat: {power:.6g} W"
 msgstr ""
@@ -609,7 +609,7 @@ msgstr ""
 msgid "Cable m"
 msgstr ""
 
-#: ui/main_dialog.py:1510
+#: ui/main_dialog.py:1515
 msgid "Cached thermal mesh and sparse solver workspace for unchanged-session reruns."
 msgstr ""
 
@@ -618,11 +618,11 @@ msgstr ""
 msgid "Cached {p0} electrical-branch to thermal-cell mappings in {p1} s."
 msgstr ""
 
-#: ui/main_dialog.py:1624
+#: ui/main_dialog.py:1629
 msgid "calculated hotspot"
 msgstr ""
 
-#: ui/main_dialog.py:1620
+#: ui/main_dialog.py:1625
 msgid "calculated minimum"
 msgstr ""
 
@@ -630,15 +630,15 @@ msgstr ""
 msgid "Cancel"
 msgstr ""
 
-#: ui/main_dialog.py:1832
+#: ui/main_dialog.py:1837
 msgid "Cancel Enclosure CFD"
 msgstr ""
 
-#: ui/main_dialog.py:1819
+#: ui/main_dialog.py:1824
 msgid "Cancellation requested for enclosure CFD."
 msgstr ""
 
-#: ui/main_dialog.py:1818 ui/main_dialog.py:2019
+#: ui/main_dialog.py:1823 ui/main_dialog.py:2024
 msgid "Cancelling CFD..."
 msgstr ""
 
@@ -663,7 +663,7 @@ msgstr ""
 msgid "Cell (mm):"
 msgstr ""
 
-#: ui/main_dialog.py:1887
+#: ui/main_dialog.py:1892
 #, python-brace-format
 msgid "Cells: {count:,} ({nx} x {ny} x {nz})"
 msgstr ""
@@ -680,7 +680,7 @@ msgstr ""
 msgid "Center V (0..1):"
 msgstr ""
 
-#: ui/main_dialog.py:1902
+#: ui/main_dialog.py:1907
 msgid "CFD 3D"
 msgstr ""
 
@@ -722,7 +722,7 @@ msgstr ""
 msgid "CFD mesh would contain {p0} cells. Increase the CFD cell size."
 msgstr ""
 
-#: ui/main_dialog.py:1243
+#: ui/main_dialog.py:1248
 #, python-brace-format
 msgid "Checks evaluated: {count}"
 msgstr ""
@@ -759,7 +759,7 @@ msgstr ""
 msgid "Clear Thermal Cache"
 msgstr ""
 
-#: ui/main_dialog.py:358
+#: ui/main_dialog.py:359
 msgid "Cleared the in-session thermal mesh, CSR, CUDA workspace and copper-geometry cache."
 msgstr ""
 
@@ -775,11 +775,11 @@ msgstr ""
 msgid "Clocks"
 msgstr ""
 
-#: ui/main_dialog.py:251
+#: ui/main_dialog.py:252
 msgid "Close"
 msgstr ""
 
-#: ui/main_dialog.py:2020
+#: ui/main_dialog.py:2025
 msgid "Close requested; cancelling enclosure CFD first."
 msgstr ""
 
@@ -795,7 +795,7 @@ msgstr ""
 msgid "Component Heat Sources"
 msgstr ""
 
-#: ui/main_dialog.py:1642
+#: ui/main_dialog.py:1647
 msgid "Component junction estimates:"
 msgstr ""
 
@@ -808,7 +808,7 @@ msgstr ""
 msgid "Components: {components}"
 msgstr ""
 
-#: ui/main_dialog.py:1293
+#: ui/main_dialog.py:1298
 msgid "components="
 msgstr ""
 
@@ -816,7 +816,7 @@ msgstr ""
 msgid "Compute Backend"
 msgstr ""
 
-#: ui/main_dialog.py:1628 ui/main_dialog.py:1895 ui/main_dialog.py:947
+#: ui/main_dialog.py:1633 ui/main_dialog.py:1900 ui/main_dialog.py:952
 #, python-brace-format
 msgid "Compute backend: {backend} ({device})"
 msgstr ""
@@ -839,7 +839,7 @@ msgstr ""
 msgid "Configuration saved to {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1250
+#: ui/main_dialog.py:1255
 msgid "Configured emission sources"
 msgstr ""
 
@@ -864,11 +864,11 @@ msgstr ""
 msgid "Connector shield return not identified"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:190
+#: ui/runtime_settings_panel.py:210
 msgid "conservative default"
 msgstr ""
 
-#: ui/main_dialog.py:1611 ui/main_dialog.py:1888
+#: ui/main_dialog.py:1616 ui/main_dialog.py:1893
 msgid "converged"
 msgstr ""
 
@@ -880,7 +880,7 @@ msgstr ""
 msgid "Copper layer_id values must be unique."
 msgstr ""
 
-#: ui/main_dialog.py:1688
+#: ui/main_dialog.py:1693
 msgid "copper-layer"
 msgstr ""
 
@@ -893,15 +893,15 @@ msgstr ""
 msgid "Could not verify KiCad group membership: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1469
+#: ui/main_dialog.py:1474
 msgid "Coupled analysis requires a successful DC analysis."
 msgstr ""
 
-#: ui/main_dialog.py:1423
+#: ui/main_dialog.py:1428
 msgid "Coupled analysis requires at least one configured power rail."
 msgstr ""
 
-#: ui/main_dialog.py:1602
+#: ui/main_dialog.py:1607
 msgid "Coupled DC / thermal"
 msgstr ""
 
@@ -909,20 +909,20 @@ msgstr ""
 msgid "Coupled iterations:"
 msgstr ""
 
-#: ui/main_dialog.py:1588
+#: ui/main_dialog.py:1593
 msgid "Coupled Thermal"
 msgstr ""
 
-#: ui/main_dialog.py:1406
+#: ui/main_dialog.py:1411
 msgid "Coupled Thermal Analysis Error"
 msgstr ""
 
-#: ui/main_dialog.py:1405
+#: ui/main_dialog.py:1410
 #, python-brace-format
 msgid "Coupled Thermal Analysis Error: {p0}"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:173
+#: ui/runtime_settings_panel.py:193
 #, python-brace-format
 msgid "CPU logical processors: {count}"
 msgstr ""
@@ -931,7 +931,7 @@ msgstr ""
 msgid "CPU multithreading:"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:174
+#: ui/runtime_settings_panel.py:194
 #, python-brace-format
 msgid "CPU sparse backend: {backend}"
 msgstr ""
@@ -940,7 +940,7 @@ msgstr ""
 msgid "CPU threads (0 = Auto):"
 msgstr ""
 
-#: ui/main_dialog.py:1632
+#: ui/main_dialog.py:1637
 #, python-brace-format
 msgid "CPU threads: {count}"
 msgstr ""
@@ -953,7 +953,7 @@ msgstr ""
 msgid "Crosstalk"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:177
+#: ui/runtime_settings_panel.py:197
 #, python-brace-format
 msgid "CUDA available: {state}"
 msgstr ""
@@ -962,12 +962,12 @@ msgstr ""
 msgid "CUDA device:"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:205
+#: ui/runtime_settings_panel.py:225
 #, python-brace-format
 msgid "CUDA diagnostic: {error}"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:194
+#: ui/runtime_settings_panel.py:214
 #, python-brace-format
 msgid "CUDA driver/runtime: {driver} / {runtime}"
 msgstr ""
@@ -986,11 +986,11 @@ msgstr ""
 msgid "CUDA solution contains non-finite values."
 msgstr ""
 
-#: ui/main_dialog.py:1630
+#: ui/main_dialog.py:1635
 msgid "CUDA warm start: device-resident previous thermal solution"
 msgstr ""
 
-#: ui/main_dialog.py:1631
+#: ui/main_dialog.py:1636
 msgid "CUDA warm start: unavailable (first solve or CPU backend)"
 msgstr ""
 
@@ -1002,7 +1002,7 @@ msgstr ""
 msgid "CUDA:"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:176
+#: ui/runtime_settings_panel.py:196
 #, python-brace-format
 msgid "CuPy: {version}"
 msgstr ""
@@ -1043,7 +1043,7 @@ msgstr ""
 msgid "Custom thermal colour minimum must be above absolute zero."
 msgstr ""
 
-#: ui/main_dialog.py:596
+#: ui/main_dialog.py:601
 #, python-brace-format
 msgid "Cycle detected in power rail dependencies involving '{p0}'"
 msgstr ""
@@ -1060,16 +1060,16 @@ msgstr ""
 msgid "Decoupling"
 msgstr ""
 
-#: ui/main_dialog.py:934
+#: ui/main_dialog.py:939
 msgid "Decoupling Optimization Error"
 msgstr ""
 
-#: ui/main_dialog.py:933
+#: ui/main_dialog.py:938
 #, python-brace-format
 msgid "Decoupling Optimization Error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:956
+#: ui/main_dialog.py:961
 msgid "Decoupling recommendations:"
 msgstr ""
 
@@ -1133,11 +1133,11 @@ msgstr ""
 msgid "Dielectric {p0} requires epsilon_r > 1."
 msgstr ""
 
-#: ui/main_dialog.py:1120
+#: ui/main_dialog.py:1125
 msgid "Differential Analysis Error"
 msgstr ""
 
-#: ui/main_dialog.py:1119
+#: ui/main_dialog.py:1124
 #, python-brace-format
 msgid "Differential Analysis Error: {p0}"
 msgstr ""
@@ -1151,7 +1151,7 @@ msgstr ""
 msgid "Differential impedance analysis complete for {p0} pairs."
 msgstr ""
 
-#: ui/main_dialog.py:1114
+#: ui/main_dialog.py:1119
 msgid "Differential impedance results ready."
 msgstr ""
 
@@ -1159,7 +1159,7 @@ msgstr ""
 msgid "Differential pair changes reference layer"
 msgstr ""
 
-#: ui/main_dialog.py:1045
+#: ui/main_dialog.py:1050
 msgid "Differential Pair Impedance Results"
 msgstr ""
 
@@ -1180,16 +1180,16 @@ msgstr ""
 msgid "Differential scan complete. Discovered {p0} pair candidates."
 msgstr ""
 
-#: ui/main_dialog.py:1009
+#: ui/main_dialog.py:1014
 msgid "Differential Setup Error"
 msgstr ""
 
-#: ui/main_dialog.py:1008
+#: ui/main_dialog.py:1013
 #, python-brace-format
 msgid "Differential Setup Error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1110
+#: ui/main_dialog.py:1115
 msgid "Differential Z"
 msgstr ""
 
@@ -1205,7 +1205,7 @@ msgstr ""
 msgid "Distant decoupling capacitor"
 msgstr ""
 
-#: ui/main_dialog.py:1270
+#: ui/main_dialog.py:1275
 msgid "each source at its configured fundamental"
 msgstr ""
 
@@ -1245,7 +1245,7 @@ msgstr ""
 msgid "Edit Source"
 msgstr ""
 
-#: ui/main_dialog.py:1609
+#: ui/main_dialog.py:1614
 #, python-brace-format
 msgid "Effective h: {coefficient:.4g} W/m2K"
 msgstr ""
@@ -1258,7 +1258,7 @@ msgstr ""
 msgid "Efficiency must be between 0.0 and 1.0"
 msgstr ""
 
-#: ui/main_dialog.py:1342
+#: ui/main_dialog.py:1347
 msgid "Electric Field"
 msgstr ""
 
@@ -1276,7 +1276,7 @@ msgstr ""
 msgid "EMI / EMC"
 msgstr ""
 
-#: ui/main_dialog.py:1238
+#: ui/main_dialog.py:1243
 msgid "EMI / EMC Pre-compliance Results"
 msgstr ""
 
@@ -1285,11 +1285,11 @@ msgstr ""
 msgid "EMI/EMC analysis completed: {p0} findings, score {p1}/100."
 msgstr ""
 
-#: ui/main_dialog.py:1357
+#: ui/main_dialog.py:1362
 msgid "EMI/EMC Analysis Error"
 msgstr ""
 
-#: ui/main_dialog.py:1356
+#: ui/main_dialog.py:1361
 #, python-brace-format
 msgid "EMI/EMC Analysis Error: {p0}"
 msgstr ""
@@ -1298,7 +1298,7 @@ msgstr ""
 msgid "EMI/EMC geometric risk map"
 msgstr ""
 
-#: ui/main_dialog.py:1127
+#: ui/main_dialog.py:1132
 msgid "EMI/EMC note: no clock or switching source is enabled; geometry-only rules will run."
 msgstr ""
 
@@ -1310,15 +1310,15 @@ msgstr ""
 msgid "EMI/EMC observation copied to clipboard"
 msgstr ""
 
-#: ui/main_dialog.py:1351
+#: ui/main_dialog.py:1356
 msgid "EMI/EMC pre-compliance results ready."
 msgstr ""
 
-#: ui/main_dialog.py:1158
+#: ui/main_dialog.py:1163
 msgid "EMI/EMC Setup Error"
 msgstr ""
 
-#: ui/main_dialog.py:1157
+#: ui/main_dialog.py:1162
 #, python-brace-format
 msgid "EMI/EMC Setup Error: {p0}"
 msgstr ""
@@ -1380,7 +1380,7 @@ msgstr ""
 msgid "Enclosure CFD analysis cancelled."
 msgstr ""
 
-#: ui/main_dialog.py:1866
+#: ui/main_dialog.py:1871
 #, python-brace-format
 msgid "Enclosure CFD complete: {p0} iterations, Vmax={p1} m/s."
 msgstr ""
@@ -1389,20 +1389,20 @@ msgstr ""
 msgid "Enclosure CFD convergence"
 msgstr ""
 
-#: ui/main_dialog.py:1879
+#: ui/main_dialog.py:1884
 msgid "Enclosure CFD Error"
 msgstr ""
 
-#: ui/main_dialog.py:1877
+#: ui/main_dialog.py:1882
 #, python-brace-format
 msgid "Enclosure CFD error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1828
+#: ui/main_dialog.py:1833
 msgid "Enclosure CFD Setup Error"
 msgstr ""
 
-#: ui/main_dialog.py:1827
+#: ui/main_dialog.py:1832
 #, python-brace-format
 msgid "Enclosure CFD setup error: {p0}"
 msgstr ""
@@ -1424,7 +1424,7 @@ msgstr ""
 msgid "Enclosure dimensions must be greater than zero."
 msgstr ""
 
-#: ui/main_dialog.py:1608 ui/main_dialog.py:1894
+#: ui/main_dialog.py:1613 ui/main_dialog.py:1899
 #, python-brace-format
 msgid "Energy balance error: {error:.4g}%"
 msgstr ""
@@ -1457,7 +1457,7 @@ msgstr ""
 msgid "Error"
 msgstr ""
 
-#: ui/main_dialog.py:663
+#: ui/main_dialog.py:668
 #, python-brace-format
 msgid "Error extracting stackup: {p0}"
 msgstr ""
@@ -1484,7 +1484,7 @@ msgstr ""
 msgid "ERROR: No board object connected. Plugin will not function properly."
 msgstr ""
 
-#: ui/main_dialog.py:675
+#: ui/main_dialog.py:680
 #, python-brace-format
 msgid "ERROR: {p0}"
 msgstr ""
@@ -1517,7 +1517,7 @@ msgstr ""
 msgid "ESR/ESL values inferred from package are estimates. Review them before sign-off."
 msgstr ""
 
-#: ui/differential_analysis_panel.py:228 ui/main_dialog.py:1048
+#: ui/differential_analysis_panel.py:228 ui/main_dialog.py:1053
 msgid "estimate only"
 msgstr ""
 
@@ -1576,7 +1576,7 @@ msgstr ""
 msgid "Face:"
 msgstr ""
 
-#: ui/differential_analysis_panel.py:448
+#: ui/differential_analysis_panel.py:456
 #, python-brace-format
 msgid "Failed to apply KiCad differential rules: {p0}"
 msgstr ""
@@ -1596,7 +1596,7 @@ msgstr ""
 msgid "Failed to save config: {p0}"
 msgstr ""
 
-#: ipc_entry.py:138
+#: ipc_entry.py:144
 #, python-brace-format
 msgid "Failed to start Ki-PIDA: {error}\n\nCheck logs for details."
 msgstr ""
@@ -1617,7 +1617,7 @@ msgstr ""
 msgid "FCC Part 15 Class B"
 msgstr ""
 
-#: ui/main_dialog.py:1204
+#: ui/main_dialog.py:1209
 msgid "Field magnitude depends on the configured source voltage/current and does not solve return-current cancellation, dielectric boundaries, phase or enclosure scattering."
 msgstr ""
 
@@ -1625,11 +1625,11 @@ msgstr ""
 msgid "Filled copper exists on multiple configured grounds: "
 msgstr ""
 
-#: ui/main_dialog.py:1283
+#: ui/main_dialog.py:1288
 msgid "Findings"
 msgstr ""
 
-#: ui/main_dialog.py:1244
+#: ui/main_dialog.py:1249
 #, python-brace-format
 msgid "Findings: {total} — critical {critical}, high {high}, medium {medium}, low {low}, info {info}"
 msgstr ""
@@ -1671,7 +1671,7 @@ msgstr ""
 msgid "Frequency (MHz, 0=source fundamentals):"
 msgstr ""
 
-#: ui/main_dialog.py:1241
+#: ui/main_dialog.py:1246
 #, python-brace-format
 msgid "Frequency band: {start:g} .. {stop:g} MHz"
 msgstr ""
@@ -1706,11 +1706,11 @@ msgstr ""
 msgid "Generated {p0} x {p1} x {p2} = {p3} cells ({p4} fluid)."
 msgstr ""
 
-#: ui/main_dialog.py:1916
+#: ui/main_dialog.py:1921
 msgid "Geometry Debug"
 msgstr ""
 
-#: ui/main_dialog.py:1916
+#: ui/main_dialog.py:1921
 msgid "Geometry debug plot"
 msgstr ""
 
@@ -1718,7 +1718,7 @@ msgstr ""
 msgid "Geometry Recommendations"
 msgstr ""
 
-#: ui/main_dialog.py:1090
+#: ui/main_dialog.py:1095
 msgid "geometry unavailable"
 msgstr ""
 
@@ -1726,7 +1726,7 @@ msgstr ""
 msgid "GND, AGND, DGND, PGND"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:199
+#: ui/runtime_settings_panel.py:219
 #, python-brace-format
 msgid "GPU {index}: {name} — {free:.1f}/{total:.1f} GiB free"
 msgstr ""
@@ -1768,7 +1768,7 @@ msgstr ""
 msgid "High temperature may alter EMC components"
 msgstr ""
 
-#: ui/main_dialog.py:1603
+#: ui/main_dialog.py:1608
 #, python-brace-format
 msgid "Hotspot: {temperature:.3f} C at ({x:.2f}, {y:.2f}, {z:.3f}) mm"
 msgstr ""
@@ -1847,7 +1847,7 @@ msgstr ""
 msgid "Input Component:"
 msgstr ""
 
-#: ui/main_dialog.py:1606
+#: ui/main_dialog.py:1611
 #, python-brace-format
 msgid "Input heat: {power:.6g} W"
 msgstr ""
@@ -1868,11 +1868,11 @@ msgstr ""
 msgid "Install / Repair CUDA"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:243
+#: ui/runtime_settings_panel.py:263
 msgid "Install CUDA Backend"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:241
+#: ui/runtime_settings_panel.py:261
 msgid "Install or update the optional CuPy CUDA environment in the Python runtime used by KiCad?\n\nA KiCad restart will be required afterwards."
 msgstr ""
 
@@ -1888,11 +1888,11 @@ msgstr ""
 msgid "Interface:"
 msgstr ""
 
-#: ui/main_dialog.py:1627
+#: ui/main_dialog.py:1632
 msgid "Internal copper maps: disabled"
 msgstr ""
 
-#: ui/main_dialog.py:1626
+#: ui/main_dialog.py:1631
 msgid "Internal copper maps: enabled"
 msgstr ""
 
@@ -1925,7 +1925,7 @@ msgstr ""
 msgid "Iterations:"
 msgstr ""
 
-#: ui/main_dialog.py:1610 ui/main_dialog.py:1888
+#: ui/main_dialog.py:1615 ui/main_dialog.py:1893
 #, python-brace-format
 msgid "Iterations: {iterations} ({state})"
 msgstr ""
@@ -1942,7 +1942,7 @@ msgstr ""
 msgid "Ki-PIDA UI Initialized."
 msgstr ""
 
-#: ui/runtime_settings_panel.py:169
+#: ui/runtime_settings_panel.py:189
 #, python-brace-format
 msgid "Ki-PIDA version: {version}"
 msgstr ""
@@ -1979,7 +1979,7 @@ msgstr ""
 msgid "KiCad project file path is required to inject design rules."
 msgstr ""
 
-#: design_rule_injector.py:33
+#: design_rule_injector.py:36
 #, python-brace-format
 msgid "KiCad project file was not found: {p0}"
 msgstr ""
@@ -1988,24 +1988,24 @@ msgstr ""
 msgid "KiCad project path is unavailable; rules were not changed."
 msgstr ""
 
-#: ui/differential_analysis_panel.py:443
-msgid "KiCad project rules were updated. Open Board Setup or rerun DRC to inspect the new KiPIDA_DIFF classes.\nThe current Ki-PIDA session can continue analysing immediately."
+#: ui/differential_analysis_panel.py:451
+msgid "KiCad project rules were updated. Open Board Setup or rerun DRC to inspect the new KiPIDA_DIFF classes."
 msgstr ""
 
-#: ui/differential_analysis_panel.py:424 ui/differential_analysis_panel.py:428 ui/differential_analysis_panel.py:449
+#: ui/differential_analysis_panel.py:424 ui/differential_analysis_panel.py:428 ui/differential_analysis_panel.py:457
 msgid "KiCad Rules"
 msgstr ""
 
-#: ui/differential_analysis_panel.py:445
+#: ui/differential_analysis_panel.py:453
 msgid "KiCad Rules Applied"
 msgstr ""
 
-#: ui/main_dialog.py:384
+#: ui/main_dialog.py:385
 #, python-brace-format
 msgid "KiCad thermal overlay clear completed ({p0} image(s))."
 msgstr ""
 
-#: ui/main_dialog.py:375
+#: ui/main_dialog.py:376
 msgid "KiCad thermal overlay injection completed."
 msgstr ""
 
@@ -2017,7 +2017,7 @@ msgstr ""
 msgid "Language"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:153
+#: ui/runtime_settings_panel.py:156 ui/runtime_settings_panel.py:172
 msgid "Language change"
 msgstr ""
 
@@ -2025,11 +2025,11 @@ msgstr ""
 msgid "Large switching-node copper area"
 msgstr ""
 
-#: ui/main_dialog.py:1140
+#: ui/main_dialog.py:1145
 msgid "Last analysed rail"
 msgstr ""
 
-#: ui/main_dialog.py:1896
+#: ui/main_dialog.py:1901
 #, python-brace-format
 msgid "Last energy solve: {seconds:.4g} s, residual {residual:.4g}"
 msgstr ""
@@ -2060,29 +2060,34 @@ msgstr ""
 msgid "Length-match the pair while preserving constant spacing and reference."
 msgstr ""
 
-#: ui/main_dialog.py:1611 ui/main_dialog.py:1888
+#: ui/main_dialog.py:1616 ui/main_dialog.py:1893
 msgid "limit reached"
 msgstr ""
 
-#: ui/main_dialog.py:1636
+#: ui/main_dialog.py:1641
 #, python-brace-format
 msgid "Linear residual: {residual:.4g} ({iterations} iteration(s))"
 msgstr ""
 
-#: ui/main_dialog.py:951
+#: ui/main_dialog.py:956
 #, python-brace-format
 msgid "Linear residual: {residual:.4g}; CUDA structure cache hits: {hits}"
 msgstr ""
 
-#: ui/main_dialog.py:313
+#: ui/differential_analysis_panel.py:444
+#, python-brace-format
+msgid "Live KiCad net-class update failed; project-file fallback retained: {p0}"
+msgstr ""
+
+#: ui/main_dialog.py:314
 msgid "Live PCB geometry changed; invalidated thermal mesh/CSR cache."
 msgstr ""
 
-#: ui/main_dialog.py:315
+#: ui/main_dialog.py:316
 msgid "Live PCB geometry unchanged; thermal mesh/CSR cache remains eligible."
 msgstr ""
 
-#: ui/main_dialog.py:322
+#: ui/main_dialog.py:323
 #, python-brace-format
 msgid "Live PCB refresh warning: {p0}"
 msgstr ""
@@ -2117,11 +2122,11 @@ msgstr ""
 msgid "Low ground-plane coverage"
 msgstr ""
 
-#: ui/main_dialog.py:1347
+#: ui/main_dialog.py:1352
 msgid "Magnetic Field"
 msgstr ""
 
-#: ui/main_dialog.py:1892
+#: ui/main_dialog.py:1897
 #, python-brace-format
 msgid "Mapped heat: {value:.6g} W"
 msgstr ""
@@ -2135,7 +2140,7 @@ msgstr ""
 msgid "Market:"
 msgstr ""
 
-#: ui/main_dialog.py:1893
+#: ui/main_dialog.py:1898
 #, python-brace-format
 msgid "Mass balance error: {value:.4g}%"
 msgstr ""
@@ -2144,7 +2149,7 @@ msgstr ""
 msgid "Material"
 msgstr ""
 
-#: ui/main_dialog.py:1745
+#: ui/main_dialog.py:1750
 msgid "Matplotlib did not produce any thermal plot."
 msgstr ""
 
@@ -2160,17 +2165,17 @@ msgstr ""
 msgid "Max junction (C):"
 msgstr ""
 
-#: ui/main_dialog.py:1890
+#: ui/main_dialog.py:1895
 #, python-brace-format
 msgid "Maximum air temperature: {value:.3f} C"
 msgstr ""
 
-#: ui/main_dialog.py:1891
+#: ui/main_dialog.py:1896
 #, python-brace-format
 msgid "Maximum solid temperature: {value:.3f} C"
 msgstr ""
 
-#: ui/main_dialog.py:1889
+#: ui/main_dialog.py:1894
 #, python-brace-format
 msgid "Maximum velocity: {value:.6g} m/s"
 msgstr ""
@@ -2188,11 +2193,11 @@ msgstr ""
 msgid "Merged {p0} copper shapes on layer {p1} in {p2} s."
 msgstr ""
 
-#: ui/main_dialog.py:1924
+#: ui/main_dialog.py:1929
 msgid "Mesh Debug"
 msgstr ""
 
-#: ui/main_dialog.py:1924
+#: ui/main_dialog.py:1929
 msgid "Mesh debug plot"
 msgstr ""
 
@@ -2232,11 +2237,11 @@ msgstr ""
 msgid "Minimise hot-loop area and verify this band with a near-field probe."
 msgstr ""
 
-#: ui/main_dialog.py:1886
+#: ui/main_dialog.py:1891
 msgid "Mode: steady incompressible laminar flow with Boussinesq buoyancy"
 msgstr ""
 
-#: ui/main_dialog.py:1602
+#: ui/main_dialog.py:1607
 #, python-brace-format
 msgid "Mode: {mode}"
 msgstr ""
@@ -2245,23 +2250,23 @@ msgstr ""
 msgid "Model"
 msgstr ""
 
-#: ui/main_dialog.py:1319
+#: ui/main_dialog.py:1324
 msgid "Model limitations"
 msgstr ""
 
-#: ui/main_dialog.py:969
+#: ui/main_dialog.py:974
 msgid "Model note: ESR/ESL and distributed inductance may be estimates; review before sign-off."
 msgstr ""
 
-#: ui/main_dialog.py:1105
+#: ui/main_dialog.py:1110
 msgid "Model scope: quasi-static coupled microstrip/stripline estimates. "
 msgstr ""
 
-#: ui/main_dialog.py:1660
+#: ui/main_dialog.py:1665
 msgid "Model scope: steady-state 3D solid conduction with convective boundaries; this is not a volumetric CFD airflow solution."
 msgstr ""
 
-#: ui/main_dialog.py:1898
+#: ui/main_dialog.py:1903
 msgid "Model scope: structured volumetric CFD, boundary-patch fans/vents, and conjugate solid-air heat transfer. Fan blades, turbulence, radiation, and transient effects are outside this Phase 4 solver."
 msgstr ""
 
@@ -2289,7 +2294,7 @@ msgstr ""
 msgid "Name:"
 msgstr ""
 
-#: ui/main_dialog.py:1203
+#: ui/main_dialog.py:1208
 msgid "Near-field E/H maps use quasi-static line-charge and Biot-Savart trace elements; they are not a full-wave Maxwell solution."
 msgstr ""
 
@@ -2314,7 +2319,7 @@ msgstr ""
 msgid "Near-field probe height must be positive."
 msgstr ""
 
-#: ui/main_dialog.py:1264
+#: ui/main_dialog.py:1269
 msgid "Near-field simulation"
 msgstr ""
 
@@ -2339,11 +2344,11 @@ msgstr ""
 msgid "Nets: {nets}"
 msgstr ""
 
-#: ui/main_dialog.py:1291
+#: ui/main_dialog.py:1296
 msgid "nets="
 msgstr ""
 
-#: ui/ac_analysis_panel.py:233 ui/differential_analysis_panel.py:194 ui/emc_analysis_panel.py:231 ui/emc_analysis_panel.py:233 ui/runtime_settings_panel.py:177 ui/thermal_analysis_panel.py:346
+#: ui/ac_analysis_panel.py:233 ui/differential_analysis_panel.py:194 ui/emc_analysis_panel.py:231 ui/emc_analysis_panel.py:233 ui/runtime_settings_panel.py:197 ui/thermal_analysis_panel.py:346
 msgid "No"
 msgstr ""
 
@@ -2365,7 +2370,7 @@ msgstr ""
 msgid "No copper geometry found for return net '{p0}'."
 msgstr ""
 
-#: ui/main_dialog.py:1785
+#: ui/main_dialog.py:1790
 msgid "No current DC result; running DC analysis before enclosure CFD."
 msgstr ""
 
@@ -2373,7 +2378,7 @@ msgstr ""
 msgid "No EMI/EMC analysis has been run in this session."
 msgstr ""
 
-#: ui/main_dialog.py:983
+#: ui/main_dialog.py:988
 msgid "No enabled differential pairs are available. Scan or add a pair first."
 msgstr ""
 
@@ -2381,7 +2386,7 @@ msgstr ""
 msgid "No enabled EMI/EMC source has routed copper available for field simulation."
 msgstr ""
 
-#: ui/main_dialog.py:1287
+#: ui/main_dialog.py:1292
 msgid "No finding was generated by the enabled deterministic checks."
 msgstr ""
 
@@ -2393,11 +2398,11 @@ msgstr ""
 msgid "No nearby decoupling capacitor"
 msgstr ""
 
-#: ui/main_dialog.py:986
+#: ui/main_dialog.py:991
 msgid "No PCB stackup is available for differential impedance analysis."
 msgstr ""
 
-#: ui/main_dialog.py:850
+#: ui/main_dialog.py:855
 msgid "No power rails defined."
 msgstr ""
 
@@ -2426,7 +2431,7 @@ msgstr ""
 msgid "Normal (1.0 mm)"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:175
+#: ui/runtime_settings_panel.py:195
 msgid "not installed"
 msgstr ""
 
@@ -2455,7 +2460,7 @@ msgstr ""
 msgid "Optimise capacitor values/placement and rerun the AC impedance analysis."
 msgstr ""
 
-#: ui/main_dialog.py:245
+#: ui/main_dialog.py:246
 msgid "Optimize Decoupling"
 msgstr ""
 
@@ -2487,7 +2492,7 @@ msgstr ""
 msgid "Output Side"
 msgstr ""
 
-#: ui/main_dialog.py:1645
+#: ui/main_dialog.py:1650
 msgid "OVER LIMIT"
 msgstr ""
 
@@ -2532,7 +2537,7 @@ msgstr ""
 msgid "PDN remains within target"
 msgstr ""
 
-#: ui/main_dialog.py:1309
+#: ui/main_dialog.py:1314
 msgid "Per-net risk scores"
 msgstr ""
 
@@ -2544,7 +2549,7 @@ msgstr ""
 msgid "Phase (deg)"
 msgstr ""
 
-#: ui/main_dialog.py:1884
+#: ui/main_dialog.py:1889
 msgid "Phase 4 Enclosure CFD Results"
 msgstr ""
 
@@ -2616,7 +2621,7 @@ msgstr ""
 msgid "Power (W):"
 msgstr ""
 
-#: ui/main_dialog.py:876
+#: ui/main_dialog.py:881
 #, python-brace-format
 msgid "Power rail '{p0}' is not available."
 msgstr ""
@@ -2633,7 +2638,7 @@ msgstr ""
 msgid "Pre-compliance Target"
 msgstr ""
 
-#: ui/main_dialog.py:1315
+#: ui/main_dialog.py:1320
 msgid "Pre-compliance test plan"
 msgstr ""
 
@@ -2667,7 +2672,7 @@ msgstr ""
 msgid "Pressure iterations:"
 msgstr ""
 
-#: ui/main_dialog.py:1906
+#: ui/main_dialog.py:1911
 msgid "Pressure XY"
 msgstr ""
 
@@ -2679,7 +2684,7 @@ msgstr ""
 msgid "Probe height (mm):"
 msgstr ""
 
-#: ui/main_dialog.py:680
+#: ui/main_dialog.py:685
 #, python-brace-format
 msgid "Processing Rail: {p0} (Sources: {p1}, Loads: {p2})"
 msgstr ""
@@ -2693,7 +2698,7 @@ msgstr ""
 msgid "Pseudo dt (s):"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:170
+#: ui/runtime_settings_panel.py:190
 #, python-brace-format
 msgid "Python: {version} — {executable}"
 msgstr ""
@@ -2706,7 +2711,7 @@ msgstr ""
 msgid "Rail Properties"
 msgstr ""
 
-#: ui/main_dialog.py:673
+#: ui/main_dialog.py:678
 #, python-brace-format
 msgid "Rail solve order: {p0}"
 msgstr ""
@@ -2715,7 +2720,7 @@ msgstr ""
 msgid "Rail-to-ground impedance"
 msgstr ""
 
-#: ui/main_dialog.py:1933
+#: ui/main_dialog.py:1938
 #, python-brace-format
 msgid "Rail: {net}\n"
 msgstr ""
@@ -2757,7 +2762,7 @@ msgstr ""
 msgid "Refresh Power Estimates"
 msgstr ""
 
-#: ui/main_dialog.py:320
+#: ui/main_dialog.py:321
 msgid "Refreshed live PCB geometry and component discovery."
 msgstr ""
 
@@ -2775,7 +2780,7 @@ msgstr ""
 msgid "Regulator Name:"
 msgstr ""
 
-#: ui/main_dialog.py:1317
+#: ui/main_dialog.py:1322
 msgid "Regulatory coverage"
 msgstr ""
 
@@ -2791,7 +2796,7 @@ msgstr ""
 msgid "Relative harmonic envelope (dB)"
 msgstr ""
 
-#: ui/main_dialog.py:1337
+#: ui/main_dialog.py:1342
 msgid "Relative Spectrum"
 msgstr ""
 
@@ -2820,7 +2825,7 @@ msgstr ""
 msgid "Rendering"
 msgstr ""
 
-#: ui/main_dialog.py:1667
+#: ui/main_dialog.py:1672
 msgid "Rendering thermal plots in background..."
 msgstr ""
 
@@ -2837,7 +2842,7 @@ msgstr ""
 msgid "Residual"
 msgstr ""
 
-#: ui/main_dialog.py:1907
+#: ui/main_dialog.py:1912
 msgid "Residuals"
 msgstr ""
 
@@ -2890,7 +2895,7 @@ msgstr ""
 msgid "Risk analyzer only; it cannot certify FCC/CISPR/MIL compliance."
 msgstr ""
 
-#: ui/main_dialog.py:1332
+#: ui/main_dialog.py:1337
 msgid "Risk Map"
 msgstr ""
 
@@ -2899,7 +2904,7 @@ msgstr ""
 msgid "Risk score {score}/100 — {total} findings: {critical} critical, {high} high, {medium} medium."
 msgstr ""
 
-#: ui/main_dialog.py:1242
+#: ui/main_dialog.py:1247
 #, python-brace-format
 msgid "Risk score: {score}/100"
 msgstr ""
@@ -2921,19 +2926,19 @@ msgstr ""
 msgid "Run a DC analysis before coupled electro-thermal analysis."
 msgstr ""
 
-#: ui/main_dialog.py:362
+#: ui/main_dialog.py:363
 msgid "Run a thermal analysis before injecting its KiCad heat overlay."
 msgstr ""
 
-#: ui/main_dialog.py:244
+#: ui/main_dialog.py:245
 msgid "Run AC Analysis"
 msgstr ""
 
-#: ui/main_dialog.py:249
+#: ui/main_dialog.py:250
 msgid "Run Coupled"
 msgstr ""
 
-#: ui/main_dialog.py:243
+#: ui/main_dialog.py:244
 msgid "Run DC Simulation"
 msgstr ""
 
@@ -2941,23 +2946,23 @@ msgstr ""
 msgid "Run differential impedance analysis first."
 msgstr ""
 
-#: ui/main_dialog.py:246
+#: ui/main_dialog.py:247
 msgid "Run Differential Z"
 msgstr ""
 
-#: ui/main_dialog.py:247
+#: ui/main_dialog.py:248
 msgid "Run EMI/EMC"
 msgstr ""
 
-#: ui/main_dialog.py:1863 ui/main_dialog.py:1875 ui/main_dialog.py:250
+#: ui/main_dialog.py:1868 ui/main_dialog.py:1880 ui/main_dialog.py:251
 msgid "Run Enclosure CFD"
 msgstr ""
 
-#: ui/main_dialog.py:248
+#: ui/main_dialog.py:249
 msgid "Run Thermal"
 msgstr ""
 
-#: ui/main_dialog.py:1462
+#: ui/main_dialog.py:1467
 msgid "Running fresh DC analysis for the current live PCB geometry."
 msgstr ""
 
@@ -2965,7 +2970,7 @@ msgstr ""
 msgid "Runtime & Acceleration"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:149
+#: ui/runtime_settings_panel.py:152 ui/runtime_settings_panel.py:169
 #, python-brace-format
 msgid "Runtime settings saved to {path}"
 msgstr ""
@@ -3005,23 +3010,23 @@ msgstr ""
 msgid "Scan Live PCB"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:174
+#: ui/runtime_settings_panel.py:194
 msgid "SciPy SuperLU"
 msgstr ""
 
-#: ui/main_dialog.py:880
+#: ui/main_dialog.py:885
 msgid "Select a measurement component in the AC Impedance tab."
 msgstr ""
 
-#: ui/main_dialog.py:872
+#: ui/main_dialog.py:877
 msgid "Select a power rail for AC analysis."
 msgstr ""
 
-#: ui/main_dialog.py:878
+#: ui/main_dialog.py:883
 msgid "Select a source component in the AC Impedance tab."
 msgstr ""
 
-#: design_rule_injector.py:29
+#: design_rule_injector.py:32
 msgid "Select at least one recommendation with a feasible width and gap."
 msgstr ""
 
@@ -3073,12 +3078,12 @@ msgstr ""
 msgid "Select the component that dissipates the regulator loss."
 msgstr ""
 
-#: ui/main_dialog.py:1269
+#: ui/main_dialog.py:1274
 #, python-brace-format
 msgid "selected envelope at {frequency:g} MHz"
 msgstr ""
 
-#: design_rule_injector.py:72
+#: design_rule_injector.py:82
 msgid "Selected recommendations did not contain valid differential net pairs."
 msgstr ""
 
@@ -3145,7 +3150,7 @@ msgstr ""
 msgid "Skipping {p0}: pads could not be mapped to both meshes."
 msgstr ""
 
-#: ui/main_dialog.py:1633
+#: ui/main_dialog.py:1638
 #, python-brace-format
 msgid "Solve time: {solve:.4g} s (transfer {transfer:.4g} s)"
 msgstr ""
@@ -3195,17 +3200,17 @@ msgstr ""
 msgid "Source: {source} ({trust})"
 msgstr ""
 
-#: ui/main_dialog.py:1629
+#: ui/main_dialog.py:1634
 #, python-brace-format
 msgid "Sparse matrix path: {path}"
 msgstr ""
 
-#: ui/main_dialog.py:948
+#: ui/main_dialog.py:953
 #, python-brace-format
 msgid "Sparse solve time: {solve:.4g} s (transfer {transfer:.4g} s)"
 msgstr ""
 
-#: emc_analyzer.py:780 ui/emc_analysis_panel.py:28 ui/main_dialog.py:1112
+#: emc_analyzer.py:780 ui/emc_analysis_panel.py:28 ui/main_dialog.py:1117
 msgid "Stackup"
 msgstr ""
 
@@ -3226,7 +3231,7 @@ msgstr ""
 msgid "Stackup warning: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1053
+#: ui/main_dialog.py:1058
 msgid "Stackup warnings:"
 msgstr ""
 
@@ -3234,7 +3239,7 @@ msgstr ""
 msgid "Stackup-aware differential impedance"
 msgstr ""
 
-#: ui/main_dialog.py:1047
+#: ui/main_dialog.py:1052
 #, python-brace-format
 msgid "Stackup: {source} ({trust})"
 msgstr ""
@@ -3255,7 +3260,7 @@ msgstr ""
 msgid "Start frequency must be greater than zero."
 msgstr ""
 
-#: ipc_entry.py:139
+#: ipc_entry.py:145
 msgid "Startup Error"
 msgstr ""
 
@@ -3263,7 +3268,7 @@ msgstr ""
 msgid "Status"
 msgstr ""
 
-#: ui/main_dialog.py:943
+#: ui/main_dialog.py:948
 #, python-brace-format
 msgid "Status: {status}"
 msgstr ""
@@ -3324,16 +3329,16 @@ msgstr ""
 msgid "System default"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:181
+#: ui/runtime_settings_panel.py:201
 #, python-brace-format
 msgid "System RAM: {available:.1f}/{total:.1f} GiB available"
 msgstr ""
 
-#: ui/main_dialog.py:1930
+#: ui/main_dialog.py:1935
 msgid "System Simulation Results:"
 msgstr ""
 
-#: ui/main_dialog.py:841
+#: ui/main_dialog.py:846
 #, python-brace-format
 msgid "System Solve Error: {p0}"
 msgstr ""
@@ -3346,7 +3351,7 @@ msgstr ""
 msgid "Target impedance must be positive."
 msgstr ""
 
-#: ui/main_dialog.py:939
+#: ui/main_dialog.py:944
 msgid "TARGET NOT MET"
 msgstr ""
 
@@ -3366,12 +3371,12 @@ msgstr ""
 msgid "Target |Z| (mOhm):"
 msgstr ""
 
-#: ui/main_dialog.py:1240
+#: ui/main_dialog.py:1245
 #, python-brace-format
 msgid "Target: {standard} ({market})"
 msgstr ""
 
-#: ui/main_dialog.py:946
+#: ui/main_dialog.py:951
 #, python-brace-format
 msgid "Target: {target:.6g} ohm"
 msgstr ""
@@ -3388,11 +3393,11 @@ msgstr ""
 msgid "Temperature (C):"
 msgstr ""
 
-#: ui/main_dialog.py:1903
+#: ui/main_dialog.py:1908
 msgid "Temperature XY"
 msgstr ""
 
-#: ui/main_dialog.py:1904
+#: ui/main_dialog.py:1909
 msgid "Temperature XZ"
 msgstr ""
 
@@ -3416,11 +3421,15 @@ msgstr ""
 msgid "The AC source must map to pads on both the rail and the return net."
 msgstr ""
 
+#: ui/differential_analysis_panel.py:446
+msgid "The classes and W/G values were also applied to the open KiCad project through IPC."
+msgstr ""
+
 #: cfd_solver.py:414
 msgid "The enclosure CFD mesh has no fluid cells."
 msgstr ""
 
-#: ui/runtime_settings_panel.py:152
+#: ui/runtime_settings_panel.py:155 ui/runtime_settings_panel.py:171
 msgid "The language change will be applied the next time the Ki-PIDA window is opened."
 msgstr ""
 
@@ -3444,6 +3453,10 @@ msgstr ""
 msgid "The PCB outline is empty; near-field simulation cannot build a grid."
 msgstr ""
 
+#: ui/differential_analysis_panel.py:448
+msgid "The project file was updated, but this KiCad IPC API could not refresh net classes live; reopen the project to load them."
+msgstr ""
+
 #: ui/runtime_settings_panel.py:54
 msgid "The selected language is applied the next time the Ki-PIDA window is opened."
 msgstr ""
@@ -3452,24 +3465,24 @@ msgstr ""
 msgid "The thermal mesh is empty."
 msgstr ""
 
-#: ui/main_dialog.py:1588 ui/main_dialog.py:1602
+#: ui/main_dialog.py:1593 ui/main_dialog.py:1607
 msgid "Thermal"
 msgstr ""
 
-#: ui/main_dialog.py:1702
+#: ui/main_dialog.py:1707
 msgid "Thermal 3D"
 msgstr ""
 
-#: ui/main_dialog.py:1582
+#: ui/main_dialog.py:1587
 #, python-brace-format
 msgid "Thermal analysis completed in {p0} s."
 msgstr ""
 
-#: ui/main_dialog.py:1395
+#: ui/main_dialog.py:1400
 msgid "Thermal Analysis Error"
 msgstr ""
 
-#: ui/main_dialog.py:1394
+#: ui/main_dialog.py:1399
 #, python-brace-format
 msgid "Thermal Analysis Error: {p0}"
 msgstr ""
@@ -3486,7 +3499,7 @@ msgstr ""
 msgid "Thermal colors:"
 msgstr ""
 
-#: ui/main_dialog.py:1617
+#: ui/main_dialog.py:1622
 #, python-brace-format
 msgid "Thermal colors: {palette}"
 msgstr ""
@@ -3495,12 +3508,12 @@ msgstr ""
 msgid "Thermal colour maximum must be greater than the colour minimum."
 msgstr ""
 
-#: ui/main_dialog.py:1622
+#: ui/main_dialog.py:1627
 #, python-brace-format
 msgid "Thermal colour maximum: {value}"
 msgstr ""
 
-#: ui/main_dialog.py:1618
+#: ui/main_dialog.py:1623
 #, python-brace-format
 msgid "Thermal colour minimum: {value}"
 msgstr ""
@@ -3509,7 +3522,7 @@ msgstr ""
 msgid "Thermal grid size must be between 0.01 and 5 mm; coupled iterations must be positive."
 msgstr ""
 
-#: ui/main_dialog.py:1613
+#: ui/main_dialog.py:1618
 #, python-brace-format
 msgid "Thermal grid: {grid:.4g} mm"
 msgstr ""
@@ -3544,26 +3557,26 @@ msgstr ""
 msgid "Thermal Model: {reference}"
 msgstr ""
 
-#: ui/main_dialog.py:364 ui/main_dialog.py:378 ui/main_dialog.py:387
+#: ui/main_dialog.py:365 ui/main_dialog.py:379 ui/main_dialog.py:388
 msgid "Thermal overlay"
 msgstr ""
 
-#: ui/main_dialog.py:386
+#: ui/main_dialog.py:387
 #, python-brace-format
 msgid "Thermal overlay clear error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:377
+#: ui/main_dialog.py:378
 #, python-brace-format
 msgid "Thermal overlay injection error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1775
+#: ui/main_dialog.py:1780
 #, python-brace-format
 msgid "Thermal plot rendering error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1773
+#: ui/main_dialog.py:1778
 msgid "Thermal plot rendering failed; see Log for details."
 msgstr ""
 
@@ -3572,12 +3585,12 @@ msgstr ""
 msgid "Thermal probe  {temperature:.2f} C  |  X {x:.2f} mm, Y {y:.2f} mm, Z {z:.3f} mm  |  {layer}"
 msgstr ""
 
-#: ui/main_dialog.py:1383
+#: ui/main_dialog.py:1388
 #, python-brace-format
 msgid "Thermal progress: {p0}/{p1} ({p2})"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:188
+#: ui/runtime_settings_panel.py:208
 #, python-brace-format
 msgid "Thermal RAM ceiling: {ceiling}"
 msgstr ""
@@ -3586,7 +3599,7 @@ msgstr ""
 msgid "Thermal RAM limit GiB (0 = conservative default):"
 msgstr ""
 
-#: ui/main_dialog.py:1759
+#: ui/main_dialog.py:1764
 msgid "Thermal result plots ready."
 msgstr ""
 
@@ -3594,7 +3607,7 @@ msgstr ""
 msgid "Thermal solution contains non-finite temperatures."
 msgstr ""
 
-#: ui/main_dialog.py:1668
+#: ui/main_dialog.py:1673
 msgid "Thermal solve complete; rendering plots in background."
 msgstr ""
 
@@ -3622,7 +3635,7 @@ msgstr ""
 msgid "This net pair already exists."
 msgstr ""
 
-#: ui/runtime_settings_panel.py:175
+#: ui/runtime_settings_panel.py:195
 #, python-brace-format
 msgid "Thread control: {state}"
 msgstr ""
@@ -3639,11 +3652,11 @@ msgstr ""
 msgid "Top exposed"
 msgstr ""
 
-#: ui/main_dialog.py:1707
+#: ui/main_dialog.py:1712
 msgid "Top Surface"
 msgstr ""
 
-#: ui/main_dialog.py:1248 ui/main_dialog.py:1641
+#: ui/main_dialog.py:1253 ui/main_dialog.py:1646
 #, python-brace-format
 msgid "Total elapsed time: {seconds:.3f} s"
 msgstr ""
@@ -3664,7 +3677,7 @@ msgstr ""
 msgid "Treat amplitudes as relative ranking only; measure absolute field strength."
 msgstr ""
 
-#: ui/main_dialog.py:1048
+#: ui/main_dialog.py:1053
 msgid "trusted"
 msgstr ""
 
@@ -3784,7 +3797,7 @@ msgstr ""
 msgid "Velocity (m/s):"
 msgstr ""
 
-#: ui/main_dialog.py:1905
+#: ui/main_dialog.py:1910
 msgid "Velocity XY"
 msgstr ""
 
@@ -3808,7 +3821,7 @@ msgstr ""
 msgid "Via stitching"
 msgstr ""
 
-#: ui/main_dialog.py:1106
+#: ui/main_dialog.py:1111
 msgid "Vias and reference-plane transitions are reported as discontinuities; this is not a 3D full-wave solver."
 msgstr ""
 
@@ -3844,12 +3857,12 @@ msgstr ""
 msgid "Width (mm):"
 msgstr ""
 
-#: ui/main_dialog.py:945
+#: ui/main_dialog.py:950
 #, python-brace-format
 msgid "Worst frequency: {frequency:.6g} Hz"
 msgstr ""
 
-#: ui/main_dialog.py:944
+#: ui/main_dialog.py:949
 #, python-brace-format
 msgid "Worst |Z|: {value:.6g} ohm"
 msgstr ""
@@ -3862,7 +3875,7 @@ msgstr ""
 msgid "Y (mm)"
 msgstr ""
 
-#: ui/ac_analysis_panel.py:233 ui/differential_analysis_panel.py:194 ui/emc_analysis_panel.py:231 ui/emc_analysis_panel.py:233 ui/runtime_settings_panel.py:177 ui/thermal_analysis_panel.py:346
+#: ui/ac_analysis_panel.py:233 ui/differential_analysis_panel.py:194 ui/emc_analysis_panel.py:231 ui/emc_analysis_panel.py:233 ui/runtime_settings_panel.py:197 ui/thermal_analysis_panel.py:346
 msgid "Yes"
 msgstr ""
 
@@ -3879,7 +3892,7 @@ msgstr ""
 msgid "{layer} temperature"
 msgstr ""
 
-#: ui/main_dialog.py:1589
+#: ui/main_dialog.py:1594
 #, python-brace-format
 msgid "{p0} Analysis Error: {p1}"
 msgstr ""
@@ -3894,7 +3907,7 @@ msgstr ""
 msgid "{title} at {height:g} mm — {mode}"
 msgstr ""
 
-#: ui/runtime_settings_panel.py:189
+#: ui/runtime_settings_panel.py:209
 #, python-brace-format
 msgid "{value:g} GiB (expert override)"
 msgstr ""
