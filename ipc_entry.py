@@ -64,15 +64,20 @@ def main():
         # early_log("Requesting board object...")
         board = client.get_board()
         
-        # Try to get project info from board.document without calling get_project
-        # to avoid breaking board API access
+        # Keep the real Project API object when available: differential-rule
+        # injection needs its live net-class and assignment operations.
         project = None
         if board and hasattr(board, 'document'):
             try:
                 doc = board.document
-                # Document is a protobuf DocumentSpecifier with a nested 'project' field
-                
-                # Create a simple object with path and name attributes
+                project = client.get_project(doc)
+                if project.path:
+                    early_log(f"Project: {project.name} at {project.path}")
+                else:
+                    project = None
+            except Exception as project_api_error:
+                early_log(f"Live project API unavailable; using document metadata: {project_api_error}")
+                # Compatibility fallback for older KiCad IPC builds.
                 class ProjectInfo:
                     def __init__(self, doc):
                         self.path = None
@@ -99,17 +104,18 @@ def main():
                             import os
                             self.name = os.path.basename(self.path)
                 
-                project = ProjectInfo(doc)
-                if project.path:
-                    early_log(f"Project: {project.name} at {project.path}")
-                else:
-                    early_log("Could not find project path in document")
+                try:
+                    project = ProjectInfo(board.document)
+                    if project.path:
+                        early_log(f"Project: {project.name} at {project.path}")
+                    else:
+                        early_log("Could not find project path in document")
+                        project = None
+                except Exception as e:
+                    early_log(f"Failed to get project info from board.document: {e}")
+                    import traceback
+                    early_log(traceback.format_exc())
                     project = None
-            except Exception as e:
-                early_log(f"Failed to get project info from board.document: {e}")
-                import traceback
-                early_log(traceback.format_exc())
-                project = None
         else:
             early_log("Board has no document attribute")
         
