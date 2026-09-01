@@ -1932,23 +1932,31 @@ class KiPIDA_MainDialog(wx.Dialog):
     def _update_results_ui(self):
         self._result_generation += 1
         # Populate text stats
-        txt = _("System Simulation Results:") + "\n==========================\n"
+        #txt = _("System Simulation Results:") + "\n==========================\n"
+        txt = "System Simulation Results:" + "\n==========================\n"
         for net, data in self.system_results.items():
             vmin, vmax, drop = data['stats']
-            txt += _("Rail: {net}\n").format(net=net)
-            txt += _("  Range: {minimum:.4f} - {maximum:.4f} V\n").format(minimum=vmin, maximum=vmax)
-            txt += _("  Drop:  {drop:.4f} V\n\n").format(drop=drop)
+            #txt += _("Rail: {net}\n").format(net=net)
+            #txt += _("  Range: {minimum:.4f} - {maximum:.4f} V\n").format(minimum=vmin, maximum=vmax)
+            #txt += _("  Drop:  {drop:.4f} V\n\n").format(drop=drop)
+            txt += "Rail: {net}\n".format(net=net)
+            txt += "  Range: {minimum:.4f} - {maximum:.4f} V\n".format(minimum=vmin, maximum=vmax)
+            txt += "  Drop:  {drop:.4f} V\n\n".format(drop=drop)            
             actual_grid = data.get('grid_size_mm')
             requested_grid = data.get('requested_grid_size_mm', actual_grid)
             if actual_grid is not None:
-                suffix = _(" (adapted for mesh safety)") if data.get('adaptive_grid') else ""
-                txt += _("  DC grid: {grid:.4g} mm{suffix}\n").format(grid=actual_grid, suffix=suffix)
+                #suffix = _(" (adapted for mesh safety)") if data.get('adaptive_grid') else ""
+                #txt += _("  DC grid: {grid:.4g} mm{suffix}\n").format(grid=actual_grid, suffix=suffix)
+                suffix = " (adapted for mesh safety)" if data.get('adaptive_grid') else ""
+                txt += "  DC grid: {grid:.4g} mm{suffix}\n".format(grid=actual_grid, suffix=suffix)                
                 if data.get('adaptive_grid'):
-                    txt += _("  Requested DC grid: {grid:.4g} mm\n").format(grid=requested_grid)
+                    #txt += _("  Requested DC grid: {grid:.4g} mm\n").format(grid=requested_grid)
+                    txt += "  Requested DC grid: {grid:.4g} mm\n".format(grid=requested_grid)
             compute = data.get('compute_metadata')
             if compute is not None:
                 txt += (
-                    _("  Backend: {backend} ({device}), solve {solve:.4g} s, residual {residual:.3g}\n\n").format(
+                    #_("  Backend: {backend} ({device}), solve {solve:.4g} s, residual {residual:.3g}\n\n").format(
+                    "  Backend: {backend} ({device}), solve {solve:.4g} s, residual {residual:.3g}\n\n".format(
                         backend=compute.backend, device=compute.device,
                         solve=compute.solve_seconds, residual=compute.relative_residual,
                     )
