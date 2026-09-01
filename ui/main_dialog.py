@@ -128,6 +128,11 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.txt_drop_pct = wx.TextCtrl(self.tab_config, value="5", size=(60, -1))
         sett_sizer.Add(lbl_drop, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         sett_sizer.Add(self.txt_drop_pct, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 20)
+
+        lbl_dens = wx.StaticText(self.tab_config, label="Max Dens (A/mm^2):")
+        self.txt_max_dens = wx.TextCtrl(self.tab_config, value="45", size=(60, -1))
+        sett_sizer.Add(lbl_dens, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        sett_sizer.Add(self.txt_max_dens, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 20)
         
         self.chk_debug = wx.CheckBox(self.tab_config, label="Enable Debug Log")
         sett_sizer.Add(self.chk_debug, 0, wx.ALIGN_CENTER_VERTICAL)
@@ -1984,6 +1989,12 @@ class KiPIDA_MainDialog(wx.Dialog):
         except:
             drop_pct_ui = 5.0
         
+        try:
+            max_dens_ui = float(self.txt_max_dens.GetValue())
+            if max_dens_ui <= 0: max_dens_ui = 45.0
+        except:
+            max_dens_ui = 45.0
+
         debug_mode = self.chk_debug.GetValue()
         plotter = Plotter(debug=debug_mode)
         
@@ -1995,6 +2006,10 @@ class KiPIDA_MainDialog(wx.Dialog):
             mesh = data['mesh']
             mesh.results = data['results']
             vmin, vmax, _ = data['stats']
+
+            # Calculate Current Density Map
+            density_map = plotter._calculate_current_density_map(mesh, stackup)
+            max_j_val = max(density_map.values()) if density_map else 0.0
             
             # Override vmin for plot based on drop %
             nominal = vmax
@@ -2016,8 +2031,12 @@ class KiPIDA_MainDialog(wx.Dialog):
                     l_name = stackup['copper'][lid].get('name', str(lid))
                 
                 bmp_2d = plotter.plot_layer_2d(mesh, lid, stackup, vmin=plot_vmin, vmax=vmax, layer_name=l_name, board_bounds=board_bounds)
+                bmp_2d_j = plotter.plot_layer_current_density(mesh, lid, density_map, stackup, layer_name=l_name + " (Current Density)", vmax=max_dens_ui, board_bounds=board_bounds)
+                
                 if bmp_2d:
-                    rail_notebook.AddPage(ZoomableBitmapPanel(rail_notebook, bmp_2d), l_name)
+                    rail_notebook.AddPage(ZoomableBitmapPanel(rail_notebook, bmp_2d), l_name + " V")
+                if bmp_2d_j:
+                    rail_notebook.AddPage(ZoomableBitmapPanel(rail_notebook, bmp_2d_j), l_name + " I")
             
             # Add rail notebook as a page in the main results notebook
             results_notebook.AddPage(rail_notebook, rail_name)
