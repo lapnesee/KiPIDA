@@ -88,7 +88,7 @@ class RegulatorDialog(wx.Dialog):
         
         # --- Params Section ---
         sb_param = wx.StaticBoxSizer(wx.VERTICAL, self, "Parameters")
-        grid_p = wx.FlexGridSizer(2, 2, 5, 5)
+        grid_p = wx.FlexGridSizer(3, 2, 5, 5)
         
         grid_p.Add(wx.StaticText(sb_param.GetStaticBox(), label="Type:"), 0, wx.ALIGN_CENTER_VERTICAL)
         self.cmb_type = wx.ComboBox(sb_param.GetStaticBox(), choices=["LINEAR", "SWITCHING"], style=wx.CB_READONLY)
