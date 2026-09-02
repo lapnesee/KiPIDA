@@ -174,6 +174,116 @@ class Plotter:
             if self.debug: print(f"Plotter 2D Error: {e}")
             return None
 
+    def plot_current_density_layer(
+        self, mesh, layer_id, density_result, *, layer_name=None,
+        board_bounds=None, as_png=False,
+    ):
+        """Render a fast regular-grid planar current-density map."""
+        try:
+            entries = [
+                (xi, yi, node_id)
+                for (xi, yi, node_layer), node_id in mesh.node_map.items()
+                if node_layer == layer_id
+                and node_id in density_result.node_density_a_per_mm2
+            ]
+            if not entries:
+                return None
+            min_xi = min(item[0] for item in entries)
+            max_xi = max(item[0] for item in entries)
+            min_yi = min(item[1] for item in entries)
+            max_yi = max(item[1] for item in entries)
+            width = max_xi - min_xi + 1
+            height = max_yi - min_yi + 1
+            node_values = np.asarray([
+                density_result.node_density_a_per_mm2[node_id]
+                for _xi, _yi, node_id in entries
+            ], dtype=float)
+            if node_values.size == 0:
+                return None
+            actual_max = float(np.max(node_values))
+            colour_max = float(density_result.percentile_99_5_a_per_mm2 or actual_max or 1.0)
+            step = float(mesh.grid_step)
+            x0 = mesh.grid_origin[0] + (min_xi - 0.5) * step
+            x1 = mesh.grid_origin[0] + (max_xi + 0.5) * step
+            y0 = mesh.grid_origin[1] + (min_yi - 0.5) * step
+            y1 = mesh.grid_origin[1] + (max_yi + 0.5) * step
+            fig, axis = plt.subplots(figsize=self._figsize(board_bounds), constrained_layout=True)
+            if width * height <= 4_000_000:
+                values = np.full((height, width), np.nan, dtype=float)
+                for xi, yi, node_id in entries:
+                    values[yi - min_yi, xi - min_xi] = density_result.node_density_a_per_mm2[node_id]
+                cmap = plt.get_cmap("inferno").with_extremes(bad=(0.0, 0.0, 0.0, 0.0))
+                image = axis.imshow(
+                    values, cmap=cmap, vmin=0.0, vmax=colour_max,
+                    origin="upper", extent=(x0, x1, -y1, -y0), interpolation="nearest",
+                )
+            else:
+                image = axis.scatter(
+                    [mesh.node_coords[node_id][0] for _xi, _yi, node_id in entries],
+                    [-mesh.node_coords[node_id][1] for _xi, _yi, node_id in entries],
+                    c=node_values, cmap="inferno", vmin=0.0, vmax=colour_max,
+                    s=8, marker="s", linewidth=0,
+                )
+            fig.colorbar(image, ax=axis, label=_("Current density (A/mm²)"))
+            name = str(layer_name if layer_name is not None else layer_id)
+            clipped = actual_max > colour_max * (1.0 + 1.0e-12)
+            axis.set_title(_("{layer} — planar current density").format(layer=name))
+            axis.text(
+                0.01, 0.01,
+                _("Maximum: {maximum:.6g} A/mm²; colour cap (P99.5): {cap:.6g} A/mm²{suffix}").format(
+                    maximum=actual_max, cap=colour_max,
+                    suffix=_(" — colours clipped") if clipped else "",
+                ),
+                transform=axis.transAxes, fontsize=8, va="bottom", ha="left",
+                bbox={"facecolor": "white", "alpha": 0.75, "edgecolor": "none"},
+            )
+            axis.set_xlabel(_("X (mm)")); axis.set_ylabel(_("Y (mm)"))
+            axis.set_aspect("equal", "box")
+            self._fit_xy(axis, board_bounds, invert_y=True)
+            return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
+        except Exception as exc:
+            if self.debug:
+                print(f"Current-density layer plot error: {exc}")
+            return None
+
+    def plot_vertical_current_density(
+        self, density_result, *, board_bounds=None, as_png=False,
+    ):
+        """Render via/PTH barrel-density locations separately from planar copper."""
+        try:
+            samples = list(density_result.vertical_samples)
+            if not samples:
+                return None
+            values = np.asarray([sample.density_a_per_mm2 for sample in samples], dtype=float)
+            actual_max = float(np.max(values)) if values.size else 0.0
+            colour_max = float(np.percentile(values, 99.5)) if values.size else 1.0
+            colour_max = colour_max or actual_max or 1.0
+            fig, axis = plt.subplots(figsize=self._figsize(board_bounds), constrained_layout=True)
+            scatter = axis.scatter(
+                [sample.x_mm for sample in samples], [-sample.y_mm for sample in samples],
+                c=values, cmap="inferno", vmin=0.0, vmax=colour_max,
+                s=42, marker="o", edgecolor="white", linewidth=0.5,
+            )
+            fig.colorbar(scatter, ax=axis, label=_("Barrel current density (A/mm²)"))
+            axis.set_title(_("Via and plated-hole current density"))
+            axis.text(
+                0.01, 0.01,
+                _("Maximum: {maximum:.6g} A/mm²; colour cap (P99.5): {cap:.6g} A/mm²{suffix}").format(
+                    maximum=actual_max, cap=colour_max,
+                    suffix=_(" — colours clipped") if actual_max > colour_max * (1.0 + 1.0e-12) else "",
+                ),
+                transform=axis.transAxes, fontsize=8, va="bottom", ha="left",
+                bbox={"facecolor": "white", "alpha": 0.75, "edgecolor": "none"},
+            )
+            axis.set_xlabel(_("X (mm)")); axis.set_ylabel(_("Y (mm)"))
+            axis.set_aspect("equal", "box")
+            self._fit_xy(axis, board_bounds, invert_y=True)
+            return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
+        except Exception as exc:
+            if self.debug:
+                print(f"Vertical current-density plot error: {exc}")
+            return None
+
     def plot_impedance_sweep(self, baseline, optimized=None):
         """Plot rail impedance magnitude and phase over frequency."""
         try:

@@ -17,7 +17,8 @@ Power-delivery and thermal issues are often discovered late: an undersized coppe
 - Automatic discovery of candidate power rails and an editable power-tree configuration.
 - Pad-level source and load assignment, rail dependency ordering, regulator efficiency, and LDO loss modelling.
 - Multi-layer 2.5D resistive copper mesh with track, pad, zone, via, and plated-through-hole connectivity.
-- Per-rail voltage drop, current-density, copper-loss, floating-island, and connectivity diagnostics.
+- Per-rail voltage drop, branch-current-based density maps for routes/zones and
+  plated barrels, copper-loss, floating-island, and connectivity diagnostics.
 - Live-board refresh before every run: save the PCB, then analyse again without restarting KiCad or the plugin.
 
 ### AC impedance and decoupling

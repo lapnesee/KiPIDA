@@ -459,6 +459,7 @@ def adapt_cfd_result(mesh: Any, domain_result: Any) -> AnalysisResult:
 def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisResult:
     findings = []
     metrics = []
+    density_hotspots = {}
     for index, (rail, data) in enumerate((system_results or {}).items(), start=1):
         vmin, vmax, drop = data.get("stats", (0.0, 0.0, 0.0))
         drop_pct = (float(drop) / float(vmax) * 100.0) if vmax else 0.0
@@ -466,6 +467,49 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
             f"rail_{index}_drop", f"{rail} voltage drop", drop_pct, "%",
             "WARN" if drop_pct > float(maximum_drop_pct) else "PASS",
         ))
+        density = data.get("current_density")
+        if density is not None:
+            metrics.extend([
+                AnalysisMetric(
+                    f"rail_{index}_maximum_planar_current_density",
+                    f"{rail} maximum planar current density",
+                    float(density.maximum_planar_a_per_mm2), "A/mm²", "ESTIMATED",
+                ),
+                AnalysisMetric(
+                    f"rail_{index}_planar_current_density_p99_5",
+                    f"{rail} planar current density P99.5",
+                    float(density.percentile_99_5_a_per_mm2), "A/mm²", "ESTIMATED",
+                ),
+                AnalysisMetric(
+                    f"rail_{index}_maximum_track_current_density",
+                    f"{rail} maximum route current density",
+                    float(density.maximum_track_a_per_mm2), "A/mm²", "ESTIMATED",
+                ),
+                AnalysisMetric(
+                    f"rail_{index}_maximum_zone_current_density",
+                    f"{rail} maximum zone current density",
+                    float(density.maximum_zone_a_per_mm2), "A/mm²", "ESTIMATED",
+                ),
+                AnalysisMetric(
+                    f"rail_{index}_maximum_via_current",
+                    f"{rail} maximum via current",
+                    float(density.maximum_via_current_a), "A", "ESTIMATED",
+                ),
+                AnalysisMetric(
+                    f"rail_{index}_maximum_via_current_density",
+                    f"{rail} maximum via barrel current density",
+                    float(density.maximum_via_a_per_mm2), "A/mm²", "ESTIMATED",
+                ),
+            ])
+            hotspot = getattr(density, "planar_hotspot", None)
+            if hotspot is not None:
+                density_hotspots[str(rail)] = {
+                    "density_a_per_mm2": float(hotspot.density_a_per_mm2),
+                    "x_mm": float(hotspot.x_mm), "y_mm": float(hotspot.y_mm),
+                    "layer_id": int(hotspot.layer_id),
+                    "layer_name": str(getattr(hotspot, "layer_name", hotspot.layer_id)),
+                    "copper_kind": str(hotspot.copper_kind),
+                }
         detailed = data.get("detailed_result")
         compute = data.get("compute_metadata")
         if detailed is not None and not getattr(detailed, "valid", True):
@@ -491,7 +535,11 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
     return AnalysisResult(
         "DC", "DC Power",
         status=AnalysisStatus.NO_DATA if not system_results else (AnalysisStatus.WARN if findings else AnalysisStatus.PASS),
-        summary={"rail_count": len(system_results or {}), "maximum_drop_pct": float(maximum_drop_pct)},
+        summary={
+            "rail_count": len(system_results or {}),
+            "maximum_drop_pct": float(maximum_drop_pct),
+            "current_density_hotspots": density_hotspots,
+        },
         findings=findings, metrics=metrics,
         provenance=[
             AnalysisEvidence(
@@ -504,6 +552,14 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
                 "Rail sources, loads, regulator relationships, and explicit parasitics come from the saved project configuration.",
                 reference="project configuration",
             ),
+            AnalysisEvidence(
+                "DC_SOLVER",
+                "Current-density metrics use solved branch currents directly; no voltage-gradient reconstruction is used.",
+                reference="DCSolveResult.branch_currents_a",
+            ),
         ],
-        limitations=["Connector and contact resistances are included only when explicitly modeled."],
+        limitations=[
+            "Connector and contact resistances are included only when explicitly modeled.",
+            "Current density is a DC mesh diagnostic, not an IPC ampacity certification; AC skin/proximity effects, contact details, and measured copper temperature are excluded.",
+        ],
     ).finish()

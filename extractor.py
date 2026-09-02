@@ -551,6 +551,46 @@ class GeometryExtractor:
             })
         return result
 
+    def get_track_geometry(self, net_name):
+        """Return physical routed-copper geometry grouped by layer.
+
+        This intentionally excludes the mesher's capture safety buffer so it
+        can classify solved branches as route, zone, overlap, or pad/other.
+        """
+        if LineString is None or unary_union is None:
+            return {}
+        shapes = {}
+        for track in self._get_items_for_net('tracks', net_name):
+            start = self._get_val(track, 'start')
+            end = self._get_val(track, 'end')
+            if start is None or end is None:
+                continue
+            width_mm = to_mm(self._get_val(track, 'width', 0.0))
+            if width_mm <= 0.0:
+                continue
+            points = [
+                (to_mm(self._get_val(start, 'x', 0)), to_mm(self._get_val(start, 'y', 0))),
+            ]
+            mid = self._get_val(track, 'mid')
+            if mid is not None:
+                points.append((
+                    to_mm(self._get_val(mid, 'x', 0)),
+                    to_mm(self._get_val(mid, 'y', 0)),
+                ))
+            points.append((
+                to_mm(self._get_val(end, 'x', 0)), to_mm(self._get_val(end, 'y', 0)),
+            ))
+            if len(set(points)) == 1:
+                geometry = Point(points[0]).buffer(width_mm / 2.0)
+            else:
+                geometry = LineString(points).buffer(width_mm / 2.0, cap_style=1)
+            layer_id = int(self._get_val(track, 'layer', -1))
+            shapes.setdefault(layer_id, []).append(geometry)
+        return {
+            layer_id: unary_union(layer_shapes)
+            for layer_id, layer_shapes in shapes.items() if layer_shapes
+        }
+
     def get_zone_geometry(self, net_name):
         """Return actual filled-zone copper only, grouped by copper layer."""
         if Polygon is None or unary_union is None:

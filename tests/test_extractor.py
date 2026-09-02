@@ -133,6 +133,14 @@ class TestGeometryExtractor(unittest.TestCase):
         self.assertEqual(geometry[0].geom_type, "GeometryCollection")
         self.assertEqual(len(geometry[0].geoms), 2)
 
+    def test_track_classification_geometry_uses_physical_width(self):
+        self.board.tracks.append(
+            MockTrack(1, 0, (0, 0), (10_000_000, 0), 500_000),
+        )
+        geometry = self.extractor.get_track_geometry("TestNet")
+        expected_area = 10.0 * 0.5 + math.pi * 0.25 ** 2
+        self.assertAlmostEqual(geometry[0].area, expected_area, delta=0.01)
+
     def test_geometry_index_logging_does_not_depend_on_merge_scope(self):
         messages = []
         extractor = GeometryExtractor(self.board, log_callback=messages.append)

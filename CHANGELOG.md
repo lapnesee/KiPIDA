@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Added branch-current-based DC current-density diagnostics for routed copper,
+  filled zones, overlaps, vias, and plated through holes. Planar maps use an
+  automatic P99.5 colour cap while retaining the real maximum in reports and
+  persistent structured metrics.
+- Added explicit geometry-confidence warnings and clarified that DC density
+  maps are diagnostics rather than IPC ampacity certification.
+
 ## 0.19.0 - 2026-09-02
 
 - Added an official Palace project backend for a solver installed on a LAN host.

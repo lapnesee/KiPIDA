@@ -3920,3 +3920,29 @@ msgstr ""
 #, python-brace-format
 msgid "~{nodes:,} nodes / {branches:,} branches — host peak {host:.0f} MiB, GPU {gpu:.0f} MiB — limit {limit:,} nodes{ceiling} — recommended: {backend}"
 msgstr ""
+
+#: plotter.py:267
+msgid "Barrel current density (A/mm²)"
+msgstr ""
+
+#: plotter.py:227
+msgid "Current density (A/mm²)"
+msgstr ""
+
+#: plotter.py:233 plotter.py:271
+#, python-brace-format
+msgid "Maximum: {maximum:.6g} A/mm²; colour cap (P99.5): {cap:.6g} A/mm²{suffix}"
+msgstr ""
+
+#: plotter.py:268
+msgid "Via and plated-hole current density"
+msgstr ""
+
+#: plotter.py:230
+#, python-brace-format
+msgid "{layer} — planar current density"
+msgstr ""
+
+#: plotter.py:235 plotter.py:273
+msgid " — colours clipped"
+msgstr ""

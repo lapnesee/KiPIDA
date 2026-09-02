@@ -52,7 +52,10 @@ class Mesh:
         self.G_final_csr = None # To be filled by solver or mesher if configured
         self.branches = [] # List[MeshBranch], retained for AC analysis
         
-    def add_edge_direct(self, u, v, g, inductance_h=0.0, kind="lateral"):
+    def add_edge_direct(
+        self, u, v, g, inductance_h=0.0, kind="lateral",
+        cross_section_mm2=0.0, geometry_source="",
+    ):
         """Adds an edge directly to the sparse data arrays."""
         if g <= 0:
             return
@@ -63,6 +66,8 @@ class Mesh:
             resistance_ohm=1.0 / float(g),
             inductance_h=max(0.0, float(inductance_h)),
             kind=kind,
+            cross_section_mm2=max(0.0, float(cross_section_mm2)),
+            geometry_source=str(geometry_source or ""),
         ))
 
         # G[u,u] += g
@@ -732,6 +737,20 @@ class Mesher:
         x_mm, y_mm = to_mm(pos.x), to_mm(pos.y)
         dia_mm = to_mm(self._get_val(via, 'width', 0.6*1e6))
         radius_mm = dia_mm / 2.0
+        padstack = self._get_val(via, 'padstack')
+        drill = self._get_val(via, 'drill_size')
+        if drill is None and padstack is not None:
+            drill = self._get_val(padstack, 'drill')
+        raw_drill = self._get_val(
+            drill, 'diameter', self._get_val(drill, 'x', self._get_val(via, 'drill', 0.0)),
+        )
+        drill_mm = to_mm(raw_drill) if raw_drill else max(0.05, dia_mm * 0.5)
+        geometry_source = (
+            "PCB_DRILL+ESTIMATED_PLATING_0.025MM" if raw_drill
+            else "ESTIMATED_DRILL_FROM_VIA_DIAMETER+ESTIMATED_PLATING_0.025MM"
+        )
+        plating_mm = 0.025
+        barrel_area_mm2 = math.pi * (drill_mm * plating_mm + plating_mm ** 2)
         
         nodes_in_stack = []
         # Sort layers to ensure vertical sequence
@@ -751,7 +770,11 @@ class Mesher:
             lb = mesh.node_coords[nid_b][2]
             g_via = self._calculate_vertical_g(la, lb, stackup, dia_mm)
             l_via = self._calculate_vertical_l(la, lb, stackup, dia_mm)
-            mesh.add_edge_direct(nid_a, nid_b, g_via, l_via, "via")
+            mesh.add_edge_direct(
+                nid_a, nid_b, g_via, l_via, "via",
+                cross_section_mm2=barrel_area_mm2,
+                geometry_source=geometry_source,
+            )
 
     def _add_vertical_stack(self, mesh, pos, layers, diameter, stackup):
         if layers is None or len(layers) == 0:
@@ -761,6 +784,8 @@ class Mesher:
              
         x_mm, y_mm = to_mm(pos.x), to_mm(pos.y)
         radius_mm = diameter / 2.0
+        plating_mm = 0.025
+        barrel_area_mm2 = math.pi * (diameter * plating_mm + plating_mm ** 2)
         
         nodes_in_stack = []
         for layer in layers:
@@ -775,6 +800,10 @@ class Mesher:
             lb = mesh.node_coords[nid_b][2]
             g_via = self._calculate_vertical_g(la, lb, stackup, diameter)
             l_via = self._calculate_vertical_l(la, lb, stackup, diameter)
-            mesh.add_edge_direct(nid_a, nid_b, g_via, l_via, "pth")
+            mesh.add_edge_direct(
+                nid_a, nid_b, g_via, l_via, "pth",
+                cross_section_mm2=barrel_area_mm2,
+                geometry_source="PCB_DRILL+ESTIMATED_PLATING_0.025MM",
+            )
 
 

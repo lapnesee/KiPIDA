@@ -2772,3 +2772,21 @@ msgstr "Le fichier projet a été mis à jour, mais cette API IPC KiCad ne perme
 
 msgid "~{nodes:,} nodes / {branches:,} branches — host peak {host:.0f} MiB, GPU {gpu:.0f} MiB — limit {limit:,} nodes{ceiling} — recommended: {backend}"
 msgstr "~{nodes:,} nœuds / {branches:,} branches — host pic {host:.0f} MiB, GPU {gpu:.0f} MiB — limite {limit:,} nœuds{ceiling} — recommandé: {backend}"
+
+msgid "Barrel current density (A/mm²)"
+msgstr "Densité de courant du fût métallisé (A/mm²)"
+
+msgid "Current density (A/mm²)"
+msgstr "Densité de courant (A/mm²)"
+
+msgid "Maximum: {maximum:.6g} A/mm²; colour cap (P99.5): {cap:.6g} A/mm²{suffix}"
+msgstr "Maximum : {maximum:.6g} A/mm² ; plafond de couleurs (P99,5) : {cap:.6g} A/mm²{suffix}"
+
+msgid "Via and plated-hole current density"
+msgstr "Densité de courant des vias et trous métallisés"
+
+msgid "{layer} — planar current density"
+msgstr "{layer} — densité de courant planaire"
+
+msgid " — colours clipped"
+msgstr " — couleurs écrêtées"
