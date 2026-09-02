@@ -3,6 +3,8 @@ import unittest
 import sys
 import os
 import math
+import tempfile
+from pathlib import Path
 
 try:
     from shapely.geometry import LineString, Polygon, Point, box
@@ -139,6 +141,65 @@ class TestGeometryExtractor(unittest.TestCase):
         self.assertIn(0, geometry)
         self.assertTrue(any("Indexed" in message for message in messages))
         self.assertFalse(any("Collecting" in message for message in messages))
+
+    def test_saved_multilayer_zone_fills_missing_ipc_layer(self):
+        board_text = """
+(kicad_pcb
+  (layers
+    (0 "F.Cu" signal)
+    (31 "B.Cu" signal)
+  )
+  (zone
+    (net "GND")
+    (layers "F.Cu" "B.Cu")
+    (filled_polygon
+      (layer "B.Cu")
+      (pts (xy 0 0) (xy 10 0) (xy 10 5) (xy 0 5))
+    )
+  )
+)
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            board_path = Path(directory) / "multilayer.kicad_pcb"
+            board_path.write_text(board_text, encoding="utf-8")
+            extractor = GeometryExtractor(self.board, board_path=board_path)
+            geometry = extractor.get_zone_geometry("GND")
+        self.assertIn(31, geometry)
+        self.assertAlmostEqual(geometry[31].area, 50.0)
+
+    def test_saved_zone_layer_names_remap_to_live_kicad10_ids(self):
+        board_text = """
+(kicad_pcb
+  (layers
+    (10 "In4.Cu" power)
+    (2 "B.Cu" signal)
+  )
+  (zone
+    (net "GND")
+    (layers "In4.Cu" "B.Cu")
+    (filled_polygon
+      (layer "In4.Cu")
+      (pts (xy 0 0) (xy 10 0) (xy 10 5) (xy 0 5))
+    )
+  )
+)
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            board_path = Path(directory) / "kicad10-layers.kicad_pcb"
+            board_path.write_text(board_text, encoding="utf-8")
+            extractor = GeometryExtractor(self.board, board_path=board_path)
+            extractor._stackup_cache = {
+                'copper': {
+                    7: {'name': 'In4.Cu', 'thickness_mm': 0.0152},
+                    8: {'name': 'B.Cu', 'thickness_mm': 0.035},
+                },
+                'layer_order': [7, 8], 'substrate': [],
+                'source': 'KICAD_IPC', 'trustworthy': True, 'warnings': [],
+            }
+            geometry = extractor.get_zone_geometry("GND")
+        self.assertIn(7, geometry)
+        self.assertNotIn(10, geometry)
+        self.assertAlmostEqual(geometry[7].area, 50.0)
 
 if __name__ == '__main__':
     unittest.main()

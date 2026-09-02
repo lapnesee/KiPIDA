@@ -30,6 +30,10 @@ class Solver:
         self.compute_backend = SparseComputeBackend(compute_settings, log_callback)
         self.last_compute = None
         self._topology_cache = {}
+        self._node_index_cache = {}
+        self._branch_array_cache = {}
+        self._last_solve_state = None
+        self.last_diagnostics = {}
         if np is None or scipy is None:
             raise ImportError("NumPy and SciPy are required for Solver backend.")
 
@@ -37,7 +41,48 @@ class Solver:
         if self.log_callback:
             self.log_callback(f"[SOLVER] {msg}")
 
-    def solve(self, mesh, sources, loads, branch_resistance_scales=None):
+    def _node_index(self, mesh):
+        """Cache immutable node-index data for repeated coupled solves."""
+        nodes_object = getattr(mesh, 'nodes', [])
+        key = (id(mesh), id(nodes_object), len(nodes_object))
+        cached = self._node_index_cache.get(key)
+        if cached is None:
+            nodes = list(nodes_object)
+            cached = (nodes, {node_id: index for index, node_id in enumerate(nodes)})
+            self._node_index_cache[key] = cached
+        return cached
+
+    def _branch_arrays(self, mesh, id_to_idx):
+        """Return fixed branch topology/resistance arrays for a mesh."""
+        branches = getattr(mesh, 'branches', [])
+        key = (id(mesh), id(branches), len(branches), len(id_to_idx))
+        cached = self._branch_array_cache.get(key)
+        if cached is None:
+            branch_a = np.fromiter(
+                (id_to_idx.get(branch.node_a, -1) for branch in branches),
+                dtype=np.int64, count=len(branches),
+            )
+            branch_b = np.fromiter(
+                (id_to_idx.get(branch.node_b, -1) for branch in branches),
+                dtype=np.int64, count=len(branches),
+            )
+            base_resistance = np.fromiter(
+                (float(branch.resistance_ohm) for branch in branches),
+                dtype=float, count=len(branches),
+            )
+            valid = (branch_a >= 0) & (branch_b >= 0)
+            valid_a = branch_a[valid]
+            valid_b = branch_b[valid]
+            rows = np.concatenate((valid_a, valid_b, valid_a, valid_b))
+            cols = np.concatenate((valid_a, valid_b, valid_b, valid_a))
+            cached = (branch_a, branch_b, base_resistance, valid, rows, cols)
+            self._branch_array_cache[key] = cached
+        return cached
+
+    def solve(
+        self, mesh, sources, loads, branch_resistance_scales=None,
+        initial_voltages=None,
+    ):
         """
         Solves the DC circuit Mesh: [G][V] = [I]
         
@@ -54,10 +99,9 @@ class Solver:
             return {}
             
         # 1. Map Node IDs to Matrix Indices (0..N-1)
-        nodes = list(mesh.nodes)
+        nodes, id_to_idx = self._node_index(mesh)
         N = len(nodes)
-        id_to_idx = { nid: i for i, nid in enumerate(nodes) }
-        idx_to_id = { i: nid for i, nid in enumerate(nodes) }
+        branch_arrays = None
         
         # 2. Build Matrix G
         if branch_resistance_scales is not None and getattr(mesh, 'branches', None):
@@ -68,29 +112,14 @@ class Solver:
             # endpoints never do.  COO assembly retains the same Laplacian as
             # the legacy LIL inserts while removing millions of Python sparse
             # writes from the repeated DC path.
-            branch_a = np.fromiter(
-                (id_to_idx.get(branch.node_a, -1) for branch in mesh.branches),
-                dtype=np.int64, count=len(mesh.branches),
-            )
-            branch_b = np.fromiter(
-                (id_to_idx.get(branch.node_b, -1) for branch in mesh.branches),
-                dtype=np.int64, count=len(mesh.branches),
-            )
-            base_resistance = np.fromiter(
-                (float(branch.resistance_ohm) for branch in mesh.branches),
-                dtype=float, count=len(mesh.branches),
-            )
+            branch_arrays = self._branch_arrays(mesh, id_to_idx)
+            branch_a, branch_b, base_resistance, valid, rows, cols = branch_arrays
             conductance = 1.0 / np.maximum(
                 base_resistance * np.maximum(scales, 1.0e-9), 1.0e-15
             )
-            valid = (branch_a >= 0) & (branch_b >= 0)
-            branch_a, branch_b, conductance = (
-                branch_a[valid], branch_b[valid], conductance[valid]
-            )
-            rows = np.concatenate((branch_a, branch_b, branch_a, branch_b))
-            cols = np.concatenate((branch_a, branch_b, branch_b, branch_a))
+            conductance = conductance[valid]
             values = np.concatenate((conductance, conductance, -conductance, -conductance))
-            G = scipy.sparse.coo_matrix((values, (rows, cols)), shape=(N, N)).tolil()
+            G = scipy.sparse.coo_matrix((values, (rows, cols)), shape=(N, N))
         elif hasattr(mesh, 'G_coo_data') and len(mesh.G_coo_data) > 0:
             if self.debug:
                 self._log(f"Using pre-computed sparse matrix ({len(mesh.G_coo_data)} entries).")
@@ -113,7 +142,6 @@ class Solver:
             # But let's be robust:
             # We can use a fast lookup array if max(nodes) isn't huge.
             G = scipy.sparse.coo_matrix((data, (row_ids, col_ids)), shape=(N, N))
-            G = G.tolil()
             
         else:
             if self.debug:
@@ -138,6 +166,7 @@ class Solver:
         # leaves genuinely floating copper islands in a singular system.
         valid_node_mask = np.ones(N, dtype=bool)
         floating_representatives = []
+        excluded_load_nodes = set()
         topology_key = (
             id(mesh), N,
             tuple(sorted(str(source.get('node_id')) for source in sources)),
@@ -145,8 +174,8 @@ class Solver:
         )
         cached_topology = self._topology_cache.get(topology_key)
         if cached_topology is not None:
-            valid_node_mask, floating_representatives = (
-                cached_topology[0].copy(), list(cached_topology[1])
+            valid_node_mask, floating_representatives, excluded_load_nodes = (
+                cached_topology[0].copy(), list(cached_topology[1]), set(cached_topology[2])
             )
         else:
             try:
@@ -185,6 +214,7 @@ class Solver:
                         and abs(float(load.get('current', 0.0))) > 0.0
                     }
                     if load_nodes:
+                        excluded_load_nodes.update(load_nodes)
                         self._log(
                             f"ERROR: Island #{component} ({len(component_indices)} nodes) has "
                             f"{len(load_nodes)} load node(s) but no voltage source; "
@@ -196,7 +226,8 @@ class Solver:
                             "no voltage source or load."
                         )
                 self._topology_cache[topology_key] = (
-                    valid_node_mask.copy(), tuple(floating_representatives)
+                    valid_node_mask.copy(), tuple(floating_representatives),
+                    tuple(excluded_load_nodes),
                 )
             except Exception as e:
                 self._log(f"Connectivity diagnostic failed: {e}")
@@ -212,36 +243,86 @@ class Solver:
                 idx = id_to_idx[nid]
                 I[idx] -= current
                 
-        # 5. Apply Voltage Sources (Dirichlet BCs)
+        # 5. Collect voltage sources (Dirichlet BCs).  They are applied after
+        # connectivity analysis so the original copper graph remains visible.
+        constrained_values = {}
         for source in sources:
             nid = source.get('node_id')
             voltage = source.get('voltage', 0.0)
             if nid in id_to_idx:
                 idx = id_to_idx[nid]
-                
-                # Zero out the row efficiently
-                G.rows[idx] = [idx]
-                G.data[idx] = [1.0]
-                
-                I[idx] = voltage
+                value = float(voltage)
+                previous = constrained_values.get(idx)
+                if previous is not None and not np.isclose(previous, value, rtol=0.0, atol=1.0e-12):
+                    raise ValueError(
+                        f"Conflicting source voltages at node {nid}: {previous:g} V and {value:g} V."
+                    )
+                constrained_values[idx] = value
 
         # Anchor one node in each excluded component so the full sparse matrix
         # remains nonsingular.  These reference values are never returned and
         # therefore cannot contaminate voltage-drop statistics or plots.
         for idx in floating_representatives:
-            G.rows[idx] = [idx]
-            G.data[idx] = [1.0]
-            I[idx] = 0.0
+            constrained_values.setdefault(idx, 0.0)
                 
         # 6. Solve System
-        # Convert to CSR for solving efficiency
-        G_csr = G.tocsr()
+        # Eliminate Dirichlet rows *and columns* while correcting the RHS.
+        # Row-only replacement makes the Laplacian non-symmetric and forces
+        # slow/fragile BiCGSTAB on CUDA.  Symmetric elimination preserves the
+        # exact voltages, yields an SPD matrix and unlocks robust GPU CG.
+        G_base = G.tocsr()
+        G_base.sum_duplicates()
+        G_base.sort_indices()
+        if constrained_values:
+            constrained_idx = np.fromiter(constrained_values.keys(), dtype=np.int64)
+            constrained_voltage = np.fromiter(
+                (constrained_values[index] for index in constrained_values),
+                dtype=float,
+            )
+            I -= np.asarray(G_base[:, constrained_idx].dot(constrained_voltage)).reshape(-1)
+            free = np.ones(N, dtype=bool)
+            free[constrained_idx] = False
+            coo = G_base.tocoo(copy=False)
+            keep = free[coo.row] & free[coo.col]
+            rows = np.concatenate((coo.row[keep], constrained_idx))
+            cols = np.concatenate((coo.col[keep], constrained_idx))
+            data = np.concatenate((coo.data[keep], np.ones(len(constrained_idx), dtype=float)))
+            G_csr = scipy.sparse.coo_matrix((data, (rows, cols)), shape=(N, N)).tocsr()
+            I[constrained_idx] = constrained_voltage
+        else:
+            G_csr = G_base
+        G_csr.sort_indices()
         
         try:
             static_values = branch_resistance_scales is None
+            # A power rail normally sits close to its source voltage.  Starting
+            # CG from that uniform field removes much of the slow near-null
+            # error mode on the first CUDA solve.  Later coupled solves replace
+            # it with the still-better device-resident previous solution.
+            source_voltages = [
+                float(source.get('voltage', 0.0)) for source in sources
+                if source.get('node_id') in id_to_idx
+            ]
+            initial_guess = None
+            if initial_voltages:
+                initial_guess = np.full(
+                    N, float(np.median(source_voltages)) if source_voltages else 0.0,
+                    dtype=float,
+                )
+                for node_id, value in initial_voltages.items():
+                    index = id_to_idx.get(node_id)
+                    if index is not None:
+                        initial_guess[index] = float(value)
+                for idx, value in constrained_values.items():
+                    initial_guess[idx] = value
+            elif source_voltages:
+                initial_guess = np.full(N, float(np.median(source_voltages)), dtype=float)
+                for idx, value in constrained_values.items():
+                    initial_guess[idx] = value
             solved = self.compute_backend.solve(
-                G_csr, I, system_kind="DC",
+                G_csr, I, system_kind="SPD",
                 cache_key=("dc", id(mesh)), matrix_values_static=static_values,
+                initial_guess=initial_guess,
             )
             self.last_compute = solved.metadata
             V_solution = solved.values
@@ -259,18 +340,38 @@ class Solver:
         for i, v_val in enumerate(V_solution):
             if not valid_node_mask[i]:
                 continue
-            nid = idx_to_id[i]
+            nid = nodes[i]
             results[nid] = float(v_val)
-            
+
+        if branch_arrays is None and getattr(mesh, 'branches', None):
+            branch_arrays = self._branch_arrays(mesh, id_to_idx)
+        self._last_solve_state = {
+            "mesh_id": id(mesh),
+            "values": np.asarray(V_solution, dtype=float),
+            "valid_node_mask": valid_node_mask,
+            "branch_arrays": branch_arrays,
+        }
+        self.last_diagnostics = {
+            "excluded_load_node_count": len(excluded_load_nodes),
+            "excluded_load_references": sorted({
+                str(load.get("ref_des")) for load in loads
+                if load.get("node_id") in excluded_load_nodes and load.get("ref_des")
+            }),
+            "floating_island_count": len(floating_representatives),
+        }
         return results
 
-    def solve_detailed(self, mesh, sources, loads, branch_resistance_scales=None):
+    def solve_detailed(
+        self, mesh, sources, loads, branch_resistance_scales=None,
+        initial_voltages=None,
+    ):
         """Solve DC and retain branch currents/losses for thermal coupling."""
         voltages = self.solve(
             mesh,
             sources,
             loads,
             branch_resistance_scales=branch_resistance_scales,
+            initial_voltages=initial_voltages,
         )
         scales = (
             np.asarray(branch_resistance_scales, dtype=float).reshape(-1)
@@ -279,18 +380,55 @@ class Solver:
         )
         if len(scales) != len(getattr(mesh, 'branches', [])):
             raise ValueError("One resistance scale is required for every mesh branch.")
-        currents = []
-        losses = []
-        for branch, scale in zip(getattr(mesh, 'branches', []), scales):
-            resistance = max(branch.resistance_ohm * max(float(scale), 1e-9), 1e-15)
-            voltage_delta = voltages.get(branch.node_a, 0.0) - voltages.get(branch.node_b, 0.0)
-            current = voltage_delta / resistance
-            currents.append(float(current))
-            losses.append(float(current * current * resistance))
+        state = self._last_solve_state
+        branch_count = len(getattr(mesh, 'branches', []))
+        if state is not None and state["mesh_id"] == id(mesh) and state["branch_arrays"] is not None:
+            branch_a, branch_b, base_resistance, valid_endpoints, _, _ = state["branch_arrays"]
+            resistance = np.maximum(base_resistance * np.maximum(scales, 1e-9), 1e-15)
+            active = valid_endpoints.copy()
+            active[valid_endpoints] &= (
+                state["valid_node_mask"][branch_a[valid_endpoints]] &
+                state["valid_node_mask"][branch_b[valid_endpoints]]
+            )
+            voltage_delta = np.zeros(branch_count, dtype=float)
+            voltage_delta[active] = (
+                state["values"][branch_a[active]] - state["values"][branch_b[active]]
+            )
+            currents_array = voltage_delta / resistance
+            losses_array = currents_array * currents_array * resistance
+            currents = currents_array.tolist()
+            losses = losses_array.tolist()
+            total_loss = float(np.sum(losses_array, dtype=float))
+        else:
+            currents = []
+            losses = []
+            for branch, scale in zip(getattr(mesh, 'branches', []), scales):
+                resistance = max(branch.resistance_ohm * max(float(scale), 1e-9), 1e-15)
+                voltage_delta = voltages.get(branch.node_a, 0.0) - voltages.get(branch.node_b, 0.0)
+                current = voltage_delta / resistance
+                currents.append(float(current))
+                losses.append(float(current * current * resistance))
+            total_loss = float(sum(losses))
+        excluded_count = int(self.last_diagnostics.get("excluded_load_node_count", 0))
+        excluded_references = list(self.last_diagnostics.get("excluded_load_references", []))
+        warnings = []
+        if excluded_count:
+            reference_suffix = (
+                f" ({', '.join(excluded_references)})" if excluded_references else ""
+            )
+            warnings.append(
+                f"{excluded_count} load node(s){reference_suffix} excluded because their copper "
+                "island has no voltage source."
+            )
         return DCSolveResult(
             voltages=voltages,
             branch_currents_a=currents,
             branch_losses_w=losses,
-            total_loss_w=float(sum(losses)),
+            total_loss_w=total_loss,
+            compute_metadata=self.last_compute,
+            valid=excluded_count == 0,
+            excluded_load_node_count=excluded_count,
+            excluded_load_references=excluded_references,
+            warnings=warnings,
         )
 

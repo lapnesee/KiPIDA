@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 @dataclass
 class ComponentRef:
@@ -60,6 +60,53 @@ class VoltageRegulator:
     # output references are often inductors, so they must not double as a
     # thermal placement hint. Empty means the input component.
     thermal_ref_des: str = ""
+    # Optional physical loss model.  Older project files omit it and retain
+    # the legacy efficiency fallback in ``efficiency``.
+    loss_model: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class PowerParameter:
+    """A scalar used by the power model together with its evidence.
+
+    ``source`` is deliberately free text: datasheet, footprint, user
+    configuration and estimate are all useful distinctions in a report.
+    """
+    value: float
+    source: str = "estimate"
+    confidence: str = "low"
+    reference: str = ""
+    condition: str = ""
+    typical_or_max: str = ""
+
+
+@dataclass
+class LossContribution:
+    ref_des: str
+    mechanism: str
+    power_w: float
+    provenance: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class PowerStageResult:
+    """Traceable power accounting for one regulator or pass device."""
+    name: str
+    input_ref_des: str
+    output_ref_des: str
+    vin_v: float
+    vout_v: float
+    iin_a: float
+    iout_a: float
+    efficiency: float
+    efficiency_provenance: str
+    losses: List[LossContribution] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+    balance_relative_error_pct: float = 0.0
+
+    @property
+    def total_loss_w(self) -> float:
+        return sum(max(0.0, item.power_w) for item in self.losses)
 
 @dataclass
 class PowerRail:
@@ -133,6 +180,7 @@ class ACAnalysisSettings:
     frequency_start_hz: float = 1.0e3
     frequency_stop_hz: float = 1.0e8
     frequency_points: int = 121
+    mesh_resolution_mm: float = 0.5
     target_impedance_ohm: float = 0.05
     source: ACSourceModel = field(default_factory=ACSourceModel)
     measurement_port: ACMeasurementPort = field(default_factory=ACMeasurementPort)
@@ -197,6 +245,11 @@ class DifferentialAnalysisSettings:
     solder_mask_thickness_mm: float = 0.02
     solder_mask_epsilon_r: float = 3.3
     fabrication_profile: str = "GENERIC"
+    geometry_mode: str = "AUTO"
+    coplanar_ground_gap_mm: float = 0.15
+    enable_targeted_3d_refinement: bool = True
+    targeted_3d_max_sections: int = 4
+    targeted_3d_error_threshold_pct: float = 10.0
     minimum_width_mm: float = 0.10
     minimum_gap_mm: float = 0.10
     minimum_ground_clearance_mm: float = 0.15
@@ -211,6 +264,8 @@ class DifferentialSectionResult:
     width_mm: float
     gap_mm: float
     topology: str
+    geometry_mode: str = "AUTO"
+    ground_clearance_mm: float = 0.0
     reference_above: str = ""
     reference_below: str = ""
     reference_coverage_pct: float = 0.0
@@ -220,7 +275,14 @@ class DifferentialSectionResult:
     reference_distance_mm: float = 0.0
     reference_above_distance_mm: float = 0.0
     reference_below_distance_mm: float = 0.0
+    reference_above_epsilon_r: float = 4.4
+    reference_below_epsilon_r: float = 4.4
     reference_epsilon_r: float = 4.4
+    effective_epsilon_r: float = 0.0
+    two_d_impedance_ohm: float = 0.0
+    three_d_impedance_ohm: float = 0.0
+    refinement_status: str = "NOT_SELECTED"
+    refinement_reason: str = ""
     trustworthy: bool = False
     warnings: List[str] = field(default_factory=list)
 
@@ -232,6 +294,7 @@ class DifferentialRecommendation:
     pair_name: str
     layer_name: str = ""
     topology: str = ""
+    geometry_mode: str = "AUTO"
     current_width_mm: float = 0.0
     current_gap_mm: float = 0.0
     current_impedance_ohm: float = 0.0
@@ -256,7 +319,16 @@ class DifferentialPairResult:
     minimum_impedance_ohm: float = 0.0
     maximum_impedance_ohm: float = 0.0
     error_pct: float = 0.0
+    positive_length_mm: float = 0.0
+    negative_length_mm: float = 0.0
     length_mismatch_mm: float = 0.0
+    length_mismatch_pct: float = 0.0
+    estimated_skew_ps: float = 0.0
+    skew_limit_ps: float = 0.0
+    maximum_length_mismatch_mm: float = 0.0
+    skew_margin_ps: float = 0.0
+    length_symmetry_status: str = "NO_DATA"
+    shorter_net: str = ""
     status: str = "NO_DATA"
     trustworthy: bool = False
     warnings: List[str] = field(default_factory=list)
@@ -277,6 +349,80 @@ class EMCSignalSource:
     source: str = "auto"
     voltage_swing_v: float = 3.3
     current_a: float = 0.1
+    negative_net_name: str = ""
+    parameter_confidence: str = "LOW"
+    parameter_notes: str = "Editable engineering defaults"
+
+
+@dataclass
+class EMCInductorModel:
+    """Traceable magnetic-emission model for one switching inductor."""
+    ref_des: str
+    mpn: str = ""
+    source_name: str = ""
+    switching_net: str = ""
+    inductance_h: float = 0.0
+    vin_v: float = 0.0
+    vout_v: float = 0.0
+    switching_frequency_hz: float = 0.0
+    output_current_a: float = 0.0
+    ripple_current_pp_a: float = 0.0
+    width_mm: float = 0.0
+    depth_mm: float = 0.0
+    height_mm: float = 0.0
+    isat_a: float = 0.0
+    itemp_a: float = 0.0
+    shield_state: str = "UNKNOWN"
+    shielding_attenuation_db: Optional[float] = None
+    model_level: str = "BOUNDED_ESTIMATE"
+    parameter_source: str = "estimate"
+    parameter_confidence: str = "LOW"
+    parameter_reference: str = ""
+    notes: str = ""
+    enabled: bool = True
+
+
+@dataclass
+class EMCPhase10Settings:
+    """External multi-fidelity EMC pipeline introduced in Phase 10."""
+    enabled: bool = True
+    spice_enabled: bool = True
+    full_wave_enabled: bool = True
+    auto_run_full_wave: bool = False
+    full_wave_backend: str = "OPENEMS_LOCAL"
+    ngspice_path: str = r"C:\Spice64\bin\ngspice_con.exe"
+    spice_library_path: str = r"C:\Users\jbc66\Documents\DAW CONTROLEUR\Lib\SPICE"
+    openems_root: str = r"C:\openEMS"
+    openems_python_path: str = ""
+    gmsh_path: str = ""
+    palace_path: str = ""
+    palace_remote_host: str = ""
+    palace_remote_port: int = 22
+    palace_remote_username: str = ""
+    palace_remote_identity_file: str = ""
+    palace_remote_root: str = "~/kipida-palace"
+    palace_remote_executable: str = "palace"
+    palace_remote_config_path: str = ""
+    palace_remote_mpi_processes: int = 1
+    palace_remote_host_key_policy: str = "STRICT"
+    palace_remote_connect_timeout_s: float = 10.0
+    palace_remote_keep_files: bool = True
+    output_directory: str = ""
+    maximum_regions: int = 3
+    region_margin_mm: float = 5.0
+    mesh_resolution_mm: float = 0.25
+    maximum_cells: int = 2000000
+    solver_timeout_s: float = 600.0
+    openems_max_timesteps: int = 8000
+    openems_end_criteria: float = 1.0e-3
+    differential_excitation_mode: str = "DIFFERENTIAL"
+    differential_leg_impedance_ohm: float = 45.0
+    progress_interval_s: float = 5.0
+    receiver_distance_m: float = 3.0
+    receiver_detector: str = "QUASI_PEAK"
+    receiver_rbw_hz: float = 120000.0
+    include_cables: bool = True
+    include_enclosure: bool = False
 
 
 @dataclass
@@ -290,6 +436,7 @@ class EMCAnalysisSettings:
         default_factory=lambda: ["GND", "AGND", "DGND", "PGND"]
     )
     sources: List[EMCSignalSource] = field(default_factory=list)
+    inductor_models: List[EMCInductorModel] = field(default_factory=list)
     enabled_categories: List[str] = field(default_factory=lambda: [
         "GROUND", "DECOUPLING", "IO", "SWITCHING", "CLOCK", "STACKUP",
         "DIFFERENTIAL", "BOARD_EDGE", "PDN", "RETURN_PATH", "CROSSTALK",
@@ -302,6 +449,7 @@ class EMCAnalysisSettings:
     field_grid_size_mm: float = 1.0
     field_frequency_hz: float = 0.0  # 0 = each source at its configured fundamental
     field_maximum_cells: int = 250000
+    phase10: EMCPhase10Settings = field(default_factory=EMCPhase10Settings)
 
 
 @dataclass
@@ -348,6 +496,44 @@ class EMCFrequencyRisk:
 
 
 @dataclass
+class EMFieldSourceContribution:
+    """Per-source hotspot evidence used to explain a combined field map."""
+    source_name: str
+    net_names: tuple = ()
+    geometry_source: str = "ROUTED_TRACKS"
+    geometry_confidence: str = "HIGH"
+    maximum_e_v_m: float = 0.0
+    maximum_h_a_m: float = 0.0
+    maximum_e_position_mm: tuple = (0.0, 0.0)
+    maximum_h_position_mm: tuple = (0.0, 0.0)
+    relative_e_pct: float = 0.0
+    relative_h_pct: float = 0.0
+    analyzed_frequency_hz: float = 0.0
+    harmonic_number: int = 1
+
+
+@dataclass
+class EMInductorFieldContribution:
+    """Per-inductor magnetic-field evidence and uncertainty disclosure."""
+    ref_des: str
+    mpn: str = ""
+    source_name: str = ""
+    model_level: str = "BOUNDED_ESTIMATE"
+    shield_state: str = "UNKNOWN"
+    attenuation_applied_db: Optional[float] = None
+    harmonic_number: int = 1
+    analyzed_frequency_hz: float = 0.0
+    ripple_current_pp_a: float = 0.0
+    harmonic_current_peak_a: float = 0.0
+    maximum_h_a_m: float = 0.0
+    maximum_h_position_mm: tuple = (0.0, 0.0)
+    parameter_confidence: str = "LOW"
+    model_confidence: str = "LOW"
+    parameter_reference: str = ""
+    refinement_status: str = "NOT_REQUESTED"
+
+
+@dataclass
 class EMFieldSimulationResult:
     """Quasi-static PCB near-field estimate on a regular observation plane."""
     x_coordinates_mm: List[float] = field(default_factory=list)
@@ -355,17 +541,140 @@ class EMFieldSimulationResult:
     electric_field_v_m: List[List[float]] = field(default_factory=list)
     magnetic_field_a_m: List[List[float]] = field(default_factory=list)
     probe_height_mm: float = 0.0
+    requested_grid_size_mm: float = 0.0
+    effective_grid_size_mm: float = 0.0
     frequency_hz: float = 0.0
-    frequency_mode: str = "SOURCE_FUNDAMENTALS"
+    frequency_mode: str = "FIRST_IN_BAND_HARMONICS"
+    model_scope: str = "UNCALIBRATED_QUASI_STATIC_RANKING"
     source_count: int = 0
     segment_count: int = 0
     maximum_e_v_m: float = 0.0
     maximum_h_a_m: float = 0.0
     maximum_e_position_mm: tuple = (0.0, 0.0)
     maximum_h_position_mm: tuple = (0.0, 0.0)
+    source_contributions: List[EMFieldSourceContribution] = field(default_factory=list)
+    inductor_contributions: List[EMInductorFieldContribution] = field(default_factory=list)
+    source_segments: List[tuple] = field(default_factory=list)
     compute_backend: str = "CPU_NUMPY"
     elapsed_seconds: float = 0.0
     warnings: List[str] = field(default_factory=list)
+
+
+@dataclass
+class EMCPhase10ToolStatus:
+    name: str
+    available: bool
+    path: str = ""
+    version: str = ""
+    detail: str = ""
+
+
+@dataclass
+class EMCPhase10ExcitationResult:
+    source_name: str
+    status: str
+    provenance: str
+    peak_voltage_v: float = 0.0
+    peak_current_a: float = 0.0
+    maximum_dv_dt_v_s: float = 0.0
+    maximum_di_dt_a_s: float = 0.0
+    waveform_path: str = ""
+    notes: List[str] = field(default_factory=list)
+
+
+@dataclass
+class EMCPhase10RegionResult:
+    name: str
+    status: str
+    bounds_mm: tuple = (0.0, 0.0, 0.0, 0.0)
+    source_names: List[str] = field(default_factory=list)
+    finding_ids: List[str] = field(default_factory=list)
+    estimated_cells: int = 0
+    geometry_path: str = ""
+    solver_output_path: str = ""
+    maximum_e_v_m: Optional[float] = None
+    maximum_h_a_m: Optional[float] = None
+    elapsed_seconds: float = 0.0
+    solver_cells: int = 0
+    solver_iterations: int = 0
+    solver_converged: Optional[bool] = None
+    solver_energy_decay_db: Optional[float] = None
+    fields_extracted: bool = False
+    unused_primitive_count: int = 0
+    port_net_name: str = ""
+    port_net_names: List[str] = field(default_factory=list)
+    port_count: int = 0
+    port_mode: str = ""
+    port_leg_impedance_ohm: float = 0.0
+    port_excitations: List[float] = field(default_factory=list)
+    port_reference_layer_ids: List[int] = field(default_factory=list)
+    port_geometry_source: str = ""
+    port_confidence: str = ""
+    warnings: List[str] = field(default_factory=list)
+
+
+@dataclass
+class EMCPalaceRemoteRunResult:
+    """Traceable result of one Palace project executed over SSH."""
+    status: str = "NOT_RUN"
+    server: str = ""
+    remote_job_directory: str = ""
+    config_path: str = ""
+    problem_type: str = "UNKNOWN"
+    palace_version: str = ""
+    local_artifact_directory: str = ""
+    output_directory: str = ""
+    csv_files: List[str] = field(default_factory=list)
+    resolved_config_path: str = ""
+    elapsed_seconds: float = 0.0
+    return_code: Optional[int] = None
+    dry_run_passed: bool = False
+    warnings: List[str] = field(default_factory=list)
+
+
+@dataclass
+class EMCSpiceModelAudit:
+    """Traceable model coverage for a component used by a Phase 10 source."""
+    component_ref: str
+    mpn: str
+    source_name: str
+    status: str
+    model_name: str = ""
+    model_path: str = ""
+    catalog_status: str = ""
+    used: bool = False
+    fallback: str = "PARAMETRIC_SOURCE"
+    wrapper_name: str = ""
+    wrapper_path: str = ""
+    pin_mapping: str = ""
+    compatibility: str = "NOT_TESTED"
+    probe_log_path: str = ""
+    notes: str = ""
+
+
+@dataclass
+class EMCVirtualReceiverPoint:
+    frequency_hz: float
+    detector: str
+    level_dbuv_m: float
+    limit_dbuv_m: Optional[float]
+    margin_db: Optional[float]
+    source_name: str
+    provenance: str
+
+
+@dataclass
+class EMCPhase10Result:
+    status: str = "NOT_RUN"
+    tools: List[EMCPhase10ToolStatus] = field(default_factory=list)
+    excitations: List[EMCPhase10ExcitationResult] = field(default_factory=list)
+    regions: List[EMCPhase10RegionResult] = field(default_factory=list)
+    palace_runs: List[EMCPalaceRemoteRunResult] = field(default_factory=list)
+    receiver_points: List[EMCVirtualReceiverPoint] = field(default_factory=list)
+    spice_model_audit: List[EMCSpiceModelAudit] = field(default_factory=list)
+    output_directory: str = ""
+    elapsed_seconds: float = 0.0
+    limitations: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -375,6 +684,7 @@ class EMCAnalysisResult:
     risk_score: int = 100
     total_checks: int = 0
     severity_counts: Dict[str, int] = field(default_factory=dict)
+    score_penalties_by_rule: Dict[str, int] = field(default_factory=dict)
     per_net_scores: Dict[str, int] = field(default_factory=dict)
     probe_points: List[EMCProbePoint] = field(default_factory=list)
     frequency_risks: List[EMCFrequencyRisk] = field(default_factory=list)
@@ -384,6 +694,7 @@ class EMCAnalysisResult:
     elapsed_seconds: float = 0.0
     limitations: List[str] = field(default_factory=list)
     field_simulation: Optional[EMFieldSimulationResult] = None
+    phase10_result: Optional[EMCPhase10Result] = None
 
 
 @dataclass
@@ -413,6 +724,9 @@ class ImpedanceSweepResult:
     compute_relative_residual: float = 0.0
     compute_iterations: int = 0
     compute_cache_hits: int = 0
+    mesh_node_count: int = 0
+    requested_grid_size_mm: float = 0.0
+    effective_grid_size_mm: float = 0.0
 
 
 @dataclass
@@ -437,6 +751,11 @@ class DCSolveResult:
     branch_currents_a: List[float] = field(default_factory=list)
     branch_losses_w: List[float] = field(default_factory=list)
     total_loss_w: float = 0.0
+    compute_metadata: Any = None
+    valid: bool = True
+    excluded_load_node_count: int = 0
+    excluded_load_references: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -463,6 +782,13 @@ class ThermalComponentModel:
     max_junction_c: float = 125.0
     enabled: bool = True
     model_source: str = "estimated"
+    # Physical evidence stays with the saved thermal model, while mechanisms
+    # are regenerated from the electrical scenario on every refresh.
+    geometry_source: str = "estimate"
+    thermal_source: str = "estimate"
+    thermal_condition: str = ""
+    parameter_provenance: Dict[str, Any] = field(default_factory=dict)
+    loss_mechanisms: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -485,6 +811,7 @@ class ThermalAnalysisSettings:
     relaxation: float = 0.6
     copper_temp_coefficient_per_c: float = 0.00393
     components: List[ThermalComponentModel] = field(default_factory=list)
+    power_stage_reports: List[PowerStageResult] = field(default_factory=list)
 
     def resolved_color_scale_minimum_c(self) -> Optional[float]:
         """Return the requested lower colour bound, or None for auto."""
@@ -519,6 +846,9 @@ class ComponentThermalResult:
     max_junction_c: float
     margin_c: float
     model_source: str = "estimated"
+    theta_jb_c_per_w: float = 0.0
+    thermal_source: str = "estimate"
+    thermal_condition: str = ""
 
 
 @dataclass

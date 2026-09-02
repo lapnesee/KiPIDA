@@ -39,6 +39,9 @@ class ComputeMetadata:
     matrix_reused: bool = False
     matrix_assembly: str = "CPU_CSR"
     warm_start_used: bool = False
+    solver_method: str = "DIRECT"
+    converged: bool = True
+    initial_guess_used: bool = False
 
 
 @dataclass
@@ -125,7 +128,10 @@ class SparseComputeBackend:
         denominator = max(float(np.linalg.norm(rhs)), 1.0e-30)
         return float(numerator / denominator)
 
-    def solve(self, matrix, rhs, system_kind="SPD", cache_key=None, matrix_values_static=False):
+    def solve(
+        self, matrix, rhs, system_kind="SPD", cache_key=None,
+        matrix_values_static=False, initial_guess=None,
+    ):
         dtype = np.complex128 if (np.iscomplexobj(matrix.data) or np.iscomplexobj(rhs)) else np.float64
         if scipy.sparse.isspmatrix_coo(matrix):
             matrix = matrix.astype(dtype, copy=False)
@@ -143,6 +149,7 @@ class SparseComputeBackend:
                 return self._solve_cuda(
                     matrix, rhs, system_kind, cache_key=cache_key,
                     matrix_values_static=matrix_values_static,
+                    initial_guess=initial_guess,
                 )
             except Exception as exc:
                 if self.settings.backend == "CUDA":
@@ -170,14 +177,27 @@ class SparseComputeBackend:
                 effective_threads = 1
         elapsed = time.perf_counter() - started
         values = np.asarray(values, dtype=matrix.dtype)
+        if not np.all(np.isfinite(values)):
+            raise RuntimeError("CPU sparse solution contains non-finite values.")
+        relative_residual = self._residual(matrix, values, rhs)
+        residual_limit = max(5.0 * float(self.settings.solver_rtol), 1.0e-12)
+        if not np.isfinite(relative_residual) or relative_residual > residual_limit:
+            raise RuntimeError(
+                f"CPU sparse solver residual {relative_residual:.3g} exceeds "
+                f"{residual_limit:.3g}."
+            )
         return ComputeSolution(values, ComputeMetadata(
             backend=backend_name,
             solve_seconds=elapsed,
-            relative_residual=self._residual(matrix, values, rhs),
+            relative_residual=relative_residual,
             cpu_threads=effective_threads,
+            solver_method="DIRECT",
         ))
 
-    def _solve_cuda(self, matrix, rhs, system_kind, cache_key=None, matrix_values_static=False):
+    def _solve_cuda(
+        self, matrix, rhs, system_kind, cache_key=None,
+        matrix_values_static=False, initial_guess=None,
+    ):
         import cupy as cp
         import cupyx.scipy.sparse as cpx_sparse
         import cupyx.scipy.sparse.linalg as cpx_linalg
@@ -285,10 +305,10 @@ class SparseComputeBackend:
                 iterations[0] += 1
 
             solve_started = time.perf_counter()
-            # Power meshes with Dirichlet rows are non-symmetric and can be
-            # badly conditioned.  Give CUDA a short, useful BiCGSTAB trial,
-            # then let PARDISO handle the difficult cases instead of spending
-            # thousands of GPU iterations before the automatic CPU fallback.
+            # Legacy/non-symmetric DC matrices still get a bounded BiCGSTAB
+            # trial.  The DC solver now applies Dirichlet constraints
+            # symmetrically and submits an SPD matrix, which takes the CG path
+            # without this cap.
             dc_trial = str(system_kind).upper() == "DC"
             max_iterations = min(self.settings.solver_max_iterations, 750) if dc_trial else self.settings.solver_max_iterations
             kwargs = {
@@ -299,7 +319,12 @@ class SparseComputeBackend:
                 "callback": count_iteration,
             }
             warm_start_used = False
-            previous_solution = workspace.get("last_solution") if matrix_reused and workspace else None
+            initial_guess_used = False
+            # A previous solution remains a valid initial guess when only the
+            # matrix values changed (for example copper resistance during an
+            # electro-thermal iteration).  Requiring byte-identical matrix
+            # values disabled this useful warm start on every coupled DC pass.
+            previous_solution = workspace.get("last_solution") if structure_matches and workspace else None
             if (
                 previous_solution is not None and
                 previous_solution.shape == gpu_rhs.shape and
@@ -307,6 +332,14 @@ class SparseComputeBackend:
             ):
                 kwargs["x0"] = previous_solution
                 warm_start_used = True
+            elif initial_guess is not None:
+                host_guess = np.asarray(initial_guess, dtype=rhs.dtype)
+                if host_guess.shape != rhs.shape:
+                    raise ValueError("CUDA initial guess shape does not match RHS.")
+                if not np.all(np.isfinite(host_guess)):
+                    raise ValueError("CUDA initial guess contains non-finite values.")
+                kwargs["x0"] = cp.asarray(host_guess)
+                initial_guess_used = True
             if str(system_kind).upper() == "SPD":
                 gpu_values, status = cpx_linalg.cg(gpu_matrix, gpu_rhs, **kwargs)
             else:
@@ -327,6 +360,12 @@ class SparseComputeBackend:
             relative_residual = float(residual.get())
             if not np.all(np.isfinite(values)):
                 raise RuntimeError("CUDA solution contains non-finite values.")
+            residual_limit = max(5.0 * float(self.settings.solver_rtol), 1.0e-12)
+            if not np.isfinite(relative_residual) or relative_residual > residual_limit:
+                raise RuntimeError(
+                    f"CUDA iterative solver reported convergence but residual "
+                    f"{relative_residual:.3g} exceeds {residual_limit:.3g}."
+                )
             return ComputeSolution(values, ComputeMetadata(
                 backend="CUDA_CUPY",
                 device=str(device_name),
@@ -339,6 +378,8 @@ class SparseComputeBackend:
                 matrix_reused=matrix_reused,
                 matrix_assembly=matrix_assembly,
                 warm_start_used=warm_start_used,
+                solver_method="CG" if str(system_kind).upper() == "SPD" else "BICGSTAB",
+                initial_guess_used=initial_guess_used,
             ))
 
     def clear_cache(self):

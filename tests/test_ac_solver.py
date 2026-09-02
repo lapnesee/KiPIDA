@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest
+from types import SimpleNamespace
 
 plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if plugin_dir not in sys.path:
@@ -43,11 +44,17 @@ class TestACSolver(unittest.TestCase):
         return ACAnalysisSettings(**values)
 
     def test_source_impedance_is_recovered_by_one_ampere_injection(self):
-        result = ACSolver().solve_sweep(self.network(), self.settings())
+        network = self.network()
+        network.requested_grid_size_mm = 0.5
+        network.effective_grid_size_mm = 0.62
+        result = ACSolver().solve_sweep(network, self.settings())
 
         for impedance in result.impedance_ohm:
             self.assertAlmostEqual(abs(impedance), 0.1, places=9)
         self.assertTrue(result.meets_target)
+        self.assertEqual(result.mesh_node_count, 2)
+        self.assertAlmostEqual(result.requested_grid_size_mm, 0.5)
+        self.assertAlmostEqual(result.effective_grid_size_mm, 0.62)
 
     def test_rlc_capacitor_resonance_approaches_esr(self):
         capacitor = CapacitorModel(
@@ -74,6 +81,33 @@ class TestACSolver(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "not electrically connected"):
             ACSolver().solve_sweep(network, self.settings())
+
+    def test_auto_cuda_fallback_is_not_retried_at_every_frequency(self):
+        class RecordingBackend:
+            def __init__(self):
+                self.settings = SimpleNamespace(backend="AUTO")
+                self.calls = []
+
+            def solve(self, _matrix, _rhs, **_kwargs):
+                requested = self.settings.backend
+                self.calls.append(requested)
+                return SimpleNamespace(
+                    values=ac_solver.np.asarray([0.1 + 0.0j, 0.0 + 0.0j]),
+                    metadata=SimpleNamespace(
+                        backend="CPU_SCIPY", device="CPU", solve_seconds=0.01,
+                        transfer_seconds=0.0, relative_residual=0.0, iterations=1,
+                        cache_hit=False,
+                        fallback_reason=("status=5000" if requested == "AUTO" else ""),
+                    ),
+                )
+
+        solver = ACSolver()
+        solver.compute_backend = RecordingBackend()
+
+        result = solver.solve_sweep(self.network(), self.settings())
+
+        self.assertEqual(solver.compute_backend.calls, ["AUTO", "CPU", "CPU"])
+        self.assertEqual(result.compute_backend, "CPU_SCIPY")
 
     def test_optimizer_populates_existing_candidate(self):
         candidate = CapacitorModel(

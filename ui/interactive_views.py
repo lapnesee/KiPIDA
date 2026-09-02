@@ -105,13 +105,35 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
         self._tip_window = None
         self._tip_text = None
         self._suppress_click_on_left_up = False
+        self._is_destroyed = False
+        # Keep fitting while the notebook/splitter settles. wx can emit an
+        # early size event for a narrow temporary page before the maximized
+        # dialog completes layout; treating that event as final leaves plots
+        # small in a large viewport.
+        self._auto_fit_width = True
+        self._fit_mode = "WIDTH"
+        controls = wx.BoxSizer(wx.HORIZONTAL)
+        self._btn_fit_page = wx.Button(self, label="Fit page")
+        self._btn_fit_width = wx.Button(self, label="Fit width")
+        self._btn_actual_size = wx.Button(self, label="100%")
+        self._zoom_label = wx.StaticText(self, label="Zoom 100%")
+        for button in (self._btn_fit_page, self._btn_fit_width, self._btn_actual_size):
+            controls.Add(button, 0, wx.RIGHT, 5)
+        controls.AddStretchSpacer()
+        controls.Add(self._zoom_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         self._image = wx.StaticBitmap(self)
         self._sizer = wx.BoxSizer(wx.VERTICAL)
-        self._sizer.Add(self._image, 0, wx.ALL, 5)
+        self._sizer.Add(controls, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 5)
+        self._sizer.Add(self._image, 0, wx.ALL | wx.ALIGN_CENTER_HORIZONTAL, 5)
         self.SetSizer(self._sizer)
         self._render()
+        self.Bind(wx.EVT_SIZE, self._on_size)
+        self.Bind(wx.EVT_WINDOW_DESTROY, self._on_destroy)
         self.Bind(wx.EVT_MOUSEWHEEL, self._on_wheel)
         self._image.Bind(wx.EVT_MOUSEWHEEL, self._on_wheel)
+        self._btn_fit_page.Bind(wx.EVT_BUTTON, self._on_fit_page)
+        self._btn_fit_width.Bind(wx.EVT_BUTTON, self._on_fit_width)
+        self._btn_actual_size.Bind(wx.EVT_BUTTON, self._on_actual_size)
         for window in (self, self._image):
             window.Bind(wx.EVT_LEFT_DOWN, self._on_left_down)
             window.Bind(wx.EVT_LEFT_UP, self._on_left_up)
@@ -124,6 +146,62 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
     def scale(self):
         return self._scale
 
+    def _on_size(self, event):
+        if self._auto_fit_width:
+            wx.CallAfter(self._fit_to_width_if_alive)
+        event.Skip()
+
+    def _on_destroy(self, event):
+        if event.GetEventObject() is self:
+            self._is_destroyed = True
+        event.Skip()
+
+    def _fit_to_width_if_alive(self):
+        """Ignore delayed size callbacks after wx has started destroying the view."""
+        if self._is_destroyed:
+            return
+        try:
+            self._fit_to_width()
+        except RuntimeError:
+            # wx raises when the native window was deleted between CallAfter
+            # scheduling and callback execution.
+            self._is_destroyed = True
+
+    def _fit_to_width(self):
+        if self._is_destroyed or not self._auto_fit_width or not self._bitmap or not self._bitmap.IsOk():
+            return
+        width = self.GetClientSize().width
+        if width <= 100:
+            return
+        available = max(1, width - 20)
+        scale = available / max(1, self._bitmap.GetWidth())
+        if self._fit_mode == "PAGE":
+            controls_height = self._btn_fit_page.GetBestSize().height + 15
+            available_height = max(1, self.GetClientSize().height - controls_height)
+            scale = min(scale, available_height / max(1, self._bitmap.GetHeight()))
+        scale = max(self.MIN_SCALE, min(self.MAX_SCALE, scale))
+        if not math.isclose(scale, self._scale, rel_tol=1e-3):
+            self._scale = scale
+            self._render()
+
+    def _on_fit_page(self, _event):
+        self._fit_mode = "PAGE"
+        self._auto_fit_width = True
+        self._fit_to_width()
+        self.Scroll(0, 0)
+
+    def _on_fit_width(self, _event):
+        self._fit_mode = "WIDTH"
+        self._auto_fit_width = True
+        self._fit_to_width()
+        self.Scroll(0, 0)
+
+    def _on_actual_size(self, _event):
+        self._auto_fit_width = False
+        self._scale = 1.0
+        self._render()
+        self.Scroll(0, 0)
+
     def _render(self):
         if not self._bitmap or not self._bitmap.IsOk():
             return
@@ -132,6 +210,7 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
         image = self._bitmap.ConvertToImage().Scale(width, height, wx.IMAGE_QUALITY_HIGH)
         self._image.SetBitmap(wx.Bitmap(image))
         self._image.SetMinSize((width, height))
+        self._zoom_label.SetLabel(f"Zoom {self._scale * 100:.0f}%")
         self._sizer.Layout()
         self.FitInside()
 
@@ -143,6 +222,7 @@ class ZoomableBitmapPanel(wx.ScrolledWindow):
         new_scale = max(self.MIN_SCALE, min(self.MAX_SCALE, self._scale * factor))
         if math.isclose(new_scale, self._scale, rel_tol=1e-6):
             return
+        self._auto_fit_width = False
         position = self.ScreenToClient(event.GetEventObject().ClientToScreen(event.GetPosition()))
         old_x, old_y = self.GetViewStart()
         unit_x, unit_y = self.GetScrollPixelsPerUnit()

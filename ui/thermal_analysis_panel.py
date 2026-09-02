@@ -6,11 +6,11 @@ from i18n import _
 
 try:
     from models import AirflowSettings, ThermalAnalysisSettings
-    from thermal_model import PowerLossEstimator
+    from thermal_model import PowerLossEstimator, merge_component_heat_sources
     from thermal_mesh import estimate_thermal_mesh_cost
 except (ImportError, ValueError):
     from models import AirflowSettings, ThermalAnalysisSettings
-    from thermal_model import PowerLossEstimator
+    from thermal_model import PowerLossEstimator, merge_component_heat_sources
     from thermal_mesh import estimate_thermal_mesh_cost
 
 
@@ -329,14 +329,12 @@ class ThermalAnalysisPanel(wx.Panel):
             self.lbl_mesh_cost.SetLabel("Relative XY cells: invalid")
 
     def refresh_components(self, preserve_user=True):
-        saved = {component.ref_des: component for component in self.settings.components}
-        estimated = PowerLossEstimator.estimate(list(self.rails_provider() or []))
-        if preserve_user:
-            for index, component in enumerate(estimated):
-                prior = saved.get(component.ref_des)
-                if prior is not None and prior.model_source == "user":
-                    estimated[index] = prior
-        self.settings.components = estimated
+        detailed = PowerLossEstimator.estimate_details(list(self.rails_provider() or []))
+        estimated = detailed.components
+        self.settings.power_stage_reports = detailed.stages
+        self.settings.components = merge_component_heat_sources(
+            estimated, self.settings.components, preserve_user=preserve_user
+        )
         self._update_component_list()
 
     def _update_component_list(self):

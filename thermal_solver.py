@@ -38,7 +38,8 @@ class ThermalSolver:
         if self.log_callback:
             self.log_callback(f"[THERMAL SOLVER] {message}")
 
-    def solve(self, mesh, ambient_c=25.0, progress_callback=None):
+    def solve(self, mesh, ambient_c=25.0, progress_callback=None,
+              materialize_temperatures=True):
         if not mesh.nodes:
             raise ValueError("The thermal mesh is empty.")
         if not mesh.boundaries:
@@ -152,26 +153,27 @@ class ThermalSolver:
 
         if np.any(~np.isfinite(temperatures)):
             raise ValueError("Thermal solution contains non-finite temperatures.")
-        result_temperatures = {
-            node: float(temperatures[index]) for index, node in enumerate(mesh.nodes)
-        }
-        hotspot_node = max(result_temperatures, key=result_temperatures.get)
+        hotspot_index = int(np.argmax(temperatures))
+        hotspot_node = mesh.nodes[hotspot_index]
         hotspot_x, hotspot_y, hotspot_z = mesh.node_coords[hotspot_node]
         hotspot = ThermalHotspot(
             node_id=hotspot_node,
             x_mm=float(hotspot_x),
             y_mm=float(hotspot_y),
             z_mm=float(hotspot_z),
-            temperature_c=result_temperatures[hotspot_node],
+            temperature_c=float(temperatures[hotspot_index]),
         )
 
         component_results = []
         for ref_des, nodes in mesh.component_nodes.items():
             component = mesh.component_models[ref_des]
-            valid = [result_temperatures[node] for node in nodes if node in result_temperatures]
-            if not valid:
+            valid_indices = np.fromiter(
+                (translate(node) for node in nodes if translate(node) is not None),
+                dtype=np.int64,
+            )
+            if valid_indices.size == 0:
                 continue
-            board_temperature = float(sum(valid) / len(valid))
+            board_temperature = float(np.mean(temperatures[valid_indices]))
             junction = board_temperature + component.power_w * max(0.0, component.theta_jb_c_per_w)
             component_results.append(ComponentThermalResult(
                 ref_des=ref_des,
@@ -181,6 +183,9 @@ class ThermalSolver:
                 max_junction_c=component.max_junction_c,
                 margin_c=component.max_junction_c - junction,
                 model_source=component.model_source,
+                theta_jb_c_per_w=component.theta_jb_c_per_w,
+                thermal_source=getattr(component, "thermal_source", "estimate"),
+                thermal_condition=getattr(component, "thermal_condition", ""),
             ))
         component_results.sort(key=lambda item: item.junction_temperature_c, reverse=True)
 
@@ -196,7 +201,7 @@ class ThermalSolver:
         else:
             boundary_power = sum(
                 boundary.conductance_w_k *
-                (result_temperatures[boundary.node_id] - float(ambient_c))
+                (temperatures[translate(boundary.node_id)] - float(ambient_c))
                 for boundary in mesh.boundaries
             )
         denominator = max(abs(input_power), 1e-12)
@@ -208,6 +213,9 @@ class ThermalSolver:
             f"energy error {balance_error:.3g}%; backend {compute.metadata.backend}, "
             f"residual {compute.metadata.relative_residual:.3g}."
         )
+        result_temperatures = ({
+            node: float(temperatures[index]) for index, node in enumerate(mesh.nodes)
+        } if materialize_temperatures else {})
         return ThermalResult(
             temperatures_c=result_temperatures,
             temperature_vector_c=temperatures,

@@ -7,10 +7,12 @@ import numpy as np
 try:
     from .models import ElectroThermalResult
     from .solver import Solver
+    from .thermal_model import PowerLossEstimator
     from .thermal_solver import ThermalSolver
 except (ImportError, ValueError):
     from models import ElectroThermalResult
     from solver import Solver
+    from thermal_model import PowerLossEstimator
     from thermal_solver import ThermalSolver
 
 
@@ -84,7 +86,41 @@ class ElectroThermalSolver:
         )
         return mappings, identity_nodes, node_to_index
 
-    def solve(self, thermal_mesh, settings, rail_contexts, progress_callback=None):
+    @staticmethod
+    def _stage_power_by_component(stages):
+        power = {}
+        for stage in stages or []:
+            for loss in stage.losses:
+                if loss.ref_des:
+                    power[loss.ref_des] = power.get(loss.ref_des, 0.0) + max(
+                        0.0, float(loss.power_w)
+                    )
+        return power
+
+    @staticmethod
+    def _component_temperatures(thermal_mesh, temperatures, ambient_c,
+                                identity_nodes, node_to_index):
+        result = {}
+        for ref_des, nodes in thermal_mesh.component_nodes.items():
+            indices = [
+                int(node) if identity_nodes else int(node_to_index.get(node, -1))
+                for node in nodes
+            ]
+            indices = [index for index in indices if index >= 0]
+            board_temperature = (
+                float(np.mean(temperatures[indices])) if indices else float(ambient_c)
+            )
+            component = thermal_mesh.component_models.get(ref_des)
+            junction_rise = 0.0
+            if component is not None:
+                junction_rise = max(0.0, float(component.power_w)) * max(
+                    0.0, float(component.theta_jb_c_per_w)
+                )
+            result[ref_des] = board_temperature + junction_rise
+        return result
+
+    def solve(self, thermal_mesh, settings, rail_contexts, progress_callback=None,
+              rails=None):
         if not rail_contexts:
             raise ValueError("Run a DC analysis before coupled electro-thermal analysis.")
         thermal_solver = self.thermal_solver or ThermalSolver(
@@ -110,6 +146,29 @@ class ElectroThermalSolver:
             index = self._thermal_node_index(thermal_mesh, node, identity_nodes, node_to_index)
             if index >= 0:
                 base_heat_vector[index] += float(power)
+        # The mesh already contains the room-temperature stage estimate.  Strip
+        # only that portion, retain loads/manual heat, then replace it from the
+        # temperature-coupled model on every iteration.
+        initial_stages = list(getattr(settings, "power_stage_reports", []) or [])
+        initial_stage_power = self._stage_power_by_component(initial_stages)
+        component_nonstage_power = {}
+        if rails:
+            for ref_des, stage_power in initial_stage_power.items():
+                nodes = thermal_mesh.component_nodes.get(ref_des, [])
+                component = thermal_mesh.component_models.get(ref_des)
+                if not nodes or getattr(component, "model_source", "") == "user":
+                    continue
+                per_node = stage_power / len(nodes)
+                for node in nodes:
+                    index = self._thermal_node_index(
+                        thermal_mesh, node, identity_nodes, node_to_index
+                    )
+                    if index >= 0:
+                        base_heat_vector[index] -= per_node
+                if component is not None:
+                    component_nonstage_power[ref_des] = max(
+                        0.0, float(component.power_w) - stage_power
+                    )
         branch_mappings, _, _ = self._prepare_branch_thermal_indices(thermal_mesh, rail_contexts)
         previous_temperatures = np.full(node_count, float(settings.ambient_c), dtype=float)
         dc_results = {}
@@ -125,6 +184,33 @@ class ElectroThermalSolver:
             thermal_mesh.heat_sources_w = base_heat
             thermal_mesh.heat_vector_w = heat_vector
             dc_results = {}
+            dynamic_stages = initial_stages
+            if rails:
+                component_temperatures = self._component_temperatures(
+                    thermal_mesh, previous_temperatures, settings.ambient_c,
+                    identity_nodes, node_to_index,
+                )
+                dynamic = PowerLossEstimator.estimate_details(
+                    rails, component_temperatures_c=component_temperatures
+                )
+                dynamic_stages = dynamic.stages
+                dynamic_power = self._stage_power_by_component(dynamic_stages)
+                for ref_des, stage_power in dynamic_power.items():
+                    nodes = thermal_mesh.component_nodes.get(ref_des, [])
+                    component = thermal_mesh.component_models.get(ref_des)
+                    if not nodes or getattr(component, "model_source", "") == "user":
+                        continue
+                    per_node = stage_power / len(nodes)
+                    for node in nodes:
+                        index = self._thermal_node_index(
+                            thermal_mesh, node, identity_nodes, node_to_index
+                        )
+                        if index >= 0:
+                            heat_vector[index] += per_node
+                    if component is not None:
+                        component.power_w = (
+                            component_nonstage_power.get(ref_des, 0.0) + stage_power
+                        )
             for rail_name, context in rail_contexts.items():
                 electrical_mesh = context["mesh"]
                 thermal_indices = branch_mappings[rail_name]
@@ -145,6 +231,7 @@ class ElectroThermalSolver:
                     context.get("sources", []),
                     context.get("loads", []),
                     branch_resistance_scales=scales,
+                    initial_voltages=context.get("initial_voltages") if iteration == 0 else None,
                 )
                 dc_results[rail_name] = detailed
                 losses = np.asarray(detailed.branch_losses_w, dtype=float)
@@ -153,7 +240,9 @@ class ElectroThermalSolver:
                     np.add.at(heat_vector, thermal_indices[deposit], losses[deposit])
 
             dc_phase_seconds = time.perf_counter() - iteration_started
-            thermal_result = thermal_solver.solve(thermal_mesh, settings.ambient_c)
+            thermal_result = thermal_solver.solve(
+                thermal_mesh, settings.ambient_c, materialize_temperatures=False
+            )
             current_temperatures = thermal_result.temperature_vector_c
             if current_temperatures is None:
                 current_temperatures = np.fromiter(
@@ -174,6 +263,12 @@ class ElectroThermalSolver:
                 converged = True
                 break
 
+        thermal_result.temperatures_c = {
+            node: float(thermal_result.temperature_vector_c[index])
+            for index, node in enumerate(thermal_mesh.nodes)
+        }
+        if rails:
+            settings.power_stage_reports = dynamic_stages
         thermal_result.iterations = iteration + 1
         thermal_result.converged = converged
         return ElectroThermalResult(

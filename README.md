@@ -42,6 +42,9 @@ Power-delivery and thermal issues are often discovered late: an undersized coppe
 - Steady laminar airflow, pressure, temperature, Boussinesq buoyancy, and conjugate solid-air heat transfer.
 - Configurable enclosure dimensions, board placement, material settings, and inlet, outlet, vent, wall, and fan boundary patches.
 - Temperature, velocity, pressure, residual, mass-balance, and energy-balance results.
+- KiCad geometry is captured into a detached thermal board model before the
+  run. Optional DC copper losses, CFD solving, and six plot renders are then
+  sequenced by one cancellable background controller.
 
 ### Differential pairs and controlled impedance
 
@@ -52,6 +55,9 @@ Power-delivery and thermal issues are often discovered late: an undersized coppe
 - Length mismatch, routed-section, reference-plane, and confidence reporting.
 - Editable geometry recommendations based on target impedance and manufacturing width/gap/reference-plane constraints.
 - Injection of selected recommendations into dedicated `KiPIDA_DIFF_*` KiCad net classes and predefined routing sizes.
+- Live tracks, reference planes, and stackup are captured on the KiCad UI
+  thread; impedance solving, recommendation qualification, and plot rendering
+  run in a cancellable background controller.
 
 ### EMI/EMC pre-compliance
 
@@ -62,12 +68,22 @@ Power-delivery and thermal issues are often discovered late: an undersized coppe
 - Reuse of the latest AC impedance, differential-pair, and thermal results when available, with explicit confidence levels when only geometric evidence exists.
 - Severity-ranked findings with stable rule identifiers, per-net scores, board-coordinate evidence, a PCB risk map, relative harmonic/cavity-resonance plot, and a near-field pre-compliance test plan.
 - Quasi-static electric and magnetic near-field maps above the PCB, with configurable probe height, grid size, frequency envelope, per-source voltage swing/current, CPU/CUDA execution, hotspot coordinates, and live field readout under the mouse.
+- Switching-inductor magnetic estimates driven by the calculated buck ripple spectrum, with MPN-specific geometry/current limits, explicit shield provenance, per-inductor H-field contributions, and a targeted-refinement gate that refuses unsupported material assumptions. Shield attenuation is applied only when backed by a manufacturer curve or user measurement.
+- **Phase 10 multi-fidelity EMC:** automatic detection of ngspice and openEMS outside `PATH`, isolated Python-3.13 openEMS execution, parametric transient-source generation, risk-ranked local 3-D region selection, bounded geometry/stackup/track/zone/via export, mesh cell guards, and optional full-wave execution.
+- Phase 10 artifacts are written to a timestamped `KiPIDA-results/*-EMC-PHASE10` directory with a machine-readable manifest. Relative risk spectra pass through an RBW/detector receiver stage but are never compared with regulatory limits until an absolute calibrated far-field result exists.
+- Gmsh is detected as an optional FEM dependency. Palace can be selected as a remote LAN backend: Ki-PIDA validates and executes an existing Palace project through OpenSSH, then retrieves its resolved configuration and result artifacts without replacing the user-supplied mesh, materials, ports, or boundary conditions with hidden approximations.
 - Results are engineering risk estimates rather than a compliance certificate; absolute emissions, immunity, enclosure seams, and real cable behaviour still require measurement.
+- The live PCB is converted to an `EMCGeometrySnapshot` on the KiCad UI thread.
+  Deterministic checks, near-field solving, Phase 10 execution, and plot
+  rendering then share one cancellable background controller and one error path.
 
 ### Results and interaction
 
 - Independent result workspaces for DC, AC, differential, EMI/EMC, thermal, CFD, and debug analyses: a new analysis does not erase another analysis type.
-- Persistent result history stored in `KiPIDA-results` beside the board/project, selectable from the Results tab and removable from the GUI.
+- Persistent, versioned result history stored in `KiPIDA-results` beside the board/project. The Results workspace defaults to the latest campaign per analysis, can filter one analysis or show the complete history, and keeps explicit delete confirmations.
+- A common result contract presents the same verdict, severity, confidence, metric, evidence, limitation, and artifact concepts for every analysis domain.
+- Findings can be filtered by severity or searched by rule, text, net, and component. Selecting a finding opens its full recommendation and evidence without truncating the table, while a separate view exposes result provenance and model limitations.
+- Version-1 history remains readable without rewriting project data and is labelled `LEGACY` when structured metrics or provenance are unavailable.
 - Live thermal probing on Top, Bottom, and internal-copper maps: hover a solved map to read the nearest mesh-node temperature, X/Y/Z coordinate, and layer in the persistent status area above the Run buttons.
 - Clickable EMI/EMC map and spectrum observations with rule, severity, confidence, evidence targets, engineering interpretation, and corrective recommendation. Click the same point again to close its popup, click another point to replace it, or double-click the popup/point to copy its full contents.
 - Wheel zoom and left-drag panning for tables, plots, and 3D representations; output consoles support `Ctrl` + wheel, `Ctrl` + `+`/`-`, and `Ctrl+0` for text scaling.
@@ -121,14 +137,48 @@ python -m pip install -r requirements-cuda13.txt
 
 Use `requirements-cuda12.txt` for a CUDA 12 environment. A compatible NVIDIA driver, CuPy build, and KiCad restart are required. CUDA is optional; Ki-PIDA continues to operate with CPU sparse solvers when it is unavailable.
 
+Phase 10 optionally uses `C:\Spice64\bin\ngspice_con.exe` and `C:\openEMS\openEMS.exe` on Windows. The openEMS Python wheels must run in a matching isolated runtime; this installation uses `C:\openEMS\phase10-venv\Scripts\python.exe`. These tools are executed as subprocesses and are not imported into KiCad's Python runtime.
+
+### Palace on a LAN server
+
+Select **Palace — LAN server** in the Phase 10 panel, then configure the host,
+SSH port/user, optional private key, remote job root, Palace executable, MPI
+process count, and the Palace JSON configuration. Authentication uses the
+Windows OpenSSH client, an SSH key or agent, and `BatchMode`; Ki-PIDA never asks
+for or stores the server password. The default host-key policy accepts only a
+host already present in `known_hosts`. The explicit **Accept new host key** mode
+uses OpenSSH's `accept-new` policy and still rejects changed keys.
+
+Palace requires a configuration file and a pre-existing mesh. Ki-PIDA transfers
+the entire directory containing the selected JSON so relative mesh/material
+references remain valid. It first runs `palace -serial --dry-run`, then starts
+`palace -np N config.json`, records the remote job path and logs, and retrieves
+the complete project with generated CSV/PVD/resolved-configuration artifacts
+under the timestamped `KiPIDA-results/*-EMC-PHASE10/palace-remote` directory.
+Keeping remote files is enabled by default for reproducibility. Selecting this
+backend therefore explicitly discloses the chosen Palace project directory to
+the configured LAN host.
+
+When no project has been selected yet, the UI preselects
+`examples/palace-lan-minimal/minimal-electrostatic.json` and its five-tetrahedron
+Gmsh mesh. This is a fast end-to-end connection/solver smoke test only; it must
+be replaced by a reviewed Palace model before interpreting engineering results.
+
+Differential-pair Phase 10 regions can be excited in differential mode (`+0.5/-0.5`) or common mode (`+0.5/+0.5`). Ki-PIDA creates two configurable lumped legs (45 ohms per leg by default) only when both routed conductors share a verified reference-plane zone at the selected cross-section. This modal approximation is traceable in the report but is not a de-embedded wave port.
+
 ## 📖 Quick Start: DC Power Integrity
 
 1. Open the PCB and launch **Ki-PIDA Simulation**.
-2. In **Power Tree Config**, review the discovered rails and create the relationships between input rails and regulator outputs.
+2. In **Project → Power Tree & DC**, review the discovered rails and create the relationships between input rails and regulator outputs.
 3. For each rail, add one or more **Sources** and **Loads**, select their pads, and enter the expected load current.
 4. Set the voltage, regulator type, and efficiency where applicable.
 5. Click **Run DC Simulation**.
 6. Open **Results** to review the voltage-drop summary, per-rail 3D view, and layer maps.
+
+Ki-PIDA captures the live KiCad geometry on the UI thread, then performs DC
+meshing and sparse solving in a cancellable background controller. Progress is
+reported in Diagnostics, and the same detached snapshot path is used by coupled
+DC/thermal runs so worker threads never query KiCad IPC objects directly.
 
 Ki-PIDA solves rail dependencies from downstream loads back towards their source rails. A `12 V → 5 V → 3.3 V` path therefore propagates the 3.3 V demand upstream before solving the input rail.
 
@@ -137,13 +187,20 @@ Ki-PIDA solves rail dependencies from downstream loads back towards their source
 
 ## 📖 AC Impedance and Decoupling
 
-1. Configure the power rail in **Power Tree Config**, then open **AC Impedance**.
+1. Configure the power rail in **Project → Power Tree & DC**, then open **Power Integrity → AC Impedance**.
 2. Select the rail, return net, source, and measurement component.
-3. Enter the sweep range, points per sweep, source parasitics, and target impedance.
+3. Choose a Fast, Balanced, or Accurate analysis preset, then adjust the sweep range, point count, independent AC mesh, source parasitics, and target impedance when required.
 4. Review the detected rail-to-return capacitors.
 5. Click **Run AC Analysis** for impedance plots or **Optimize Decoupling** to score candidate/DNP footprints.
 
 The optimiser is deliberately non-destructive: it reports placements and values to consider, but does not alter the schematic, BOM, or layout.
+AC sweeps and decoupling optimization run in a background application
+controller, so navigation, logs, and progress remain responsive during long
+frequency sweeps. Progress reports solved points and cancellation remains
+available throughout the sweep. A second AC job cannot start until the current
+one finishes. The preflight estimate adapts the effective mesh to the configured
+node safety limit before solving, and AUTO mode keeps the remaining frequency
+points on CPU when a CUDA iterative solve is unsuitable for the network.
 
 ## 📖 3D Thermal and Coupled DC/Thermal
 
@@ -152,6 +209,11 @@ The optimiser is deliberately non-destructive: it reports placements and values 
 3. Click **Run Thermal** for a steady-state board solve.
 4. Enable **Include DC copper losses** and click **Run Coupled** to iterate electrical copper loss with temperature-dependent resistance.
 5. Review hotspot, input/boundary heat, energy balance, component junction estimates, and surface/internal maps in **Results**.
+
+Thermal geometry is captured from KiCad before execution. Meshing, steady-state
+solving, and coupled electro-thermal iterations then run through the same
+cancellable background-controller pattern as DC and AC analyses. Unchanged
+thermal models retain their in-session mesh and sparse-solver cache.
 6. Use **Inject thermal overlay** to place the current top and bottom thermal maps plus legends on dedicated KiCad user layers. Use **Clear thermal overlay** to remove only Ki-PIDA-owned overlay images.
 
 Thermal mesh cost grows approximately with the inverse square of the XY grid step: halving the grid step creates roughly four times as many XY cells. Use the estimate shown in the thermal panel and configure a RAM ceiling in **Runtime & Acceleration** before requesting a very fine mesh.
@@ -194,7 +256,34 @@ Each finding records its rule ID, confidence, affected nets/components, board co
 
 ## 🧭 Results and Saved History
 
-The **Results** tab keeps each analysis type separate for the current session. Result snapshots are also saved under `KiPIDA-results` beside the PCB/project. Select a previous snapshot from the history menu to inspect it, or use the deletion control to remove stored results from the GUI.
+The **Results → Analysis Results** workspace keeps each analysis type separate for the current session. Result snapshots are also saved under `KiPIDA-results` beside the PCB/project. Select a previous snapshot from the history menu to inspect it, or use the deletion control to remove stored results from the GUI. Filter findings by severity, search their rule/text/net/component fields, then select a row to inspect the complete recommendation and finding-specific evidence. The **Evidence & limits** page separates provenance from model limitations.
+
+Each new history entry contains a `manifest.json` index, a structured and
+schema-versioned `result.json`, a human-readable `report.txt`, and its plot
+artifacts. Older report-only entries remain readable.
+
+## 🧭 Workspace organization
+
+The left sidebar groups tools by engineering purpose instead of presenting
+every tool as an equal top-level tab:
+
+- **Project** — power tree, sources, loads, DC mesh, and design limits.
+- **Power Integrity** — AC impedance and decoupling optimization.
+- **Signal Integrity** — differential-pair impedance, reference, and length checks.
+- **EMI / EMC** — pre-compliance rules, risk maps, and field estimates.
+- **Thermal** — PCB thermal and enclosure CFD analyses.
+- **Results** — structured findings, metrics, plots, and saved campaigns.
+- **Application** — runtime acceleration and diagnostics.
+
+Only actions relevant to the selected workspace are shown in the bottom action
+bar. Analyses that open Diagnostics or Results automatically keep the sidebar,
+workspace title, and actions synchronized.
+
+All long-running analyses use the shared lifecycle in
+`application/background_controller.py`: one active run per analysis,
+cooperative cancellation, worker-to-UI callback dispatch, typed cancellation
+errors, and deterministic completion/error handling. Domain controllers retain
+only their request preparation and solver-specific orchestration.
 
 The project configuration is saved as `<project>.kipida.json` beside the `.kicad_pro` file. It stores project-scoped settings such as rails, loads, AC profiles, thermal configuration, CFD settings, differential-pair choices, and EMI/EMC sources and target profile. Runtime acceleration and interface-language settings intentionally remain machine-local.
 

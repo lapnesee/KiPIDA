@@ -13,6 +13,7 @@ if plugin_dir not in sys.path:
 
 from i18n import _, configure, install_wx_translation_hooks
 from runtime_config import load_runtime_settings
+from ipc_connection import connect_to_live_board
 
 def main():
     runtime_settings = load_runtime_settings()
@@ -36,12 +37,12 @@ def main():
     if not socket_path:
         temp_dir = tempfile.gettempdir()
         potential_path = os.path.join(temp_dir, 'kicad', 'api.sock')
-        
-        # On Windows, skip existence check for named pipes
-        if sys.platform == 'win32':
-             socket_path = potential_path
-        elif os.path.exists(potential_path):
-             socket_path = potential_path
+
+        # On Windows, ``kipy`` performs the native named-pipe discovery when
+        # no endpoint is supplied.  A fabricated Unix-style %TEMP% socket can
+        # connect to nothing and wait until timeout.
+        if sys.platform != 'win32' and os.path.exists(potential_path):
+            socket_path = potential_path
              
     # Ensure protocol prefix
     if socket_path and not socket_path.startswith('ipc://') and not socket_path.startswith('\\\\.\\pipe\\'):
@@ -52,17 +53,20 @@ def main():
         logger.info(msg)
         initial_logs.append(msg)
 
+    early_log(f"KiCad IPC endpoint: {socket_path or 'native auto-discovery'}")
+
     # early_log(f"Connecting to KiCad at {socket_path}")
     
     client = None
     board = None
     project = None
     
+    connection_error = None
     try:
-        # early_log("Initializing kipy client...")
-        client = kipy.KiCad(socket_path=socket_path, timeout_ms=3000)
-        # early_log("Requesting board object...")
-        board = client.get_board()
+        client, board = connect_to_live_board(
+            kipy.KiCad, socket_path=socket_path, attempts=3, timeout_ms=5000,
+            retry_delay_s=0.35, log_callback=early_log,
+        )
         
         # Keep the real Project API object when available: differential-rule
         # injection needs its live net-class and assignment operations.
@@ -124,16 +128,34 @@ def main():
         else:
             early_log("ERROR: client.get_board() returned None.")
     except Exception as e:
+        connection_error = e
         early_log(f"Connection failed with error: {e}")
         import traceback
         early_log(traceback.format_exc())
         
     # 2. Initialize wx App
     app = wx.App()
+
+    if board is None:
+        details = str(connection_error or "No active PCB document was returned.")
+        message = (
+            "Ki-PIDA could not connect to the active PCB Editor document.\n\n"
+            f"{details}\n\n"
+            "Keep the PCB Editor open, wait for KiCad to finish any modal operation, "
+            "then launch Ki-PIDA again. No analysis was started."
+        )
+        logger.error(message)
+        dialog = wx.MessageDialog(
+            None, message, "Ki-PIDA — KiCad IPC unavailable",
+            wx.OK | wx.ICON_ERROR,
+        )
+        dialog.ShowModal()
+        dialog.Destroy()
+        return
     
     # 3. Create and Show Dialog
     try:
-        dlg = KiPIDA_MainDialog(None, board_adapter=board, project=project) 
+        dlg = KiPIDA_MainDialog(None, board_adapter=board, project=project)
     except Exception as e:
         early_log(f"CRITICAL: Failed to create KiPIDA_MainDialog: {e}")
         import traceback

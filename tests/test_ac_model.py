@@ -21,6 +21,7 @@ class TestCapacitorDiscovery(unittest.TestCase):
         self.assertAlmostEqual(parse_capacitance("10uF 16V"), 10e-6)
         self.assertAlmostEqual(parse_capacitance("1.5pF"), 1.5e-12)
         self.assertIsNone(parse_capacitance("DNP"))
+        self.assertIsNone(parse_capacitance("TPS7A0233PDBVR"))
 
     def test_formats_engineering_units(self):
         self.assertEqual(format_capacitance(4.7e-6), "4.7uF")
@@ -39,7 +40,13 @@ class TestCapacitorDiscovery(unittest.TestCase):
             reference="C3", value="1u", footprint_name="Capacitor_SMD:C_0603",
             pads=[pad("1", "5V"), pad("2", "GND")], dnp=False,
         )
-        builder = ACModelBuilder(SimpleNamespace(footprints=[populated, candidate, unrelated]))
+        integrated_circuit = SimpleNamespace(
+            reference="U7", value="320000mF", footprint_name="mouser:RWB0012A",
+            pads=[pad("1", "3V3"), pad("2", "GND")], dnp=False,
+        )
+        builder = ACModelBuilder(SimpleNamespace(
+            footprints=[populated, candidate, unrelated, integrated_circuit],
+        ))
 
         capacitors = builder.discover_capacitors("3V3", "GND")
 

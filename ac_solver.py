@@ -176,6 +176,20 @@ class ACSolver:
                     )
                     voltage = solved.values
                     compute_samples.append(solved.metadata)
+                    if (
+                        solved.metadata.fallback_reason and
+                        self.compute_backend.settings.backend == "AUTO"
+                    ):
+                        # A general complex AC matrix that exhausts the CUDA
+                        # iteration budget is unlikely to improve at the next
+                        # adjacent frequency.  Avoid paying that full failed
+                        # trial at every sweep point; CPU direct solve remains
+                        # the deterministic fallback for the rest of this run.
+                        self.compute_backend.settings.backend = "CPU"
+                        self._log(
+                            "CUDA did not converge for this AC network; continuing "
+                            "the remaining frequency points on CPU."
+                        )
                 except Exception as exc:
                     raise ValueError(f"AC solve failed at {frequency:g} Hz: {exc}") from exc
 
@@ -212,4 +226,7 @@ class ACSolver:
             ),
             compute_iterations=sum(item.iterations for item in compute_samples),
             compute_cache_hits=sum(bool(item.cache_hit) for item in compute_samples),
+            mesh_node_count=int(network.node_count),
+            requested_grid_size_mm=float(network.requested_grid_size_mm),
+            effective_grid_size_mm=float(network.effective_grid_size_mm),
         )

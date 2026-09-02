@@ -139,6 +139,22 @@ class DesignRuleInjectorTests(unittest.TestCase):
                 item["name"] == "KiPIDA_DIFF_PAIR"
                 for item in data["net_settings"]["classes"]
             ))
+    def test_rejects_rule_below_any_configured_minimum(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "board.kicad_pro"
+            path.write_text(json.dumps({"net_settings": {}}), encoding="utf-8")
+            recommendation = DifferentialRecommendation(
+                pair_signature="USB_DM|USB_DP", pair_name="USB Data",
+                recommended_width_mm=0.15, recommended_gap_mm=0.18,
+                recommended_ground_clearance_mm=0.19,
+            )
+            with self.assertRaisesRegex(ValueError, "GND 0.190 < 0.200"):
+                DifferentialRuleInjector(path).apply(
+                    [recommendation], minimum_width_mm=0.13,
+                    minimum_gap_mm=0.13, minimum_ground_clearance_mm=0.20,
+                )
+            # Validation happens before the project is touched.
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {"net_settings": {}})
 
 
 if __name__ == "__main__":

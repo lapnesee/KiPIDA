@@ -8,7 +8,7 @@ try:
         AirflowSettings, CFDBoundaryPatch, CFDSolverSettings, ComponentRef,
         EnclosureCFDSettings, EnclosureGeometrySettings, FluidProperties,
         DifferentialAnalysisSettings, DifferentialPairCandidate,
-        EMCAnalysisSettings, EMCSignalSource,
+        EMCAnalysisSettings, EMCInductorModel, EMCPhase10Settings, EMCSignalSource,
         PowerRail, ProjectConfig, StackupLayerModel, StackupProfile,
         ThermalAnalysisSettings, ThermalComponentModel, UnifiedLoad,
         UnifiedSource, VoltageRegulator,
@@ -19,14 +19,17 @@ except (ImportError, ValueError):
         AirflowSettings, CFDBoundaryPatch, CFDSolverSettings, ComponentRef,
         EnclosureCFDSettings, EnclosureGeometrySettings, FluidProperties,
         DifferentialAnalysisSettings, DifferentialPairCandidate,
-        EMCAnalysisSettings, EMCSignalSource,
+        EMCAnalysisSettings, EMCInductorModel, EMCPhase10Settings, EMCSignalSource,
         PowerRail, ProjectConfig, StackupLayerModel, StackupProfile,
         ThermalAnalysisSettings, ThermalComponentModel, UnifiedLoad,
         UnifiedSource, VoltageRegulator,
     )
 
-CONFIG_VERSION = "1.7"
-SUPPORTED_CONFIG_VERSIONS = {"1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", CONFIG_VERSION}
+CONFIG_VERSION = "2.0"
+SUPPORTED_CONFIG_VERSIONS = {
+    "1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9",
+    CONFIG_VERSION,
+}
 
 
 def get_project_config_path(
@@ -217,6 +220,7 @@ def _regulator_to_dict(reg: VoltageRegulator) -> dict:
         "reg_type": reg.reg_type,
         "efficiency": reg.efficiency,
         "thermal_ref_des": reg.thermal_ref_des,
+        "loss_model": reg.loss_model,
     }
 
 def _dict_to_regulator(data: dict) -> VoltageRegulator:
@@ -232,6 +236,7 @@ def _dict_to_regulator(data: dict) -> VoltageRegulator:
         reg_type=data.get("reg_type", "LINEAR"),
         efficiency=data.get("efficiency", 0.85),
         thermal_ref_des=data.get("thermal_ref_des", ""),
+        loss_model=dict(data.get("loss_model", {}) or {}),
     )
 
 
@@ -242,6 +247,7 @@ def _ac_settings_to_dict(settings: ACAnalysisSettings) -> dict:
         "frequency_start_hz": settings.frequency_start_hz,
         "frequency_stop_hz": settings.frequency_stop_hz,
         "frequency_points": settings.frequency_points,
+        "mesh_resolution_mm": settings.mesh_resolution_mm,
         "target_impedance_ohm": settings.target_impedance_ohm,
         "source": {
             "ref_des": settings.source.ref_des,
@@ -280,6 +286,7 @@ def _dict_to_ac_settings(data: dict) -> ACAnalysisSettings:
         frequency_start_hz=float(data.get("frequency_start_hz", 1e3)),
         frequency_stop_hz=float(data.get("frequency_stop_hz", 1e8)),
         frequency_points=int(data.get("frequency_points", 121)),
+        mesh_resolution_mm=max(0.1, float(data.get("mesh_resolution_mm", 0.5))),
         target_impedance_ohm=float(data.get("target_impedance_ohm", 0.05)),
         source=ACSourceModel(
             ref_des=source_data.get("ref_des", ""),
@@ -370,6 +377,11 @@ def _differential_settings_to_dict(settings: DifferentialAnalysisSettings) -> di
         "solder_mask_thickness_mm": settings.solder_mask_thickness_mm,
         "solder_mask_epsilon_r": settings.solder_mask_epsilon_r,
         "fabrication_profile": settings.fabrication_profile,
+        "geometry_mode": settings.geometry_mode,
+        "coplanar_ground_gap_mm": settings.coplanar_ground_gap_mm,
+        "enable_targeted_3d_refinement": settings.enable_targeted_3d_refinement,
+        "targeted_3d_max_sections": settings.targeted_3d_max_sections,
+        "targeted_3d_error_threshold_pct": settings.targeted_3d_error_threshold_pct,
         "minimum_width_mm": settings.minimum_width_mm,
         "minimum_gap_mm": settings.minimum_gap_mm,
         "minimum_ground_clearance_mm": settings.minimum_ground_clearance_mm,
@@ -401,6 +413,11 @@ def _dict_to_differential_settings(data: dict) -> DifferentialAnalysisSettings:
         solder_mask_thickness_mm=float(data.get("solder_mask_thickness_mm", 0.02)),
         solder_mask_epsilon_r=float(data.get("solder_mask_epsilon_r", 3.3)),
         fabrication_profile=data.get("fabrication_profile", "GENERIC"),
+        geometry_mode=data.get("geometry_mode", "AUTO"),
+        coplanar_ground_gap_mm=float(data.get("coplanar_ground_gap_mm", 0.15)),
+        enable_targeted_3d_refinement=bool(data.get("enable_targeted_3d_refinement", True)),
+        targeted_3d_max_sections=max(0, int(data.get("targeted_3d_max_sections", 4))),
+        targeted_3d_error_threshold_pct=max(0.0, float(data.get("targeted_3d_error_threshold_pct", 10.0))),
         minimum_width_mm=float(data.get("minimum_width_mm", 0.10)),
         minimum_gap_mm=float(data.get("minimum_gap_mm", 0.10)),
         minimum_ground_clearance_mm=float(data.get("minimum_ground_clearance_mm", 0.15)),
@@ -408,6 +425,7 @@ def _dict_to_differential_settings(data: dict) -> DifferentialAnalysisSettings:
 
 
 def _emc_settings_to_dict(settings: EMCAnalysisSettings) -> dict:
+    phase10 = settings.phase10
     return {
         "standard": settings.standard,
         "market": settings.market,
@@ -422,6 +440,71 @@ def _emc_settings_to_dict(settings: EMCAnalysisSettings) -> dict:
         "field_grid_size_mm": settings.field_grid_size_mm,
         "field_frequency_hz": settings.field_frequency_hz,
         "field_maximum_cells": settings.field_maximum_cells,
+        "phase10": {
+            "enabled": phase10.enabled,
+            "spice_enabled": phase10.spice_enabled,
+            "full_wave_enabled": phase10.full_wave_enabled,
+            "auto_run_full_wave": phase10.auto_run_full_wave,
+            "full_wave_backend": phase10.full_wave_backend,
+            "ngspice_path": phase10.ngspice_path,
+            "spice_library_path": phase10.spice_library_path,
+            "openems_root": phase10.openems_root,
+            "openems_python_path": phase10.openems_python_path,
+            "gmsh_path": phase10.gmsh_path,
+            "palace_path": phase10.palace_path,
+            "palace_remote_host": phase10.palace_remote_host,
+            "palace_remote_port": phase10.palace_remote_port,
+            "palace_remote_username": phase10.palace_remote_username,
+            "palace_remote_identity_file": phase10.palace_remote_identity_file,
+            "palace_remote_root": phase10.palace_remote_root,
+            "palace_remote_executable": phase10.palace_remote_executable,
+            "palace_remote_config_path": phase10.palace_remote_config_path,
+            "palace_remote_mpi_processes": phase10.palace_remote_mpi_processes,
+            "palace_remote_host_key_policy": phase10.palace_remote_host_key_policy,
+            "palace_remote_connect_timeout_s": phase10.palace_remote_connect_timeout_s,
+            "palace_remote_keep_files": phase10.palace_remote_keep_files,
+            "output_directory": phase10.output_directory,
+            "maximum_regions": phase10.maximum_regions,
+            "region_margin_mm": phase10.region_margin_mm,
+            "mesh_resolution_mm": phase10.mesh_resolution_mm,
+            "maximum_cells": phase10.maximum_cells,
+            "solver_timeout_s": phase10.solver_timeout_s,
+            "openems_max_timesteps": phase10.openems_max_timesteps,
+            "openems_end_criteria": phase10.openems_end_criteria,
+            "differential_excitation_mode": phase10.differential_excitation_mode,
+            "differential_leg_impedance_ohm": phase10.differential_leg_impedance_ohm,
+            "progress_interval_s": phase10.progress_interval_s,
+            "receiver_distance_m": phase10.receiver_distance_m,
+            "receiver_detector": phase10.receiver_detector,
+            "receiver_rbw_hz": phase10.receiver_rbw_hz,
+            "include_cables": phase10.include_cables,
+            "include_enclosure": phase10.include_enclosure,
+        },
+        "inductor_models": [{
+            "ref_des": item.ref_des,
+            "mpn": item.mpn,
+            "source_name": item.source_name,
+            "switching_net": item.switching_net,
+            "inductance_h": item.inductance_h,
+            "vin_v": item.vin_v,
+            "vout_v": item.vout_v,
+            "switching_frequency_hz": item.switching_frequency_hz,
+            "output_current_a": item.output_current_a,
+            "ripple_current_pp_a": item.ripple_current_pp_a,
+            "width_mm": item.width_mm,
+            "depth_mm": item.depth_mm,
+            "height_mm": item.height_mm,
+            "isat_a": item.isat_a,
+            "itemp_a": item.itemp_a,
+            "shield_state": item.shield_state,
+            "shielding_attenuation_db": item.shielding_attenuation_db,
+            "model_level": item.model_level,
+            "parameter_source": item.parameter_source,
+            "parameter_confidence": item.parameter_confidence,
+            "parameter_reference": item.parameter_reference,
+            "notes": item.notes,
+            "enabled": item.enabled,
+        } for item in settings.inductor_models],
         "sources": [{
             "name": source.name,
             "net_name": source.net_name,
@@ -434,12 +517,35 @@ def _emc_settings_to_dict(settings: EMCAnalysisSettings) -> dict:
             "source": source.source,
             "voltage_swing_v": source.voltage_swing_v,
             "current_a": source.current_a,
+            "negative_net_name": source.negative_net_name,
+            "parameter_confidence": source.parameter_confidence,
+            "parameter_notes": source.parameter_notes,
         } for source in settings.sources],
     }
 
 
 def _dict_to_emc_settings(data: dict) -> EMCAnalysisSettings:
     defaults = EMCAnalysisSettings()
+    phase10_data = data.get("phase10", {}) or {}
+    phase10_defaults = defaults.phase10
+    differential_excitation_mode = str(phase10_data.get(
+        "differential_excitation_mode",
+        phase10_defaults.differential_excitation_mode,
+    )).upper()
+    if differential_excitation_mode not in {"DIFFERENTIAL", "COMMON_MODE"}:
+        differential_excitation_mode = phase10_defaults.differential_excitation_mode
+    full_wave_backend = str(phase10_data.get(
+        "full_wave_backend", phase10_defaults.full_wave_backend,
+    )).upper()
+    if full_wave_backend == "OPENEMS":
+        full_wave_backend = "OPENEMS_LOCAL"
+    if full_wave_backend not in {"OPENEMS_LOCAL", "PALACE_REMOTE"}:
+        full_wave_backend = phase10_defaults.full_wave_backend
+    palace_host_key_policy = str(phase10_data.get(
+        "palace_remote_host_key_policy", phase10_defaults.palace_remote_host_key_policy,
+    )).upper()
+    if palace_host_key_policy not in {"STRICT", "ACCEPT_NEW"}:
+        palace_host_key_policy = phase10_defaults.palace_remote_host_key_policy
     return EMCAnalysisSettings(
         standard=data.get("standard", defaults.standard),
         market=data.get("market", defaults.market),
@@ -468,6 +574,140 @@ def _dict_to_emc_settings(data: dict) -> EMCAnalysisSettings:
         field_maximum_cells=int(data.get(
             "field_maximum_cells", defaults.field_maximum_cells
         )),
+        phase10=EMCPhase10Settings(
+            enabled=bool(phase10_data.get("enabled", phase10_defaults.enabled)),
+            spice_enabled=bool(phase10_data.get(
+                "spice_enabled", phase10_defaults.spice_enabled
+            )),
+            full_wave_enabled=bool(phase10_data.get(
+                "full_wave_enabled", phase10_defaults.full_wave_enabled
+            )),
+            auto_run_full_wave=bool(phase10_data.get(
+                "auto_run_full_wave", phase10_defaults.auto_run_full_wave
+            )),
+            full_wave_backend=full_wave_backend,
+            ngspice_path=str(phase10_data.get(
+                "ngspice_path", phase10_defaults.ngspice_path
+            )),
+            spice_library_path=str(phase10_data.get(
+                "spice_library_path", phase10_defaults.spice_library_path
+            )),
+            openems_root=str(phase10_data.get(
+                "openems_root", phase10_defaults.openems_root
+            )),
+            openems_python_path=str(phase10_data.get(
+                "openems_python_path", phase10_defaults.openems_python_path
+            )),
+            gmsh_path=str(phase10_data.get("gmsh_path", phase10_defaults.gmsh_path)),
+            palace_path=str(phase10_data.get("palace_path", phase10_defaults.palace_path)),
+            palace_remote_host=str(phase10_data.get(
+                "palace_remote_host", phase10_defaults.palace_remote_host
+            )),
+            palace_remote_port=max(1, min(65535, int(phase10_data.get(
+                "palace_remote_port", phase10_defaults.palace_remote_port
+            )))),
+            palace_remote_username=str(phase10_data.get(
+                "palace_remote_username", phase10_defaults.palace_remote_username
+            )),
+            palace_remote_identity_file=str(phase10_data.get(
+                "palace_remote_identity_file", phase10_defaults.palace_remote_identity_file
+            )),
+            palace_remote_root=str(phase10_data.get(
+                "palace_remote_root", phase10_defaults.palace_remote_root
+            )),
+            palace_remote_executable=str(phase10_data.get(
+                "palace_remote_executable", phase10_defaults.palace_remote_executable
+            )),
+            palace_remote_config_path=str(phase10_data.get(
+                "palace_remote_config_path", phase10_defaults.palace_remote_config_path
+            )),
+            palace_remote_mpi_processes=max(1, min(4096, int(phase10_data.get(
+                "palace_remote_mpi_processes", phase10_defaults.palace_remote_mpi_processes
+            )))),
+            palace_remote_host_key_policy=palace_host_key_policy,
+            palace_remote_connect_timeout_s=max(1.0, float(phase10_data.get(
+                "palace_remote_connect_timeout_s",
+                phase10_defaults.palace_remote_connect_timeout_s,
+            ))),
+            palace_remote_keep_files=bool(phase10_data.get(
+                "palace_remote_keep_files", phase10_defaults.palace_remote_keep_files
+            )),
+            output_directory=str(phase10_data.get(
+                "output_directory", phase10_defaults.output_directory
+            )),
+            maximum_regions=max(0, int(phase10_data.get(
+                "maximum_regions", phase10_defaults.maximum_regions
+            ))),
+            region_margin_mm=max(0.0, float(phase10_data.get(
+                "region_margin_mm", phase10_defaults.region_margin_mm
+            ))),
+            mesh_resolution_mm=max(0.01, float(phase10_data.get(
+                "mesh_resolution_mm", phase10_defaults.mesh_resolution_mm
+            ))),
+            maximum_cells=max(1000, int(phase10_data.get(
+                "maximum_cells", phase10_defaults.maximum_cells
+            ))),
+            solver_timeout_s=max(1.0, float(phase10_data.get(
+                "solver_timeout_s", phase10_defaults.solver_timeout_s
+            ))),
+            openems_max_timesteps=max(100, int(phase10_data.get(
+                "openems_max_timesteps", phase10_defaults.openems_max_timesteps
+            ))),
+            openems_end_criteria=max(1.0e-8, min(0.1, float(phase10_data.get(
+                "openems_end_criteria", phase10_defaults.openems_end_criteria
+            )))),
+            differential_excitation_mode=differential_excitation_mode,
+            differential_leg_impedance_ohm=max(1.0, float(phase10_data.get(
+                "differential_leg_impedance_ohm",
+                phase10_defaults.differential_leg_impedance_ohm,
+            ))),
+            progress_interval_s=max(1.0, float(phase10_data.get(
+                "progress_interval_s", phase10_defaults.progress_interval_s
+            ))),
+            receiver_distance_m=max(0.01, float(phase10_data.get(
+                "receiver_distance_m", phase10_defaults.receiver_distance_m
+            ))),
+            receiver_detector=str(phase10_data.get(
+                "receiver_detector", phase10_defaults.receiver_detector
+            )),
+            receiver_rbw_hz=max(1.0, float(phase10_data.get(
+                "receiver_rbw_hz", phase10_defaults.receiver_rbw_hz
+            ))),
+            include_cables=bool(phase10_data.get(
+                "include_cables", phase10_defaults.include_cables
+            )),
+            include_enclosure=bool(phase10_data.get(
+                "include_enclosure", phase10_defaults.include_enclosure
+            )),
+        ),
+        inductor_models=[EMCInductorModel(
+            ref_des=str(item.get("ref_des", "")),
+            mpn=str(item.get("mpn", "")),
+            source_name=str(item.get("source_name", "")),
+            switching_net=str(item.get("switching_net", "")),
+            inductance_h=float(item.get("inductance_h", 0.0)),
+            vin_v=float(item.get("vin_v", 0.0)),
+            vout_v=float(item.get("vout_v", 0.0)),
+            switching_frequency_hz=float(item.get("switching_frequency_hz", 0.0)),
+            output_current_a=float(item.get("output_current_a", 0.0)),
+            ripple_current_pp_a=float(item.get("ripple_current_pp_a", 0.0)),
+            width_mm=float(item.get("width_mm", 0.0)),
+            depth_mm=float(item.get("depth_mm", 0.0)),
+            height_mm=float(item.get("height_mm", 0.0)),
+            isat_a=float(item.get("isat_a", 0.0)),
+            itemp_a=float(item.get("itemp_a", 0.0)),
+            shield_state=str(item.get("shield_state", "UNKNOWN")),
+            shielding_attenuation_db=(
+                float(item["shielding_attenuation_db"])
+                if item.get("shielding_attenuation_db") is not None else None
+            ),
+            model_level=str(item.get("model_level", "BOUNDED_ESTIMATE")),
+            parameter_source=str(item.get("parameter_source", "estimate")),
+            parameter_confidence=str(item.get("parameter_confidence", "LOW")),
+            parameter_reference=str(item.get("parameter_reference", "")),
+            notes=str(item.get("notes", "")),
+            enabled=bool(item.get("enabled", True)),
+        ) for item in data.get("inductor_models", []) if item.get("ref_des")],
         sources=[EMCSignalSource(
             name=source.get("name", source.get("net_name", "Source")),
             net_name=source.get("net_name", ""),
@@ -480,6 +720,9 @@ def _dict_to_emc_settings(data: dict) -> EMCAnalysisSettings:
             source=source.get("source", "auto"),
             voltage_swing_v=float(source.get("voltage_swing_v", 3.3)),
             current_a=float(source.get("current_a", 0.1)),
+            negative_net_name=str(source.get("negative_net_name", "") or ""),
+            parameter_confidence=str(source.get("parameter_confidence", "LOW") or "LOW"),
+            parameter_notes=str(source.get("parameter_notes", "Editable engineering defaults") or ""),
         ) for source in data.get("sources", [])],
     )
 
@@ -520,6 +763,10 @@ def _thermal_settings_to_dict(settings: ThermalAnalysisSettings) -> dict:
             "max_junction_c": component.max_junction_c,
             "enabled": component.enabled,
             "model_source": component.model_source,
+            "geometry_source": component.geometry_source,
+            "thermal_source": component.thermal_source,
+            "thermal_condition": component.thermal_condition,
+            "parameter_provenance": component.parameter_provenance,
         } for component in settings.components],
     }
 
@@ -567,6 +814,10 @@ def _dict_to_thermal_settings(data: dict) -> ThermalAnalysisSettings:
             max_junction_c=float(component.get("max_junction_c", 125.0)),
             enabled=bool(component.get("enabled", True)),
             model_source=component.get("model_source", "estimated"),
+            geometry_source=component.get("geometry_source", "estimate"),
+            thermal_source=component.get("thermal_source", "estimate"),
+            thermal_condition=component.get("thermal_condition", ""),
+            parameter_provenance=dict(component.get("parameter_provenance", {}) or {}),
         ) for component in data.get("components", [])],
     )
 

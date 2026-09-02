@@ -49,6 +49,13 @@ class CapacitorModelDialog(wx.Dialog):
 class ACAnalysisPanel(wx.Panel):
     """Configuration surface for impedance sweeps and decoupling optimization."""
 
+    ANALYSIS_PRESETS = (
+        ("Fast preview", "FAST", 61, 0.75),
+        ("Balanced (recommended)", "BALANCED", 121, 0.5),
+        ("Detailed", "DETAILED", 201, 0.35),
+        ("Custom", "CUSTOM", None, None),
+    )
+
     def __init__(self, parent, board, rails_provider, log_callback=None):
         super().__init__(parent)
         self.board = board
@@ -74,9 +81,14 @@ class ACAnalysisPanel(wx.Panel):
         self.choice_ground = wx.Choice(settings_parent)
         self.choice_source = wx.Choice(settings_parent)
         self.choice_port = wx.Choice(settings_parent)
+        self.choice_preset = wx.Choice(settings_parent)
+        for label, _key, _points, _mesh in self.ANALYSIS_PRESETS:
+            self.choice_preset.Append(label)
+        self.choice_preset.SetSelection(1)
         self.txt_f_start = wx.TextCtrl(settings_parent, value="1e3")
         self.txt_f_stop = wx.TextCtrl(settings_parent, value="1e8")
         self.txt_points = wx.TextCtrl(settings_parent, value="121")
+        self.txt_mesh_resolution = wx.TextCtrl(settings_parent, value="0.5")
         self.txt_target_mohm = wx.TextCtrl(settings_parent, value="50")
         self.txt_source_r_mohm = wx.TextCtrl(settings_parent, value="10")
         self.txt_source_l_nh = wx.TextCtrl(settings_parent, value="1")
@@ -85,10 +97,11 @@ class ACAnalysisPanel(wx.Panel):
         rows = [
             ("Power rail:", self.choice_rail, "Return net:", self.choice_ground),
             ("Source component:", self.choice_source, "Measurement component:", self.choice_port),
+            ("Analysis preset:", self.choice_preset, "", wx.StaticText(settings_parent, label="")),
             ("Start frequency (Hz):", self.txt_f_start, "Stop frequency (Hz):", self.txt_f_stop),
-            ("Frequency points:", self.txt_points, "Target |Z| (mOhm):", self.txt_target_mohm),
+            ("Frequency points:", self.txt_points, "AC mesh resolution (mm):", self.txt_mesh_resolution),
+            ("Target |Z| (mOhm):", self.txt_target_mohm, "Max capacitor additions:", self.txt_max_additions),
             ("Source R (mOhm):", self.txt_source_r_mohm, "Source L (nH):", self.txt_source_l_nh),
-            ("Max capacitor additions:", self.txt_max_additions, "", wx.StaticText(settings_parent, label="")),
         ]
         for left_label, left_ctrl, right_label, right_ctrl in rows:
             grid.Add(wx.StaticText(settings_parent, label=left_label), 0, wx.ALIGN_CENTER_VERTICAL)
@@ -96,6 +109,8 @@ class ACAnalysisPanel(wx.Panel):
             grid.Add(wx.StaticText(settings_parent, label=right_label), 0, wx.ALIGN_CENTER_VERTICAL)
             grid.Add(right_ctrl, 1, wx.EXPAND)
         settings_box.Add(grid, 1, wx.EXPAND | wx.ALL, 8)
+        self.cost_hint = wx.StaticText(settings_parent, label="")
+        settings_box.Add(self.cost_hint, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
         main_sizer.Add(settings_box, 0, wx.EXPAND | wx.ALL, 5)
 
         cap_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Detected Rail-to-Ground Capacitors")
@@ -127,10 +142,75 @@ class ACAnalysisPanel(wx.Panel):
 
         self.choice_rail.Bind(wx.EVT_CHOICE, self._on_context_changed)
         self.choice_ground.Bind(wx.EVT_CHOICE, self._on_context_changed)
+        self.choice_preset.Bind(wx.EVT_CHOICE, self._on_preset_changed)
+        self.txt_points.Bind(wx.EVT_TEXT, self._on_complexity_changed)
+        self.txt_mesh_resolution.Bind(wx.EVT_TEXT, self._on_complexity_changed)
         self.btn_refresh.Bind(wx.EVT_BUTTON, self._on_refresh)
         self.btn_toggle.Bind(wx.EVT_BUTTON, self._on_toggle)
         self.btn_edit.Bind(wx.EVT_BUTTON, self._on_edit)
         self.cap_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit)
+        self._update_cost_hint()
+
+    def _preset_index_for_values(self, points, mesh_resolution_mm):
+        for index, (_label, key, preset_points, preset_mesh) in enumerate(self.ANALYSIS_PRESETS):
+            if key == "CUSTOM":
+                continue
+            if int(points) == int(preset_points) and abs(float(mesh_resolution_mm) - preset_mesh) < 1e-9:
+                return index
+        return len(self.ANALYSIS_PRESETS) - 1
+
+    def _update_cost_hint(self):
+        try:
+            points = max(1, int(self.txt_points.GetValue()))
+            mesh = max(0.1, float(self.txt_mesh_resolution.GetValue()))
+            relative = (points / 121.0) * (0.5 / mesh) ** 2
+            if relative <= 0.6:
+                level = "low"
+            elif relative <= 1.5:
+                level = "moderate"
+            elif relative <= 3.0:
+                level = "high"
+            else:
+                level = "very high"
+            text = (
+                f"Estimated relative solve load: {relative:.2f}x balanced ({level}). "
+                "Actual node count is checked before the sweep starts."
+            )
+        except ValueError:
+            text = "Enter valid frequency points and mesh resolution to estimate solve load."
+        self.cost_hint.SetLabel(text)
+        self.cost_hint.SetToolTip(
+            "The estimate scales with frequency-point count and approximately with the inverse "
+            "square of mesh resolution. Final cost also depends on copper geometry."
+        )
+
+    def _on_preset_changed(self, _event):
+        if self._updating:
+            return
+        selection = self.choice_preset.GetSelection()
+        if selection == wx.NOT_FOUND:
+            return
+        _label, key, points, mesh = self.ANALYSIS_PRESETS[selection]
+        if key != "CUSTOM":
+            self._updating = True
+            try:
+                self.txt_points.SetValue(str(points))
+                self.txt_mesh_resolution.SetValue(f"{mesh:g}")
+            finally:
+                self._updating = False
+        self._update_cost_hint()
+
+    def _on_complexity_changed(self, _event):
+        if self._updating:
+            return
+        try:
+            index = self._preset_index_for_values(
+                int(self.txt_points.GetValue()), float(self.txt_mesh_resolution.GetValue()),
+            )
+            self.choice_preset.SetSelection(index)
+        except ValueError:
+            self.choice_preset.SetSelection(len(self.ANALYSIS_PRESETS) - 1)
+        self._update_cost_hint()
 
     def _rails(self):
         return list(self.rails_provider() or [])
@@ -203,6 +283,11 @@ class ACAnalysisPanel(wx.Panel):
             self.txt_f_start.SetValue(f"{profile.frequency_start_hz:g}")
             self.txt_f_stop.SetValue(f"{profile.frequency_stop_hz:g}")
             self.txt_points.SetValue(str(profile.frequency_points))
+            self.txt_mesh_resolution.SetValue(f"{profile.mesh_resolution_mm:g}")
+            self.choice_preset.SetSelection(self._preset_index_for_values(
+                profile.frequency_points, profile.mesh_resolution_mm,
+            ))
+            self._update_cost_hint()
             self.txt_target_mohm.SetValue(f"{profile.target_impedance_ohm * 1e3:g}")
             self.txt_source_r_mohm.SetValue(f"{profile.source.resistance_ohm * 1e3:g}")
             self.txt_source_l_nh.SetValue(f"{profile.source.inductance_h * 1e9:g}")
@@ -282,6 +367,15 @@ class ACAnalysisPanel(wx.Panel):
         profile.frequency_start_hz = float(self.txt_f_start.GetValue())
         profile.frequency_stop_hz = float(self.txt_f_stop.GetValue())
         profile.frequency_points = int(self.txt_points.GetValue())
+        profile.mesh_resolution_mm = float(self.txt_mesh_resolution.GetValue())
+        if profile.frequency_start_hz <= 0:
+            raise ValueError("Start frequency must be greater than zero.")
+        if profile.frequency_stop_hz <= profile.frequency_start_hz:
+            raise ValueError("Stop frequency must be greater than start frequency.")
+        if not 11 <= profile.frequency_points <= 401:
+            raise ValueError("Frequency points must be between 11 and 401.")
+        if not 0.2 <= profile.mesh_resolution_mm <= 2.0:
+            raise ValueError("AC mesh resolution must be between 0.2 and 2.0 mm.")
         profile.target_impedance_ohm = float(self.txt_target_mohm.GetValue()) / 1e3
         profile.optimizer_max_additions = int(self.txt_max_additions.GetValue())
 

@@ -28,6 +28,8 @@ class ACNetwork:
     measurement: ACNodeConnection
     capacitor_nodes: Dict[str, ACNodeConnection]
     node_coords: Dict[int, Tuple[float, float, int]] = field(default_factory=dict)
+    requested_grid_size_mm: float = 0.0
+    effective_grid_size_mm: float = 0.0
 
 
 def parse_capacitance(value) -> Optional[float]:
@@ -38,8 +40,14 @@ def parse_capacitance(value) -> Optional[float]:
         return float(value) if value > 0 else None
 
     text = str(value).strip().replace("µ", "u").replace("μ", "u")
-    text = text.replace(" ", "")
-    match = re.search(r"(?i)(\d+(?:\.\d+)?)([pnum]?)(\d*)\s*f?", text)
+    # Match a complete capacitor value, optionally followed by a voltage
+    # rating.  Searching inside arbitrary MPNs made IC values such as
+    # TPS7A0233 look like plausible capacitances.
+    match = re.fullmatch(
+        r"(?i)(\d+(?:\.\d+)?)([pnum]?)(\d*)\s*f?"
+        r"(?:\s*(?:[/,]\s*)?\d+(?:\.\d+)?\s*v)?",
+        text,
+    )
     if not match:
         return None
 
@@ -162,10 +170,13 @@ class ACModelBuilder:
         capacitors = []
         for footprint in self._get_board_items("footprints"):
             reference = self._get_footprint_reference(footprint)
+            # KiCad reference designators are the authoritative component
+            # class here.  Numeric fragments inside IC/connector values must
+            # never create synthetic capacitor models.
+            if not re.match(r"(?i)^C\d", reference):
+                continue
             value_text = self._get_footprint_value(footprint)
             capacitance = parse_capacitance(value_text)
-            if not reference.upper().startswith("C") and capacitance is None:
-                continue
 
             rail_pads = []
             ground_pads = []
@@ -341,4 +352,8 @@ class ACModelBuilder:
             measurement=measurement,
             capacitor_nodes=capacitor_nodes,
             node_coords={**rail_coords, **ground_coords},
+            requested_grid_size_mm=float(grid_size_mm),
+            effective_grid_size_mm=max(
+                float(rail_mesh.grid_step), float(ground_mesh.grid_step),
+            ),
         )

@@ -27,8 +27,9 @@ def to_mm(val_nm):
     return val_nm / 1e6
 
 class GeometryExtractor:
-    def __init__(self, board, debug=False, log_callback=None):
+    def __init__(self, board, debug=False, log_callback=None, board_path=None):
         self.board = board
+        self.board_path = str(board_path) if board_path else None
         self.debug = debug
         self.log_callback = log_callback
         self.logger = logging.getLogger('KiPIDA.GeometryExtractor')
@@ -36,6 +37,7 @@ class GeometryExtractor:
         # data between projects opened in the same KiCad process.
         self._stackup_cache = None
         self._net_item_caches = {}
+        self._file_zone_geometry_cache = None
         if debug:
             self.logger.setLevel(logging.DEBUG)
             # Clear any existing handlers to avoid duplicates
@@ -75,12 +77,29 @@ class GeometryExtractor:
 
     def _get_board_items(self, attr_name):
         """Robustly get items from board (property or getter)."""
-        if hasattr(self.board, attr_name):
-            return getattr(self.board, attr_name)
         method_name = f"get_{attr_name}"
         if hasattr(self.board, method_name):
-            try: return getattr(self.board, method_name)()
+            try:
+                result = getattr(self.board, method_name)()
+                if result is not None:
+                    return result
             except: pass
+        if hasattr(self.board, attr_name):
+            result = getattr(self.board, attr_name)
+            # kipy 0.3 exposes board.footprints / board.zones as operation
+            # facades.  Their get_all() method, not the facade itself, is the
+            # iterable collection.
+            get_all = getattr(result, "get_all", None)
+            if callable(get_all):
+                try:
+                    return get_all()
+                except Exception:
+                    pass
+            try:
+                iter(result)
+                return result
+            except TypeError:
+                pass
         return []
 
     def _item_matches_net(self, item, net_name):
@@ -178,6 +197,72 @@ class GeometryExtractor:
             return None
         return min(x for x, _ in points), min(y for _, y in points), max(x for x, _ in points), max(y for _, y in points)
 
+    @staticmethod
+    def _edge_cuts_outline_from_file(board_path):
+        """Return the physical Edge.Cuts polygon when it can be read exactly.
+
+        Thermal meshing needs the board *shape*, not merely its bounding box.
+        In particular, a rounded ``gr_rect`` must not create thermal cells in
+        its corner cut-outs.
+        """
+        if box is None:
+            return None
+        try:
+            text = Path(board_path).read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError):
+            return None
+        shapes = []
+        graphic_start = re.compile(r'\(gr_(?:rect|poly|circle)\b')
+        coordinate = re.compile(
+            r'\((?:start|end|center|xy)\s+'
+            r'([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)'
+        )
+        for match in graphic_start.finditer(text):
+            depth = 0
+            end = None
+            for index in range(match.start(), len(text)):
+                depth += (text[index] == '(') - (text[index] == ')')
+                if depth == 0:
+                    end = index + 1
+                    break
+            if end is None:
+                continue
+            graphic = text[match.start():end]
+            if not re.search(r'\(layer\s+"Edge\.Cuts"\)', graphic):
+                continue
+            points = [(float(x), float(y)) for x, y in coordinate.findall(graphic)]
+            if graphic.startswith('(gr_rect') and len(points) >= 2:
+                min_x, max_x = sorted((points[0][0], points[1][0]))
+                min_y, max_y = sorted((points[0][1], points[1][1]))
+                shape = box(min_x, min_y, max_x, max_y)
+                radius_match = re.search(r'\(radius\s+([-+]?\d*\.?\d+)', graphic)
+                radius = float(radius_match.group(1)) if radius_match else 0.0
+                if radius > 0.0 and 2.0 * radius < min(max_x - min_x, max_y - min_y):
+                    # Erode then restore the rectangle: this preserves its
+                    # outer dimensions while forming the KiCad corner radius.
+                    shape = shape.buffer(-radius).buffer(radius)
+                shapes.append(shape)
+            elif graphic.startswith('(gr_poly') and len(points) >= 3 and Polygon is not None:
+                shape = Polygon(points)
+                if shape.is_valid and not shape.is_empty:
+                    shapes.append(shape)
+            elif graphic.startswith('(gr_circle') and len(points) >= 2 and Point is not None:
+                center, edge = points[0], points[1]
+                radius = math.hypot(edge[0] - center[0], edge[1] - center[1])
+                if radius > 0.0:
+                    shapes.append(Point(center).buffer(radius))
+        if not shapes:
+            return None
+        return unary_union(shapes) if unary_union is not None else shapes[0]
+
+    def get_board_outline(self, board_file_path=None):
+        """Return an Edge.Cuts polygon for thermal meshing without padding."""
+        outline = self._edge_cuts_outline_from_file(board_file_path) if board_file_path else None
+        if outline is not None:
+            return outline
+        bounds = self.get_board_bounds(margin_mm=0.0, board_file_path=board_file_path)
+        return box(*bounds) if bounds is not None and box is not None else None
+
     def get_board_bounds(self, margin_mm=1.0, board_file_path=None):
         """Return live full-board XY bounds, not just the currently analysed net."""
         file_bounds = self._edge_cuts_bounds_from_file(board_file_path) if board_file_path else None
@@ -233,7 +318,7 @@ class GeometryExtractor:
                 if self.debug:
                     self.logger.warning(msg)
                 else:
-                    print(msg)
+                    self.logger.debug(msg)
         
         return self._get_stackup_defaults()
 
@@ -509,10 +594,128 @@ class GeometryExtractor:
                             shape = shape.difference(Polygon(hole_points))
                     if not shape.is_empty:
                         shapes.setdefault(int(layer_id), []).append(shape)
-        return {
+        merged = {
             layer_id: unary_union(layer_shapes)
             for layer_id, layer_shapes in shapes.items() if layer_shapes
         }
+        # KiCad's IPC facade can omit filled polygons or return only part of a
+        # multi-layer zone.  Merge the saved, already-filled copper with the
+        # live polygons after remapping its layer name to the IPC layer ID.
+        for layer_id, geometry in self._zone_geometry_from_file(net_name).items():
+            if layer_id not in merged or merged[layer_id].is_empty:
+                merged[layer_id] = geometry
+            elif not geometry.is_empty:
+                merged[layer_id] = unary_union((merged[layer_id], geometry))
+        return merged
+
+    @staticmethod
+    def _balanced_blocks(text, token):
+        """Yield balanced S-expression blocks beginning with *token*."""
+        start = 0
+        while True:
+            begin = text.find(token, start)
+            if begin < 0:
+                return
+            depth = 0
+            quoted = False
+            escaped = False
+            for index in range(begin, len(text)):
+                character = text[index]
+                if quoted:
+                    if escaped:
+                        escaped = False
+                    elif character == "\\":
+                        escaped = True
+                    elif character == '"':
+                        quoted = False
+                    continue
+                if character == '"':
+                    quoted = True
+                elif character == "(":
+                    depth += 1
+                elif character == ")":
+                    depth -= 1
+                    if depth == 0:
+                        yield text[begin:index + 1]
+                        start = index + 1
+                        break
+            else:
+                return
+
+    def _load_file_zone_geometry(self):
+        """Parse saved filled polygons as a fallback for incomplete IPC data."""
+        if self._file_zone_geometry_cache is not None:
+            return self._file_zone_geometry_cache
+        self._file_zone_geometry_cache = {}
+        if Polygon is None or unary_union is None or not self.board_path:
+            return self._file_zone_geometry_cache
+        try:
+            text = Path(self.board_path).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return self._file_zone_geometry_cache
+
+        file_layer_ids = {
+            name: int(identifier)
+            for identifier, name in re.findall(
+                r'^\s*\((\d+)\s+"([^"]+)"\s+(?:signal|power|mixed|jumper)',
+                text, flags=re.MULTILINE,
+            )
+        }
+        # KiCad 10's IPC API exposes protobuf layer enum values which do not
+        # necessarily equal the numeric IDs serialized in the .kicad_pcb file
+        # (for example B.Cu can be 8 live but 2 on disk).  Differential tracks
+        # and stackup use the live IDs, so remap saved-zone layers by name.
+        try:
+            live_copper = self.get_board_stackup().get('copper', {})
+        except Exception:
+            live_copper = {}
+        live_layer_ids = {
+            str(properties.get('name', '')): int(layer_id)
+            for layer_id, properties in live_copper.items()
+            if properties.get('name')
+        }
+        layer_ids = {
+            name: live_layer_ids.get(name, identifier)
+            for name, identifier in file_layer_ids.items()
+        }
+        by_net = {}
+        for zone in self._balanced_blocks(text, "(zone"):
+            net_match = re.search(r'\(net\s+"((?:\\.|[^"])*)"\)', zone)
+            if net_match is None:
+                continue
+            net_name = net_match.group(1).replace(r'\"', '"').replace(r'\\', '\\')
+            for filled in self._balanced_blocks(zone, "(filled_polygon"):
+                layer_match = re.search(r'\(layer\s+"([^"]+)"\)', filled)
+                if layer_match is None or layer_match.group(1) not in layer_ids:
+                    continue
+                points = [
+                    (float(x), float(y))
+                    for x, y in re.findall(
+                        r'\(xy\s+([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s+'
+                        r'([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\)',
+                        filled,
+                    )
+                ]
+                if len(points) < 3:
+                    continue
+                geometry = Polygon(points)
+                if not geometry.is_valid:
+                    geometry = geometry.buffer(0)
+                if not geometry.is_empty:
+                    by_net.setdefault(net_name, {}).setdefault(
+                        layer_ids[layer_match.group(1)], []
+                    ).append(geometry)
+        self._file_zone_geometry_cache = {
+            net_name: {
+                layer_id: unary_union(polygons)
+                for layer_id, polygons in layers.items()
+            }
+            for net_name, layers in by_net.items()
+        }
+        return self._file_zone_geometry_cache
+
+    def _zone_geometry_from_file(self, net_name):
+        return dict(self._load_file_zone_geometry().get(net_name, {}))
 
     def get_net_geometry(self, net_name, merge=True):
         """
