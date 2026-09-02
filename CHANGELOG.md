@@ -8,6 +8,8 @@
   persistent structured metrics.
 - Added explicit geometry-confidence warnings and clarified that DC density
   maps are diagnostics rather than IPC ampacity certification.
+- Fixed KiCad IPC drill capture for vias and plated holes whose diameter is
+  represented by a two-axis `Vector2` rather than a scalar.
 
 ## 0.19.0 - 2026-09-02
 

@@ -114,6 +114,61 @@ class DCControllerTests(unittest.TestCase):
         snapshot = capture_dc_board(SimpleNamespace(footprints=[], vias=[via]))
         self.assertEqual(snapshot.vias[0].drill_size, DCPointSnapshot(320_000, 320_000))
 
+    def test_capture_recovers_vector_drill_diameter_from_kipy_padstack(self):
+        point = SimpleNamespace(x=1_000_000, y=2_000_000)
+        vector_diameter = SimpleNamespace(x=320_000, y=280_000)
+        via = SimpleNamespace(
+            start=point, net=SimpleNamespace(name="VCC"), width=600_000,
+            layers=[0, 31],
+            padstack=SimpleNamespace(
+                drill=SimpleNamespace(diameter=vector_diameter),
+            ),
+        )
+        snapshot = capture_dc_board(SimpleNamespace(footprints=[], vias=[via]))
+        self.assertEqual(
+            snapshot.vias[0].drill_size,
+            DCPointSnapshot(320_000, 280_000),
+        )
+
+    def test_capture_recovers_vector_pad_drill_from_kipy_padstack(self):
+        point = SimpleNamespace(x=1_000_000, y=2_000_000)
+        pad = SimpleNamespace(
+            number="1", name="1", position=point,
+            net=SimpleNamespace(name="VCC"), pad_type=1,
+            type="THROUGH_HOLE", layers=[0, 31],
+            padstack=SimpleNamespace(
+                drill=SimpleNamespace(
+                    diameter=SimpleNamespace(x=400_000, y=250_000),
+                ),
+            ),
+        )
+        board = SimpleNamespace(
+            footprints=[SimpleNamespace(reference="J1", pads=[pad])],
+            vias=[],
+        )
+        snapshot = capture_dc_board(board)
+        self.assertEqual(
+            snapshot.footprints[0].pads[0].drill_size,
+            DCPointSnapshot(400_000, 250_000),
+        )
+
+    def test_capture_prefers_scalar_kipy_via_drill_diameter(self):
+        point = SimpleNamespace(x=1_000_000, y=2_000_000)
+        via = SimpleNamespace(
+            start=point, net=SimpleNamespace(name="VCC"), width=600_000,
+            drill_diameter=300_000, layers=[0, 31],
+            padstack=SimpleNamespace(
+                drill=SimpleNamespace(
+                    diameter=SimpleNamespace(x=320_000, y=320_000),
+                ),
+            ),
+        )
+        snapshot = capture_dc_board(SimpleNamespace(footprints=[], vias=[via]))
+        self.assertEqual(
+            snapshot.vias[0].drill_size,
+            DCPointSnapshot(300_000, 300_000),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

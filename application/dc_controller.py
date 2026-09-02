@@ -150,25 +150,44 @@ def _integer_if_possible(value):
         return value
 
 
+def _drill_dimensions(value):
+    """Normalize scalar, Vector2, and DrillProperties IPC drill values."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        scalar = float(value)
+        return DCPointSnapshot(scalar, scalar)
+    for nested_name in ("diameter", "size"):
+        nested = _value(value, nested_name)
+        if nested is not None and nested is not value:
+            dimensions = _drill_dimensions(nested)
+            if dimensions is not None:
+                return dimensions
+    x = _value(value, "x")
+    if x is not None:
+        y = _value(value, "y", x)
+        try:
+            return DCPointSnapshot(float(x), float(y if y is not None else x))
+        except (TypeError, ValueError):
+            return None
+    try:
+        scalar = float(value)
+    except (TypeError, ValueError):
+        return None
+    return DCPointSnapshot(scalar, scalar)
+
+
 def _drill_snapshot(item):
-    drill = _value(item, "drill_size", _value(item, "drill"))
-    if drill is None:
-        drill = _value(_value(item, "padstack"), "drill")
-    if drill is None:
-        return None
-    if isinstance(drill, (int, float)):
-        value = float(drill)
-        return DCPointSnapshot(value, value)
-    size = _value(drill, "size", drill)
-    diameter = _value(size, "diameter", _value(drill, "diameter"))
-    if diameter is not None:
-        value = float(diameter)
-        return DCPointSnapshot(value, value)
-    x = _value(size, "x")
-    y = _value(size, "y", x)
-    if x is None:
-        return None
-    return DCPointSnapshot(float(x), float(y if y is not None else x))
+    for drill in (
+        _value(item, "drill_diameter"),
+        _value(item, "drill_size"),
+        _value(item, "drill"),
+        _value(_value(item, "padstack"), "drill"),
+    ):
+        dimensions = _drill_dimensions(drill)
+        if dimensions is not None:
+            return dimensions
+    return None
 
 
 def capture_dc_board(board) -> DCBoardSnapshot:
@@ -188,7 +207,6 @@ def capture_dc_board(board) -> DCBoardSnapshot:
             if position is None:
                 continue
             number = str(_value(pad, "number", _value(pad, "name", "")) or "")
-            drill = _value(pad, "drill_size")
             pad_layers = _value(pad, "layers")
             if not pad_layers:
                 pad_layers = _value(_value(pad, "padstack"), "layers", ())
@@ -199,7 +217,7 @@ def capture_dc_board(board) -> DCBoardSnapshot:
                 net=DCNetSnapshot(_net_name(pad)),
                 pad_type=_integer_if_possible(_value(pad, "pad_type")),
                 type=str(_value(pad, "type", "") or ""),
-                drill_size=_point(drill) if drill is not None else None,
+                drill_size=_drill_snapshot(pad),
                 layers=_layers(pad_layers),
             ))
         footprints.append(DCFootprintSnapshot(reference, tuple(pad_snapshots)))
