@@ -93,7 +93,10 @@ class TestEMCAnalyzer(unittest.TestCase):
         )
         via = SimpleNamespace(
             net=net, position=SimpleNamespace(x=5_000_000, y=2_000_000),
-            padstack=SimpleNamespace(drill=SimpleNamespace(start_layer=3, end_layer=34)),
+            diameter=600_000,
+            padstack=SimpleNamespace(drill=SimpleNamespace(
+                start_layer=3, end_layer=34, diameter=300_000,
+            )),
         )
         board = SimpleNamespace(
             tracks=[track, offboard_track], vias=[via], zones=[], footprints=[footprint],
@@ -106,9 +109,33 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertEqual(captured.tracks[0].end, (11.0, 2.0))
         self.assertEqual(captured.footprints[0].reference, "U1")
         self.assertEqual(captured.vias[0].layer_ids, (3, 34))
+        self.assertEqual(captured.vias[0].diameter_mm, 0.6)
+        self.assertEqual(captured.vias[0].drill_mm, 0.3)
         self.assertEqual(captured.ignored_offboard_items, 1)
         self.assertEqual(captured.ignored_offboard_nets, ("STALE",))
         self.assertEqual(captured.ignored_offboard_counts, {"tracks": 1})
+
+    def test_capture_recovers_via_dimensions_from_saved_board(self):
+        net = SimpleNamespace(name="GND")
+        via = SimpleNamespace(
+            net=net, position=SimpleNamespace(x=5_000_000, y=2_000_000),
+            padstack=SimpleNamespace(drill=SimpleNamespace(start_layer=3, end_layer=34)),
+        )
+        board = SimpleNamespace(tracks=[], vias=[via], zones=[], footprints=[])
+        with tempfile.TemporaryDirectory() as directory:
+            board_path = Path(directory) / "board.kicad_pcb"
+            board_path.write_text(
+                '(kicad_pcb\n  (via\n    (at 5 2)\n    (size 0.7)\n'
+                '    (drill 0.35)\n    (layers "F.Cu" "B.Cu")\n  )\n)\n'
+            )
+            with patch.object(
+                GeometryExtractor, "get_board_bounds", return_value=(0.0, 0.0, 20.0, 10.0)
+            ), patch.object(GeometryExtractor, "get_stackup_profile", return_value=stackup()):
+                captured = EMCGeometrySnapshot.capture(
+                    board, self.settings(), board_file_path=board_path,
+                )
+        self.assertEqual(captured.vias[0].diameter_mm, 0.7)
+        self.assertEqual(captured.vias[0].drill_mm, 0.35)
 
     def test_capture_reads_protobuf_value_field_and_saved_board_fallback(self):
         net = SimpleNamespace(name="3V3")

@@ -154,6 +154,10 @@ class PalaceRemoteClient:
         ssh_options[0] = "-p"
         return [self.ssh_path, *ssh_options, self.target, "--", *map(str, remote_args)]
 
+    def _ssh_shell_command(self, remote_command):
+        """Run one complete POSIX shell expression without SSH splitting it."""
+        return self._ssh_command("sh", "-lc", shlex.quote(str(remote_command)))
+
     def _scp_command(self, source, destination, recursive=False):
         if not self.scp_path:
             raise RuntimeError("OpenSSH client 'scp' was not found on this computer.")
@@ -238,7 +242,7 @@ class PalaceRemoteClient:
             f"kill -TERM -- $(cat {_quote_remote_path(pid_path)})"
         )
         try:
-            self._capture(self._ssh_command("sh", "-lc", remote), self.connection.connect_timeout_s + 5)
+            self._capture(self._ssh_shell_command(remote), self.connection.connect_timeout_s + 5)
         except Exception:
             pass
 
@@ -278,10 +282,14 @@ class PalaceRemoteClient:
         )
         if upload.returncode != 0:
             raise RuntimeError((upload.stderr or upload.stdout).strip() or "Palace project upload failed.")
-        remote_config = remote_input + "/" + config_path.name
-        dry_command = self._ssh_command(
-            self.connection.executable, "-serial", "--dry-run", remote_config,
+        quoted_cd = _quote_remote_path(remote_input)
+        quoted_executable = shlex.quote(self.connection.executable)
+        quoted_config = shlex.quote(config_path.name)
+        dry_remote_command = (
+            f"cd {quoted_cd} && "
+            f"exec {quoted_executable} -serial --dry-run {quoted_config}"
         )
+        dry_command = self._ssh_shell_command(dry_remote_command)
         dry = self._capture(dry_command, min(max(30.0, self.connection.run_timeout_s), 300.0))
         (local_output / "palace-dry-run.log").write_text(
             dry.stdout + dry.stderr, encoding="utf-8", errors="replace",
@@ -292,10 +300,7 @@ class PalaceRemoteClient:
             result.elapsed_seconds = time.perf_counter() - started
             return result
         result.dry_run_passed = True
-        quoted_cd = _quote_remote_path(remote_input)
         quoted_pid = _quote_remote_path(remote_pid)
-        quoted_executable = shlex.quote(self.connection.executable)
-        quoted_config = shlex.quote(config_path.name)
         remote_command = (
             f"cd {quoted_cd} && printf '%s\\n' $$ > {quoted_pid} && "
             f"exec {quoted_executable} -np {self.connection.mpi_processes} {quoted_config}"
@@ -305,7 +310,7 @@ class PalaceRemoteClient:
             f"{self.connection.mpi_processes} MPI process(es)..."
         )
         return_code, status = self._monitor(
-            self._ssh_command("sh", "-lc", remote_command),
+            self._ssh_shell_command(remote_command),
             self.connection.run_timeout_s, local_output / "palace-run.log",
         )
         result.return_code = return_code
@@ -320,6 +325,12 @@ class PalaceRemoteClient:
         else:
             result.status = "FAILED"
             result.warnings.append(f"Palace returned exit code {return_code}.")
+            if return_code in {9, 137}:
+                result.warnings.append(
+                    "The Palace process was killed by the remote operating system; this "
+                    "usually indicates peak-memory exhaustion. Use a coarser mesh or raise "
+                    "the server/cgroup memory limit."
+                )
         artifact_root = local_output / "project"
         download = self._capture(
             self._scp_command(f"{self.target}:{remote_input}", artifact_root, recursive=True),
@@ -340,7 +351,7 @@ class PalaceRemoteClient:
         if not self.connection.keep_remote_files:
             cleanup = f"rm -rf -- {_quote_remote_path(remote_job)}"
             self._capture(
-                self._ssh_command("sh", "-lc", cleanup),
+                self._ssh_shell_command(cleanup),
                 self.connection.connect_timeout_s + 10,
             )
         result.elapsed_seconds = time.perf_counter() - started

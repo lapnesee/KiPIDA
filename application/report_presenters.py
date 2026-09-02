@@ -546,14 +546,21 @@ def format_emc_phase10_lines(settings, result):
             f"{', '.join(region.finding_ids) or 'none'}."
         )
         if region.port_net_name:
-            lines.append(
-                f"      port: mode={region.port_mode or 'LEGACY'}; count={region.port_count or 1}; "
-                f"nets={', '.join(region.port_net_names) or region.port_net_name}; "
-                f"Zleg={region.port_leg_impedance_ohm:g} ohm; "
-                f"excitations={region.port_excitations or 'legacy'}; "
-                f"reference layers={region.port_reference_layer_ids or 'fallback'}; "
-                f"geometry={region.port_geometry_source}; confidence={region.port_confidence}."
-            )
+            if "CURRENT_DIPOLE" in region.port_mode:
+                lines.append(
+                    f"      source: mode={region.port_mode}; count={region.port_count}; "
+                    f"nets={', '.join(region.port_net_names) or region.port_net_name}; "
+                    f"geometry={region.port_geometry_source}; confidence={region.port_confidence}."
+                )
+            else:
+                lines.append(
+                    f"      port: mode={region.port_mode or 'LEGACY'}; count={region.port_count or 1}; "
+                    f"nets={', '.join(region.port_net_names) or region.port_net_name}; "
+                    f"Zleg={region.port_leg_impedance_ohm:g} ohm; "
+                    f"excitations={region.port_excitations or 'legacy'}; "
+                    f"reference layers={region.port_reference_layer_ids or 'fallback'}; "
+                    f"geometry={region.port_geometry_source}; confidence={region.port_confidence}."
+                )
         if region.solver_iterations:
             convergence = (
                 "YES" if region.solver_converged is True else
@@ -563,17 +570,68 @@ def format_emc_phase10_lines(settings, result):
                 f"; measured energy decay={region.solver_energy_decay_db:.2f} dB"
                 if region.solver_energy_decay_db is not None else ""
             )
+            if "CURRENT_DIPOLE" in region.port_mode:
+                lines.append(
+                    f"      solver: linear iterations={region.solver_iterations}; FEM elements="
+                    f"{region.solver_cells:,}; unknowns={region.solver_unknowns:,}; "
+                    f"Palace memory estimate="
+                    f"{region.solver_estimated_memory_gib if region.solver_estimated_memory_gib is not None else float('nan'):.2f} GiB; "
+                    f"algebraically converged={convergence}{decay}."
+                )
+            else:
+                lines.append(
+                    f"      solver: iterations={region.solver_iterations}/"
+                    f"{settings.phase10.openems_max_timesteps}; actual cells="
+                    f"{region.solver_cells:,}; converged={convergence}{decay}."
+                )
+        if region.requested_mesh_resolution_mm:
             lines.append(
-                f"      solver: iterations={region.solver_iterations}/"
-                f"{settings.phase10.openems_max_timesteps}; actual cells="
-                f"{region.solver_cells:,}; converged={convergence}{decay}."
+                f"      mesh request: resolution={region.requested_mesh_resolution_mm:g} mm; "
+                f"Gmsh characteristic range={region.mesh_characteristic_min_mm:g}.."
+                f"{region.mesh_characteristic_max_mm:g} mm; nodes={region.mesh_nodes:,}; "
+                f"vias modeled={region.modeled_via_count}/{region.requested_via_count}; "
+                f"via model={region.via_model or 'UNKNOWN'}; "
+                f"fallback={'YES' if region.via_geometry_fallback else 'NO'}; "
+                f"short tracks removed={region.omitted_short_track_count}; "
+                f"conservative peak-memory estimate="
+                f"{region.estimated_palace_peak_memory_gib:.2f} GiB."
+            )
+        if region.frequency_hz:
+            lines.append(
+                f"      Palace sample: {region.frequency_hz / 1.0e6:.6g} MHz; "
+                f"harmonic order={region.harmonic_order or 'unknown'}; "
+                f"total |current-dipole moment|={region.source_moment_a_m:.6g} A.m."
+            )
+        if region.electric_energy_j is not None or region.magnetic_energy_j is not None:
+            lines.append(
+                f"      domain energy: electric={region.electric_energy_j or 0.0:.6g} J; "
+                f"magnetic={region.magnetic_energy_j or 0.0:.6g} J; normalized="
+                f"{region.normalized_energy_j_per_a2_m2 if region.normalized_energy_j_per_a2_m2 is not None else float('nan'):.6g} "
+                "J/(A.m)^2."
+            )
+        if region.error_indicator_norm is not None:
+            lines.append(
+                f"      discretization evidence: indicator norm="
+                f"{region.error_indicator_norm:.6g}; maximum="
+                f"{region.error_indicator_maximum if region.error_indicator_maximum is not None else float('nan'):.6g}; "
+                f"mesh kappa max="
+                f"{region.mesh_kappa_maximum if region.mesh_kappa_maximum is not None else float('nan'):.6g}; "
+                f"Palace h="
+                f"{region.palace_mesh_h_minimum if region.palace_mesh_h_minimum is not None else float('nan'):.6g}.."
+                f"{region.palace_mesh_h_maximum if region.palace_mesh_h_maximum is not None else float('nan'):.6g}; "
+                f"verified={'YES' if region.discretization_verified else 'NO'}."
+            )
+        if region.field_output_count:
+            lines.append(
+                f"      field artifacts: {region.field_output_count} ParaView file(s) retained; "
+                "scalar E/H maxima were not extracted."
             )
         if region.fields_extracted:
             lines.append(
                 f"      latest uncalibrated field dump: Emax={region.maximum_e_v_m:.6g} V/m; "
                 f"Hmax={region.maximum_h_a_m:.6g} A/m."
             )
-        elif region.status.startswith("SOLVED"):
+        elif region.status.startswith("SOLVED") and not region.field_output_count:
             lines.append("      fields: solver ran, but E/H maxima were not extracted.")
         lines.extend(f"      warning: {warning}" for warning in region.warnings)
     lines.append(

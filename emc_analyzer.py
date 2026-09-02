@@ -65,6 +65,8 @@ class EMCVia:
     net_name: str
     position: tuple
     layer_ids: tuple = ()
+    diameter_mm: float = 0.0
+    drill_mm: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -180,6 +182,52 @@ class EMCGeometrySnapshot:
                 commit()
             return values
 
+        def board_via_dimensions(path):
+            """Read saved via size/drill as a fallback for incomplete IPC objects."""
+            if not path:
+                return {}
+            path = Path(path)
+            if path.suffix.lower() != ".kicad_pcb" or not path.is_file():
+                return {}
+            try:
+                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                return {}
+            dimensions, block, depth = {}, [], 0
+            for line in lines:
+                stripped = line.lstrip()
+                if not block and stripped.startswith("(via"):
+                    block, depth = [stripped], stripped.count("(") - stripped.count(")")
+                    continue
+                if not block:
+                    continue
+                block.append(stripped)
+                depth += stripped.count("(") - stripped.count(")")
+                if depth > 0:
+                    continue
+                text = " ".join(block)
+                at = re.search(r"\(at\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)", text)
+                size = re.search(r"\(size\s+([-+0-9.eE]+)", text)
+                drill = re.search(r"\(drill\s+([-+0-9.eE]+)", text)
+                if at and size and drill:
+                    key = (round(float(at.group(1)), 6), round(float(at.group(2)), 6))
+                    dimensions[key] = (float(size.group(1)), float(drill.group(1)))
+                block, depth = [], 0
+            return dimensions
+
+        def dimension_mm(candidate):
+            if candidate is None:
+                return 0.0
+            if isinstance(candidate, (int, float)):
+                return max(to_mm(candidate), 0.0)
+            for name in ("diameter", "size", "value"):
+                nested = value(candidate, name)
+                if isinstance(nested, (int, float)):
+                    return max(to_mm(nested), 0.0)
+            axes = [value(candidate, axis) for axis in ("x", "y")]
+            axes = [to_mm(item) for item in axes if isinstance(item, (int, float)) and item > 0]
+            return min(axes) if axes else 0.0
+
         bounds = tuple(extractor.get_board_bounds(
             margin_mm=0.0, board_file_path=board_file_path,
         ))
@@ -211,6 +259,7 @@ class EMCGeometrySnapshot:
             ))
 
         vias = []
+        saved_via_dimensions = board_via_dimensions(board_file_path)
         via_items = list(items("vias"))
         # Some adapters expose vias in the track collection.
         if not via_items:
@@ -219,8 +268,9 @@ class EMCGeometrySnapshot:
             position = point(value(item, "position", value(item, "start")))
             name = net_name(item)
             raw_layers = value(item, "layers", value(item, "layer_ids", [])) or []
+            padstack = value(item, "padstack", value(item, "pad_stack"))
+            drill = value(padstack, "drill")
             if not raw_layers:
-                padstack = value(item, "padstack", value(item, "pad_stack"))
                 drill = value(padstack, "drill")
                 start_layer = value(drill, "start_layer")
                 end_layer = value(drill, "end_layer")
@@ -232,13 +282,26 @@ class EMCGeometrySnapshot:
                 layers = tuple(dict.fromkeys(int(layer) for layer in raw_layers if int(layer) >= 3))
             except TypeError:
                 layers = ()
+            diameter_mm = dimension_mm(
+                value(item, "diameter", value(item, "size", value(padstack, "diameter")))
+            )
+            drill_mm = dimension_mm(
+                value(item, "drill", value(item, "drill_size", drill))
+            )
+            if position is not None and (diameter_mm <= 0.0 or drill_mm <= 0.0):
+                saved = saved_via_dimensions.get(
+                    (round(position[0], 6), round(position[1], 6))
+                )
+                if saved:
+                    diameter_mm = diameter_mm or saved[0]
+                    drill_mm = drill_mm or saved[1]
             if name and position is not None:
                 if not inside(position):
                     ignored_count += 1
                     ignored_counts["vias"] += 1
                     ignored_nets.add(name)
                     continue
-                vias.append(EMCVia(name, position, layers))
+                vias.append(EMCVia(name, position, layers, diameter_mm, drill_mm))
 
         footprints = []
         saved_footprint_values = board_footprint_values(board_file_path)

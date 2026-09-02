@@ -109,6 +109,91 @@ def parse_openems_log(path, maximum_timesteps=0):
     }
 
 
+def parse_palace_log(path):
+    """Extract algebraic and mesh-quality evidence from a Palace log."""
+    path = Path(path)
+    text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+    element_matches = re.findall(
+        r"^\s*elements\s+\d+\s+\d+\s+\d+\s+(\d+)\s*$", text, re.I | re.M,
+    )
+    convergence_matches = re.findall(
+        r"(?:GMRES|CG|MINRES) solver converged in\s+(\d+)\s+iterations", text, re.I,
+    )
+    failed = bool(re.search(r"solver (?:did not converge|failed to converge)", text, re.I))
+    kappa_matches = re.findall(
+        r"^\s*kappa\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)\s*$", text, re.I | re.M,
+    )
+    energy_matches = re.findall(
+        r"Field energy E \(([-+0-9.eE]+) J\) \+ H \(([-+0-9.eE]+) J\)", text, re.I,
+    )
+    indicator_matches = re.findall(r"Indicator norm\s*=\s*([-+0-9.eE]+)", text, re.I)
+    amr_matches = re.findall(
+        r"Completed\s+(\d+)\s+iterations of adaptive mesh refinement", text, re.I,
+    )
+    h_matches = re.findall(
+        r"^\s*h\s+([-+0-9.eE]+)\s+([-+0-9.eE]+)\s*$", text, re.I | re.M,
+    )
+    unknown_matches = re.findall(r"global unknowns\s*=\s*(\d+)", text, re.I)
+    if not unknown_matches:
+        unknown_matches = re.findall(
+            r"Level 0 \(p = \d+\):\s*(\d+)\s+unknowns", text, re.I,
+        )
+    memory_matches = re.findall(
+        r"Estimated current per-rank memory usage.*?Max\.\s*([0-9.]+)([KMGT])",
+        text, re.I,
+    )
+    memory_gib = None
+    if memory_matches:
+        value, suffix = memory_matches[-1]
+        scale = {"K": 1.0 / (1024.0 ** 2), "M": 1.0 / 1024.0, "G": 1.0, "T": 1024.0}
+        memory_gib = float(value) * scale[suffix.upper()]
+    return {
+        "elements": int(element_matches[-1]) if element_matches else 0,
+        "iterations": int(convergence_matches[-1]) if convergence_matches else 0,
+        "converged": False if failed else (True if convergence_matches else None),
+        "mesh_kappa_maximum": float(kappa_matches[-1][1]) if kappa_matches else None,
+        "electric_energy_j": float(energy_matches[-1][0]) if energy_matches else None,
+        "magnetic_energy_j": float(energy_matches[-1][1]) if energy_matches else None,
+        "error_indicator_norm": float(indicator_matches[-1]) if indicator_matches else None,
+        "amr_iterations": int(amr_matches[-1]) if amr_matches else 0,
+        "mesh_h_minimum": float(h_matches[-1][0]) if h_matches else None,
+        "mesh_h_maximum": float(h_matches[-1][1]) if h_matches else None,
+        "unknowns": int(unknown_matches[-1]) if unknown_matches else 0,
+        "estimated_memory_gib": memory_gib,
+    }
+
+
+def parse_palace_outputs(project_directory):
+    """Read structured Palace CSV/ParaView evidence retained from the remote run."""
+    postpro = Path(project_directory) / "postpro"
+    result = {
+        "frequency_hz": 0.0, "electric_energy_j": None, "magnetic_energy_j": None,
+        "error_indicator_norm": None, "error_indicator_maximum": None,
+        "field_output_count": 0,
+    }
+
+    def rows(path):
+        if not path.is_file():
+            return []
+        with path.open("r", encoding="utf-8", errors="replace", newline="") as stream:
+            return [[item.strip() for item in row] for row in csv.reader(stream) if row]
+
+    domain = rows(postpro / "domain-E.csv")
+    if len(domain) >= 2 and len(domain[-1]) >= 3:
+        result["frequency_hz"] = float(domain[-1][0]) * 1.0e9
+        result["electric_energy_j"] = float(domain[-1][1])
+        result["magnetic_energy_j"] = float(domain[-1][2])
+    indicators = rows(postpro / "error-indicators.csv")
+    if len(indicators) >= 2 and len(indicators[-1]) >= 3:
+        result["error_indicator_norm"] = float(indicators[-1][0])
+        result["error_indicator_maximum"] = float(indicators[-1][2])
+    result["field_output_count"] = sum(
+        1 for path in postpro.rglob("*")
+        if path.is_file() and path.suffix.lower() in {".pvd", ".pvtu", ".vtu"}
+    ) if postpro.is_dir() else 0
+    return result
+
+
 def _supports_openems_port(source):
     """True when the worker can construct every conductor required by the source."""
     kind = str(source.kind).upper()
@@ -928,38 +1013,230 @@ class EMCPhase10Pipeline:
             backend = "OPENEMS_LOCAL"
         if phase.full_wave_enabled and backend == "PALACE_REMOTE":
             if phase.auto_run_full_wave:
-                palace_dir = output / "palace-remote"
-                try:
-                    connection = PalaceRemoteConnection.from_settings(phase)
-                    palace_run = PalaceRemoteClient(
-                        connection,
-                        log_callback=lambda detail: self.log(f"[PALACE REMOTE] {detail}"),
-                        cancellation_callback=self.cancellation_callback,
-                    ).run_project(phase.palace_remote_config_path, palace_dir)
-                    result.palace_runs.append(palace_run)
-                    result.tools.append(EMCPhase10ToolStatus(
-                        "PALACE_REMOTE",
-                        palace_run.status not in {"FAILED", "VALIDATION_FAILED"},
-                        palace_run.server,
-                        palace_run.palace_version,
-                        f"{palace_run.status}; artifacts: {palace_run.local_artifact_directory}",
-                    ))
-                except Exception as exc:
-                    result.palace_runs.append(EMCPalaceRemoteRunResult(
-                        status="FAILED",
-                        server=(
-                            f"{phase.palace_remote_username}@{phase.palace_remote_host}"
-                            if phase.palace_remote_username else phase.palace_remote_host
-                        ),
-                        config_path=phase.palace_remote_config_path,
-                        local_artifact_directory=str(palace_dir),
-                        warnings=[str(exc)],
-                    ))
-                    result.tools.append(EMCPhase10ToolStatus(
-                        "PALACE_REMOTE", False, phase.palace_remote_host,
-                        detail=str(exc),
-                    ))
-                    self.log(f"[PALACE REMOTE] Failed: {exc}")
+                python_status = status_by_name.get("OPENEMS_PYTHON")
+                gmsh_status = status_by_name.get("GMSH")
+                python_path = getattr(python_status, "path", "")
+                can_mesh = bool(
+                    python_path and Path(python_path).is_file()
+                    and gmsh_status is not None and gmsh_status.available
+                )
+                connection = PalaceRemoteConnection.from_settings(phase)
+                for region in result.regions:
+                    if self.cancellation_callback and self.cancellation_callback():
+                        region.status = "CANCELLED"
+                        break
+                    region_dir = output / region.name
+                    region_dir.mkdir(parents=True, exist_ok=True)
+                    region_sources = [
+                        source for source in self.settings.sources
+                        if source.name in set(region.source_names)
+                    ]
+                    solver_sources = [
+                        source for source in region_sources if _supports_openems_port(source)
+                    ]
+                    input_path = serialize_region(
+                        self.snapshot, region, self.settings, solver_sources,
+                        region_dir / "input.json", run_solver=bool(solver_sources),
+                    )
+                    region.geometry_path = str(input_path)
+                    if not solver_sources:
+                        region.status = "SKIPPED_SOURCE_INCOMPLETE"
+                        region.warnings.append(
+                            "Automatic Palace solve skipped: no complete routed switching or "
+                            "differential source intersects this region."
+                        )
+                        continue
+                    if region.estimated_cells > phase.maximum_cells:
+                        region.status = "SKIPPED_CELL_LIMIT"
+                        region.warnings.append(
+                            f"Estimated {region.estimated_cells:,} cells exceeds limit "
+                            f"{phase.maximum_cells:,}."
+                        )
+                        continue
+                    if not can_mesh:
+                        region.status = "SKIPPED_TOOL_MISSING"
+                        region.warnings.append(
+                            "The isolated Phase 10 Python/Gmsh runtime is required to build "
+                            "the Palace region mesh."
+                        )
+                        continue
+                    project_dir = region_dir / "palace-project"
+                    build_result_path = region_dir / "palace-build-result.json"
+                    worker = Path(__file__).with_name("phase10_palace_worker.py")
+                    self.log(f"[PHASE 10] Palace mesh: {region.name}")
+                    try:
+                        built = _run(
+                            [python_path, worker, input_path, project_dir, build_result_path],
+                            timeout=min(max(60.0, phase.solver_timeout_s), 600.0),
+                            cwd=region_dir,
+                        )
+                        (region_dir / "palace-mesh.log").write_text(
+                            built.stdout + built.stderr, encoding="utf-8", errors="replace",
+                        )
+                        build_payload = (
+                            json.loads(build_result_path.read_text(encoding="utf-8"))
+                            if build_result_path.is_file() else {}
+                        )
+                        region.warnings.extend(build_payload.get("warnings", []))
+                        if built.returncode != 0 or build_payload.get("status") != "PROJECT_GENERATED":
+                            region.status = "MESH_FAILED"
+                            if not build_payload.get("warnings"):
+                                region.warnings.append("Gmsh did not generate a Palace project.")
+                            continue
+                        region.solver_cells = int(build_payload.get("mesh_elements", 0))
+                        region.mesh_nodes = int(build_payload.get("mesh_nodes", 0))
+                        region.requested_mesh_resolution_mm = float(
+                            build_payload.get("mesh_resolution_mm", phase.mesh_resolution_mm)
+                        )
+                        region.mesh_characteristic_min_mm = float(
+                            build_payload.get("mesh_characteristic_min_mm", 0.0)
+                        )
+                        region.mesh_characteristic_max_mm = float(
+                            build_payload.get("mesh_characteristic_max_mm", 0.0)
+                        )
+                        region.estimated_palace_peak_memory_gib = float(
+                            build_payload.get("estimated_palace_peak_memory_gib", 0.0)
+                        )
+                        region.omitted_short_track_count = int(
+                            build_payload.get("omitted_short_track_count", 0)
+                        )
+                        region.requested_via_count = int(
+                            build_payload.get("requested_via_count", 0)
+                        )
+                        region.modeled_via_count = int(
+                            build_payload.get("modeled_via_count", 0)
+                        )
+                        region.via_model = str(build_payload.get("via_model", ""))
+                        region.via_geometry_fallback = bool(
+                            build_payload.get("via_geometry_fallback", False)
+                        )
+                        if region.solver_cells > phase.maximum_cells:
+                            region.status = "SKIPPED_CELL_LIMIT"
+                            region.warnings.append(
+                                f"Generated {region.solver_cells:,} FEM elements exceeds limit "
+                                f"{phase.maximum_cells:,}."
+                            )
+                            continue
+                        config_path = Path(build_payload["config_path"])
+                        palace_dir = region_dir / "palace-remote"
+                        palace_run = PalaceRemoteClient(
+                            connection,
+                            log_callback=lambda detail, name=region.name: self.log(
+                                f"[PALACE REMOTE] {name}: {detail}"
+                            ),
+                            cancellation_callback=self.cancellation_callback,
+                        ).run_project(config_path, palace_dir)
+                        result.palace_runs.append(palace_run)
+                        region.status = (
+                            "SOLVED_PALACE_REMOTE"
+                            if palace_run.status == "SOLVED_REMOTE" else palace_run.status
+                        )
+                        region.solver_output_path = palace_run.local_artifact_directory
+                        source = solver_sources[0]
+                        differential = str(source.kind).upper() == "DIFFERENTIAL"
+                        region.port_mode = (
+                            "DIFFERENTIAL_CURRENT_DIPOLES" if differential else "CURRENT_DIPOLE"
+                        )
+                        region.port_count = int(build_payload.get("dipole_count", 0))
+                        region.port_net_name = source.net_name
+                        region.port_net_names = [source.net_name] + (
+                            [source.negative_net_name] if differential else []
+                        )
+                        region.port_confidence = "ENGINEERING_APPROXIMATION"
+                        region.port_geometry_source = "ROUTED_TRACK"
+                        region.frequency_hz = float(build_payload.get("frequency_hz", 0.0))
+                        region.harmonic_order = int(build_payload.get("harmonic_order", 0))
+                        region.source_moment_a_m = float(
+                            build_payload.get("source_moment_a_m", 0.0)
+                        )
+                        region.elapsed_seconds = (
+                            float(build_payload.get("elapsed_seconds", 0.0))
+                            + palace_run.elapsed_seconds
+                        )
+                        diagnostics = parse_palace_log(palace_dir / "palace-run.log")
+                        region.solver_cells = diagnostics["elements"] or region.solver_cells
+                        region.solver_iterations = diagnostics["iterations"]
+                        region.solver_converged = diagnostics["converged"]
+                        region.mesh_kappa_maximum = diagnostics["mesh_kappa_maximum"]
+                        region.palace_mesh_h_minimum = diagnostics["mesh_h_minimum"]
+                        region.palace_mesh_h_maximum = diagnostics["mesh_h_maximum"]
+                        region.solver_unknowns = diagnostics["unknowns"]
+                        region.solver_estimated_memory_gib = diagnostics[
+                            "estimated_memory_gib"
+                        ]
+                        region.electric_energy_j = diagnostics["electric_energy_j"]
+                        region.magnetic_energy_j = diagnostics["magnetic_energy_j"]
+                        region.error_indicator_norm = diagnostics["error_indicator_norm"]
+                        structured = parse_palace_outputs(palace_dir / "project")
+                        region.frequency_hz = structured["frequency_hz"] or region.frequency_hz
+                        region.electric_energy_j = (
+                            structured["electric_energy_j"]
+                            if structured["electric_energy_j"] is not None
+                            else region.electric_energy_j
+                        )
+                        region.magnetic_energy_j = (
+                            structured["magnetic_energy_j"]
+                            if structured["magnetic_energy_j"] is not None
+                            else region.magnetic_energy_j
+                        )
+                        region.error_indicator_norm = (
+                            structured["error_indicator_norm"]
+                            if structured["error_indicator_norm"] is not None
+                            else region.error_indicator_norm
+                        )
+                        region.error_indicator_maximum = structured["error_indicator_maximum"]
+                        region.field_output_count = structured["field_output_count"]
+                        if (
+                            region.source_moment_a_m > 0.0
+                            and region.electric_energy_j is not None
+                            and region.magnetic_energy_j is not None
+                        ):
+                            region.normalized_energy_j_per_a2_m2 = (
+                                region.electric_energy_j + region.magnetic_energy_j
+                            ) / (region.source_moment_a_m ** 2)
+                        # One successful linear solve proves algebraic convergence only.
+                        # Physical discretization remains unverified until an independent
+                        # mesh-resolution comparison is available.
+                        region.discretization_verified = False
+                        if region.solver_converged is True:
+                            region.status = (
+                                "SOLVED_PALACE_REMOTE_GEOMETRY_APPROXIMATED_"
+                                "DISCRETIZATION_UNVERIFIED"
+                                if region.via_geometry_fallback else
+                                "SOLVED_PALACE_REMOTE_DISCRETIZATION_UNVERIFIED"
+                            )
+                            region.warnings.append(
+                                "Palace's linear solver converged, but this is a single-mesh "
+                                "result; discretization convergence has not been verified."
+                            )
+                        elif region.solver_converged is False:
+                            region.status = "SOLVED_PALACE_REMOTE_NOT_CONVERGED"
+                        if (
+                            region.mesh_kappa_maximum is not None
+                            and region.mesh_kappa_maximum > 1000.0
+                        ):
+                            region.warnings.append(
+                                f"Maximum mesh element condition metric kappa="
+                                f"{region.mesh_kappa_maximum:.6g} is high; inspect/refine "
+                                "sliver elements before quantitative field use."
+                            )
+                    except subprocess.TimeoutExpired:
+                        region.status = "MESH_TIMEOUT"
+                        region.warnings.append("Palace region meshing exceeded its bounded timeout.")
+                    except Exception as exc:
+                        region.status = "FAILED"
+                        region.warnings.append(str(exc))
+                        self.log(f"[PALACE REMOTE] {region.name} failed: {exc}")
+                successful = sum(
+                    item.status.startswith("SOLVED_PALACE_REMOTE") for item in result.regions
+                )
+                result.tools.append(EMCPhase10ToolStatus(
+                    "PALACE_REMOTE", successful > 0, phase.palace_remote_host,
+                    detail=(
+                        f"{successful}/{len(result.regions)} targeted PCB region(s) solved; "
+                        "generated FEM projects are retained with each region"
+                    ),
+                ))
             else:
                 result.tools.append(EMCPhase10ToolStatus(
                     "PALACE_REMOTE", False, phase.palace_remote_host,
@@ -1082,16 +1359,22 @@ class EMCPhase10Pipeline:
         )
         result.limitations.extend([
             "Virtual-receiver levels derived from the risk spectrum remain relative; no regulatory margin is reported.",
-            "Generated openEMS ports are geometry-derived approximations until a measured, IBIS, Touchstone, or manufacturer source model is supplied.",
-            "Differential/common-mode openEMS excitation uses two lumped legs to a shared reference plane; it is not a de-embedded wave port.",
             "Ideal ngspice pulse validation is limited to switching converters; differential serial links are excluded until IBIS, Touchstone, or measured waveforms are available.",
             "Cables and enclosure require explicit geometry/material data; enabled flags do not invent missing objects.",
             "Accredited measurements remain required for compliance sign-off.",
         ])
+        if backend != "PALACE_REMOTE":
+            result.limitations.extend([
+                "Generated openEMS ports are geometry-derived approximations until a measured, IBIS, Touchstone, or manufacturer source model is supplied.",
+                "Differential/common-mode openEMS excitation uses two lumped legs to a shared reference plane; it is not a de-embedded wave port.",
+            ])
         if backend == "PALACE_REMOTE":
             result.limitations.extend([
-                "The selected Palace project directory is disclosed to the configured LAN server.",
-                "Palace mesh attributes, materials, ports, and boundary conditions remain user-supplied and are not inferred by Ki-PIDA.",
+                "Each generated targeted PCB-region Palace project is disclosed to the configured LAN server.",
+                "Palace uses deterministic local routed-current-dipole source approximations; amplitudes are not calibrated emission levels.",
+                "Dielectric plies are homogenized while copper elevations retain the configured stackup.",
+                "Palace samples one representative harmonic per region; the complete 30 MHz-1 GHz spectrum is not solved.",
+                "A single FEM mesh does not establish discretization convergence; compare at least two mesh resolutions before quantitative field use.",
                 "Remote Palace outputs are engineering simulation evidence, not accredited EMC compliance measurements.",
             ])
         cancelled = any(item.status == "CANCELLED" for item in result.regions)
@@ -1100,10 +1383,13 @@ class EMCPhase10Pipeline:
         )
         failed = any(
             item.status in {"FAILED", "TIMEOUT", "VALIDATION_FAILED"}
+            or item.status.endswith("_FAILED")
             for item in result.excitations + result.regions + result.palace_runs
         )
         warned = any(
             "NOT_CONVERGED" in item.status or "CONVERGENCE_UNKNOWN" in item.status
+            or "DISCRETIZATION_UNVERIFIED" in item.status
+            or item.status.startswith("SKIPPED_")
             for item in result.regions
         )
         result.status = "CANCELLED" if cancelled else (

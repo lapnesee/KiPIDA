@@ -11,14 +11,16 @@ from emc_analyzer import EMCGeometrySnapshot, EMCTrack, EMCVia
 from emc_phase10 import (
     EMCPhase10Pipeline, Phase10Toolchain, SpiceExcitationRunner, SpiceModelInventory,
     VirtualEMIReceiver,
-    _run_monitored, _supports_openems_port, parse_openems_log,
+    _run_monitored, _supports_openems_port, parse_openems_log, parse_palace_log,
+    parse_palace_outputs,
     select_target_regions, serialize_region,
 )
 from emc_analyzer import EMCFootprint
 from models import (
     EMCAnalysisResult, EMCAnalysisSettings, EMCEvidence, EMCFinding, EMCFrequencyRisk,
     EMCPalaceRemoteRunResult,
-    EMCPhase10RegionResult, EMCSignalSource, StackupLayerModel, StackupProfile,
+    EMCPhase10RegionResult, EMCPhase10ToolStatus, EMCSignalSource,
+    StackupLayerModel, StackupProfile,
 )
 
 
@@ -223,12 +225,58 @@ Time for 8000 iterations with 399562.00 cells : 117.83 sec
             path = Path(directory) / "solver.log"
             path.write_text(text, encoding="utf-8")
             result = parse_openems_log(path, 8000)
-        self.assertFalse(result["converged"])
-        self.assertEqual(result["iterations"], 8000)
-        self.assertEqual(result["cells"], 399562)
-        self.assertEqual(result["energy_decay_db"], 0.0)
-        self.assertEqual(result["unused_primitives"], 1)
-        self.assertTrue(any("207,556" in warning for warning in result["warnings"]))
+            self.assertFalse(result["converged"])
+            self.assertEqual(result["iterations"], 8000)
+            self.assertEqual(result["cells"], 399562)
+            self.assertEqual(result["energy_decay_db"], 0.0)
+            self.assertEqual(result["unused_primitives"], 1)
+            self.assertTrue(any("207,556" in warning for warning in result["warnings"]))
+
+    def test_palace_log_parser_records_real_mesh_and_convergence(self):
+        text = """
+                minimum average maximum total
+        elements 140338 140338 140338 140338
+        kappa 1.00128 16960.2
+        h 2.90664e-05 0.0610233
+        Estimated current per-rank memory usage is: Min. 488.3M, Max. 488.3M, Avg. 488.3M, Total 488.3M
+        GMRES solver converged in 5 iterations (avg. reduction factor: 1.2e-02)
+        Field energy E (1.335e-15 J) + H (4.727e-08 J) = 4.727e-08 J
+        Completed 0 iterations of adaptive mesh refinement (AMR):
+        Indicator norm = 8.061e-01, global unknowns = 209127
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "palace-run.log"
+            path.write_text(text)
+            result = parse_palace_log(path)
+        self.assertEqual(result["elements"], 140338)
+        self.assertEqual(result["iterations"], 5)
+        self.assertTrue(result["converged"])
+        self.assertEqual(result["mesh_kappa_maximum"], 16960.2)
+        self.assertEqual(result["electric_energy_j"], 1.335e-15)
+        self.assertEqual(result["error_indicator_norm"], 0.8061)
+        self.assertEqual(result["amr_iterations"], 0)
+        self.assertEqual(result["mesh_h_maximum"], 0.0610233)
+        self.assertEqual(result["unknowns"], 209127)
+        self.assertAlmostEqual(result["estimated_memory_gib"], 488.3 / 1024.0)
+
+    def test_palace_output_parser_records_csv_and_field_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            postpro = Path(directory) / "postpro"
+            fields = postpro / "paraview"
+            fields.mkdir(parents=True)
+            (postpro / "domain-E.csv").write_text(
+                "f (GHz),E_elec (J),E_mag (J)\n3.0e-2,1.2e-15,4.7e-8\n"
+            )
+            (postpro / "error-indicators.csv").write_text(
+                "Norm,Minimum,Maximum,Mean\n0.8,1e-9,0.36,4e-5\n"
+            )
+            (fields / "driven.pvd").write_text("")
+            (fields / "data.pvtu").write_text("")
+            result = parse_palace_outputs(directory)
+        self.assertEqual(result["frequency_hz"], 30.0e6)
+        self.assertEqual(result["electric_energy_j"], 1.2e-15)
+        self.assertEqual(result["error_indicator_maximum"], 0.36)
+        self.assertEqual(result["field_output_count"], 2)
 
     def test_openems_port_accepts_complete_differential_source(self):
         switching = self.settings().sources[0]
@@ -302,7 +350,29 @@ Time for 8000 iterations with 399562.00 cells : 117.83 sec
                 local_artifact_directory=str(Path(directory) / "artifacts"),
                 dry_run_passed=True,
             )
-            with patch("emc_phase10.Phase10Toolchain.detect", return_value=[]), patch(
+            region = EMCPhase10RegionResult(
+                "region_1_sw-001", "SELECTED", (7.0, 7.0, 13.0, 13.0),
+                source_names=["U4 switch"], estimated_cells=100,
+            )
+
+            def fake_mesh(command, **_kwargs):
+                project = Path(command[3])
+                project.mkdir(parents=True, exist_ok=True)
+                generated = project / "palace-region.json"
+                generated.write_text(json.dumps({"Problem": {"Type": "Driven"}}))
+                Path(command[4]).write_text(json.dumps({
+                    "status": "PROJECT_GENERATED", "config_path": str(generated),
+                    "mesh_elements": 1234, "dipole_count": 1,
+                }))
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            tools = [
+                EMCPhase10ToolStatus("OPENEMS_PYTHON", True, sys.executable),
+                EMCPhase10ToolStatus("GMSH", True, sys.executable),
+            ]
+            with patch("emc_phase10.Phase10Toolchain.detect", return_value=tools), patch(
+                "emc_phase10.select_target_regions", return_value=[region]
+            ), patch("emc_phase10._run", side_effect=fake_mesh), patch(
                 "emc_phase10.PalaceRemoteClient"
             ) as client_class:
                 client_class.return_value.run_project.return_value = palace_result
@@ -312,6 +382,8 @@ Time for 8000 iterations with 399562.00 cells : 117.83 sec
                 ).run()
         self.assertEqual(result.status, "COMPLETED")
         self.assertEqual(result.palace_runs[0].status, "SOLVED_REMOTE")
+        self.assertEqual(result.regions[0].status, "SOLVED_PALACE_REMOTE")
+        self.assertEqual(result.regions[0].solver_cells, 1234)
         client_class.return_value.run_project.assert_called_once()
         self.assertEqual(result.tools[-1].name, "PALACE_REMOTE")
 

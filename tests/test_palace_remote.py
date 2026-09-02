@@ -81,6 +81,13 @@ class PalaceRemoteTests(unittest.TestCase):
     def test_home_remote_paths_expand_without_exposing_shell_metacharacters(self):
         self.assertEqual(_quote_remote_path("~/kipida-palace/job"), '"$HOME"/kipida-palace/job')
 
+    def test_remote_shell_expression_is_preserved_as_one_quoted_argument(self):
+        client = _FakePalaceClient(self.connection())
+        command = client._ssh_shell_command('cd "$HOME"/job/input && exec palace --dry-run case.json')
+        rendered = " ".join(command)
+        self.assertIn("sh -lc", rendered)
+        self.assertIn("'cd \"$HOME\"/job/input && exec palace --dry-run case.json'", rendered)
+
     def test_remote_project_is_dry_run_solved_and_retrieved(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -100,6 +107,7 @@ class PalaceRemoteTests(unittest.TestCase):
         self.assertTrue(result.resolved_config_path.endswith("case_resolved.json"))
         rendered = "\n".join(" ".join(item) for item in client.commands)
         self.assertIn("--dry-run", rendered)
+        self.assertIn("/input && exec palace -serial --dry-run case.json", rendered)
         self.assertIn("-np 4", rendered)
 
     def test_remote_validation_failure_never_starts_solver(self):
@@ -111,7 +119,9 @@ class PalaceRemoteTests(unittest.TestCase):
             result = client.run_project(config, root / "results")
         self.assertEqual(result.status, "VALIDATION_FAILED")
         self.assertFalse(result.dry_run_passed)
-        self.assertFalse(any("sh -lc" in " ".join(item) for item in client.commands))
+        rendered = "\n".join(" ".join(item) for item in client.commands)
+        self.assertIn("sh -lc", rendered)
+        self.assertNotIn("-np 4", rendered)
 
 
 if __name__ == "__main__":
