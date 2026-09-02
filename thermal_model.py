@@ -14,10 +14,12 @@ except ImportError:
 
 try:
     from .extractor import GeometryExtractor
-    from .models import PowerRail, ThermalAnalysisSettings, ThermalComponentModel
+    from .models import PowerRail, PowerStageResult, ThermalAnalysisSettings, ThermalComponentModel
+    from .power_loss import estimate_stage
 except (ImportError, ValueError):
     from extractor import GeometryExtractor
-    from models import PowerRail, ThermalAnalysisSettings, ThermalComponentModel
+    from models import PowerRail, PowerStageResult, ThermalAnalysisSettings, ThermalComponentModel
+    from power_loss import estimate_stage
 
 
 @dataclass
@@ -57,6 +59,12 @@ class ThermalBoardModel:
     copper_losses: List[CopperLossPoint] = field(default_factory=list)
 
 
+@dataclass
+class PowerLossEstimate:
+    components: List[ThermalComponentModel] = field(default_factory=list)
+    stages: List[PowerStageResult] = field(default_factory=list)
+
+
 class PowerLossEstimator:
     """Estimate component heat from the existing power-tree semantics."""
 
@@ -75,10 +83,14 @@ class PowerLossEstimator:
         return not ref_des.startswith("J")
 
     @staticmethod
-    def estimate(rails: List[PowerRail]) -> List[ThermalComponentModel]:
+    def estimate_details(rails: List[PowerRail],
+                         component_temperatures_c: Optional[Dict[str, float]] = None
+                         ) -> PowerLossEstimate:
         rail_by_name = {rail.net_name: rail for rail in rails}
         component_power = {}
         model_source = {}
+        mechanisms = {}
+        stages = []
 
         for rail in rails:
             voltage = max(0.0, float(rail.nominal_voltage))
@@ -114,23 +126,24 @@ class PowerLossEstimator:
                 output_current = rail_current(regulator.output_rail_name)
                 output_voltage = max(0.0, float(output_rail.nominal_voltage)) if output_rail else 0.0
                 input_voltage = max(0.0, float(rail.nominal_voltage))
-                output_power = output_voltage * output_current
-                if regulator.reg_type == "SWITCHING":
-                    efficiency = max(1e-6, min(1.0, float(regulator.efficiency)))
-                    loss = output_power * (1.0 / efficiency - 1.0)
-                    input_current = output_power / efficiency / input_voltage if input_voltage > 0 else 0.0
-                else:
-                    loss = max(0.0, input_voltage - output_voltage) * output_current
-                    input_current = output_current
-                ref_des = (
-                    getattr(regulator, "thermal_ref_des", "")
-                    or regulator.input_ref_des
-                    or regulator.output_ref_des
+                stage = estimate_stage(
+                    regulator, input_voltage, output_voltage, output_current,
+                    component_temperatures_c=component_temperatures_c,
                 )
-                if ref_des:
-                    component_power[ref_des] = component_power.get(ref_des, 0.0) + loss
-                    model_source[ref_des] = "regulator-loss"
-                total += input_current
+                stages.append(stage)
+                for contribution in stage.losses:
+                    if not contribution.ref_des:
+                        continue
+                    component_power[contribution.ref_des] = (
+                        component_power.get(contribution.ref_des, 0.0) + contribution.power_w
+                    )
+                    model_source[contribution.ref_des] = "regulator-loss"
+                    mechanisms.setdefault(contribution.ref_des, []).append({
+                        "mechanism": contribution.mechanism,
+                        "power_w": contribution.power_w,
+                        "provenance": contribution.provenance,
+                    })
+                total += stage.iin_a
             visiting.remove(rail_name)
             memo[rail_name] = total
             return total
@@ -138,13 +151,48 @@ class PowerLossEstimator:
         for rail in rails:
             rail_current(rail.net_name)
 
-        return [ThermalComponentModel(
+        components = [ThermalComponentModel(
             ref_des=ref_des,
             power_w=power,
             model_source=model_source.get(ref_des, "estimated"),
+            loss_mechanisms=mechanisms.get(ref_des, []),
         ) for ref_des, power in sorted(component_power.items()) if (
             power > 0 or model_source.get(ref_des) == "power-tree-external-load"
         )]
+        return PowerLossEstimate(components=components, stages=stages)
+
+    @staticmethod
+    def estimate(rails: List[PowerRail]) -> List[ThermalComponentModel]:
+        """Compatibility wrapper retained for existing callers and project files."""
+        return PowerLossEstimator.estimate_details(rails).components
+
+
+def merge_component_heat_sources(estimated, saved_components, preserve_user=True):
+    """Merge fresh electrical losses with persisted thermal component models.
+
+    Automatic entries retain their current loss estimate but keep the physical
+    package and junction settings explicitly saved by the user.  User-owned
+    entries remain fully manual, including their power value.
+    """
+    saved_by_ref = {component.ref_des: component for component in saved_components}
+    merged = []
+    for component in estimated:
+        prior = saved_by_ref.get(component.ref_des)
+        if prior is None or not preserve_user:
+            merged.append(component)
+        elif prior.model_source == "user":
+            merged.append(replace(prior))
+        else:
+            merged.append(replace(
+                component,
+                width_mm=prior.width_mm,
+                depth_mm=prior.depth_mm,
+                height_mm=prior.height_mm,
+                theta_jb_c_per_w=prior.theta_jb_c_per_w,
+                max_junction_c=prior.max_junction_c,
+                enabled=prior.enabled,
+            ))
+    return merged
 
 
 class ThermalModelBuilder:
@@ -432,10 +480,10 @@ class ThermalModelBuilder:
 
         copper_by_layer = self._extract_copper(extractor)
         outline, bounds = self._outline_and_bounds(copper_by_layer, placements)
-        live_bounds = extractor.get_board_bounds(board_file_path=self.board_file_path)
-        if live_bounds is not None:
-            bounds = live_bounds
-            outline = box(*bounds) if box is not None else outline
+        live_outline = extractor.get_board_outline(board_file_path=self.board_file_path)
+        if live_outline is not None:
+            outline = live_outline
+            bounds = tuple(float(value) for value in live_outline.bounds)
 
         vias = []
         for via in self._items("vias"):

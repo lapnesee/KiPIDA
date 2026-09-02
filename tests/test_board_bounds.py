@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from extractor import GeometryExtractor
+from extractor import GeometryExtractor, Point
 
 
 class BoardBoundsTests(unittest.TestCase):
@@ -42,3 +42,18 @@ class BoardBoundsTests(unittest.TestCase):
                 GeometryExtractor._edge_cuts_bounds_from_file(path),
                 (0.0, 0.0, 75.0, 30.0),
             )
+
+    @unittest.skipIf(Point is None, "Shapely is required for thermal outlines")
+    def test_reads_rounded_edge_cuts_rectangle_as_physical_outline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "board.kicad_pcb"
+            path.write_text(
+                '(gr_rect (start 0 0) (end 75 30) (radius 2) (layer "Edge.Cuts"))',
+                encoding="utf-8",
+            )
+
+            outline = GeometryExtractor._edge_cuts_outline_from_file(path)
+
+            self.assertEqual(tuple(outline.bounds), (0.0, 0.0, 75.0, 30.0))
+            self.assertTrue(outline.covers(Point(2.0, 2.0)))
+            self.assertFalse(outline.covers(Point(0.25, 0.25)))

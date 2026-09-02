@@ -3,7 +3,8 @@ import wx.dataview
 import sys
 import os
 import threading
-import time
+from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -13,31 +14,51 @@ if plugin_dir not in sys.path:
     sys.path.insert(0, plugin_dir)
 
 from extractor import GeometryExtractor
-from mesh import Mesher
-from solver import Solver
-from ac_model import ACModelBuilder, format_capacitance
-from ac_solver import ACSolver
-from decoupling_optimizer import DecouplingOptimizer
-from differential_impedance import DifferentialGeometrySnapshot, DifferentialImpedanceSolver
-from emc_analyzer import EMCAnalyzer, EMCGeometrySnapshot
-from em_field_solver import EMNearFieldSolver
-from conjugate_heat_transfer import ConjugateHeatTransferSolver
-from electrothermal import ElectroThermalSolver
-from thermal_mesh import ThermalMesher
-from thermal_model import CopperLossPoint, ThermalModelBuilder
-from thermal_solver import ThermalSolver
+from ac_model import ACModelBuilder
+from differential_impedance import DifferentialGeometrySnapshot
+from emc_analyzer import EMCGeometrySnapshot
+from thermal_model import ThermalModelBuilder
 from thermal_overlay import ThermalOverlayManager
-from ui.ac_analysis_panel import ACAnalysisPanel
-from ui.cfd_analysis_panel import CFDAnalysisPanel
-from ui.differential_analysis_panel import DifferentialAnalysisPanel
-from ui.emc_analysis_panel import EMCAnalysisPanel
-from ui.thermal_analysis_panel import ThermalAnalysisPanel
-from ui.runtime_settings_panel import RuntimeSettingsPanel
-from ui.power_tree_panel import PowerTreePanel
-from ui.interactive_views import ZoomableBitmapPanel, install_navigation
+from ui.dialog_pages import DialogPages
+from ui.interactive_views import install_navigation
 from ui.results_workspace import ResultsWorkspace
+from ui.workspace_navigation import WorkspaceNavigator, build_workspace_entries
+from ui.dialog_action_bar import DialogActionBar
+from ui.log_stream import DialogStreamCapture
 from plotter import Plotter
-from i18n import _
+from analysis_adapters import (
+    adapt_ac_result, adapt_cfd_result, adapt_dc_result, adapt_differential_result,
+    adapt_emc_result, adapt_thermal_result,
+)
+from application.ac_controller import (
+    ACAnalysisCancelled, ACAnalysisController, ACControllerCallbacks, ACRunRequest,
+)
+from application.dc_controller import (
+    DCAnalysisCancelled, DCAnalysisController, DCControllerCallbacks,
+    prepare_dc_request,
+)
+from application.thermal_controller import (
+    ThermalAnalysisCancelled, ThermalAnalysisController, ThermalControllerCallbacks,
+    ThermalRunRequest, dc_copper_loss_points,
+)
+from application.differential_controller import (
+    DifferentialAnalysisCancelled, DifferentialAnalysisController,
+    DifferentialControllerCallbacks, DifferentialRunRequest,
+)
+from application.emc_controller import (
+    EMCAnalysisCancelled, EMCAnalysisController, EMCControllerCallbacks,
+    EMCRunRequest,
+)
+from application.cfd_controller import (
+    CFDAnalysisCancelled, CFDAnalysisController, CFDControllerCallbacks,
+    CFDRunRequest,
+)
+from application.report_presenters import (
+    format_ac_report, format_cfd_report, format_dc_report,
+    format_differential_report, format_emc_report, format_thermal_report,
+)
+from application.thermal_plot_presenter import render_thermal_plots
+from application.dc_plot_presenter import flatten_dc_plot_groups, render_dc_plots
 
 class KiPIDA_MainDialog(wx.Dialog):
     PAGE_CONFIG = 0
@@ -49,22 +70,52 @@ class KiPIDA_MainDialog(wx.Dialog):
     PAGE_RUNTIME = 6
     PAGE_RESULTS = 7
     PAGE_LOG = 8
+    AC_MAX_NETWORK_NODES = 100000
+
+    ANALYSIS_CONTROLLERS = (
+        ("DC analysis", "dc_controller"),
+        ("AC analysis", "ac_controller"),
+        ("Differential analysis", "differential_controller"),
+        ("EMI/EMC analysis", "emc_controller"),
+        ("Thermal analysis", "thermal_controller"),
+        ("Enclosure CFD", "cfd_controller"),
+    )
 
     def __init__(self, parent, board_adapter, project=None):
-        super(KiPIDA_MainDialog, self).__init__(parent, title="Ki-PIDA: Power Integrity Analyzer", 
-                                                style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        super(KiPIDA_MainDialog, self).__init__(
+            parent,
+            title="Ki-PIDA: Power Integrity Analyzer",
+            style=(
+                wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER |
+                wx.MAXIMIZE_BOX | wx.MINIMIZE_BOX
+            ),
+        )
         
         self.SetSize((1180, 760))
         self.SetMinSize((950, 600))
         
         self.board = board_adapter
         self.project = project
-        self._cfd_thread = None
-        self._differential_thread = None
-        self._emc_thread = None
-        self._cfd_cancel_requested = False
+        self.cfd_controller = CFDAnalysisController(
+            dispatch=lambda callback, *args: wx.CallAfter(callback, *args),
+        )
+        self.ac_controller = ACAnalysisController(
+            dispatch=lambda callback, *args: wx.CallAfter(callback, *args),
+        )
+        self.dc_controller = DCAnalysisController(
+            dispatch=lambda callback, *args: wx.CallAfter(callback, *args),
+        )
+        self.thermal_controller = ThermalAnalysisController(
+            dispatch=lambda callback, *args: wx.CallAfter(callback, *args),
+        )
+        self.differential_controller = DifferentialAnalysisController(
+            dispatch=lambda callback, *args: wx.CallAfter(callback, *args),
+        )
+        self.emc_controller = EMCAnalysisController(
+            dispatch=lambda callback, *args: wx.CallAfter(callback, *args),
+        )
         self._thermal_plot_thread = None
-        self._thermal_thread = None
+        self._dc_plot_thread = None
         self._result_generation = 0
         self._thermal_result_generation = 0
         self._closing = False
@@ -74,21 +125,14 @@ class KiPIDA_MainDialog(wx.Dialog):
         # it without requiring a KiCad/plugin restart.
         self._thermal_session_cache = {}
         self._thermal_board_signature = None
+        self._last_valid_differential_snapshot = None
+        self._last_valid_differential_pair_signature = ()
         
         self._init_ui()
         self.Center()
         
-        # Redirect stdout/stderr to our log window
-        class LogRedirector:
-            def __init__(self, log_func):
-                self.log_func = log_func
-            def write(self, msg):
-                if msg.strip():
-                     self.log_func(msg.strip())
-            def flush(self): pass
-            
-        sys.stdout = LogRedirector(self.log)
-        sys.stderr = LogRedirector(self.log)
+        self._stream_capture = DialogStreamCapture(self.log)
+        self._stream_capture.install()
         
         self.log("Ki-PIDA UI Initialized.")
         if not self.board:
@@ -104,205 +148,180 @@ class KiPIDA_MainDialog(wx.Dialog):
         
     def _init_ui(self):
         main_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        self.workspace_panel = wx.Panel(self)
+        workspace_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        content_panel = wx.Panel(self.workspace_panel)
+        content_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.lbl_workspace_title = wx.StaticText(content_panel, label="Power Tree & DC")
+        title_font = self.lbl_workspace_title.GetFont()
+        title_font.SetPointSize(title_font.GetPointSize() + 2)
+        title_font.SetWeight(wx.FONTWEIGHT_BOLD)
+        self.lbl_workspace_title.SetFont(title_font)
+        self.lbl_workspace_description = wx.StaticText(content_panel, label="")
+        content_sizer.Add(self.lbl_workspace_title, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        content_sizer.Add(self.lbl_workspace_description, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        self.notebook = wx.Simplebook(content_panel)
         
-        # 1. Notebook for tabs
-        self.notebook = wx.Notebook(self)
-        
-        # Tab 1: Configuration (New Power Tree Panel)
-        self.tab_config = wx.Panel(self.notebook)
-        self.power_tree = PowerTreePanel(self.tab_config, self.board, project=self.project, log_callback=self.log)
-        
-        # Config Tab Layout
-        config_sizer = wx.BoxSizer(wx.VERTICAL)
-        config_sizer.Add(self.power_tree, 1, wx.EXPAND | wx.ALL, 5)
-        
-        # Global Settings (Grid Size, Drop %, Debug)
-        sett_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        
-        lbl_grid = wx.StaticText(self.tab_config, label="Mesh Resolution (mm):")
-        self.txt_grid_size = wx.TextCtrl(self.tab_config, value="0.1", size=(60, -1))
-        sett_sizer.Add(lbl_grid, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
-        sett_sizer.Add(self.txt_grid_size, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 20)
-        
-        lbl_drop = wx.StaticText(self.tab_config, label="Max Drop %:")
-        self.txt_drop_pct = wx.TextCtrl(self.tab_config, value="5", size=(60, -1))
-        sett_sizer.Add(lbl_drop, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
-        sett_sizer.Add(self.txt_drop_pct, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 20)
-        
-        self.chk_debug = wx.CheckBox(self.tab_config, label="Enable Debug Log")
-        sett_sizer.Add(self.chk_debug, 0, wx.ALIGN_CENTER_VERTICAL)
-        
-        config_sizer.Add(sett_sizer, 0, wx.EXPAND | wx.ALL, 5)
-        self.tab_config.SetSizer(config_sizer)
-        
-        self.notebook.AddPage(self.tab_config, "Power Tree & Config")
-        
-        # Tab 2: AC Impedance Configuration
-        self.tab_ac = wx.Panel(self.notebook)
-        ac_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.ac_panel = ACAnalysisPanel(
-            self.tab_ac,
-            self.board,
-            rails_provider=lambda: self.power_tree.rails,
-            log_callback=self.log,
+        self.pages = DialogPages(
+            self.notebook, board=self.board, project=self.project,
+            log_callback=self.log, init_results=self._init_results_tab,
+            init_log=self._init_log_tab,
+            thermal_callbacks={
+                "mesh_context_provider": self._thermal_mesh_context,
+                "inject_overlay_callback": self._inject_thermal_overlay,
+                "clear_overlay_callback": self._clear_thermal_overlay,
+                "clear_cache_callback": self._clear_thermal_session_cache,
+            },
         )
-        ac_sizer.Add(self.ac_panel, 1, wx.EXPAND | wx.ALL, 5)
-        self.tab_ac.SetSizer(ac_sizer)
-        self.notebook.AddPage(self.tab_ac, "AC Impedance")
-        self.power_tree.ac_profiles_provider = self.ac_panel.get_profiles
-        self.power_tree.ac_profiles_consumer = self.ac_panel.set_profiles
-
-        # Tab 3: Differential-pair / signal-integrity configuration
-        self.tab_differential = wx.Panel(self.notebook)
-        differential_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.differential_panel = DifferentialAnalysisPanel(
-            self.tab_differential,
-            self.board,
-            project=self.project,
-            log_callback=self.log,
+        for name in (
+            "tab_config", "power_tree", "txt_grid_size", "txt_drop_pct", "chk_debug",
+            "tab_ac", "ac_panel", "tab_differential", "differential_panel",
+            "tab_emc", "emc_panel", "tab_thermal", "thermal_panel",
+            "tab_cfd", "cfd_panel", "tab_runtime", "runtime_panel",
+            "tab_results", "tab_log",
+        ):
+            setattr(self, name, getattr(self.pages, name))
+        
+        content_sizer.Add(self.notebook, 1, wx.EXPAND)
+        content_panel.SetSizer(content_sizer)
+        self.workspace_nav = WorkspaceNavigator(
+            self.workspace_panel,
+            entries=self._workspace_entries(),
+            on_select=self._on_workspace_selected,
         )
-        differential_sizer.Add(self.differential_panel, 1, wx.EXPAND | wx.ALL, 5)
-        self.tab_differential.SetSizer(differential_sizer)
-        self.notebook.AddPage(self.tab_differential, "Differential Pairs")
-        self.power_tree.differential_profile_provider = self.differential_panel.get_settings
-        self.power_tree.differential_profile_consumer = self.differential_panel.set_settings
-
-        # Tab 4: EMI/EMC pre-compliance configuration
-        self.tab_emc = wx.Panel(self.notebook)
-        emc_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.emc_panel = EMCAnalysisPanel(
-            self.tab_emc,
-            self.board,
-            differential_pairs_provider=lambda: self.differential_panel.settings.pairs,
-            log_callback=self.log,
-        )
-        emc_sizer.Add(self.emc_panel, 1, wx.EXPAND | wx.ALL, 5)
-        self.tab_emc.SetSizer(emc_sizer)
-        self.notebook.AddPage(self.tab_emc, "EMI / EMC")
-        self.power_tree.emc_profile_provider = self.emc_panel.get_settings
-        self.power_tree.emc_profile_consumer = self.emc_panel.set_settings
-
-        # Tab 5: 3D Thermal Configuration
-        self.tab_thermal = wx.Panel(self.notebook)
-        thermal_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.thermal_panel = ThermalAnalysisPanel(
-            self.tab_thermal,
-            rails_provider=lambda: self.power_tree.rails,
-            log_callback=self.log,
-            mesh_context_provider=self._thermal_mesh_context,
-            inject_overlay_callback=self._inject_thermal_overlay,
-            clear_overlay_callback=self._clear_thermal_overlay,
-            clear_cache_callback=self._clear_thermal_session_cache,
-        )
-        thermal_sizer.Add(self.thermal_panel, 1, wx.EXPAND | wx.ALL, 5)
-        self.tab_thermal.SetSizer(thermal_sizer)
-        self.notebook.AddPage(self.tab_thermal, "3D Thermal")
-        self.power_tree.thermal_profile_provider = self.thermal_panel.get_settings
-        self.power_tree.thermal_profile_consumer = self.thermal_panel.set_settings
-
-        # Tab 5: Enclosure CFD Configuration
-        self.tab_cfd = wx.Panel(self.notebook)
-        cfd_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.cfd_panel = CFDAnalysisPanel(self.tab_cfd, log_callback=self.log)
-        cfd_sizer.Add(self.cfd_panel, 1, wx.EXPAND | wx.ALL, 5)
-        self.tab_cfd.SetSizer(cfd_sizer)
-        self.notebook.AddPage(self.tab_cfd, "Enclosure CFD")
-        self.power_tree.cfd_profile_provider = self.cfd_panel.get_settings
-        self.power_tree.cfd_profile_consumer = self.cfd_panel.set_settings
-
-        # Tab 6: machine-local compute configuration
-        self.tab_runtime = wx.Panel(self.notebook)
-        runtime_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.runtime_panel = RuntimeSettingsPanel(self.tab_runtime, log_callback=self.log)
-        runtime_sizer.Add(self.runtime_panel, 1, wx.EXPAND | wx.ALL, 5)
-        self.tab_runtime.SetSizer(runtime_sizer)
-        self.notebook.AddPage(self.tab_runtime, "Runtime & Acceleration")
-
-        # Tab 7: Results
-        self.tab_results = wx.Panel(self.notebook)
-        self._init_results_tab(self.tab_results)
-        self.notebook.AddPage(self.tab_results, "Results")
+        workspace_sizer.Add(self.workspace_nav, 0, wx.EXPAND | wx.ALL, 5)
+        workspace_sizer.Add(content_panel, 1, wx.EXPAND | wx.TOP | wx.RIGHT | wx.BOTTOM, 5)
+        self.workspace_panel.SetSizer(workspace_sizer)
+        main_sizer.Add(self.workspace_panel, 1, wx.EXPAND)
         
-        # Tab 8: Log/Debug
-        self.tab_log = wx.Panel(self.notebook)
-        self._init_log_tab(self.tab_log)
-        self.notebook.AddPage(self.tab_log, "Log")
-        
-        main_sizer.Add(self.notebook, 1, wx.EXPAND | wx.ALL, 5)
-        
-        # 2. Action Buttons (Bottom)
-        action_panel = wx.Panel(self)
-        self.action_panel = action_panel
-        action_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.lbl_interaction_status = wx.StaticText(
-            action_panel, label="", style=getattr(wx, "ST_ELLIPSIZE_END", 0),
-        )
-        self.lbl_interaction_status.SetMinSize((-1, 22))
-        action_sizer.Add(self.lbl_interaction_status, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 8)
-        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        
-        self.btn_run = wx.Button(action_panel, label="Run DC Simulation")
-        self.btn_run_ac = wx.Button(action_panel, label="Run AC Analysis")
-        self.btn_optimize = wx.Button(action_panel, label="Optimize Decoupling")
-        self.btn_run_differential = wx.Button(action_panel, label="Run Differential Z")
-        self.btn_run_emc = wx.Button(action_panel, label="Run EMI/EMC")
-        self.btn_run_thermal = wx.Button(action_panel, label="Run Thermal")
-        self.btn_run_coupled = wx.Button(action_panel, label="Run Coupled")
-        self.btn_run_cfd = wx.Button(action_panel, label="Run Enclosure CFD")
-        self.btn_cancel = wx.Button(action_panel, wx.ID_CANCEL, "Close")
-        
-        btn_sizer.AddStretchSpacer()
-        btn_sizer.Add(self.btn_run, 0, wx.ALL, 5)
-        btn_sizer.Add(self.btn_run_ac, 0, wx.ALL, 5)
-        btn_sizer.Add(self.btn_optimize, 0, wx.ALL, 5)
-        btn_sizer.Add(self.btn_run_differential, 0, wx.ALL, 5)
-        btn_sizer.Add(self.btn_run_emc, 0, wx.ALL, 5)
-        btn_sizer.Add(self.btn_run_thermal, 0, wx.ALL, 5)
-        btn_sizer.Add(self.btn_run_coupled, 0, wx.ALL, 5)
-        btn_sizer.Add(self.btn_run_cfd, 0, wx.ALL, 5)
-        btn_sizer.Add(self.btn_cancel, 0, wx.ALL, 5)
-        
-        action_sizer.Add(btn_sizer, 0, wx.EXPAND)
-        action_panel.SetSizer(action_sizer)
-        main_sizer.Add(action_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
+        actions_by_page = {
+            self.PAGE_CONFIG: ("dc",),
+            self.PAGE_AC: ("ac", "optimize"),
+            self.PAGE_DIFFERENTIAL: ("differential",),
+            self.PAGE_EMC: ("emc", "cancel_emc"),
+            self.PAGE_THERMAL: ("thermal", "coupled"),
+            self.PAGE_CFD: ("cfd",),
+        }
+        handlers = {
+            "dc": self.on_run, "ac": self.on_run_ac,
+            "optimize": self.on_optimize_decoupling,
+            "differential": self.on_run_differential,
+            "emc": self.on_run_emc, "cancel_emc": self.on_cancel_emc,
+            "thermal": self.on_run_thermal, "coupled": self.on_run_coupled_thermal,
+            "cfd": self.on_run_cfd, "close": self.on_close,
+        }
+        self.action_bar = DialogActionBar(self, handlers, actions_by_page)
+        self.lbl_interaction_status = self.action_bar.status
+        self.btn_run = self.action_bar.buttons["dc"]
+        self.btn_run_ac = self.action_bar.buttons["ac"]
+        self.btn_optimize = self.action_bar.buttons["optimize"]
+        self.btn_run_differential = self.action_bar.buttons["differential"]
+        self.btn_run_emc = self.action_bar.buttons["emc"]
+        self.btn_cancel_emc = self.action_bar.buttons["cancel_emc"]
+        self.btn_run_thermal = self.action_bar.buttons["thermal"]
+        self.btn_run_coupled = self.action_bar.buttons["coupled"]
+        self.btn_run_cfd = self.action_bar.buttons["cfd"]
+        self.btn_cancel = self.action_bar.close_button
+        main_sizer.Add(self.action_bar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
         
         self.SetSizer(main_sizer)
         
         # Bind events
-        self.btn_run.Bind(wx.EVT_BUTTON, self.on_run)
-        self.btn_run_ac.Bind(wx.EVT_BUTTON, self.on_run_ac)
-        self.btn_optimize.Bind(wx.EVT_BUTTON, self.on_optimize_decoupling)
-        self.btn_run_differential.Bind(wx.EVT_BUTTON, self.on_run_differential)
-        self.btn_run_emc.Bind(wx.EVT_BUTTON, self.on_run_emc)
-        self.btn_run_thermal.Bind(wx.EVT_BUTTON, self.on_run_thermal)
-        self.btn_run_coupled.Bind(wx.EVT_BUTTON, self.on_run_coupled_thermal)
-        self.btn_run_cfd.Bind(wx.EVT_BUTTON, self.on_run_cfd)
-        self.btn_cancel.Bind(wx.EVT_BUTTON, self.on_close)
-        self.notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.on_notebook_page_changed)
+        self.notebook.Bind(wx.EVT_BOOKCTRL_PAGE_CHANGED, self.on_notebook_page_changed)
+        self._update_contextual_actions(self.PAGE_CONFIG)
+        self.workspace_nav.select_page(self.PAGE_CONFIG)
         install_navigation(self)
         
         # Auto-scan board after UI is ready
         wx.CallAfter(self.power_tree.auto_scan)
 
     def on_notebook_page_changed(self, event):
-        if event.GetSelection() == self.PAGE_AC:
+        selection = event.GetSelection()
+        self._sync_workspace_chrome(selection)
+        if selection == self.PAGE_AC:
             wx.CallAfter(self.ac_panel.refresh)
-        elif event.GetSelection() == self.PAGE_DIFFERENTIAL:
+        elif selection == self.PAGE_DIFFERENTIAL:
             wx.CallAfter(self.differential_panel.refresh)
-        elif event.GetSelection() == self.PAGE_EMC:
+        elif selection == self.PAGE_EMC:
             wx.CallAfter(self.emc_panel.refresh_live_board)
-        elif event.GetSelection() == self.PAGE_THERMAL:
+        elif selection == self.PAGE_THERMAL:
             if not self.thermal_panel.settings.components:
                 wx.CallAfter(self.thermal_panel.refresh_components)
             wx.CallAfter(self.thermal_panel._update_mesh_cost)
-        elif event.GetSelection() == self.PAGE_CFD:
+        elif selection == self.PAGE_CFD:
             wx.CallAfter(self.cfd_panel._update_estimate)
-        elif event.GetSelection() == self.PAGE_RUNTIME:
+        elif selection == self.PAGE_RUNTIME:
             wx.CallAfter(self.runtime_panel.refresh_status)
         event.Skip()
 
+    @classmethod
+    def _workspace_entries(cls):
+        return build_workspace_entries({
+            "config": cls.PAGE_CONFIG, "ac": cls.PAGE_AC,
+            "differential": cls.PAGE_DIFFERENTIAL, "emc": cls.PAGE_EMC,
+            "thermal": cls.PAGE_THERMAL, "cfd": cls.PAGE_CFD,
+            "results": cls.PAGE_RESULTS, "runtime": cls.PAGE_RUNTIME,
+            "log": cls.PAGE_LOG,
+        })
+
+    def _on_workspace_selected(self, entry):
+        self._select_workspace(entry.page_index)
+
+    def _select_workspace(self, page_index):
+        page_index = int(page_index)
+        previous = self.notebook.GetSelection()
+        if previous != page_index:
+            self.notebook.SetSelection(page_index)
+        # Some wx builds bundled by KiCad change a Simplebook page without
+        # emitting EVT_BOOKCTRL_PAGE_CHANGED.  Keep the surrounding chrome in
+        # sync here as well as in the native event handler.
+        self._sync_workspace_chrome(page_index)
+
+    def _sync_workspace_chrome(self, page_index):
+        self._update_workspace_header(page_index)
+        self.workspace_nav.select_page(page_index)
+        self._update_contextual_actions(page_index)
+
+    def _update_workspace_header(self, page_index):
+        entry = self.workspace_nav.entry_for_page(int(page_index))
+        self.lbl_workspace_title.SetLabel(entry.title)
+        self.lbl_workspace_description.SetLabel(entry.description)
+        self.lbl_workspace_description.Wrap(max(300, self.GetClientSize().width - 280))
+
+    def _update_contextual_actions(self, page_index):
+        """Only expose actions that are meaningful in the active workspace."""
+        self.action_bar.set_active_page(page_index)
+
+    def _running_analysis_label(self):
+        for label, attribute in self.ANALYSIS_CONTROLLERS:
+            controller = getattr(self, attribute, None)
+            if controller is not None and controller.is_running:
+                return label
+        return None
+
+    def _ensure_analysis_slot(self):
+        """Allow only one resource-intensive analysis at a time."""
+        running = self._running_analysis_label()
+        if running is None:
+            return True
+        message = (
+            f"{running} is already running. Wait for it to complete or cancel it "
+            "before starting another analysis."
+        )
+        self.log(message)
+        self._set_interaction_status(f"{running} · running")
+        self._select_workspace(self.PAGE_LOG)
+        wx.MessageBox(message, "Analysis already running", wx.OK | wx.ICON_INFORMATION)
+        return False
+
     def _refresh_live_board_state(self):
         """Re-read KiCad's live IPC board data before a new analysis run."""
+        if self.board is None:
+            raise RuntimeError(
+                "No live KiCad PCB is connected. Close this window and relaunch Ki-PIDA "
+                "from an open PCB Editor document."
+            )
         try:
             self._thermal_geometry_context = None
             signature = ThermalModelBuilder.board_geometry_signature(self.board)
@@ -321,37 +340,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.log("Refreshed live PCB geometry and component discovery.")
         except Exception as exc:
             self.log(f"Live PCB refresh warning: {exc}")
-
-    @staticmethod
-    def _thermal_cache_key(settings, compute_settings, coupled, copper_losses):
-        airflow = settings.airflow
-        components = tuple(sorted(
-            (
-                component.ref_des, float(component.power_w), float(component.width_mm),
-                float(component.depth_mm), float(component.height_mm),
-                float(component.theta_jb_c_per_w), float(component.max_junction_c),
-                bool(component.enabled), str(component.model_source),
-            )
-            for component in settings.components
-        ))
-        losses = tuple(sorted(
-            (float(loss.x_mm), float(loss.y_mm), int(loss.layer_id), float(loss.power_w))
-            for loss in copper_losses
-        ))
-        thermal = (
-            float(settings.grid_size_mm), float(settings.ambient_c), bool(settings.include_radiation),
-            float(settings.emissivity), bool(settings.include_dc_copper_losses),
-            str(airflow.mode), float(airflow.velocity_m_s), float(airflow.direction_deg),
-            float(airflow.custom_h_w_m2k), bool(airflow.expose_top),
-            bool(airflow.expose_bottom), bool(airflow.expose_edges), components, losses,
-        )
-        runtime = (
-            str(getattr(compute_settings, "backend", "AUTO")),
-            bool(getattr(compute_settings, "cuda_enabled", False)),
-            int(getattr(compute_settings, "cuda_device", 0) or 0),
-            int(getattr(compute_settings, "cpu_threads", 0) or 0),
-        )
-        return bool(coupled), thermal, runtime
+            raise RuntimeError(f"Live KiCad PCB refresh failed: {exc}") from exc
 
     def _clear_thermal_session_cache(self):
         self._thermal_session_cache.clear()
@@ -406,15 +395,10 @@ class KiPIDA_MainDialog(wx.Dialog):
         parent.SetSizer(sizer)
 
     def _set_interaction_status(self, text):
-        if not hasattr(self, "lbl_interaction_status"):
+        if not hasattr(self, "action_bar"):
             return
         value = str(text or "")
-        self.lbl_interaction_status.SetLabel(value.replace("\n", " — "))
-        self.lbl_interaction_status.SetToolTip(value)
-        available_width = max(100, self.action_panel.GetClientSize().width - 16)
-        self.lbl_interaction_status.Wrap(available_width)
-        self.action_panel.Layout()
-        self.lbl_interaction_status.Refresh()
+        self.action_bar.set_status(value.replace("\n", " — "))
 
     def _results_history_directory(self):
         """Keep analysis archives alongside the active KiCad board/project."""
@@ -426,10 +410,12 @@ class KiPIDA_MainDialog(wx.Dialog):
             return Path(project_path).parent / "KiPIDA-results"
         return None
 
-    def _publish_results(self, analysis_id, report, plots=None):
+    def _publish_results(self, analysis_id, report, plots=None, structured_result=None):
         """Publish one analysis without discarding other session results."""
-        page = self.results_workspace.publish(analysis_id, report, plots)
-        self.notebook.SetSelection(self.PAGE_RESULTS)
+        page = self.results_workspace.publish(
+            analysis_id, report, plots, result=structured_result,
+        )
+        self._select_workspace(self.PAGE_RESULTS)
         return page
 
 
@@ -446,185 +432,9 @@ class KiPIDA_MainDialog(wx.Dialog):
                 wx.CallAfter(self.log, msg)
             return
         timestamp = datetime.now().strftime("%H:%M:%S")
-        self.log_ctrl.AppendText(f"[{timestamp}] {_(str(msg))}\n")
+        self.log_ctrl.AppendText(f"[{timestamp}] {msg}\n")
         self.log_ctrl.ShowPosition(self.log_ctrl.GetLastPosition())
         
-    def to_mm(self, val_nm):
-        return val_nm / 1e6
-
-    def _get_mesh_nodes(self, mesh, ref_des, pad_names, debug_mode, log_callback=None):
-        emit = log_callback or self.log
-        if debug_mode:
-            emit(f"  [_get_mesh_nodes] Looking up {ref_des} pads={pad_names}")
-        nodes = []
-        
-        # Helper to get attribute value (property or getter)
-        def _get_val(obj, attr_name, default=None):
-            if obj is None: return default
-            # Try property
-            if hasattr(obj, attr_name):
-                val = getattr(obj, attr_name)
-                if val is not None: return val
-            # Try getter
-            for prefix in ["get_", ""]:
-                method_name = prefix + attr_name
-                if hasattr(obj, method_name):
-                    try:
-                        val = getattr(obj, method_name)()
-                        if val is not None: return val
-                    except: pass
-            return default
-        
-        # Helper to get board items (same pattern as discovery.py)
-        def get_board_items(attr_name):
-            if hasattr(self.board, attr_name):
-                return getattr(self.board, attr_name)
-            method_name = f"get_{attr_name}"
-            if hasattr(self.board, method_name):
-                try: return getattr(self.board, method_name)()
-                except: pass
-            return []
-        
-        # Find the footprint
-        found_fp = None
-        footprints = get_board_items('footprints')
-        
-        for fp in footprints:
-            # Get reference (same logic as discovery.py)
-            ref = _get_val(fp, 'reference', _get_val(fp, 'ref_des', ''))
-            if not ref:
-                # Try reference_field for Kipy
-                ref_field = _get_val(fp, 'reference_field')
-                if ref_field:
-                    text = _get_val(ref_field, 'text')
-                    if text:
-                        ref = _get_val(text, 'value', '')
-            
-            if ref == ref_des:
-                found_fp = fp
-                break
-        
-        if not found_fp:
-            if debug_mode: emit(f"  Warning: Footprint {ref_des} not found.")
-            return []
-        
-        # Get pads (same logic as discovery.py)
-        pads = _get_val(found_fp, 'pads')
-        if pads is None:
-            defn = _get_val(found_fp, 'definition')
-            pads = _get_val(defn, 'pads', [])
-        
-        target_pads = []
-        if not pad_names:
-            target_pads = pads  # All pads
-        else:
-            for p in pads:
-                # Get pad number/name
-                pad_num = _get_val(p, 'number', _get_val(p, 'name', ''))
-                if pad_num in pad_names:
-                    target_pads.append(p)
-        
-        if not target_pads:
-            if debug_mode: emit(f"  No pads found for {ref_des} matching {pad_names}")
-            return []
-        
-        origin = mesh.grid_origin
-        gs = mesh.grid_step
-        
-        for p in target_pads:
-            pos = _get_val(p, 'position')
-            if not pos: continue
-            
-            # Handle KiCad/Protobuf position types
-            px, py = 0, 0
-            if hasattr(pos, 'x') and hasattr(pos, 'y'):
-                px = _get_val(pos, 'x', 0)
-                py = _get_val(pos, 'y', 0)
-            elif hasattr(pos, '__getitem__'):
-                px = pos[0]
-                py = pos[1]
-            
-            # Convert to mm if likely in nm (KiCad native)
-            # Heuristic: if > 10000, assume nm
-            if abs(px) > 10000 or abs(py) > 10000:
-                px /= 1e6
-                py /= 1e6
-            
-            tx = int(round((px - origin[0]) / gs))
-            ty = int(round((py - origin[1]) / gs))
-            
-            # Search 3x3 neighborhood across layers
-            found_any = False
-            for dx in [-1, 0, 1]:
-                for dy in [-1, 0, 1]:
-                    for layer in range(32):  # search layers
-                        nid = mesh.node_map.get((tx+dx, ty+dy, layer))
-                        if nid is not None:
-                            nodes.append(nid)
-                            found_any = True
-            
-            if not found_any and debug_mode:
-                emit(f"  Pad {ref_des} at ({px:.2f},{py:.2f}) not on mesh.")
-        
-        return list(set(nodes))
-
-    def _build_rail_dependency_graph(self, system_rails):
-        """
-        Build dependency graph from regulator connections.
-        Returns: dict mapping rail_name -> list of rails it depends on
-        """
-        graph = {rail.net_name: [] for rail in system_rails}
-        
-        for rail in system_rails:
-            for reg in rail.child_regulators:
-                # reg.output_rail_name depends on rail.net_name (input)
-                if reg.output_rail_name in graph:
-                    graph[reg.output_rail_name].append(rail.net_name)
-        
-        return graph
-    
-    def _topological_sort_rails(self, system_rails):
-        """
-        Sort rails in dependency order (leaves first, roots last).
-        Raises ValueError if cycle detected.
-        Returns: list of PowerRail objects in solve order
-        """
-        graph = self._build_rail_dependency_graph(system_rails)
-        
-        # DFS-based topological sort with cycle detection
-        visited = set()
-        rec_stack = set()  # Recursion stack for cycle detection
-        result = []
-        
-        def dfs(rail_name):
-            if rail_name in rec_stack:
-                raise ValueError(f"Cycle detected in power rail dependencies involving '{rail_name}'")
-            
-            if rail_name in visited:
-                return
-            
-            visited.add(rail_name)
-            rec_stack.add(rail_name)
-            
-            # Visit dependencies first
-            for dep in graph.get(rail_name, []):
-                dfs(dep)
-            
-            rec_stack.remove(rail_name)
-            result.append(rail_name)
-        
-        # Process all rails
-        for rail in system_rails:
-            if rail.net_name not in visited:
-                dfs(rail.net_name)
-        
-        # Reverse to get leaves-first order (output rails before input rails)
-        result.reverse()
-        
-        # Convert rail names back to PowerRail objects
-        rail_map = {r.net_name: r for r in system_rails}
-        return [rail_map[name] for name in result]
-
     def _thermal_mesh_context(self):
         try:
             geometry = getattr(self, "_thermal_geometry_context", None)
@@ -652,221 +462,71 @@ class KiPIDA_MainDialog(wx.Dialog):
         except Exception:
             return {}
 
-    def _solve_system(
-        self, system_rails, grid_size, debug_mode, compute_settings=None,
-        log_callback=None,
-    ):
-        """Solve configured DC rails without reading or updating wx widgets."""
-        emit = log_callback or self.log
-        emit(f"--- Starting System Simulation ({len(system_rails)} rails) ---")
-        
-        try:
-            extractor = GeometryExtractor(self.board, debug=debug_mode, log_callback=emit)
-            try:
-                stackup = extractor.get_board_stackup()
-            except Exception as e:
-                emit(f"Error extracting stackup: {e}")
-                return {}
-            
-            system_results = {} # rail_name -> { mesh, results, stats }
-            rail_total_current = {rail.net_name: 0.0 for rail in system_rails}
-            
-            # 2. Sort rails in dependency order and check for cycles
-            try:
-                sorted_rails = self._topological_sort_rails(system_rails)
-                rail_order = [r.net_name for r in sorted_rails]
-                emit(f"Rail solve order: {' -> '.join(rail_order)}")
-            except ValueError as e:
-                emit(f"ERROR: {e}")
-                return {}
-            
-            # 3. Solve each rail in topological order
-            for rail in sorted_rails:
-                emit(f"Processing Rail: {rail.net_name} (Sources: {len(rail.sources)}, Loads: {len(rail.loads)})")
-                
-                # Update total current for this rail (starting with direct loads)
-                rail_total_current[rail.net_name] = sum(load.total_current for load in rail.loads)
-                
-                # A. Get Geometry & Mesh
-                geometry_started = time.perf_counter()
-                emit(f"  Extracting copper geometry for {rail.net_name}...")
-                geo = extractor.get_net_geometry(rail.net_name, merge=False)
-                emit(
-                    f"  Geometry ready for {rail.net_name}: {len(geo)} layer(s) in "
-                    f"{time.perf_counter() - geometry_started:.3f} s."
-                )
-                if not geo:
-                    emit(f"  Skipping {rail.net_name}: No geometry.")
-                    continue
-                    
-                mesher = Mesher(
-                    self.board, debug=debug_mode, log_callback=emit,
-                    compute_settings=compute_settings,
-                )
-                mesh_started = time.perf_counter()
-                mesh = mesher.generate_mesh(rail.net_name, geo, stackup, grid_size_mm=grid_size)
-                emit(
-                    f"  Mesh ready for {rail.net_name}: {len(mesh.nodes):,} nodes in "
-                    f"{time.perf_counter() - mesh_started:.3f} s."
-                )
-                
-                if len(mesh.nodes) == 0:
-                     emit(f"  Skipping {rail.net_name}: Mesh empty.")
-                     continue
-                     
-                # B. Map Sources & Loads
-                solver_sources = []
-                solver_loads = []
-                
-                # 1. Standard Sources
-                for src in rail.sources:
-                    nodes = self._get_mesh_nodes(
-                        mesh, src.component_ref.ref_des, src.pad_names, debug_mode, emit,
-                    )
-                    if debug_mode:
-                        emit(f"  Source {src.component_ref.ref_des} pads {src.pad_names} -> {len(nodes)} nodes")
-                    if not nodes:
-                        emit(f"  WARNING: Source {src.component_ref.ref_des} pads {src.pad_names} found NO mesh nodes!")
-                    v_set = rail.nominal_voltage
-                    for nid in nodes:
-                        solver_sources.append({'node_id': nid, 'voltage': v_set})
-
-                # 2. Regulator Outputs (Sources for THIS rail)
-                for other_rail in system_rails:
-                    for reg in other_rail.child_regulators:
-                        if reg.output_rail_name == rail.net_name:
-                            # Regulator feeds THIS rail. It is a SOURCE.
-                            # Use specific OUTPUT location
-                            nodes = self._get_mesh_nodes(
-                                mesh, reg.output_ref_des, reg.output_pad_names, debug_mode, emit,
-                            )
-                            if debug_mode:
-                                emit(f"  Regulator {reg.name} output {reg.output_ref_des} pads {reg.output_pad_names} -> {len(nodes)} nodes")
-                            if not nodes:
-                                emit(f"  WARNING: Regulator {reg.name} output {reg.output_ref_des} pads {reg.output_pad_names} found NO mesh nodes!")
-                            v_out = rail.nominal_voltage # Output target IS the rail voltage
-                            for nid in nodes:
-                                solver_sources.append({'node_id': nid, 'voltage': v_out})
-                                
-                # 3. Standard Loads
-                for load in rail.loads:
-                    nodes = self._get_mesh_nodes(
-                        mesh, load.component_ref.ref_des, load.pad_names, debug_mode, emit,
-                    )
-                    if not nodes: continue
-                    i_per_node = load.total_current / len(nodes)
-                    for nid in nodes:
-                        solver_loads.append({'node_id': nid, 'current': i_per_node})
-                        
-                # 4. Downstream Regulators (Loads on THIS rail)
-                for reg in rail.child_regulators:
-                    # Find the output rail to calculate total load
-                    # (It should have been solved already due to topological sort)
-                    total_output_current = rail_total_current.get(reg.output_rail_name, 0.0)
-                    
-                    if total_output_current == 0:
-                        if debug_mode:
-                            emit(f"  Regulator {reg.name} has no load on output rail {reg.output_rail_name}")
-                        continue
-                    
-                    # Convert to input current based on regulator type
-                    if reg.reg_type == "LINEAR":
-                        input_current = total_output_current
-                    elif reg.reg_type == "SWITCHING":
-                        # Power-based conversion: P_in = P_out / efficiency
-                        # We need output rail voltage
-                        output_rail_v = 0.0
-                        for r in system_rails:
-                            if r.net_name == reg.output_rail_name:
-                                output_rail_v = r.nominal_voltage
-                                break
-                                
-                        p_out = total_output_current * output_rail_v
-                        p_in = p_out / reg.efficiency if reg.efficiency > 0 else p_out
-                        input_current = p_in / rail.nominal_voltage if rail.nominal_voltage > 0 else 0
-                    else:
-                        input_current = total_output_current
-                    
-                    if input_current == 0:
-                        continue
-                        
-                    # Accumulate this regulator's input current into the total for THIS rail
-                    rail_total_current[rail.net_name] += input_current
-                    
-                    # Apply load at regulator input pads
-                    nodes = self._get_mesh_nodes(
-                        mesh, reg.input_ref_des, reg.input_pad_names, debug_mode, emit,
-                    )
-                    if not nodes:
-                        emit(f"  WARNING: Regulator {reg.name} input at {reg.input_ref_des} pads {reg.input_pad_names} found NO mesh nodes!")
-                        continue
-                    
-                    i_per_node = input_current / len(nodes)
-                    for nid in nodes:
-                        solver_loads.append({'node_id': nid, 'current': i_per_node})
-                    
-                    if debug_mode:
-                        emit(f"  Regulator {reg.name} draws {input_current:.2f}A from {rail.net_name} ({reg.reg_type})")
-                    
-                # C. Solve
-                if not solver_sources:
-                    emit(f"  Warning: No sources for {rail.net_name}. Skipping solve.")
-                    continue
-                    
-                solver = Solver(
-                    debug=debug_mode, log_callback=emit,
-                    compute_settings=compute_settings,
-                )
-                detailed_result = solver.solve_detailed(mesh, solver_sources, solver_loads)
-                results = detailed_result.voltages
-                
-                # D. Store Results
-                v_vals = list(results.values())
-                if v_vals:
-                    v_min, v_max = min(v_vals), max(v_vals)
-                    drop = v_max - v_min
-                    system_results[rail.net_name] = {
-                        'mesh': mesh,
-                        'results': results,
-                        'stats': (v_min, v_max, drop),
-                        'sources': solver_sources,
-                        'loads': solver_loads,
-                        'detailed_result': detailed_result,
-                        'compute_metadata': solver.last_compute,
-                        'grid_size_mm': mesh.grid_step,
-                        'requested_grid_size_mm': mesh.requested_grid_step,
-                        'adaptive_grid': mesh.adaptive_grid,
-                    }
-                    emit(f"  Solved {rail.net_name}: Drop {drop:.4f} V")
-                else:
-                    emit(f"  Solved {rail.net_name}: No result.")
-
-            return system_results
-        except Exception as e:
-            emit(f"System Solve Error: {e}")
-            import traceback
-            emit(traceback.format_exc().rstrip())
-            return {}
-
     def on_run(self, event, update_results=True):
-        self._refresh_live_board_state()
-        system_rails = self.power_tree.rails
-        if not system_rails:
-            wx.MessageBox("No power rails defined.")
+        if not self._ensure_analysis_slot():
             return
-        self.notebook.SetSelection(self.PAGE_LOG)
+        self._select_workspace(self.PAGE_LOG)
         try:
+            self._refresh_live_board_state()
+            system_rails = self.power_tree.rails
+            if not system_rails:
+                raise ValueError("No power rails defined.")
             grid_size = max(0.01, float(self.txt_grid_size.GetValue()))
-        except ValueError:
-            grid_size = 0.1
-        self.system_results = self._solve_system(
-            system_rails,
-            grid_size,
-            self.chk_debug.GetValue(),
-            self.runtime_panel.get_settings(persist=True),
-        )
-        if update_results and self.system_results:
+            request = prepare_dc_request(
+                self.board,
+                system_rails,
+                grid_size,
+                self.runtime_panel.get_settings(persist=True),
+                self.chk_debug.GetValue(),
+                log_callback=self.log,
+                board_path=self._board_file_path(),
+            )
+            callbacks = DCControllerCallbacks(
+                on_progress=self._dc_progress,
+                on_complete=lambda result: self._finish_dc_job(result, update_results),
+                on_error=self._fail_dc_job,
+                on_log=self._dc_worker_log,
+            )
+            self.btn_run.Disable()
+            self._set_interaction_status("DC analysis · running")
+            self.dc_controller.start(request, callbacks)
+        except ValueError as exc:
+            self.log(f"DC Analysis Error: {exc}")
+            wx.MessageBox(str(exc), "DC Analysis Error", wx.OK | wx.ICON_ERROR)
+        except Exception as exc:
+            self.log(f"DC preparation failed: {exc}")
+            wx.MessageBox(str(exc), "DC Preparation Error", wx.OK | wx.ICON_ERROR)
+
+    def _dc_worker_log(self, message):
+        if not self._closing:
+            self.log(message)
+
+    def _dc_progress(self, completed, total, detail):
+        if self._closing:
+            return
+        self.log(f"DC progress: {completed}/{total} ({detail})")
+        self._set_interaction_status(f"DC analysis · {completed}/{total} · {detail}")
+
+    def _finish_dc_job(self, result, update_results=True):
+        if self._closing:
+            return
+        self.btn_run.Enable()
+        self.system_results = result
+        self._set_interaction_status("DC analysis · complete")
+        if update_results and result:
             self._update_results_ui()
+
+    def _fail_dc_job(self, exc):
+        if self._closing:
+            return
+        self.btn_run.Enable()
+        if isinstance(exc, DCAnalysisCancelled):
+            self.log("DC analysis cancelled.")
+            self._set_interaction_status("DC analysis · cancelled")
+            return
+        self.log(f"DC Analysis Error: {exc}")
+        self._set_interaction_status("DC analysis · failed")
+        wx.MessageBox(str(exc), "DC Analysis Error", wx.OK | wx.ICON_ERROR)
 
     def _prepare_ac_analysis(self):
         self._refresh_live_board_state()
@@ -884,101 +544,132 @@ class KiPIDA_MainDialog(wx.Dialog):
         if not settings.measurement_port.ref_des:
             raise ValueError("Select a measurement component in the AC Impedance tab.")
 
-        try:
-            grid_size = max(0.01, float(self.txt_grid_size.GetValue()))
-        except ValueError:
-            grid_size = 0.1
         debug_mode = self.chk_debug.GetValue()
         builder = ACModelBuilder(self.board, debug=debug_mode, log_callback=self.log)
-        network = builder.build(rail, settings, grid_size_mm=grid_size)
+        network = builder.build(
+            rail, settings, grid_size_mm=max(0.1, float(settings.mesh_resolution_mm)),
+        )
+        self.log(
+            f"AC network: {network.node_count:,} nodes, requested grid "
+            f"{network.requested_grid_size_mm:g} mm, effective grid "
+            f"{network.effective_grid_size_mm:g} mm, "
+            f"{settings.frequency_points} frequency points."
+        )
+        if network.node_count > self.AC_MAX_NETWORK_NODES:
+            raise ValueError(
+                f"AC mesh contains {network.node_count:,} nodes, above the safe limit of "
+                f"{self.AC_MAX_NETWORK_NODES:,}. Increase 'AC mesh resolution' above "
+                f"{settings.mesh_resolution_mm:g} mm and retry."
+            )
         return settings, network
 
     def _ac_progress(self, completed, total, detail):
+        if self._closing:
+            return
         interval = max(1, total // 10)
         if completed == total or completed % interval == 0:
             self.log(f"AC progress: {completed}/{total} ({detail})")
-            wx.SafeYield()
+            self._set_interaction_status(f"AC analysis · {completed}/{total} · {detail}")
 
     def on_run_ac(self, event):
-        self.notebook.SetSelection(self.PAGE_LOG)
-        self.log("--- Starting AC Impedance Analysis ---")
-        try:
-            settings, network = self._prepare_ac_analysis()
-            solver = ACSolver(
-                debug=self.chk_debug.GetValue(), log_callback=self.log,
-                compute_settings=self.runtime_panel.get_settings(persist=True),
-            )
-            result = solver.solve_sweep(network, settings, progress_callback=self._ac_progress)
-            self.ac_result = result
-            self.ac_optimization_result = None
-            self._update_ac_results_ui(result)
-        except Exception as exc:
-            self.log(f"AC Analysis Error: {exc}")
-            wx.MessageBox(str(exc), "AC Analysis Error", wx.OK | wx.ICON_ERROR)
+        if self.ac_controller.is_running:
+            self.ac_controller.cancel()
+            self.btn_run_ac.Disable()
+            self.btn_run_ac.SetLabel("Cancelling AC Analysis...")
+            self._set_interaction_status("AC analysis · cancelling")
+            self.log("Cancellation requested for AC impedance analysis.")
+            return
+        self._start_ac_job(optimize=False)
 
     def on_optimize_decoupling(self, event):
-        self.notebook.SetSelection(self.PAGE_LOG)
-        self.log("--- Starting Decoupling Optimization ---")
+        if self.ac_controller.is_running:
+            return
+        self._start_ac_job(optimize=True)
+
+    def _start_ac_job(self, optimize=False):
+        if not self._ensure_analysis_slot():
+            return
+        self._select_workspace(self.PAGE_LOG)
+        label = "Decoupling Optimization" if optimize else "AC Impedance Analysis"
+        self.log(f"--- Starting {label} ---")
         try:
             settings, network = self._prepare_ac_analysis()
-            solver = ACSolver(
-                debug=self.chk_debug.GetValue(), log_callback=self.log,
-                compute_settings=self.runtime_panel.get_settings(persist=True),
-            )
-            optimizer = DecouplingOptimizer(
-                solver,
+            compute_settings = self.runtime_panel.get_settings(persist=True)
+            if compute_settings.backend == "AUTO":
+                compute_settings = replace(compute_settings, backend="CPU")
+                self.log(
+                    "AC backend AUTO: selected CPU direct sparse solve for the general "
+                    "complex frequency-domain matrix. Force CUDA in Runtime settings to override."
+                )
+            request = ACRunRequest(
+                settings=settings,
+                network=network,
+                compute_settings=compute_settings,
                 debug=self.chk_debug.GetValue(),
-                log_callback=self.log,
+                optimize=bool(optimize),
             )
-            optimization = optimizer.optimize(network, settings, progress_callback=self._ac_progress)
-            self.ac_result = optimization.optimized
-            self.ac_optimization_result = optimization
-            self._update_ac_results_ui(optimization.baseline, optimization)
+            self._active_ac_settings = deepcopy(settings)
+            callbacks = ACControllerCallbacks(
+                on_progress=self._ac_progress,
+                on_complete=self._finish_ac_job,
+                on_error=self._fail_ac_job,
+                on_log=self._ac_worker_log,
+            )
+            self.btn_run_ac.SetLabel("Cancel AC Analysis")
+            self.btn_run_ac.Enable()
+            self.btn_optimize.Disable()
+            self._set_interaction_status(f"{label} · running")
+            self.ac_controller.start(request, callbacks)
         except Exception as exc:
-            self.log(f"Decoupling Optimization Error: {exc}")
-            wx.MessageBox(str(exc), "Decoupling Optimization Error", wx.OK | wx.ICON_ERROR)
+            self.btn_run_ac.Enable()
+            self.btn_run_ac.SetLabel("Run AC Analysis")
+            self.btn_optimize.Enable()
+            self._fail_ac_job(exc)
 
-    def _update_ac_results_ui(self, result, optimization=None):
+    def _finish_ac_job(self, result, optimization=None):
+        if self._closing:
+            return
+        self.btn_run_ac.Enable()
+        self.btn_run_ac.SetLabel("Run AC Analysis")
+        self.btn_optimize.Enable()
+        self.ac_result = optimization.optimized if optimization else result
+        self.ac_optimization_result = optimization
+        settings = getattr(self, "_active_ac_settings", None)
+        self._active_ac_settings = None
+        self._set_interaction_status("AC analysis · complete")
+        self._update_ac_results_ui(result, optimization, settings)
+
+    def _fail_ac_job(self, exc):
+        if self._closing:
+            return
+        self.btn_run_ac.Enable()
+        self.btn_run_ac.SetLabel("Run AC Analysis")
+        self.btn_optimize.Enable()
+        self._active_ac_settings = None
+        if isinstance(exc, ACAnalysisCancelled):
+            self._set_interaction_status("AC analysis · cancelled")
+            self.log("AC analysis cancelled.")
+            return
+        self._set_interaction_status("AC analysis · failed")
+        self.log(f"AC Analysis Error: {exc}")
+        wx.MessageBox(str(exc), "AC Analysis Error", wx.OK | wx.ICON_ERROR)
+
+    def _ac_worker_log(self, message):
+        if not self._closing:
+            self.log(message)
+
+    def _update_ac_results_ui(self, result, optimization=None, settings=None):
         self._result_generation += 1
-        final_result = optimization.optimized if optimization else result
-        status = _("PASS") if final_result.meets_target else _("TARGET NOT MET")
-        lines = [
-            _("AC Impedance Analysis Results"),
-            "=============================",
-            _("Status: {status}").format(status=status),
-            _("Worst |Z|: {value:.6g} ohm").format(value=final_result.worst_impedance_ohm),
-            _("Worst frequency: {frequency:.6g} Hz").format(frequency=final_result.worst_frequency_hz),
-            _("Target: {target:.6g} ohm").format(target=final_result.target_impedance_ohm),
-            _("Compute backend: {backend} ({device})").format(backend=final_result.compute_backend, device=final_result.compute_device),
-            _("Sparse solve time: {solve:.4g} s (transfer {transfer:.4g} s)").format(
-                solve=final_result.compute_solve_seconds, transfer=final_result.compute_transfer_seconds,
-            ),
-            _("Linear residual: {residual:.4g}; CUDA structure cache hits: {hits}").format(
-                residual=final_result.compute_relative_residual, hits=final_result.compute_cache_hits,
-            ),
-        ]
-        if optimization:
-            lines.extend(["", _("Decoupling recommendations:")])
-            if optimization.recommendations:
-                for recommendation in optimization.recommendations:
-                    lines.append(
-                        _("  - {action} {reference}: {capacitance}").format(
-                            action=_(recommendation.action), reference=recommendation.ref_des,
-                            capacitance=format_capacitance(recommendation.capacitance_f),
-                        )
-                    )
-            else:
-                lines.append(_("  - No capacitor changes recommended."))
-        lines.extend([
-            "",
-            _("Model note: ESR/ESL and distributed inductance may be estimates; review before sign-off."),
-        ])
         plotter = Plotter(debug=self.chk_debug.GetValue())
         bitmap = plotter.plot_impedance_sweep(
             result,
             optimization.optimized if optimization else None,
         )
-        self._publish_results("AC", "\n".join(lines), [("AC Impedance", bitmap)] if bitmap else [])
+        self._publish_results(
+            "AC", format_ac_report(result, optimization, settings),
+            [("AC Impedance", bitmap)] if bitmap else [],
+            structured_result=adapt_ac_result(result, optimization, settings),
+        )
 
     def _prepare_differential_analysis(self):
         self._refresh_live_board_state()
@@ -993,19 +684,64 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.board,
             debug=self.chk_debug.GetValue(),
             log_callback=self.log,
+            board_path=self._board_file_path(),
         )
         snapshot = DifferentialGeometrySnapshot.capture(
             extractor, pairs, settings.reference_net_names
         )
+        track_count = sum(len(items) for items in snapshot.tracks_by_net.values())
+        pair_signature = tuple(sorted(
+            (pair.positive_net, pair.negative_net) for pair in pairs
+        ))
+        if track_count == 0:
+            # KiCad IPC can transiently return empty collection facades while
+            # the editor refreshes.  Retry with a new extractor before ever
+            # publishing a misleading NO_DATA result.
+            retry = DifferentialGeometrySnapshot.capture(
+                GeometryExtractor(
+                    self.board, debug=self.chk_debug.GetValue(),
+                    log_callback=self.log, board_path=self._board_file_path(),
+                ),
+                pairs, settings.reference_net_names,
+            )
+            retry_count = sum(len(items) for items in retry.tracks_by_net.values())
+            if retry_count:
+                snapshot = retry
+                track_count = retry_count
+                self.log("Differential geometry retry recovered live routed tracks.")
+            elif (
+                self._last_valid_differential_snapshot is not None
+                and self._last_valid_differential_pair_signature == pair_signature
+            ):
+                snapshot = self._last_valid_differential_snapshot
+                self.log(
+                    "WARNING: KiCad IPC returned zero tracks/zones; using the last valid "
+                    "differential snapshot for this unchanged pair set."
+                )
+            else:
+                raise RuntimeError(
+                    "KiCad IPC returned zero routed tracks. Analysis was cancelled to avoid "
+                    "false NO_DATA findings; wait for PCB Editor synchronization and retry."
+                )
+        if track_count:
+            self._last_valid_differential_snapshot = snapshot
+            self._last_valid_differential_pair_signature = pair_signature
         return settings, pairs, stackup, snapshot
 
     def _differential_progress(self, completed, total, detail):
-        wx.CallAfter(self.log, f"Differential progress: {completed}/{total} ({detail})")
+        if self._closing:
+            return
+        self.log(f"Differential progress: {completed}/{total} ({detail})")
+        self._set_interaction_status(
+            f"Differential analysis · {completed}/{total} · {detail}"
+        )
 
     def on_run_differential(self, event):
-        if self._differential_thread is not None and self._differential_thread.is_alive():
+        if self.differential_controller.is_running:
             return
-        self.notebook.SetSelection(self.PAGE_LOG)
+        if not self._ensure_analysis_slot():
+            return
+        self._select_workspace(self.PAGE_LOG)
         self.log("--- Starting Differential Pair Impedance Analysis ---")
         try:
             settings, pairs, stackup, snapshot = self._prepare_differential_analysis()
@@ -1014,114 +750,58 @@ class KiPIDA_MainDialog(wx.Dialog):
             wx.MessageBox(str(exc), "Differential Setup Error", wx.OK | wx.ICON_ERROR)
             return
         self.btn_run_differential.Disable()
-        self._differential_thread = threading.Thread(
-            target=self._run_differential_worker,
-            args=(settings, pairs, stackup, snapshot, self.chk_debug.GetValue()),
-            name="KiPIDA-Differential-Impedance",
-            daemon=True,
+        self._set_interaction_status("Differential analysis · running")
+        request = DifferentialRunRequest(
+            settings=settings,
+            pairs=tuple(pairs),
+            stackup=stackup,
+            snapshot=snapshot,
+            debug=self.chk_debug.GetValue(),
+            plot_lock=self._plot_lock,
         )
-        self._differential_thread.start()
+        callbacks = DifferentialControllerCallbacks(
+            on_progress=self._differential_progress,
+            on_complete=self._finish_differential_job,
+            on_error=self._fail_differential_analysis,
+            on_log=lambda message: self.log(message) if not self._closing else None,
+        )
+        self.differential_controller.start(request, callbacks)
 
-    def _run_differential_worker(self, settings, pairs, stackup, snapshot, debug_mode):
-        try:
-            solver = DifferentialImpedanceSolver(
-                snapshot, stackup, settings,
-                log_callback=lambda message: wx.CallAfter(self.log, message),
-            )
-            results = solver.solve(pairs, progress_callback=self._differential_progress)
-            with self._plot_lock:
-                plotter = Plotter(debug=debug_mode)
-                impedance_png = plotter.plot_differential_impedance(results, as_png=True)
-                stackup_png = plotter.plot_stackup_profile(stackup, as_png=True)
-            if not self._closing:
-                wx.CallAfter(
-                    self._finish_differential_analysis,
-                    results, stackup, impedance_png, stackup_png,
-                )
-        except Exception as exc:
-            if not self._closing:
-                wx.CallAfter(self._fail_differential_analysis, exc)
+    def _finish_differential_job(self, outcome):
+        if self._closing:
+            return
+        self._finish_differential_analysis(
+            list(outcome.results), outcome.stackup, outcome.impedance_png,
+            outcome.stackup_png, outcome.target_tolerance_pct,
+        )
 
-    def _finish_differential_analysis(self, results, stackup, impedance_png, stackup_png):
-        self._differential_thread = None
+    def _finish_differential_analysis(self, results, stackup, impedance_png, stackup_png,
+                                      target_tolerance_pct):
         self.btn_run_differential.Enable()
+        self._set_interaction_status("Differential analysis · complete")
         self.differential_panel.apply_results(results)
-        lines = [
-            _("Differential Pair Impedance Results"),
-            "===================================",
-            _("Stackup: {source} ({trust})").format(
-                source=stackup.source, trust=_("trusted") if stackup.trustworthy else _("estimate only"),
-            ),
-            "",
-        ]
-        if stackup.warnings:
-            lines.append(_("Stackup warnings:"))
-            lines.extend(f"  - {warning}" for warning in stackup.warnings)
-            lines.append("")
-        for result in results:
-            pair = result.pair
-            lines.append(
-                f"{pair.name}: {pair.positive_net} / {pair.negative_net} "
-                f"[{pair.interface}; {pair.confidence}]"
-            )
-            lines.append(
-                _("  Status: {status}; Zdiff={impedance:.3f} ohm; target={target:g} ohm; error={error:+.2f}%").format(
-                    status=_(result.status), impedance=result.weighted_impedance_ohm,
-                    target=pair.target_impedance_ohm, error=result.error_pct,
-                )
-            )
-            lines.append(
-                _("  Range: {minimum:.3f} .. {maximum:.3f} ohm; length mismatch={mismatch:.3f} mm").format(
-                    minimum=result.minimum_impedance_ohm, maximum=result.maximum_impedance_ohm,
-                    mismatch=result.length_mismatch_mm,
-                )
-            )
-            for section in result.sections:
-                lines.append(
-                    f"  - {section.layer_name}: {section.topology}, "
-                    f"w={section.width_mm:.3f} mm, gap={section.gap_mm:.3f} mm, "
-                    f"Zdiff={section.differential_impedance_ohm:.3f} ohm, "
-                    f"refs={section.reference_above or '-'} / {section.reference_below or '-'}, "
-                    f"coverage={section.reference_coverage_pct:.1f}%"
-                )
-            for warning in result.warnings:
-                lines.append(_("  WARNING: {warning}").format(warning=_(warning)))
-            if result.recommendations:
-                lines.append(_("  Recommendations:"))
-                for recommendation in result.recommendations:
-                    geometry = (
-                        f"w={recommendation.recommended_width_mm:.3f} mm, "
-                        f"gap={recommendation.recommended_gap_mm:.3f} mm"
-                        if recommendation.recommended_width_mm else _("geometry unavailable")
-                    )
-                    lines.append(
-                        _(
-                            "  - {action} [{feasibility}; {confidence}]: {geometry}; "
-                            "predicted Zdiff={impedance:.3f} ohm; GND clearance >= {clearance:.3f} mm"
-                        ).format(
-                            action=_(recommendation.action), feasibility=_(recommendation.feasibility),
-                            confidence=_(recommendation.confidence), geometry=geometry,
-                            impedance=recommendation.predicted_impedance_ohm,
-                            clearance=recommendation.recommended_ground_clearance_mm,
-                        )
-                    )
-            lines.append("")
-        lines.extend([
-            _("Model scope: quasi-static coupled microstrip/stripline estimates. "),
-            _("Vias and reference-plane transitions are reported as discontinuities; this is not a 3D full-wave solver."),
-        ])
+        report = format_differential_report(results, stackup, target_tolerance_pct)
         plots = []
         if impedance_png:
             plots.append(("Differential Z", Plotter.bitmap_from_png(impedance_png)))
         if stackup_png:
             plots.append(("Stackup", Plotter.bitmap_from_png(stackup_png)))
-        self._publish_results("DIFFERENTIAL", "\n".join(lines), plots)
+        self._publish_results(
+            "DIFFERENTIAL", report, plots,
+            structured_result=adapt_differential_result(results, stackup, target_tolerance_pct),
+        )
         self.log("Differential impedance results ready.")
 
     def _fail_differential_analysis(self, exc):
-        self._differential_thread = None
+        if self._closing:
+            return
         self.btn_run_differential.Enable()
+        if isinstance(exc, DifferentialAnalysisCancelled):
+            self.log("Differential analysis cancelled.")
+            self._set_interaction_status("Differential analysis · cancelled")
+            return
         self.log(f"Differential Analysis Error: {exc}")
+        self._set_interaction_status("Differential analysis · failed")
         wx.MessageBox(str(exc), "Differential Analysis Error", wx.OK | wx.ICON_ERROR)
 
     def _prepare_emc_analysis(self):
@@ -1146,190 +826,103 @@ class KiPIDA_MainDialog(wx.Dialog):
             ac_results.append((rail_name, ac_result))
         differential_results = dict(self.differential_panel.results)
         thermal_result = getattr(self, "thermal_result", None)
-        return settings, pairs, snapshot, ac_results, differential_results, thermal_result
+        return (
+            settings, pairs, snapshot, ac_results, differential_results,
+            thermal_result, self._board_file_path(),
+        )
 
     def _emc_progress(self, completed, total, detail):
-        wx.CallAfter(self.log, f"EMI/EMC progress: {completed}/{total} ({detail})")
+        if self._closing:
+            return
+        self.log(f"EMI/EMC progress: {completed}/{total} ({detail})")
+        self._set_interaction_status(f"EMI/EMC · {completed}/{total} · {detail}")
 
     def on_run_emc(self, _event):
-        if self._emc_thread is not None and self._emc_thread.is_alive():
+        if self.emc_controller.is_running:
             return
-        self.notebook.SetSelection(self.PAGE_LOG)
+        if not self._ensure_analysis_slot():
+            return
+        self._select_workspace(self.PAGE_LOG)
         self.log("--- Starting EMI / EMC Pre-compliance Analysis ---")
         try:
-            settings, pairs, snapshot, ac_results, differential_results, thermal_result = self._prepare_emc_analysis()
+            (
+                settings, pairs, snapshot, ac_results, differential_results,
+                thermal_result, board_file_path,
+            ) = self._prepare_emc_analysis()
         except Exception as exc:
             self.log(f"EMI/EMC Setup Error: {exc}")
             wx.MessageBox(str(exc), "EMI/EMC Setup Error", wx.OK | wx.ICON_ERROR)
             return
+        if settings.phase10.enabled and settings.phase10.auto_run_full_wave:
+            backend = str(settings.phase10.full_wave_backend).upper()
+            if backend == "PALACE_REMOTE":
+                execution_detail = (
+                    "Ki-PIDA will transfer the selected Palace project directory to "
+                    f"{settings.phase10.palace_remote_host} and run Palace with "
+                    f"{settings.phase10.palace_remote_mpi_processes} MPI process(es). "
+                    f"The total timeout is {settings.phase10.solver_timeout_s:g} seconds. "
+                )
+                title = "Confirm Palace LAN execution"
+                duration_detail = "Continue?"
+            else:
+                execution_detail = "Phase 10 will run targeted local openEMS simulations. "
+                title = "Confirm openEMS execution"
+                duration_detail = (
+                    f"This can take up to {settings.phase10.solver_timeout_s:g} seconds per "
+                    f"region for {settings.phase10.maximum_regions} region(s). Continue?"
+                )
+            answer = wx.MessageBox(
+                execution_detail + duration_detail,
+                title,
+                wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
+            )
+            if answer != wx.YES:
+                settings.phase10.auto_run_full_wave = False
+                self.log("[PHASE 10] Full-wave execution declined; exporting regions only.")
         self.btn_run_emc.Disable()
-        self._emc_thread = threading.Thread(
-            target=self._run_emc_worker,
-            args=(
-                settings, pairs, snapshot, ac_results, differential_results,
-                thermal_result, self.chk_debug.GetValue(),
-            ),
-            name="KiPIDA-EMI-EMC",
-            daemon=True,
+        self.btn_cancel_emc.Enable()
+        self._set_interaction_status("EMI/EMC · running")
+        request = EMCRunRequest(
+            settings=settings,
+            pairs=tuple(pairs),
+            snapshot=snapshot,
+            ac_results=tuple(ac_results),
+            differential_results=differential_results,
+            thermal_result=thermal_result,
+            debug=self.chk_debug.GetValue(),
+            board_file_path=board_file_path,
+            plot_lock=self._plot_lock,
         )
-        self._emc_thread.start()
+        callbacks = EMCControllerCallbacks(
+            on_progress=self._emc_progress,
+            on_complete=self._finish_emc_job,
+            on_error=self._fail_emc_analysis,
+            on_log=lambda message: self.log(message) if not self._closing else None,
+        )
+        self.emc_controller.start(request, callbacks)
 
-    def _run_emc_worker(
-        self, settings, pairs, snapshot, ac_results, differential_results,
-        thermal_result, debug_mode,
-    ):
-        try:
-            analyzer = EMCAnalyzer(
-                snapshot,
-                settings,
-                differential_pairs=pairs,
-                differential_results=differential_results,
-                ac_results=ac_results,
-                thermal_result=thermal_result,
-                log_callback=lambda message: wx.CallAfter(self.log, message),
-            )
-            result = analyzer.analyze(progress_callback=self._emc_progress)
-            field_result = None
-            if settings.field_simulation_enabled:
-                try:
-                    field_solver = EMNearFieldSolver(
-                        snapshot, settings,
-                        log_callback=lambda message: wx.CallAfter(self.log, message),
-                    )
-                    field_result = field_solver.solve(
-                        progress_callback=lambda completed, total, detail: wx.CallAfter(
-                            self.log,
-                            f"EM field progress: {completed}/{total} ({detail})",
-                        )
-                    )
-                    result.field_simulation = field_result
-                    result.elapsed_seconds += field_result.elapsed_seconds
-                    result.limitations.extend([
-                        "Near-field E/H maps use quasi-static line-charge and Biot-Savart trace elements; they are not a full-wave Maxwell solution.",
-                        "Field magnitude depends on the configured source voltage/current and does not solve return-current cancellation, dielectric boundaries, phase or enclosure scattering.",
-                    ])
-                except Exception as field_exc:
-                    warning = f"Near-field simulation skipped: {field_exc}"
-                    wx.CallAfter(self.log, f"[EM FIELD] {warning}")
-                    result.limitations.append(warning)
-            with self._plot_lock:
-                plotter = Plotter(debug=debug_mode)
-                risk_png = plotter.plot_emc_risk_map(
-                    snapshot, result, as_png=True, with_click_probe=True,
-                )
-                spectrum_png = plotter.plot_emc_spectrum(
-                    result, settings.frequency_start_hz, settings.frequency_stop_hz, as_png=True,
-                    with_click_probe=True,
-                )
-                field_e_png = plotter.plot_em_field(
-                    field_result, "E", as_png=True, with_hover_probe=True,
-                ) if field_result is not None else None
-                field_h_png = plotter.plot_em_field(
-                    field_result, "H", as_png=True, with_hover_probe=True,
-                ) if field_result is not None else None
-            if not self._closing:
-                wx.CallAfter(
-                    self._finish_emc_analysis, settings, result,
-                    risk_png, spectrum_png, field_e_png, field_h_png,
-                )
-        except Exception as exc:
-            if not self._closing:
-                wx.CallAfter(self._fail_emc_analysis, exc)
+    def on_cancel_emc(self, _event):
+        if not self.emc_controller.is_running:
+            return
+        self.emc_controller.cancel()
+        self.btn_cancel_emc.Disable()
+        self.btn_cancel_emc.SetLabel("Cancelling EMI/EMC...")
+        self.log("EMI/EMC cancellation requested; stopping the active Phase 10 worker.")
 
-    @staticmethod
-    def _format_emc_report(settings, result):
-        counts = result.severity_counts
-        lines = [
-            _("EMI / EMC Pre-compliance Results"),
-            "================================",
-            _("Target: {standard} ({market})").format(standard=settings.standard, market=settings.market),
-            _("Frequency band: {start:g} .. {stop:g} MHz").format(start=settings.frequency_start_hz / 1e6, stop=settings.frequency_stop_hz / 1e6),
-            _("Risk score: {score}/100").format(score=result.risk_score),
-            _("Checks evaluated: {count}").format(count=result.total_checks),
-            _("Findings: {total} — critical {critical}, high {high}, medium {medium}, low {low}, info {info}").format(
-                total=len(result.findings), critical=counts.get('CRITICAL', 0), high=counts.get('HIGH', 0),
-                medium=counts.get('MEDIUM', 0), low=counts.get('LOW', 0), info=counts.get('INFO', 0),
-            ),
-            _("Total elapsed time: {seconds:.3f} s").format(seconds=result.elapsed_seconds),
-            "",
-            _("Configured emission sources"),
-            "---------------------------",
-        ]
-        enabled_sources = [source for source in settings.sources if source.enabled]
-        if enabled_sources:
-            for source in enabled_sources:
-                lines.append(
-                    f"  - {source.name}: {source.net_name}, {source.kind}, "
-                    f"{source.frequency_hz / 1e6:g} MHz, rise {source.rise_time_ns:g} ns "
-                    f"[{source.source}]"
-                )
-        else:
-            lines.append(_("  - None; geometry-only analysis."))
-        field_result = getattr(result, "field_simulation", None)
-        lines.extend(["", _("Near-field simulation"), "---------------------"])
-        if field_result is None:
-            lines.append(_("  - Disabled or unavailable for this run."))
-        else:
-            mode = (
-                _("selected envelope at {frequency:g} MHz").format(frequency=field_result.frequency_hz / 1e6)
-                if field_result.frequency_hz > 0.0 else _("each source at its configured fundamental")
-            )
-            lines.extend([
-                _("  - Observation plane: {height:g} mm above PCB; grid {grid:g} mm.").format(height=field_result.probe_height_mm, grid=settings.field_grid_size_mm),
-                _("  - Frequency mode: {mode}.").format(mode=mode),
-                _("  - Sources / trace elements: {sources} / {segments}.").format(sources=field_result.source_count, segments=field_result.segment_count),
-                _("  - Maximum |E|: {value:.6g} V/m at ({x:.3f}, {y:.3f}) mm.").format(value=field_result.maximum_e_v_m, x=field_result.maximum_e_position_mm[0], y=field_result.maximum_e_position_mm[1]),
-                _("  - Maximum |H|: {value:.6g} A/m at ({x:.3f}, {y:.3f}) mm.").format(value=field_result.maximum_h_a_m, x=field_result.maximum_h_position_mm[0], y=field_result.maximum_h_position_mm[1]),
-                _("  - Backend / elapsed: {backend}; {seconds:.3f} s.").format(backend=field_result.compute_backend, seconds=field_result.elapsed_seconds),
-            ])
-            lines.extend(f"  - Warning: {warning}" for warning in field_result.warnings)
-        lines.extend([
-            "",
-            _("Findings"),
-            "--------",
-        ])
-        if not result.findings:
-            lines.append(_("No finding was generated by the enabled deterministic checks."))
-        for finding in result.findings:
-            targets = []
-            if finding.nets:
-                targets.append("nets=" + ", ".join(finding.nets))
-            if finding.components:
-                targets.append("components=" + ", ".join(finding.components))
-            lines.append(
-                f"[{finding.severity}] {finding.rule_id} — {_(finding.title)} "
-                f"(confidence {finding.confidence})"
-            )
-            lines.append(f"  {_(finding.description)}")
-            if targets:
-                lines.append(_("  Evidence targets: {targets}").format(targets="; ".join(targets)))
-            for evidence in finding.evidence:
-                position = ""
-                if evidence.x_mm is not None and evidence.y_mm is not None:
-                    position = f" at ({evidence.x_mm:.3f}, {evidence.y_mm:.3f}) mm"
-                    if evidence.layer_id is not None:
-                        position += f" on layer {evidence.layer_id}"
-                lines.append(f"  {_('Evidence')} [{evidence.source}]{position}: {_(evidence.detail)}")
-            lines.append(_("  Recommendation: {recommendation}").format(recommendation=_(finding.recommendation)))
-        lines.extend(["", _("Per-net risk scores"), "-------------------"])
-        if result.per_net_scores:
-            for net, score in sorted(result.per_net_scores.items(), key=lambda item: (item[1], item[0])):
-                lines.append(f"  - {net}: {score}/100")
-        else:
-            lines.append(_("  - No net-specific penalty."))
-        lines.extend(["", _("Pre-compliance test plan"), "------------------------"])
-        lines.extend(f"  - {_(item)}" for item in result.test_plan)
-        lines.extend(["", _("Regulatory coverage"), "-------------------"])
-        lines.extend(f"  - {_(item)}" for item in result.regulatory_coverage)
-        lines.extend(["", _("Model limitations"), "-----------------"])
-        lines.extend(f"  - {_(item)}" for item in result.limitations)
-        return "\n".join(lines)
+    def _finish_emc_job(self, outcome):
+        if self._closing:
+            return
+        self._finish_emc_analysis(
+            outcome.settings, outcome.result, outcome.risk_png,
+            outcome.spectrum_png, outcome.field_e_png, outcome.field_h_png,
+        )
 
     def _finish_emc_analysis(
         self, settings, result, risk_png, spectrum_png, field_e_png=None, field_h_png=None,
     ):
-        self._emc_thread = None
         self.btn_run_emc.Enable()
+        self.btn_cancel_emc.Disable()
+        self.btn_cancel_emc.SetLabel("Cancel EMI/EMC")
         self.emc_panel.apply_results(result)
         plots = []
         if risk_png:
@@ -1352,46 +945,37 @@ class KiPIDA_MainDialog(wx.Dialog):
                 "Magnetic Field", Plotter.bitmap_from_png(field_h_png.png_bytes),
                 field_h_png.hover_probe, None,
             ))
-        self._publish_results("EMC", self._format_emc_report(settings, result), plots)
+        self._publish_results(
+            "EMC", format_emc_report(settings, result), plots,
+            structured_result=adapt_emc_result(settings, result),
+        )
         self.log("EMI/EMC pre-compliance results ready.")
+        self._set_interaction_status("EMI/EMC · complete")
 
     def _fail_emc_analysis(self, exc):
-        self._emc_thread = None
+        if self._closing:
+            return
         self.btn_run_emc.Enable()
+        self.btn_cancel_emc.Disable()
+        self.btn_cancel_emc.SetLabel("Cancel EMI/EMC")
+        if isinstance(exc, EMCAnalysisCancelled):
+            self.log("EMI/EMC analysis cancelled.")
+            self._set_interaction_status("EMI/EMC · cancelled")
+            return
         self.log(f"EMI/EMC Analysis Error: {exc}")
+        self._set_interaction_status("EMI/EMC · failed")
         wx.MessageBox(str(exc), "EMI/EMC Analysis Error", wx.OK | wx.ICON_ERROR)
 
     def _dc_copper_loss_points(self, system_results=None):
-        losses = []
         results = system_results if system_results is not None else getattr(self, "system_results", {})
-        for data in results.values():
-            mesh = data.get("mesh")
-            detailed = data.get("detailed_result")
-            if mesh is None or detailed is None:
-                continue
-            for branch, power in zip(mesh.branches, detailed.branch_losses_w):
-                if power <= 0:
-                    continue
-                coord_a = mesh.node_coords.get(branch.node_a)
-                coord_b = mesh.node_coords.get(branch.node_b)
-                if coord_a is None or coord_b is None:
-                    continue
-                losses.append(CopperLossPoint(
-                    x_mm=(coord_a[0] + coord_b[0]) / 2.0,
-                    y_mm=(coord_a[1] + coord_b[1]) / 2.0,
-                    layer_id=coord_a[2],
-                    power_w=power,
-                ))
-        return losses
-
-    def _thermal_progress(self, completed, total, detail):
-        self.log(f"Thermal progress: {completed}/{total} ({detail})")
-        wx.SafeYield()
+        return dc_copper_loss_points(results)
 
     def on_run_thermal(self, event):
-        if self._thermal_thread is not None and self._thermal_thread.is_alive():
+        if self.thermal_controller.is_running:
             return
-        self.notebook.SetSelection(self.PAGE_LOG)
+        if not self._ensure_analysis_slot():
+            return
+        self._select_workspace(self.PAGE_LOG)
         self.log("--- Starting 3D Thermal Analysis ---")
         try:
             self._start_thermal_pipeline(coupled=False)
@@ -1400,9 +984,11 @@ class KiPIDA_MainDialog(wx.Dialog):
             wx.MessageBox(str(exc), "Thermal Analysis Error", wx.OK | wx.ICON_ERROR)
 
     def on_run_coupled_thermal(self, event):
-        if self._thermal_thread is not None and self._thermal_thread.is_alive():
+        if self.thermal_controller.is_running:
             return
-        self.notebook.SetSelection(self.PAGE_LOG)
+        if not self._ensure_analysis_slot():
+            return
+        self._select_workspace(self.PAGE_LOG)
         self.log("--- Starting Coupled DC / 3D Thermal Analysis ---")
         try:
             self._start_thermal_pipeline(coupled=True)
@@ -1426,140 +1012,71 @@ class KiPIDA_MainDialog(wx.Dialog):
         board_file_path = self._board_file_path()
         if coupled and not rails:
             raise ValueError("Coupled analysis requires at least one configured power rail.")
+        dc_request = None
+        if coupled or settings.include_dc_copper_losses:
+            self.log("Capturing live PCB data for the thermal pipeline DC stage.")
+            dc_request = prepare_dc_request(
+                self.board, rails, dc_grid_size, compute_settings, debug_mode,
+                log_callback=self.log, board_path=board_file_path,
+            )
 
+        self.log("Capturing the thermal board model on the KiCad UI thread.")
+        board_model = ThermalModelBuilder(
+            self.board,
+            debug=debug_mode,
+            log_callback=self.log,
+            board_file_path=board_file_path,
+        ).build(settings, rails=rails, copper_losses=[])
+        request = ThermalRunRequest(
+            settings=settings,
+            board_model=board_model,
+            rails=tuple(rails),
+            compute_settings=compute_settings,
+            debug=debug_mode,
+            coupled=bool(coupled),
+            dc_request=dc_request,
+            board_signature=self._thermal_board_signature,
+            cached_entries=dict(self._thermal_session_cache),
+        )
+        callbacks = ThermalControllerCallbacks(
+            on_progress=self._thermal_worker_progress,
+            on_complete=lambda outcome: self._finish_thermal_job(outcome, settings),
+            on_error=lambda exc: self._fail_thermal_worker(coupled, exc),
+            on_log=self._thermal_worker_log,
+        )
         self.btn_run_thermal.Disable()
         self.btn_run_coupled.Disable()
-        started_at = time.perf_counter()
-        self._thermal_thread = threading.Thread(
-            target=self._thermal_pipeline_worker,
-            args=(
-                settings, coupled, compute_settings, debug_mode, rails,
-                dc_grid_size, board_file_path, started_at,
-            ),
-            name="KiPIDA-Thermal-Pipeline",
-            daemon=True,
-        )
-        self._thermal_thread.start()
+        self._set_interaction_status("Coupled thermal · running" if coupled else "Thermal · running")
+        self.thermal_controller.start(request, callbacks)
 
     def _thermal_worker_log(self, message):
         if not self._closing:
-            wx.CallAfter(self.log, message)
+            self.log(message)
 
     def _thermal_worker_progress(self, completed, total, detail):
-        if not self._closing:
-            wx.CallAfter(self.log, f"Thermal progress: {completed}/{total} ({detail})")
+        if self._closing:
+            return
+        self.log(f"Thermal progress: {completed}/{total} ({detail})")
+        self._set_interaction_status(f"Thermal · {completed}/{total} · {detail}")
 
-    def _thermal_pipeline_worker(
-        self,
-        settings,
-        coupled,
-        compute_settings,
-        debug_mode,
-        rails,
-        dc_grid_size,
-        board_file_path,
-        started_at,
-    ):
-        try:
-            system_results = {}
-            if coupled or settings.include_dc_copper_losses:
-                self._thermal_worker_log(
-                    "Running fresh DC analysis for the current live PCB geometry."
-                )
-                system_results = self._solve_system(
-                    rails, dc_grid_size, debug_mode, compute_settings,
-                    log_callback=self._thermal_worker_log,
-                )
-                if coupled and not system_results:
-                    raise ValueError("Coupled analysis requires a successful DC analysis.")
-
-            copper_losses = [] if coupled else (
-                self._dc_copper_loss_points(system_results)
-                if settings.include_dc_copper_losses else []
-            )
-            cache_key = (
-                self._thermal_board_signature,
-                self._thermal_cache_key(settings, compute_settings, coupled, copper_losses),
-            )
-            cached = self._thermal_session_cache.get(cache_key)
-            if cached is not None:
-                mesh, thermal_solver = cached
-                self._thermal_worker_log(
-                    f"Reusing in-session thermal mesh ({len(mesh.nodes):,} nodes) and cached CSR/CUDA workspace."
-                )
-            else:
-                builder = ThermalModelBuilder(
-                    self.board,
-                    debug=debug_mode,
-                    log_callback=self._thermal_worker_log,
-                    board_file_path=board_file_path,
-                )
-                model = builder.build(settings, rails=rails, copper_losses=copper_losses)
-                mesher = ThermalMesher(
-                    debug=debug_mode,
-                    log_callback=self._thermal_worker_log,
-                    compute_settings=compute_settings,
-                )
-                mesh = mesher.generate_mesh(
-                    model,
-                    settings,
-                    progress_callback=self._thermal_worker_progress,
-                )
-                thermal_solver = ThermalSolver(
-                    debug=debug_mode,
-                    log_callback=self._thermal_worker_log,
-                    compute_settings=compute_settings,
-                )
-                self._thermal_session_cache = {cache_key: (mesh, thermal_solver)}
-                self._thermal_worker_log(
-                    "Cached thermal mesh and sparse solver workspace for unchanged-session reruns."
-                )
-
-            if coupled:
-                rail_contexts = {
-                    name: {
-                        "mesh": data["mesh"],
-                        "sources": data.get("sources", []),
-                        "loads": data.get("loads", []),
-                    }
-                    for name, data in system_results.items()
-                }
-                solver = ElectroThermalSolver(
-                    debug=debug_mode,
-                    log_callback=self._thermal_worker_log,
-                    compute_settings=compute_settings,
-                    thermal_solver=thermal_solver,
-                )
-                solved = solver.solve(
-                    mesh, settings, rail_contexts,
-                    progress_callback=self._thermal_worker_progress,
-                )
-                result = solved.thermal
-            else:
-                solved = None
-                result = thermal_solver.solve(
-                    mesh, ambient_c=settings.ambient_c,
-                    progress_callback=self._thermal_worker_progress,
-                )
-            if not self._closing:
-                wx.CallAfter(
-                    self._finish_thermal_worker,
-                    mesh,
-                    result,
-                    coupled,
-                    solved,
-                    system_results,
-                    time.perf_counter() - started_at,
-                    settings.color_map,
-                    settings.resolved_color_scale_minimum_c(),
-                    settings.color_scale_minimum_mode,
-                    settings.resolved_color_scale_maximum_c(),
-                    settings.color_scale_maximum_mode,
-                    settings.show_internal_copper_layers,
-                )
-        except Exception as exc:
-            if not self._closing:
-                wx.CallAfter(self._fail_thermal_worker, coupled, exc)
+    def _finish_thermal_job(self, outcome, settings):
+        if self._closing:
+            return
+        self._thermal_session_cache = {outcome.cache_key: outcome.cache_value}
+        self._finish_thermal_worker(
+            outcome.mesh,
+            outcome.result,
+            bool(outcome.coupled_result is not None),
+            outcome.coupled_result,
+            outcome.system_results,
+            outcome.elapsed_seconds,
+            settings.color_map,
+            settings.resolved_color_scale_minimum_c(),
+            settings.color_scale_minimum_mode,
+            settings.resolved_color_scale_maximum_c(),
+            settings.color_scale_maximum_mode,
+            settings.show_internal_copper_layers,
+        )
 
     def _finish_thermal_worker(
         self, mesh, result, coupled, coupled_result, system_results, elapsed_seconds,
@@ -1567,7 +1084,6 @@ class KiPIDA_MainDialog(wx.Dialog):
         color_scale_maximum_c, color_scale_maximum_mode,
         show_internal_copper_layers,
     ):
-        self._thermal_thread = None
         self.btn_run_thermal.Enable()
         self.btn_run_coupled.Enable()
         if system_results:
@@ -1585,13 +1101,18 @@ class KiPIDA_MainDialog(wx.Dialog):
             show_internal_copper_layers=show_internal_copper_layers,
         )
         self.log(f"Thermal analysis completed in {elapsed_seconds:.3f} s.")
+        self._set_interaction_status("Thermal analysis · complete")
 
     def _fail_thermal_worker(self, coupled, exc):
-        self._thermal_thread = None
         self.btn_run_thermal.Enable()
         self.btn_run_coupled.Enable()
         label = "Coupled Thermal" if coupled else "Thermal"
+        if isinstance(exc, ThermalAnalysisCancelled):
+            self.log(f"{label} analysis cancelled.")
+            self._set_interaction_status(f"{label} · cancelled")
+            return
         self.log(f"{label} Analysis Error: {exc}")
+        self._set_interaction_status(f"{label} · failed")
         wx.MessageBox(str(exc), f"{label} Analysis Error", wx.OK | wx.ICON_ERROR)
 
     def _update_thermal_results_ui(
@@ -1600,75 +1121,25 @@ class KiPIDA_MainDialog(wx.Dialog):
         color_scale_maximum_c=None, color_scale_maximum_mode="AUTO",
         show_internal_copper_layers=True,
     ):
-        hotspot = result.hotspot
-        lines = [
-            _("3D Thermal Analysis Results"),
-            "===========================",
-            _("Mode: {mode}").format(mode=_("Coupled DC / thermal") if coupled else _("Thermal")),
-            _("Hotspot: {temperature:.3f} C at ({x:.2f}, {y:.2f}, {z:.3f}) mm").format(
-                temperature=hotspot.temperature_c, x=hotspot.x_mm, y=hotspot.y_mm, z=hotspot.z_mm,
+        report = format_thermal_report(
+            mesh, result, coupled=coupled,
+            coupled_result=getattr(self, "electrothermal_result", None),
+            elapsed_seconds=elapsed_seconds, color_map=color_map,
+            color_scale_minimum_c=color_scale_minimum_c,
+            color_scale_minimum_mode=color_scale_minimum_mode,
+            color_scale_maximum_c=color_scale_maximum_c,
+            color_scale_maximum_mode=color_scale_maximum_mode,
+            show_internal_copper_layers=show_internal_copper_layers,
+            power_stage_reports=list(
+                getattr(self.thermal_panel.settings, "power_stage_reports", []) or []
             ),
-            _("Input heat: {power:.6g} W").format(power=result.total_input_power_w),
-            _("Boundary heat: {power:.6g} W").format(power=result.total_boundary_power_w),
-            _("Energy balance error: {error:.4g}%").format(error=result.energy_balance_error_pct),
-            _("Effective h: {coefficient:.4g} W/m2K").format(coefficient=result.convection_coefficient_w_m2k),
-            _("Iterations: {iterations} ({state})").format(
-                iterations=result.iterations, state=_("converged") if result.converged else _("limit reached"),
-            ),
-            _("Thermal grid: {grid:.4g} mm").format(grid=mesh.grid_size_mm) + (
-                _(" (requested {requested:.4g} mm; adapted)").format(requested=mesh.requested_grid_size_mm)
-                if mesh.adaptive_grid else ""
-            ),
-            _("Thermal colors: {palette}").format(palette=str(color_map).title()),
-            _("Thermal colour minimum: {value}").format(value=(
-                _("{temperature:.3g} C ({mode})").format(temperature=float(color_scale_minimum_c), mode=str(color_scale_minimum_mode).lower())
-                if color_scale_minimum_c is not None else _("calculated minimum")
-            )),
-            _("Thermal colour maximum: {value}").format(value=(
-                _("{temperature:.3g} C ({mode})").format(temperature=float(color_scale_maximum_c), mode=str(color_scale_maximum_mode).lower())
-                if color_scale_maximum_c is not None else _("calculated hotspot")
-            )),
-            _("Internal copper maps: enabled") if show_internal_copper_layers else
-            _("Internal copper maps: disabled"),
-            _("Compute backend: {backend} ({device})").format(backend=result.compute_backend, device=result.compute_device),
-            _("Sparse matrix path: {path}").format(path=result.compute_matrix_assembly),
-            _("CUDA warm start: device-resident previous thermal solution") if result.compute_warm_start_used else
-            _("CUDA warm start: unavailable (first solve or CPU backend)"),
-            _("CPU threads: {count}").format(count=result.compute_cpu_threads),
-            _("Solve time: {solve:.4g} s (transfer {transfer:.4g} s)").format(
-                solve=result.compute_solve_seconds, transfer=result.compute_transfer_seconds,
-            ),
-            _("Linear residual: {residual:.4g} ({iterations} iteration(s))").format(
-                residual=result.compute_relative_residual, iterations=result.compute_iterations,
-            ),
-        ]
-        if elapsed_seconds is not None:
-            lines.append(_("Total elapsed time: {seconds:.3f} s").format(seconds=float(elapsed_seconds)))
-        lines.extend(["", _("Component junction estimates:")])
-        if result.component_results:
-            for component in result.component_results:
-                status = "OK" if component.margin_c >= 0 else "OVER LIMIT"
-                lines.append(
-                    _(
-                        "  - {reference}: Tj={junction:.2f} C, P={power:.4g} W, "
-                        "margin={margin:.2f} C [{status}; {source}]"
-                    ).format(
-                        reference=component.ref_des, junction=component.junction_temperature_c,
-                        power=component.power_w, margin=component.margin_c,
-                        status=_(status), source=_(component.model_source),
-                    )
-                )
-        else:
-            lines.append(_("  - No mapped component heat source."))
-        lines.extend([
-            "",
-            _("Model scope: steady-state 3D solid conduction with convective boundaries; this is not a volumetric CFD airflow solution."),
-        ])
-        if result.compute_fallback_reason:
-            lines.append(f"Compute fallback: {result.compute_fallback_reason}")
+        )
         self._thermal_result_generation += 1
         generation = self._thermal_result_generation
-        page = self._publish_results("THERMAL", "\n".join(lines), [])
+        page = self._publish_results(
+            "THERMAL", report, [],
+            structured_result=adapt_thermal_result(result, coupled, elapsed_seconds or 0.0),
+        )
         page.show_rendering("Rendering thermal plots in background...")
         self.log("Thermal solve complete; rendering plots in background.")
 
@@ -1684,16 +1155,6 @@ class KiPIDA_MainDialog(wx.Dialog):
         )
         self._thermal_plot_thread.start()
 
-    @staticmethod
-    def _internal_copper_slices(mesh):
-        """Return internal copper thermal slices in physical stackup order."""
-        specs = list(getattr(mesh, "layer_specs", []) or [])
-        return [
-            (index, spec) for index, spec in enumerate(specs)
-            if getattr(spec, "material", "") == "copper-layer"
-            and index not in (0, len(specs) - 1)
-        ]
-
     def _render_thermal_plots_worker(
         self, mesh, result, generation, color_map, color_scale_minimum_c,
         color_scale_maximum_c,
@@ -1701,38 +1162,12 @@ class KiPIDA_MainDialog(wx.Dialog):
     ):
         try:
             with self._plot_lock:
-                plotter = Plotter(debug=False)
-                board_bounds = getattr(mesh, "bounds_mm", None)
-                plots = [
-                    ("Thermal 3D", plotter.plot_thermal_3d(
-                        mesh, result, as_png=True, board_bounds=board_bounds, color_map=color_map,
-                        color_scale_minimum_c=color_scale_minimum_c,
-                        color_scale_maximum_c=color_scale_maximum_c,
-                    )),
-                    ("Top Surface", plotter.plot_thermal_surface(
-                        mesh, result, "TOP", as_png=True, board_bounds=board_bounds, color_map=color_map,
-                        color_scale_minimum_c=color_scale_minimum_c,
-                        color_scale_maximum_c=color_scale_maximum_c,
-                        with_hover_probe=True,
-                    )),
-                ]
-                if show_internal_copper_layers:
-                    plots.extend(
-                        (str(spec.name), plotter.plot_thermal_layer(
-                            mesh, result, index, str(spec.name), as_png=True,
-                            board_bounds=board_bounds, color_map=color_map,
-                            color_scale_minimum_c=color_scale_minimum_c,
-                            color_scale_maximum_c=color_scale_maximum_c,
-                            with_hover_probe=True,
-                        ))
-                        for index, spec in self._internal_copper_slices(mesh)
-                    )
-                plots.append(("Bottom Surface", plotter.plot_thermal_surface(
-                    mesh, result, "BOTTOM", as_png=True, board_bounds=board_bounds, color_map=color_map,
+                plots = render_thermal_plots(
+                    mesh, result, color_map=color_map,
                     color_scale_minimum_c=color_scale_minimum_c,
                     color_scale_maximum_c=color_scale_maximum_c,
-                    with_hover_probe=True,
-                )))
+                    show_internal_copper_layers=show_internal_copper_layers,
+                )
             if not self._closing:
                 wx.CallAfter(self._finish_thermal_plots, generation, plots)
         except Exception as exc:
@@ -1786,14 +1221,22 @@ class KiPIDA_MainDialog(wx.Dialog):
         if not self.thermal_panel.settings.components:
             self.thermal_panel.refresh_components(preserve_user=True)
         thermal_settings = self.thermal_panel.get_settings()
-        if settings.include_dc_copper_losses and not getattr(self, "system_results", None):
-            self.log("No current DC result; running DC analysis before enclosure CFD.")
-            self.on_run(None, update_results=False)
-        copper_losses = (
-            self._dc_copper_loss_points()
-            if settings.include_dc_copper_losses and getattr(self, "system_results", None)
-            else []
-        )
+        dc_request = None
+        if settings.include_dc_copper_losses:
+            if not self.power_tree.rails:
+                raise ValueError(
+                    "DC copper-loss heat sources require at least one configured power rail."
+                )
+            try:
+                grid_size = max(0.01, float(self.txt_grid_size.GetValue()))
+            except ValueError:
+                grid_size = 0.1
+            dc_request = prepare_dc_request(
+                self.board, self.power_tree.rails, grid_size,
+                self.runtime_panel.get_settings(persist=True),
+                self.chk_debug.GetValue(), log_callback=self.log,
+                board_path=self._board_file_path(),
+            )
         builder = ThermalModelBuilder(
             self.board,
             debug=self.chk_debug.GetValue(),
@@ -1803,67 +1246,68 @@ class KiPIDA_MainDialog(wx.Dialog):
         board_model = builder.build(
             thermal_settings,
             rails=self.power_tree.rails,
-            copper_losses=copper_losses,
+            copper_losses=[],
         )
-        if not settings.use_phase3_heat_sources:
-            board_model.components = []
-            board_model.copper_losses = []
-        return settings, board_model
+        return settings, board_model, dc_request
 
     def _cfd_worker_log(self, message):
-        wx.CallAfter(self.log, message)
+        if not self._closing:
+            self.log(message)
 
     def _cfd_worker_progress(self, completed, total, detail):
-        wx.CallAfter(self.log, f"CFD progress: {completed}/{total} ({detail})")
+        if self._closing:
+            return
+        self.log(f"CFD progress: {completed}/{total} ({detail})")
+        self._set_interaction_status(f"Enclosure CFD · {completed}/{total} · {detail}")
 
     def on_run_cfd(self, event):
-        if self._cfd_thread is not None and self._cfd_thread.is_alive():
-            self._cfd_cancel_requested = True
+        if self.cfd_controller.is_running:
+            self.cfd_controller.cancel()
             self.btn_run_cfd.Disable()
             self.btn_run_cfd.SetLabel("Cancelling CFD...")
             self.log("Cancellation requested for enclosure CFD.")
             return
 
-        self.notebook.SetSelection(self.PAGE_LOG)
+        if not self._ensure_analysis_slot():
+            return
+
+        self._select_workspace(self.PAGE_LOG)
         self.log("--- Starting Phase 4 Enclosure CFD Analysis ---")
         try:
-            settings, board_model = self._prepare_cfd_analysis()
+            settings, board_model, dc_request = self._prepare_cfd_analysis()
         except Exception as exc:
             self.log(f"Enclosure CFD setup error: {exc}")
             wx.MessageBox(str(exc), "Enclosure CFD Setup Error", wx.OK | wx.ICON_ERROR)
             return
 
-        self._cfd_cancel_requested = False
         self.btn_run_cfd.SetLabel("Cancel Enclosure CFD")
         debug_mode = self.chk_debug.GetValue()
         compute_settings = self.runtime_panel.get_settings(persist=True)
-        self._cfd_thread = threading.Thread(
-            target=self._run_cfd_worker,
-            args=(board_model, settings, debug_mode, compute_settings),
-            name="KiPIDA-Enclosure-CFD",
-            daemon=True,
+        request = CFDRunRequest(
+            board_model=board_model,
+            settings=settings,
+            compute_settings=compute_settings,
+            debug=debug_mode,
+            dc_request=dc_request,
+            plot_lock=self._plot_lock,
         )
-        self._cfd_thread.start()
+        callbacks = CFDControllerCallbacks(
+            on_progress=self._cfd_worker_progress,
+            on_complete=self._finish_cfd_job,
+            on_error=self._fail_cfd_analysis,
+            on_log=self._cfd_worker_log,
+        )
+        self._set_interaction_status("Enclosure CFD · running")
+        self.cfd_controller.start(request, callbacks)
 
-    def _run_cfd_worker(self, board_model, settings, debug_mode, compute_settings):
-        try:
-            solver = ConjugateHeatTransferSolver(
-                debug=debug_mode,
-                log_callback=self._cfd_worker_log,
-                compute_settings=compute_settings,
-            )
-            mesh, result = solver.solve(
-                board_model,
-                settings,
-                progress_callback=self._cfd_worker_progress,
-                cancel_callback=lambda: self._cfd_cancel_requested,
-            )
-            wx.CallAfter(self._finish_cfd_analysis, mesh, result)
-        except Exception as exc:
-            wx.CallAfter(self._fail_cfd_analysis, exc)
+    def _finish_cfd_job(self, outcome):
+        if self._closing:
+            return
+        if outcome.system_results:
+            self.system_results = outcome.system_results
+        self._finish_cfd_analysis(outcome.mesh, outcome.result, outcome.plots)
 
-    def _finish_cfd_analysis(self, mesh, result):
-        self._cfd_thread = None
+    def _finish_cfd_analysis(self, mesh, result, rendered_plots=None):
         self.btn_run_cfd.Enable()
         self.btn_run_cfd.SetLabel("Run Enclosure CFD")
         self.cfd_mesh = mesh
@@ -1872,46 +1316,46 @@ class KiPIDA_MainDialog(wx.Dialog):
             f"Enclosure CFD complete: {result.iterations} iterations, "
             f"Vmax={result.maximum_velocity_m_s:.4g} m/s."
         )
-        self._update_cfd_results_ui(mesh, result)
+        self._set_interaction_status("Enclosure CFD · complete")
+        self._update_cfd_results_ui(mesh, result, rendered_plots)
 
     def _fail_cfd_analysis(self, exc):
-        self._cfd_thread = None
+        if self._closing:
+            return
         self.btn_run_cfd.Enable()
         self.btn_run_cfd.SetLabel("Run Enclosure CFD")
         message = str(exc)
+        if isinstance(exc, CFDAnalysisCancelled):
+            self.log("Enclosure CFD analysis cancelled.")
+            self._set_interaction_status("Enclosure CFD · cancelled")
+            return
         self.log(f"Enclosure CFD error: {message}")
+        self._set_interaction_status("Enclosure CFD · failed")
         if "cancelled" not in message.lower():
             wx.MessageBox(message, "Enclosure CFD Error", wx.OK | wx.ICON_ERROR)
 
-    def _update_cfd_results_ui(self, mesh, result):
+    def _update_cfd_results_ui(self, mesh, result, rendered_plots=None):
         self._result_generation += 1
-        lines = [
-            _("Phase 4 Enclosure CFD Results"),
-            "=============================",
-            _("Mode: steady incompressible laminar flow with Boussinesq buoyancy"),
-            _("Cells: {count:,} ({nx} x {ny} x {nz})").format(count=mesh.cell_count, nx=mesh.shape[0], ny=mesh.shape[1], nz=mesh.shape[2]),
-            _("Iterations: {iterations} ({state})").format(iterations=result.iterations, state=_("converged") if result.converged else _("limit reached")),
-            _("Maximum velocity: {value:.6g} m/s").format(value=result.maximum_velocity_m_s),
-            _("Maximum air temperature: {value:.3f} C").format(value=result.maximum_air_temperature_c),
-            _("Maximum solid temperature: {value:.3f} C").format(value=result.maximum_solid_temperature_c),
-            _("Mapped heat: {value:.6g} W").format(value=result.total_heat_w),
-            _("Mass balance error: {value:.4g}%").format(value=result.mass_balance_error_pct),
-            _("Energy balance error: {error:.4g}%").format(error=result.energy_balance_error_pct),
-            _("Compute backend: {backend} ({device})").format(backend=result.compute_backend, device=result.compute_device),
-            _("Last energy solve: {seconds:.4g} s, residual {residual:.4g}").format(seconds=result.compute_solve_seconds, residual=result.compute_relative_residual),
-            "",
-            _("Model scope: structured volumetric CFD, boundary-patch fans/vents, and conjugate solid-air heat transfer. Fan blades, turbulence, radiation, and transient effects are outside this Phase 4 solver."),
-        ]
-        plotter = Plotter(debug=self.chk_debug.GetValue())
-        plots = [
-            ("CFD 3D", plotter.plot_cfd_3d(mesh, result)),
-            ("Temperature XY", plotter.plot_cfd_slice(mesh, result, "TEMPERATURE", "XY")),
-            ("Temperature XZ", plotter.plot_cfd_slice(mesh, result, "TEMPERATURE", "XZ")),
-            ("Velocity XY", plotter.plot_cfd_slice(mesh, result, "VELOCITY", "XY")),
-            ("Pressure XY", plotter.plot_cfd_slice(mesh, result, "PRESSURE", "XY")),
-            ("Residuals", plotter.plot_cfd_residuals(result)),
-        ]
-        self._publish_results("CFD", "\n".join(lines), [(title, bitmap) for title, bitmap in plots if bitmap])
+        if rendered_plots is None:
+            plotter = Plotter(debug=self.chk_debug.GetValue())
+            plots = [
+                ("CFD 3D", plotter.plot_cfd_3d(mesh, result)),
+                ("Temperature XY", plotter.plot_cfd_slice(mesh, result, "TEMPERATURE", "XY")),
+                ("Temperature XZ", plotter.plot_cfd_slice(mesh, result, "TEMPERATURE", "XZ")),
+                ("Velocity XY", plotter.plot_cfd_slice(mesh, result, "VELOCITY", "XY")),
+                ("Pressure XY", plotter.plot_cfd_slice(mesh, result, "PRESSURE", "XY")),
+                ("Residuals", plotter.plot_cfd_residuals(result)),
+            ]
+        else:
+            plots = [
+                (title, Plotter.bitmap_from_png(png_bytes))
+                for title, png_bytes in rendered_plots if png_bytes
+            ]
+        self._publish_results(
+            "CFD", format_cfd_report(mesh, result),
+            [(title, bitmap) for title, bitmap in plots if bitmap],
+            structured_result=adapt_cfd_result(mesh, result),
+        )
 
     def _debug_plot_geo(self, extractor, geo):
         try:
@@ -1931,95 +1375,100 @@ class KiPIDA_MainDialog(wx.Dialog):
 
     def _update_results_ui(self):
         self._result_generation += 1
-        # Populate text stats
-        txt = _("System Simulation Results:") + "\n==========================\n"
-        for net, data in self.system_results.items():
-            vmin, vmax, drop = data['stats']
-            txt += _("Rail: {net}\n").format(net=net)
-            txt += _("  Range: {minimum:.4f} - {maximum:.4f} V\n").format(minimum=vmin, maximum=vmax)
-            txt += _("  Drop:  {drop:.4f} V\n\n").format(drop=drop)
-            actual_grid = data.get('grid_size_mm')
-            requested_grid = data.get('requested_grid_size_mm', actual_grid)
-            if actual_grid is not None:
-                suffix = _(" (adapted for mesh safety)") if data.get('adaptive_grid') else ""
-                txt += _("  DC grid: {grid:.4g} mm{suffix}\n").format(grid=actual_grid, suffix=suffix)
-                if data.get('adaptive_grid'):
-                    txt += _("  Requested DC grid: {grid:.4g} mm\n").format(grid=requested_grid)
-            compute = data.get('compute_metadata')
-            if compute is not None:
-                txt += (
-                    _("  Backend: {backend} ({device}), solve {solve:.4g} s, residual {residual:.3g}\n\n").format(
-                        backend=compute.backend, device=compute.device,
-                        solve=compute.solve_seconds, residual=compute.relative_residual,
-                    )
-                )
-        page = self._publish_results("DC", txt, [])
-        results_notebook = page.plots
-        
+        try:
+            drop_pct_ui = min(100.0, max(0.0, float(self.txt_drop_pct.GetValue())))
+        except (TypeError, ValueError):
+            drop_pct_ui = 5.0
+        page = self._publish_results(
+            "DC", format_dc_report(self.system_results), [],
+            structured_result=adapt_dc_result(self.system_results, drop_pct_ui),
+        )
         if not self.system_results:
             return
-        
-        # Get stackup once
         try:
             extractor = GeometryExtractor(self.board)
             stackup = extractor.get_board_stackup()
             board_bounds = extractor.get_board_bounds(board_file_path=self._board_file_path())
-        except: 
+        except Exception as exc:
+            self.log(f"DC plot geometry warning: {exc}")
             stackup = None
             board_bounds = None
-        
-        # Get Drop % from UI for coloring scale
+        generation = self._result_generation
+        page.show_rendering("Rendering DC rail maps in background...")
+        self._dc_plot_thread = threading.Thread(
+            target=self._render_dc_plots_worker,
+            args=(
+                dict(self.system_results), stackup, board_bounds, drop_pct_ui,
+                self.chk_debug.GetValue(), generation,
+            ),
+            name="KiPIDA-DC-Plots", daemon=True,
+        )
+        self._dc_plot_thread.start()
+
+    def _render_dc_plots_worker(
+        self, system_results, stackup, board_bounds, drop_pct, debug, generation,
+    ):
         try:
-            drop_pct_ui = float(self.txt_drop_pct.GetValue())
-            if drop_pct_ui < 0: drop_pct_ui = 0
-            if drop_pct_ui > 100: drop_pct_ui = 100
-        except:
-            drop_pct_ui = 5.0
-        
-        debug_mode = self.chk_debug.GetValue()
-        plotter = Plotter(debug=debug_mode)
-        
-        # Create nested tabs for each rail
-        for rail_name, data in self.system_results.items():
-            # Create rail-level notebook
-            rail_notebook = wx.Notebook(results_notebook)
-            
-            mesh = data['mesh']
-            mesh.results = data['results']
-            vmin, vmax, _ = data['stats']
-            
-            # Override vmin for plot based on drop %
-            nominal = vmax
-            plot_vmin = nominal * (1.0 - drop_pct_ui / 100.0)
-            
-            # Add 3D plot tab
-            bmp_3d = plotter.plot_3d_mesh(mesh, stackup, vmin=plot_vmin, vmax=vmax, board_bounds=board_bounds)
-            if bmp_3d:
-                rail_notebook.AddPage(ZoomableBitmapPanel(rail_notebook, bmp_3d), "3D View")
-            
-            # Add layer tabs
-            unique_layers = list(set(n[2] for n in mesh.node_coords.values()))
-            unique_layers.sort()
-            
-            for lid in unique_layers:
-                # Get Layer Name
-                l_name = str(lid)
-                if stackup and 'copper' in stackup and lid in stackup['copper']:
-                    l_name = stackup['copper'][lid].get('name', str(lid))
-                
-                bmp_2d = plotter.plot_layer_2d(mesh, lid, stackup, vmin=plot_vmin, vmax=vmax, layer_name=l_name, board_bounds=board_bounds)
-                if bmp_2d:
-                    rail_notebook.AddPage(ZoomableBitmapPanel(rail_notebook, bmp_2d), l_name)
-            
-            # Add rail notebook as a page in the main results notebook
-            results_notebook.AddPage(rail_notebook, rail_name)
-        
-        # Switch to Results tab
-        self.notebook.SetSelection(self.PAGE_RESULTS)
+            with self._plot_lock:
+                groups = render_dc_plots(
+                    system_results, stackup=stackup, board_bounds=board_bounds,
+                    drop_pct=drop_pct, debug=debug,
+                )
+            if not self._closing:
+                wx.CallAfter(self._finish_dc_plots, generation, groups)
+        except Exception as exc:
+            if not self._closing:
+                wx.CallAfter(self._fail_dc_plots, generation, exc)
+
+    def _finish_dc_plots(self, generation, groups):
+        self._dc_plot_thread = None
+        if self._closing or generation != self._result_generation:
+            return
+        page = self.results_workspace.page_for("DC")
+        bitmaps = [
+            (title, Plotter.bitmap_from_png(png_bytes))
+            for title, png_bytes in flatten_dc_plot_groups(groups)
+        ]
+        page.set_plots(bitmaps)
+        self.results_workspace.update_history_plots("DC", bitmaps)
+        self._select_workspace(self.PAGE_RESULTS)
+        self.log("DC rail maps ready.")
+
+    def _fail_dc_plots(self, generation, exc):
+        self._dc_plot_thread = None
+        if self._closing or generation != self._result_generation:
+            return
+        self.log(f"DC plot rendering error: {exc}")
 
     def on_close(self, event):
-        if self._cfd_thread is not None and self._cfd_thread.is_alive():
-            self._cfd_cancel_requested = True
+        if self.dc_controller.is_running:
+            self.dc_controller.cancel()
+            self._set_interaction_status("DC analysis · cancelling")
+            self.log("Close requested; cancelling DC analysis first.")
+            return
+        if self.ac_controller.is_running:
+            self.ac_controller.cancel()
+            self._set_interaction_status("AC analysis · cancelling")
+            self.log("Close requested; cancelling AC analysis first.")
+            return
+        if self.differential_controller.is_running:
+            self.differential_controller.cancel()
+            self._set_interaction_status("Differential analysis · cancelling")
+            self.log("Close requested; cancelling differential analysis first.")
+            return
+        if self.thermal_controller.is_running:
+            self.thermal_controller.cancel()
+            self._set_interaction_status("Thermal analysis · cancelling")
+            self.log("Close requested; cancelling thermal analysis first.")
+            return
+        if self.emc_controller.is_running:
+            self.emc_controller.cancel()
+            self.btn_cancel_emc.Disable()
+            self.btn_cancel_emc.SetLabel("Cancelling EMI/EMC...")
+            self.log("Close requested; cancelling EMI/EMC first.")
+            return
+        if self.cfd_controller.is_running:
+            self.cfd_controller.cancel()
             self.btn_run_cfd.Disable()
             self.btn_run_cfd.SetLabel("Cancelling CFD...")
             self.log("Close requested; cancelling enclosure CFD first.")
@@ -2027,4 +1476,5 @@ class KiPIDA_MainDialog(wx.Dialog):
         self._closing = True
         self._result_generation += 1
         self._thermal_result_generation += 1
+        self._stream_capture.restore()
         self.EndModal(wx.ID_CANCEL)

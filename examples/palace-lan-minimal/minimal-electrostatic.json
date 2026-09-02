@@ -1,0 +1,47 @@
+{
+  "Problem": {
+    "Type": "Electrostatic",
+    "Verbose": 1,
+    "Output": "postpro",
+    "OutputFormats": {
+      "Paraview": false,
+      "GridFunction": false
+    }
+  },
+  "Model": {
+    "Mesh": "mesh/minimal-cube.msh",
+    "L0": 0.001
+  },
+  "Domains": {
+    "Materials": [
+      {
+        "Attributes": [1],
+        "Permittivity": 1.0
+      }
+    ]
+  },
+  "Boundaries": {
+    "Ground": {
+      "Attributes": [2]
+    },
+    "Terminal": [
+      {
+        "Index": 1,
+        "Attributes": [3]
+      }
+    ]
+  },
+  "Solver": {
+    "Order": 1,
+    "Device": "CPU",
+    "Electrostatic": {
+      "Save": 1
+    },
+    "Linear": {
+      "Type": "BoomerAMG",
+      "KSPType": "CG",
+      "Tol": 1.0e-8,
+      "MaxIts": 100
+    }
+  }
+}

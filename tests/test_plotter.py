@@ -51,13 +51,21 @@ class TestPlotter(unittest.TestCase):
     def test_plot_3d(self):
         # Should return a bitmap (or mock string)
         bmp = self.plotter.plot_3d_mesh(self.mesh, self.stackup)
-        print(f"3D Plot result: {bmp}")
         self.assertIsNotNone(bmp)
+
+    def test_dc_plots_support_worker_safe_png_output(self):
+        view_3d = self.plotter.plot_3d_mesh(self.mesh, self.stackup, as_png=True)
+        layer_2d = self.plotter.plot_layer_2d(
+            self.mesh, 0, self.stackup, layer_name="F.Cu", as_png=True,
+        )
+        self.assertIsInstance(view_3d, bytes)
+        self.assertIsInstance(layer_2d, bytes)
+        self.assertTrue(view_3d.startswith(b"\x89PNG"))
+        self.assertTrue(layer_2d.startswith(b"\x89PNG"))
         
     def test_plot_2d_layer(self):
         # Should return a bitmap for layer 0
         bmp = self.plotter.plot_layer_2d(self.mesh, 0, self.stackup, vmin=3.0, vmax=3.5, layer_name="F.Cu (Test)")
-        print(f"2D Plot Layer 0 result: {bmp}")
         self.assertIsNotNone(bmp)
         
     def test_plot_2d_empty_layer(self):
@@ -101,7 +109,9 @@ class TestPlotter(unittest.TestCase):
                 SimpleNamespace(name="B.Cu", kind="COPPER", thickness_mm=0.035, epsilon_r=1.0),
             ],
         )
-        self.assertIsNotNone(self.plotter.plot_differential_impedance([result]))
+        self.assertIsNotNone(self.plotter.plot_differential_impedance(
+            [result], target_tolerance_pct=10.0,
+        ))
         self.assertIsNotNone(self.plotter.plot_stackup_profile(stackup))
 
     def test_plot_emc_risk_map_and_relative_spectrum(self):
@@ -137,6 +147,13 @@ class TestPlotter(unittest.TestCase):
         )
         self.assertTrue(interactive.png_bytes.startswith(b"\x89PNG"))
         self.assertTrue(interactive.click_probe.points)
+        popup = interactive.click_probe.points[0][2]
+        self.assertEqual(popup.confidence, "DETERMINISTIC")
+        finding.confidence = "LOW"
+        heuristic = self.plotter.plot_emc_risk_map(
+            snapshot, result, as_png=True, with_click_probe=True,
+        )
+        self.assertEqual(heuristic.click_probe.points[0][2].confidence, "HEURISTIC")
 
     def test_plot_em_near_field_with_hover_probe(self):
         result = SimpleNamespace(
@@ -146,6 +163,12 @@ class TestPlotter(unittest.TestCase):
             magnetic_field_a_m=[[0.1, 0.2, 0.4], [0.05, 0.1, 0.2]],
             probe_height_mm=3.0,
             frequency_hz=25e6,
+            source_contributions=[SimpleNamespace(
+                source_name="CLK", maximum_e_v_m=4.0, maximum_h_a_m=0.4,
+                maximum_e_position_mm=(2.0, 0.0), maximum_h_position_mm=(2.0, 0.0),
+                relative_e_pct=100.0, relative_h_pct=100.0,
+            )],
+            source_segments=[("CLK", "CLK", 0.0, 0.0, 2.0, 0.0, 1.0, "ROUTED_TRACKS")],
         )
         electric = self.plotter.plot_em_field(
             result, "E", as_png=True, with_hover_probe=True,

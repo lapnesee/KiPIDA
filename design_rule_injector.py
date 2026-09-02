@@ -26,10 +26,30 @@ class DifferentialRuleInjector:
     def _recommended_items(recommendations):
         return [item for item in recommendations if item.recommended_width_mm > 0 and item.recommended_gap_mm > 0]
 
-    def apply(self, recommendations):
+    def apply(self, recommendations, minimum_width_mm=0.0, minimum_gap_mm=0.0,
+              minimum_ground_clearance_mm=0.0):
         recommendations = self._recommended_items(recommendations)
         if not recommendations:
             raise ValueError("Select at least one recommendation with a feasible width and gap.")
+        violations = []
+        for item in recommendations:
+            failed = []
+            if item.recommended_width_mm + 1e-12 < minimum_width_mm:
+                failed.append(f"W {item.recommended_width_mm:.3f} < {minimum_width_mm:.3f}")
+            if item.recommended_gap_mm + 1e-12 < minimum_gap_mm:
+                failed.append(f"G {item.recommended_gap_mm:.3f} < {minimum_gap_mm:.3f}")
+            if item.recommended_ground_clearance_mm + 1e-12 < minimum_ground_clearance_mm:
+                failed.append(
+                    f"GND {item.recommended_ground_clearance_mm:.3f} < "
+                    f"{minimum_ground_clearance_mm:.3f}"
+                )
+            if failed:
+                violations.append(f"{item.pair_name}: " + ", ".join(failed))
+        if violations:
+            raise ValueError(
+                "Recommendations below the configured W/G/GND minima were not applied: "
+                + "; ".join(violations)
+            )
         try:
             project = json.loads(self.project_path.read_text(encoding="utf-8"))
         except FileNotFoundError as exc:

@@ -6,8 +6,8 @@ plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if plugin_dir not in sys.path:
     sys.path.insert(0, plugin_dir)
 
-from models import ComponentRef, PowerRail, UnifiedLoad, VoltageRegulator
-from thermal_model import PowerLossEstimator
+from models import ComponentRef, PowerRail, ThermalComponentModel, UnifiedLoad, VoltageRegulator
+from thermal_model import PowerLossEstimator, merge_component_heat_sources
 
 
 class TestPowerLossEstimator(unittest.TestCase):
@@ -105,6 +105,43 @@ class TestPowerLossEstimator(unittest.TestCase):
 
         self.assertAlmostEqual(models["L1"].power_w, 1.25)
         self.assertNotIn("U1", models)
+
+    def test_refresh_keeps_saved_physical_model_for_automatic_source(self):
+        estimated = [ThermalComponentModel(
+            ref_des="U4", power_w=1.43, model_source="regulator-loss",
+        )]
+        saved = [ThermalComponentModel(
+            ref_des="U4", power_w=1.07, width_mm=3.0, depth_mm=2.0,
+            height_mm=1.0, theta_jb_c_per_w=18.7, max_junction_c=125.0,
+            enabled=False, model_source="regulator-loss",
+        )]
+
+        merged = merge_component_heat_sources(estimated, saved)
+
+        self.assertEqual(len(merged), 1)
+        self.assertAlmostEqual(merged[0].power_w, 1.43)
+        self.assertEqual(merged[0].model_source, "regulator-loss")
+        self.assertEqual(
+            (merged[0].width_mm, merged[0].depth_mm, merged[0].height_mm),
+            (3.0, 2.0, 1.0),
+        )
+        self.assertAlmostEqual(merged[0].theta_jb_c_per_w, 18.7)
+        self.assertEqual(merged[0].max_junction_c, 125.0)
+        self.assertFalse(merged[0].enabled)
+
+    def test_refresh_keeps_fully_manual_heat_source(self):
+        estimated = [ThermalComponentModel(
+            ref_des="U4", power_w=1.43, model_source="regulator-loss",
+        )]
+        saved = [ThermalComponentModel(
+            ref_des="U4", power_w=0.72, width_mm=4.0, model_source="user",
+        )]
+
+        merged = merge_component_heat_sources(estimated, saved)
+
+        self.assertAlmostEqual(merged[0].power_w, 0.72)
+        self.assertEqual(merged[0].width_mm, 4.0)
+        self.assertEqual(merged[0].model_source, "user")
 
 
 if __name__ == "__main__":

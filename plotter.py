@@ -15,6 +15,7 @@ from i18n import _
 from thermal_probe import ThermalMapProbe
 from field_probe import EMFieldMapProbe
 from emc_probe import EMCProbeReading, capture_axis_points
+from analysis_contract import normalize_evidence_confidence
 
 
 @dataclass(frozen=True)
@@ -52,7 +53,7 @@ class Plotter:
         width, height = max(bounds[2] - bounds[0], 1.0), max(bounds[3] - bounds[1], 1.0)
         return (base, max(4.8, min(8.0, base * height / width)))
 
-    def plot_3d_mesh(self, mesh, stackup=None, vmin=None, vmax=None, board_bounds=None):
+    def plot_3d_mesh(self, mesh, stackup=None, vmin=None, vmax=None, board_bounds=None, as_png=False):
         """
         Generates a 3D scatter plot of the mesh nodes.
         Returns a wx.Bitmap.
@@ -107,12 +108,12 @@ class Plotter:
             ax.set_xlim3d([x_mid - max_range/2, x_mid + max_range/2])
             ax.set_ylim3d([y_mid - max_range/2, y_mid + max_range/2])
             
-            return self._fig_to_bitmap(fig)
+            return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
         except Exception as e:
             if self.debug: print(f"Plotter 3D Error: {e}")
             return None
 
-    def plot_layer_2d(self, mesh, layer_id, stackup=None, vmin=None, vmax=None, layer_name=None, board_bounds=None):
+    def plot_layer_2d(self, mesh, layer_id, stackup=None, vmin=None, vmax=None, layer_name=None, board_bounds=None, as_png=False):
         """
         Generates a 2D plot (heatmap) for a specific layer.
         Returns a wx.Bitmap.
@@ -167,7 +168,7 @@ class Plotter:
             ax.set_aspect('equal', 'box')
             self._fit_xy(ax, board_bounds, invert_y=True)
             
-            return self._fig_to_bitmap(fig)
+            return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
 
         except Exception as e:
             if self.debug: print(f"Plotter 2D Error: {e}")
@@ -204,8 +205,8 @@ class Plotter:
                 print(f"Impedance plot error: {e}")
             return None
 
-    def plot_differential_impedance(self, results, as_png=False):
-        """Plot length-weighted Zdiff with per-section min/max ranges."""
+    def plot_differential_impedance(self, results, as_png=False, target_tolerance_pct=None):
+        """Plot weighted Zdiff, observed section range and target-centred band."""
         try:
             plotted = [result for result in results if result.weighted_impedance_ohm > 0]
             if not plotted:
@@ -221,15 +222,30 @@ class Plotter:
             ]
             fig, axis = plt.subplots(figsize=(8, 5), constrained_layout=True)
             x = np.arange(len(plotted))
-            axis.bar(x, values, color=colors, alpha=0.85)
-            axis.errorbar(x, values, yerr=np.vstack((lower, upper)), fmt="none", color="black", capsize=4)
+            tolerance = max(0.0, float(target_tolerance_pct or 0.0)) / 100.0
+            if tolerance > 0.0:
+                targets = np.asarray([
+                    result.pair.target_impedance_ohm for result in plotted
+                ], dtype=float)
+                band_low = targets * (1.0 - tolerance)
+                band_high = targets * (1.0 + tolerance)
+                axis.bar(
+                    x, band_high - band_low, bottom=band_low, width=0.86,
+                    color="#4c78a8", alpha=0.18, edgecolor="#4c78a8",
+                    linewidth=1.0, label=f"Target band (+/-{target_tolerance_pct:g}%)",
+                )
+            axis.bar(x, values, width=0.58, color=colors, alpha=0.85, label="Length-weighted Zdiff")
+            axis.errorbar(
+                x, values, yerr=np.vstack((lower, upper)), fmt="none",
+                color="black", capsize=4, label="Observed section min/max",
+            )
             for index, result in enumerate(plotted):
                 axis.plot(index, result.pair.target_impedance_ohm, marker="D", color="blue")
             axis.set_xticks(x, labels, rotation=25, ha="right")
             axis.set_ylabel(_("Differential impedance (ohm)"))
             axis.set_title(_("Stackup-aware differential impedance"))
             axis.grid(True, axis="y", alpha=0.3)
-            axis.scatter([], [], marker="D", color="blue", label="Target")
+            axis.scatter([], [], marker="D", color="blue", label="Target centre")
             axis.legend()
             return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
         except Exception as e:
@@ -298,7 +314,9 @@ class Plotter:
                             title=finding.title,
                             rule_id=finding.rule_id,
                             severity=finding.severity,
-                            confidence=finding.confidence,
+                            confidence=normalize_evidence_confidence(
+                                finding.confidence,
+                            ).value,
                             description=finding.description,
                             recommendation=finding.recommendation,
                             nets=tuple(finding.nets),
@@ -401,9 +419,13 @@ class Plotter:
             )
             positive = values[np.isfinite(values) & (values > 0.0)]
             norm = None
+            clipped_high = None
             if positive.size:
-                low = max(float(np.percentile(positive, 1.0)), float(np.max(positive)) * 1.0e-6)
-                high = float(np.max(positive))
+                actual_high = float(np.max(positive))
+                low = max(float(np.percentile(positive, 5.0)), actual_high * 1.0e-4)
+                high = max(float(np.percentile(positive, 99.5)), low)
+                if actual_high > high * 1.05:
+                    clipped_high = actual_high
                 if high > low * 20.0:
                     norm = LogNorm(vmin=low, vmax=high)
             fig, axis = plt.subplots(figsize=self._figsize(bounds), constrained_layout=True)
@@ -418,14 +440,59 @@ class Plotter:
             axis.set_ylabel(_("Y (mm)"))
             mode = (
                 f"{result.frequency_hz / 1e6:g} MHz envelope"
-                if result.frequency_hz > 0.0 else "configured source fundamentals"
+                if result.frequency_hz > 0.0 else "first in-band harmonic per source"
             )
             axis.set_title(
                 _("{title} at {height:g} mm — {mode}").format(
                     title=_(title), height=result.probe_height_mm, mode=_(mode),
                 )
             )
-            fig.colorbar(plot, ax=axis, label=_("Estimated |{label}| ({unit})").format(label=label, unit=unit))
+            colorbar_label = _("Estimated |{label}| ({unit})").format(label=label, unit=unit)
+            if clipped_high is not None:
+                colorbar_label += " — " + _("colour capped at 99.5th percentile")
+            fig.colorbar(plot, ax=axis, label=colorbar_label)
+            contributions = sorted(
+                getattr(result, "source_contributions", []) or [],
+                key=lambda item: (
+                    item.maximum_h_a_m if quantity == "H" else item.maximum_e_v_m
+                ), reverse=True,
+            )
+            top_names = {item.source_name for item in contributions[:5]}
+            colours = {
+                item.source_name: plt.get_cmap("tab10")(index % 10)
+                for index, item in enumerate(contributions[:5])
+            }
+            labelled = set()
+            for segment in getattr(result, "source_segments", []) or []:
+                if len(segment) < 6 or segment[0] not in top_names:
+                    continue
+                source_name, _net, x0, y0, x1, y1 = segment[:6]
+                axis.plot(
+                    [x0, x1], [y0, y1], color=colours[source_name], linewidth=1.4,
+                    alpha=0.9, label=source_name if source_name not in labelled else None,
+                )
+                labelled.add(source_name)
+            for index, item in enumerate(contributions[:5]):
+                position = (
+                    item.maximum_h_position_mm if quantity == "H"
+                    else item.maximum_e_position_mm
+                )
+                relative = item.relative_h_pct if quantity == "H" else item.relative_e_pct
+                axis.scatter(
+                    [position[0]], [position[1]], marker="x", s=55,
+                    linewidths=1.8, color=colours[item.source_name], zorder=5,
+                )
+                if index < 3:
+                    axis.annotate(
+                        _("{source}\n{relative:.0f}% of map peak").format(
+                            source=item.source_name, relative=relative,
+                        ),
+                        xy=position, xytext=(5, 5), textcoords="offset points",
+                        fontsize=7, color="white",
+                        bbox={"boxstyle": "round,pad=0.2", "facecolor": "black", "alpha": 0.65},
+                    )
+            if labelled:
+                axis.legend(loc="upper right", fontsize=7, title=_("Dominant sources"))
             if with_hover_probe:
                 fig.canvas.draw()
                 probe = EMFieldMapProbe(
@@ -643,7 +710,7 @@ class Plotter:
         values = np.where(np.isfinite(solids), solids, values)
         return values, 'Temperature (C)', 'inferno'
 
-    def plot_cfd_slice(self, mesh, result, field='TEMPERATURE', plane='XY'):
+    def plot_cfd_slice(self, mesh, result, field='TEMPERATURE', plane='XY', as_png=False):
         """Render a central scalar slice with in-plane velocity vectors."""
         try:
             values, label, cmap = self._cfd_field(mesh, result, field)
@@ -686,13 +753,13 @@ class Plotter:
             axis.set_xlabel(axes[0]); axis.set_ylabel(axes[1])
             axis.set_title(_('Enclosure CFD {field} - {plane} slice').format(field=_(field.title()), plane=plane))
             fig.colorbar(image_plot, ax=axis, label=label)
-            return self._fig_to_bitmap(fig)
+            return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
         except Exception as exc:
             if self.debug:
                 print(f"CFD slice plot error: {exc}")
             return None
 
-    def plot_cfd_3d(self, mesh, result):
+    def plot_cfd_3d(self, mesh, result, as_png=False):
         """Render a down-sampled 3D air/solid temperature field."""
         try:
             values, label, cmap = self._cfd_field(mesh, result, 'TEMPERATURE')
@@ -709,13 +776,13 @@ class Plotter:
             axis.set_xlabel(_('X (mm)')); axis.set_ylabel(_('Y (mm)')); axis.set_zlabel(_('Z (mm)'))
             axis.set_title(_('Enclosure CFD volumetric temperature'))
             fig.colorbar(scatter, ax=axis, label=label, shrink=0.75)
-            return self._fig_to_bitmap(fig)
+            return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
         except Exception as exc:
             if self.debug:
                 print(f"CFD 3D plot error: {exc}")
             return None
 
-    def plot_cfd_residuals(self, result):
+    def plot_cfd_residuals(self, result, as_png=False):
         try:
             fig, axis = plt.subplots(figsize=(8, 5), constrained_layout=True)
             for label, values in (
@@ -729,7 +796,7 @@ class Plotter:
             axis.set_xlabel(_('Iteration')); axis.set_ylabel(_('Residual'))
             axis.set_title(_('Enclosure CFD convergence'))
             axis.grid(True, which='both', alpha=0.3); axis.legend()
-            return self._fig_to_bitmap(fig)
+            return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
         except Exception as exc:
             if self.debug:
                 print(f"CFD residual plot error: {exc}")

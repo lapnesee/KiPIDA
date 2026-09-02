@@ -10,7 +10,7 @@ if plugin_dir not in sys.path:
     sys.path.insert(0, plugin_dir)
 
 from config_manager import get_project_config_path, save_config, load_config, load_project_config
-from models import EMCAnalysisSettings, EMCSignalSource
+from models import EMCAnalysisSettings, EMCInductorModel, EMCPhase10Settings, EMCSignalSource
 from models import (
     ACAnalysisSettings, ACMeasurementPort, ACSourceModel, AirflowSettings, CapacitorModel,
     CFDBoundaryPatch, CFDSolverSettings, EnclosureCFDSettings, EnclosureGeometrySettings,
@@ -105,7 +105,7 @@ class TestConfigManager(unittest.TestCase):
             with open(filepath, 'r') as f:
                 data = json.load(f)
             
-            self.assertEqual(data["version"], "1.7")
+            self.assertEqual(data["version"], "2.0")
             self.assertEqual(len(data["rails"]), 3)
             
             # Verify 12V rail
@@ -230,6 +230,7 @@ class TestConfigManager(unittest.TestCase):
             frequency_start_hz=100.0,
             frequency_stop_hz=20e6,
             frequency_points=77,
+            mesh_resolution_mm=0.75,
             target_impedance_ohm=0.025,
             source=ACSourceModel(
                 ref_des="U2", rail_pad_names=["VOUT"], ground_pad_names=["GND"],
@@ -258,6 +259,7 @@ class TestConfigManager(unittest.TestCase):
             self.assertEqual(loaded.measurement_port.ground_pad_names, ["VSS"])
             self.assertAlmostEqual(loaded.capacitors[0].capacitance_f, 4.7e-6)
             self.assertEqual(loaded.optimizer_max_additions, 3)
+            self.assertAlmostEqual(loaded.mesh_resolution_mm, 0.75)
         finally:
             if Path(filepath).exists():
                 os.unlink(filepath)
@@ -355,6 +357,8 @@ class TestConfigManager(unittest.TestCase):
                 ],
             ),
             target_tolerance_pct=8.0,
+            geometry_mode="JLCPCB_COPLANAR",
+            coplanar_ground_gap_mm=0.16,
             minimum_width_mm=0.11,
             minimum_gap_mm=0.12,
             minimum_ground_clearance_mm=0.20,
@@ -370,6 +374,8 @@ class TestConfigManager(unittest.TestCase):
             self.assertEqual(loaded.stackup_override.source, "IMPORTED")
             self.assertEqual(loaded.stackup_override.layers[2].layer_id, 31)
             self.assertAlmostEqual(loaded.target_tolerance_pct, 8.0)
+            self.assertEqual(loaded.geometry_mode, "JLCPCB_COPLANAR")
+            self.assertAlmostEqual(loaded.coplanar_ground_gap_mm, 0.16)
             self.assertAlmostEqual(loaded.minimum_width_mm, 0.11)
             self.assertAlmostEqual(loaded.minimum_gap_mm, 0.12)
             self.assertAlmostEqual(loaded.minimum_ground_clearance_mm, 0.20)
@@ -387,6 +393,22 @@ class TestConfigManager(unittest.TestCase):
         try:
             project = load_project_config(filepath)
             self.assertIsNone(project.differential_profile)
+        finally:
+            if Path(filepath).exists():
+                os.unlink(filepath)
+
+    def test_legacy_v17_differential_profile_gets_safe_geometry_defaults(self):
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
+            filepath = f.name
+            json.dump({
+                "version": "1.7", "rails": [], "ac_profiles": {},
+                "thermal_profile": None, "cfd_profile": None,
+                "differential_profile": {"pairs": []},
+            }, f)
+        try:
+            profile = load_project_config(filepath).differential_profile
+            self.assertEqual(profile.geometry_mode, "AUTO")
+            self.assertAlmostEqual(profile.coplanar_ground_gap_mm, 0.15)
         finally:
             if Path(filepath).exists():
                 os.unlink(filepath)
@@ -496,10 +518,36 @@ class TestConfigManager(unittest.TestCase):
                 "Main clock", "MCLK", "CLOCK", 24.576e6, 1.2,
                 external=True, cable_length_m=0.5, source="manual",
                 voltage_swing_v=1.8, current_a=0.075,
+                negative_net_name="MCLK_N",
+                parameter_confidence="HIGH", parameter_notes="Measured on prototype.",
             )],
             field_probe_height_mm=4.5,
             field_grid_size_mm=0.75,
             field_frequency_hz=98.304e6,
+            inductor_models=[EMCInductorModel(
+                "L1", mpn="SPM6530T-2R2M", inductance_h=2.2e-6,
+                shield_state="SHIELDED", shielding_attenuation_db=None,
+                parameter_source="datasheet", parameter_confidence="HIGH",
+            )],
+            phase10=EMCPhase10Settings(
+                auto_run_full_wave=True, maximum_regions=2,
+                mesh_resolution_mm=0.4, maximum_cells=123456,
+                openems_root=r"C:\openEMS", ngspice_path=r"C:\Spice64\bin\ngspice_con.exe",
+                spice_library_path=r"C:\models\SPICE",
+                differential_excitation_mode="COMMON_MODE",
+                differential_leg_impedance_ohm=42.5,
+                full_wave_backend="PALACE_REMOTE",
+                palace_remote_host="palace.lan",
+                palace_remote_port=2222,
+                palace_remote_username="solver",
+                palace_remote_root="/srv/kipida/jobs",
+                palace_remote_executable="/opt/palace/bin/palace",
+                palace_remote_config_path=r"C:\models\board.json",
+                palace_remote_mpi_processes=8,
+                palace_remote_host_key_policy="ACCEPT_NEW",
+                palace_remote_connect_timeout_s=12.0,
+                palace_remote_keep_files=False,
+            ),
         )
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as f:
             filepath = f.name
@@ -513,9 +561,29 @@ class TestConfigManager(unittest.TestCase):
             self.assertTrue(loaded.sources[0].external)
             self.assertAlmostEqual(loaded.sources[0].voltage_swing_v, 1.8)
             self.assertAlmostEqual(loaded.sources[0].current_a, 0.075)
+            self.assertEqual(loaded.sources[0].negative_net_name, "MCLK_N")
+            self.assertEqual(loaded.sources[0].parameter_confidence, "HIGH")
+            self.assertEqual(loaded.sources[0].parameter_notes, "Measured on prototype.")
             self.assertAlmostEqual(loaded.field_probe_height_mm, 4.5)
             self.assertAlmostEqual(loaded.field_grid_size_mm, 0.75)
             self.assertAlmostEqual(loaded.field_frequency_hz, 98.304e6)
+            self.assertEqual(loaded.inductor_models[0].mpn, "SPM6530T-2R2M")
+            self.assertIsNone(loaded.inductor_models[0].shielding_attenuation_db)
+            self.assertTrue(loaded.phase10.auto_run_full_wave)
+            self.assertEqual(loaded.phase10.maximum_regions, 2)
+            self.assertAlmostEqual(loaded.phase10.mesh_resolution_mm, 0.4)
+            self.assertEqual(loaded.phase10.maximum_cells, 123456)
+            self.assertEqual(loaded.phase10.spice_library_path, r"C:\models\SPICE")
+            self.assertEqual(loaded.phase10.differential_excitation_mode, "COMMON_MODE")
+            self.assertAlmostEqual(loaded.phase10.differential_leg_impedance_ohm, 42.5)
+            self.assertEqual(loaded.phase10.full_wave_backend, "PALACE_REMOTE")
+            self.assertEqual(loaded.phase10.palace_remote_host, "palace.lan")
+            self.assertEqual(loaded.phase10.palace_remote_port, 2222)
+            self.assertEqual(loaded.phase10.palace_remote_username, "solver")
+            self.assertEqual(loaded.phase10.palace_remote_root, "/srv/kipida/jobs")
+            self.assertEqual(loaded.phase10.palace_remote_mpi_processes, 8)
+            self.assertEqual(loaded.phase10.palace_remote_host_key_policy, "ACCEPT_NEW")
+            self.assertFalse(loaded.phase10.palace_remote_keep_files)
         finally:
             if Path(filepath).exists():
                 os.unlink(filepath)

@@ -5,6 +5,7 @@ import wx
 from i18n import _
 
 try:
+    from differential_geometry import GEOMETRY_CHOICES, normalize_geometry
     from differential_discovery import DifferentialPairDiscoverer, INTERFACE_DEFAULTS
     from differential_recommender import DifferentialRecommendationEngine
     from design_rule_injector import DifferentialRuleInjector
@@ -12,6 +13,7 @@ try:
     from models import DifferentialAnalysisSettings, DifferentialPairCandidate
     from stackup_io import load_stackup_profile
 except (ImportError, ValueError):
+    from ..differential_geometry import GEOMETRY_CHOICES, normalize_geometry
     from ..differential_discovery import DifferentialPairDiscoverer, INTERFACE_DEFAULTS
     from ..differential_recommender import DifferentialRecommendationEngine
     from ..design_rule_injector import DifferentialRuleInjector
@@ -123,7 +125,8 @@ class DifferentialAnalysisPanel(wx.Panel):
         for index, (title, width) in enumerate((
             ("Use", 48), ("Pair", 115), ("Positive net", 145), ("Negative net", 145),
             ("Interface", 85), ("Confidence", 90), ("Target", 70),
-            ("Zdiff", 75), ("Status", 85), ("Recommendation", 130),
+            ("Zdiff", 75), ("L+ / L- (mm)", 115), ("dL / skew", 125),
+            ("Length", 80), ("Status", 85), ("Recommendation", 130),
         )):
             self.pair_list.InsertColumn(index, title, width=width)
         pair_box.Add(self.pair_list, 1, wx.EXPAND | wx.ALL, 5)
@@ -144,8 +147,9 @@ class DifferentialAnalysisPanel(wx.Panel):
         # wx.ListCtrl permits multiple selections unless LC_SINGLE_SEL is set.
         self.recommendation_list = wx.ListCtrl(recommendation_parent, style=wx.LC_REPORT)
         for index, (title, width) in enumerate((
-            ("Pair", 120), ("Layer", 85), ("Action", 145), ("Current W/G", 105),
-            ("Suggested W/G", 120), ("Predicted Z", 90), ("Ground clearance", 120), ("Confidence", 90),
+            ("Pair", 120), ("Layer", 85), ("Action", 145), ("Measured W/G", 110),
+            ("Rule W/G", 105), ("Predicted Z", 90), ("Rule GND", 90),
+            ("Min check", 85), ("Confidence", 90),
         )):
             self.recommendation_list.InsertColumn(index, title, width=width)
         recommendation_box.Add(self.recommendation_list, 0, wx.EXPAND | wx.ALL, 5)
@@ -157,8 +161,22 @@ class DifferentialAnalysisPanel(wx.Panel):
         recommendation_box.Add(recommendation_buttons, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
         main.Add(recommendation_box, 0, wx.EXPAND | wx.ALL, 5)
 
+        geometry_controls = wx.BoxSizer(wx.HORIZONTAL)
+        geometry_controls.Add(wx.StaticText(self, label="Geometry:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self._geometry_values = [value for value, _label in GEOMETRY_CHOICES]
+        self.choice_geometry = wx.Choice(
+            self, choices=[label for _value, label in GEOMETRY_CHOICES], size=(245, -1)
+        )
+        self.choice_geometry.SetSelection(0)
+        geometry_controls.Add(self.choice_geometry, 0, wx.RIGHT, 8)
+        self.lbl_coplanar_gap = wx.StaticText(self, label="Coplanar GND gap (mm):")
+        geometry_controls.Add(self.lbl_coplanar_gap, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self.txt_coplanar_gap = wx.TextCtrl(self, value="0.15", size=(55, -1))
+        geometry_controls.Add(self.txt_coplanar_gap, 0)
+        main.Add(geometry_controls, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
         controls = wx.BoxSizer(wx.HORIZONTAL)
-        controls.Add(wx.StaticText(self, label="Target tolerance (%):"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        controls.Add(wx.StaticText(self, label="Acceptance tolerance (+/-%):"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         self.txt_tolerance = wx.TextCtrl(self, value="10", size=(65, -1))
         controls.Add(self.txt_tolerance, 0, wx.RIGHT, 16)
         controls.Add(wx.StaticText(self, label="Ground reference nets:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
@@ -180,6 +198,17 @@ class DifferentialAnalysisPanel(wx.Panel):
         self.btn_stackup_import.Bind(wx.EVT_BUTTON, self._on_stackup_import)
         self.btn_recommend.Bind(wx.EVT_BUTTON, self._on_recommend)
         self.btn_apply_rules.Bind(wx.EVT_BUTTON, self._on_apply_rules)
+        self.choice_geometry.Bind(wx.EVT_CHOICE, self._on_geometry_changed)
+        self._update_geometry_controls()
+
+    def _on_geometry_changed(self, event):
+        self._update_geometry_controls()
+
+    def _update_geometry_controls(self):
+        value = self._geometry_values[self.choice_geometry.GetSelection()]
+        coplanar = value == "JLCPCB_COPLANAR"
+        self.lbl_coplanar_gap.Enable(coplanar)
+        self.txt_coplanar_gap.Enable(coplanar)
 
     def _selected_pair(self):
         index = self.pair_list.GetFirstSelected()
@@ -196,6 +225,11 @@ class DifferentialAnalysisPanel(wx.Panel):
                 pair.name, pair.positive_net, pair.negative_net, pair.interface,
                 pair.confidence, f"{pair.target_impedance_ohm:g}",
                 f"{result.weighted_impedance_ohm:.2f}" if result else "-",
+                (f"{result.positive_length_mm:.3f}/{result.negative_length_mm:.3f}"
+                 if result else "-"),
+                (f"{result.length_mismatch_mm:.3f} mm / {result.estimated_skew_ps:.1f} ps"
+                 if result else "-"),
+                result.length_symmetry_status if result else "Not run",
                 result.status if result else "Not run",
                 (result.recommendations[0].action if result and result.recommendations else "Not run"),
             )
@@ -208,12 +242,23 @@ class DifferentialAnalysisPanel(wx.Panel):
         for result in self.results.values():
             for recommendation in result.recommendations:
                 row = self.recommendation_list.InsertItem(self.recommendation_list.GetItemCount(), recommendation.pair_name)
+                has_geometry = recommendation.recommended_width_mm > 0
+                minimum_ok = bool(
+                    has_geometry
+                    and recommendation.recommended_width_mm + 1e-12 >= self.settings.minimum_width_mm
+                    and recommendation.recommended_gap_mm + 1e-12 >= self.settings.minimum_gap_mm
+                    and recommendation.recommended_ground_clearance_mm + 1e-12
+                        >= self.settings.minimum_ground_clearance_mm
+                )
                 values = (
                     recommendation.layer_name or "-", recommendation.action,
-                    f"{recommendation.current_width_mm:.3f}/{recommendation.current_gap_mm:.3f}",
-                    f"{recommendation.recommended_width_mm:.3f}/{recommendation.recommended_gap_mm:.3f}" if recommendation.recommended_width_mm else "-",
+                    f"{recommendation.current_width_mm:.3f}/{recommendation.current_gap_mm:.3f}"
+                    if recommendation.current_width_mm > 0 else "-",
+                    f"{recommendation.recommended_width_mm:.3f}/{recommendation.recommended_gap_mm:.3f}"
+                    if has_geometry else "-",
                     f"{recommendation.predicted_impedance_ohm:.2f}" if recommendation.predicted_impedance_ohm else "-",
                     f"{recommendation.recommended_ground_clearance_mm:.3f}" if recommendation.recommended_ground_clearance_mm else "-",
+                    "OK" if minimum_ok else ("N/A" if not has_geometry else "INVALID"),
                     recommendation.confidence,
                 )
                 for column, value in enumerate(values, start=1):
@@ -356,6 +401,13 @@ class DifferentialAnalysisPanel(wx.Panel):
         if tolerance <= 0:
             raise ValueError("Target tolerance must be positive.")
         self.settings.target_tolerance_pct = tolerance
+        self.settings.geometry_mode = self._geometry_values[self.choice_geometry.GetSelection()]
+        try:
+            self.settings.coplanar_ground_gap_mm = float(self.txt_coplanar_gap.GetValue())
+            if self.settings.coplanar_ground_gap_mm <= 0:
+                raise ValueError
+        except ValueError:
+            raise ValueError("Coplanar GND gap must be a positive mm value.")
         try:
             minimums = [float(value.strip()) for value in self.txt_min_geometry.GetValue().split("/")]
             if len(minimums) != 3 or min(minimums) <= 0:
@@ -375,6 +427,10 @@ class DifferentialAnalysisPanel(wx.Panel):
         self.settings = settings or DifferentialAnalysisSettings()
         self.stackup = self.settings.stackup_override
         self.txt_tolerance.SetValue(f"{self.settings.target_tolerance_pct:g}")
+        geometry_mode = normalize_geometry(self.settings.geometry_mode)
+        self.choice_geometry.SetSelection(self._geometry_values.index(geometry_mode))
+        self.txt_coplanar_gap.SetValue(f"{self.settings.coplanar_ground_gap_mm:g}")
+        self._update_geometry_controls()
         self.txt_reference_nets.SetValue(", ".join(self.settings.reference_net_names))
         self.txt_min_geometry.SetValue(
             f"{self.settings.minimum_width_mm:g} / {self.settings.minimum_gap_mm:g} / {self.settings.minimum_ground_clearance_mm:g}"
@@ -405,7 +461,14 @@ class DifferentialAnalysisPanel(wx.Panel):
         if not self.results:
             wx.MessageBox("Run differential impedance analysis first.", "Recommendations", wx.OK | wx.ICON_INFORMATION)
             return
-        DifferentialRecommendationEngine(self.settings).recommend(self.results.values())
+        try:
+            # Read the controls again: users commonly adjust fabrication floors
+            # after an analysis and expect this button to honor them immediately.
+            self.get_settings()
+            DifferentialRecommendationEngine(self.settings).recommend(self.results.values())
+        except ValueError as exc:
+            wx.MessageBox(str(exc), "Invalid Differential Settings", wx.OK | wx.ICON_ERROR)
+            return
         self._update_pair_list()
         self._update_recommendation_list()
 
@@ -419,9 +482,30 @@ class DifferentialAnalysisPanel(wx.Panel):
         return selected
 
     def _on_apply_rules(self, event):
+        try:
+            self.get_settings()
+        except ValueError as exc:
+            wx.MessageBox(str(exc), "Invalid Differential Settings", wx.OK | wx.ICON_ERROR)
+            return
         recommendations = self._selected_recommendations()
         if not recommendations:
             wx.MessageBox("Select one or more geometry recommendations first.", "KiCad Rules", wx.OK | wx.ICON_INFORMATION)
+            return
+        local_only = [item for item in recommendations if item.feasibility == "LOCAL_ONLY"]
+        if local_only:
+            wx.MessageBox(
+                "Local-only recommendations cannot be converted into a global net-class rule. "
+                "Apply these dimensions only to the identified PCB sections.",
+                "Local Geometry Recommendation", wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+        non_geometry = [item for item in recommendations if item.recommended_width_mm <= 0]
+        if non_geometry:
+            wx.MessageBox(
+                "The selected item is a layout correction without a width/gap rule. "
+                "Select the primary route recommendation instead.",
+                "No Geometry Rule", wx.OK | wx.ICON_INFORMATION,
+            )
             return
         project_path = getattr(self.project, "path", None)
         if not project_path:
@@ -437,8 +521,13 @@ class DifferentialAnalysisPanel(wx.Panel):
         ) != wx.YES:
             return
         try:
-            injector = DifferentialRuleInjector(project_path, project_api=self.project)
-            applied = injector.apply(recommendations)
+        injector = DifferentialRuleInjector(project_path, project_api=self.project)
+        applied = injector.apply(
+            recommendations,
+            minimum_width_mm=self.settings.minimum_width_mm,
+            minimum_gap_mm=self.settings.minimum_gap_mm,
+            minimum_ground_clearance_mm=self.settings.minimum_ground_clearance_mm,
+        )
             self.log("Applied KiCad differential classes: " + ", ".join(name for _, name, _, _ in applied))
             if injector.live_error:
                 self.log(f"Live KiCad net-class update failed; project-file fallback retained: {injector.live_error}")
