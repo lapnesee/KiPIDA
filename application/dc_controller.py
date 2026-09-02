@@ -55,6 +55,7 @@ class DCViaSnapshot:
     position: DCPointSnapshot
     start: DCPointSnapshot
     width: float
+    drill_size: Optional[DCPointSnapshot] = None
     layers: Tuple[int, ...] = ()
     layer_pair: Tuple[int, ...] = ()
 
@@ -69,6 +70,7 @@ class DCBoardSnapshot:
 class DCRunRequest:
     rails: Tuple[Any, ...]
     geometry_by_rail: Dict[str, Dict[int, Any]]
+    classification_geometry_by_rail: Dict[str, Dict[str, Dict[int, Any]]]
     stackup: Dict[str, Any]
     board: DCBoardSnapshot
     grid_size_mm: float
@@ -148,6 +150,27 @@ def _integer_if_possible(value):
         return value
 
 
+def _drill_snapshot(item):
+    drill = _value(item, "drill_size", _value(item, "drill"))
+    if drill is None:
+        drill = _value(_value(item, "padstack"), "drill")
+    if drill is None:
+        return None
+    if isinstance(drill, (int, float)):
+        value = float(drill)
+        return DCPointSnapshot(value, value)
+    size = _value(drill, "size", drill)
+    diameter = _value(size, "diameter", _value(drill, "diameter"))
+    if diameter is not None:
+        value = float(diameter)
+        return DCPointSnapshot(value, value)
+    x = _value(size, "x")
+    y = _value(size, "y", x)
+    if x is None:
+        return None
+    return DCPointSnapshot(float(x), float(y if y is not None else x))
+
+
 def capture_dc_board(board) -> DCBoardSnapshot:
     """Detach the footprint, pad, and via fields consumed by the DC worker."""
     footprints = []
@@ -194,6 +217,7 @@ def capture_dc_board(board) -> DCBoardSnapshot:
             position=_point(position),
             start=_point(position),
             width=float(_value(via, "width", 0.6e6) or 0.6e6),
+            drill_size=_drill_snapshot(via),
             layers=_layers(via_layers),
             layer_pair=_layers(_value(via, "layer_pair", ())),
         ))
@@ -211,11 +235,16 @@ def prepare_dc_request(
     )
     stackup = deepcopy(extractor.get_board_stackup())
     geometry_by_rail = {}
+    classification_geometry_by_rail = {}
     for rail in rails:
         started = time.perf_counter()
         geometry_by_rail[rail.net_name] = extractor.get_net_geometry(
             rail.net_name, merge=False,
         )
+        classification_geometry_by_rail[rail.net_name] = {
+            "track": extractor.get_track_geometry(rail.net_name),
+            "zone": extractor.get_zone_geometry(rail.net_name),
+        }
         emit(
             f"Captured {rail.net_name} copper geometry on the UI thread in "
             f"{time.perf_counter() - started:.3f} s."
@@ -223,6 +252,7 @@ def prepare_dc_request(
     return DCRunRequest(
         rails=tuple(deepcopy(list(rails))),
         geometry_by_rail=geometry_by_rail,
+        classification_geometry_by_rail=classification_geometry_by_rail,
         stackup=stackup,
         board=capture_dc_board(board),
         grid_size_mm=float(grid_size_mm),
@@ -368,6 +398,11 @@ class DCSolverEngine:
                 compute_settings=request.compute_settings,
             )
             detailed = solver.solve_detailed(mesh, sources, loads)
+            from application.dc_current_density import calculate_current_density
+            current_density = calculate_current_density(
+                mesh, detailed, request.stackup,
+                request.classification_geometry_by_rail.get(rail.net_name, {}),
+            )
             voltages = detailed.voltages
             if voltages:
                 values = list(voltages.values())
@@ -375,6 +410,7 @@ class DCSolverEngine:
                     'mesh': mesh, 'results': voltages,
                     'stats': (min(values), max(values), max(values) - min(values)),
                     'sources': sources, 'loads': loads, 'detailed_result': detailed,
+                    'current_density': current_density,
                     'compute_metadata': solver.last_compute,
                     'grid_size_mm': mesh.grid_step,
                     'requested_grid_size_mm': mesh.requested_grid_step,

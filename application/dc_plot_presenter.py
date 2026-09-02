@@ -38,6 +38,21 @@ def render_dc_plots(
             )
             if rendered:
                 views.append((name, rendered))
+            density = data.get("current_density")
+            if density is not None:
+                rendered = plotter.plot_current_density_layer(
+                    mesh, layer_id, density, layer_name=name,
+                    board_bounds=board_bounds, as_png=True,
+                )
+                if rendered:
+                    views.append((f"{name} — Current density", rendered))
+        density = data.get("current_density")
+        if density is not None and density.vertical_samples:
+            rendered = plotter.plot_vertical_current_density(
+                density, board_bounds=board_bounds, as_png=True,
+            )
+            if rendered:
+                views.append(("Vias/PTH — Current density", rendered))
         groups.append((rail_name, views))
     return groups
 

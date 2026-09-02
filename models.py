@@ -138,6 +138,8 @@ class MeshBranch:
     resistance_ohm: float
     inductance_h: float = 0.0
     kind: str = "lateral"
+    cross_section_mm2: float = 0.0
+    geometry_source: str = ""
 
 
 @dataclass

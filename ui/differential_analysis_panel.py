@@ -521,13 +521,13 @@ class DifferentialAnalysisPanel(wx.Panel):
         ) != wx.YES:
             return
         try:
-        injector = DifferentialRuleInjector(project_path, project_api=self.project)
-        applied = injector.apply(
-            recommendations,
-            minimum_width_mm=self.settings.minimum_width_mm,
-            minimum_gap_mm=self.settings.minimum_gap_mm,
-            minimum_ground_clearance_mm=self.settings.minimum_ground_clearance_mm,
-        )
+            injector = DifferentialRuleInjector(project_path, project_api=self.project)
+            applied = injector.apply(
+                recommendations,
+                minimum_width_mm=self.settings.minimum_width_mm,
+                minimum_gap_mm=self.settings.minimum_gap_mm,
+                minimum_ground_clearance_mm=self.settings.minimum_ground_clearance_mm,
+            )
             self.log("Applied KiCad differential classes: " + ", ".join(name for _, name, _, _ in applied))
             if injector.live_error:
                 self.log(f"Live KiCad net-class update failed; project-file fallback retained: {injector.live_error}")

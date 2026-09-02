@@ -81,12 +81,16 @@ class DCControllerTests(unittest.TestCase):
             layers=[0, 31],
         )
         footprint = SimpleNamespace(reference="J1", pads=[pad])
-        via = SimpleNamespace(start=point, net=net, width=600_000, layers=[0, 31])
+        via = SimpleNamespace(
+            start=point, net=net, width=600_000,
+            drill_size=SimpleNamespace(x=300_000, y=300_000), layers=[0, 31],
+        )
         snapshot = capture_dc_board(SimpleNamespace(footprints=[footprint], vias=[via]))
         self.assertEqual(snapshot.footprints[0].reference, "J1")
         self.assertEqual(snapshot.footprints[0].pads[0].net.name, "VCC")
         self.assertEqual(snapshot.vias[0].layers, (0, 31))
         self.assertEqual(snapshot.vias[0].position, DCPointSnapshot(12_000_000, 5_000_000))
+        self.assertEqual(snapshot.vias[0].drill_size, DCPointSnapshot(300_000, 300_000))
 
     def test_engine_errors_cross_the_controller_boundary(self):
         class BrokenEngine:
@@ -99,6 +103,16 @@ class DCControllerTests(unittest.TestCase):
         self.assertTrue(controller.wait(2.0))
         self.assertFalse(completed)
         self.assertEqual(str(errors[0]), "bad snapshot")
+
+    def test_capture_recovers_via_drill_from_padstack(self):
+        point = SimpleNamespace(x=1_000_000, y=2_000_000)
+        via = SimpleNamespace(
+            start=point, net=SimpleNamespace(name="VCC"), width=600_000,
+            layers=[0, 31],
+            padstack=SimpleNamespace(drill=SimpleNamespace(diameter=320_000)),
+        )
+        snapshot = capture_dc_board(SimpleNamespace(footprints=[], vias=[via]))
+        self.assertEqual(snapshot.vias[0].drill_size, DCPointSnapshot(320_000, 320_000))
 
 
 if __name__ == "__main__":

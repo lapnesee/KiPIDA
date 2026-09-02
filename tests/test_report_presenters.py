@@ -53,16 +53,29 @@ class ReportPresenterTests(unittest.TestCase):
             matrix_assembly="CSR", warm_start_used=True, initial_guess_used=False,
             fallback_reason="",
         )
+        density = SimpleNamespace(
+            maximum_planar_a_per_mm2=57.142857, percentile_99_5_a_per_mm2=50.0,
+            maximum_track_a_per_mm2=57.142857, maximum_zone_a_per_mm2=20.0,
+            maximum_via_current_a=0.2, maximum_via_a_per_mm2=25.0,
+            planar_hotspot=SimpleNamespace(
+                copper_kind="TRACK", layer_id=0, layer_name="F.Cu", x_mm=1.0, y_mm=2.0,
+            ), warnings=["Copper thickness estimated."],
+        )
         report = format_dc_report({"VCC": {
             "stats": (3.1, 3.3, 0.2), "grid_size_mm": 0.2,
             "requested_grid_size_mm": 0.1, "adaptive_grid": True,
             "detailed_result": detailed, "compute_metadata": compute,
+            "current_density": density,
         }})
         self.assertIn("Rail: VCC", report)
         self.assertIn("adapted for mesh safety", report)
         self.assertIn("INCOMPLETE", report)
         self.assertIn("U2", report)
         self.assertIn("method CG", report)
+        self.assertIn("Maximum planar current density: 57.1429 A/mm²", report)
+        self.assertIn("Maximum via current: 0.2 A", report)
+        self.assertIn("TRACK on layer F.Cu at (1.0000, 2.0000) mm", report)
+        self.assertIn("not an IPC ampacity certification", report)
 
     def test_cfd_report_contains_conservation_and_scope(self):
         mesh = SimpleNamespace(cell_count=24, shape=(2, 3, 4))

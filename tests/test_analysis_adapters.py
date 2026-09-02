@@ -115,14 +115,25 @@ class AnalysisAdapterTests(unittest.TestCase):
     def test_dc_adapter_combines_connectivity_and_drop_rules(self):
         detail = SimpleNamespace(valid=False, excluded_load_node_count=2)
         compute = SimpleNamespace(converged=True)
+        density = SimpleNamespace(
+            maximum_planar_a_per_mm2=57.0, percentile_99_5_a_per_mm2=50.0,
+            maximum_track_a_per_mm2=57.0, maximum_zone_a_per_mm2=20.0,
+            maximum_via_current_a=0.2, maximum_via_a_per_mm2=25.0,
+        )
         result = adapt_dc_result({"+3V3": {
             "stats": (3.0, 3.3, 0.3), "detailed_result": detail,
-            "compute_metadata": compute,
+            "compute_metadata": compute, "current_density": density,
         }}, 5.0)
         self.assertEqual(result.status, AnalysisStatus.WARN)
         self.assertEqual({item.rule_id for item in result.findings}, {"DC-001", "DC-003"})
         self.assertEqual(result.metrics[0].status, "WARN")
-        self.assertEqual(len(result.provenance), 2)
+        self.assertEqual(len(result.metrics), 7)
+        self.assertEqual(result.metrics[1].unit, "A/mm²")
+        self.assertEqual(len(result.provenance), 3)
+        self.assertTrue(any("IPC ampacity" in item for item in result.limitations))
+        payload = result.to_json()
+        self.assertIn("current_density_hotspots", payload)
+        self.assertNotIn("planar_samples", payload)
 
 
 if __name__ == "__main__":

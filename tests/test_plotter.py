@@ -62,6 +62,27 @@ class TestPlotter(unittest.TestCase):
         self.assertIsInstance(layer_2d, bytes)
         self.assertTrue(view_3d.startswith(b"\x89PNG"))
         self.assertTrue(layer_2d.startswith(b"\x89PNG"))
+
+    def test_current_density_plots_support_worker_safe_png_output(self):
+        self.mesh.node_map = {
+            (0, 0, 0): 0, (1, 1, 0): 1,
+            (0, 0, 1): 2, (1, 1, 1): 3,
+        }
+        self.mesh.grid_origin = (0.0, 0.0)
+        self.mesh.grid_step = 1.0
+        density = SimpleNamespace(
+            node_density_a_per_mm2={0: 10.0, 1: 60.0, 2: 5.0, 3: 20.0},
+            percentile_99_5_a_per_mm2=50.0,
+            vertical_samples=[SimpleNamespace(
+                x_mm=0.5, y_mm=0.5, density_a_per_mm2=25.0,
+            )],
+        )
+        planar = self.plotter.plot_current_density_layer(
+            self.mesh, 0, density, layer_name="F.Cu", as_png=True,
+        )
+        vertical = self.plotter.plot_vertical_current_density(density, as_png=True)
+        self.assertTrue(planar.startswith(b"\x89PNG"))
+        self.assertTrue(vertical.startswith(b"\x89PNG"))
         
     def test_plot_2d_layer(self):
         # Should return a bitmap for layer 0

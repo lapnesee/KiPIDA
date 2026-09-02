@@ -116,6 +116,26 @@ def format_dc_report(system_results):
                 f"  Model status: INCOMPLETE — {getattr(detailed, 'excluded_load_node_count', 0)} "
                 f"load node(s) excluded on source-free copper island(s){refs}"
             )
+        density = data.get("current_density")
+        if density is not None:
+            lines.extend([
+                f"  Maximum planar current density: {density.maximum_planar_a_per_mm2:.6g} A/mm²",
+                f"  Planar current density P99.5: {density.percentile_99_5_a_per_mm2:.6g} A/mm²",
+                f"  Maximum route current density: {density.maximum_track_a_per_mm2:.6g} A/mm²",
+                f"  Maximum zone current density: {density.maximum_zone_a_per_mm2:.6g} A/mm²",
+                f"  Maximum via current: {density.maximum_via_current_a:.6g} A",
+                f"  Maximum via barrel current density: {density.maximum_via_a_per_mm2:.6g} A/mm²",
+            ])
+            hotspot = density.planar_hotspot
+            if hotspot is not None:
+                lines.append(
+                    f"  Planar hotspot: {hotspot.copper_kind} on layer "
+                    f"{getattr(hotspot, 'layer_name', hotspot.layer_id)} "
+                    f"at ({hotspot.x_mm:.4f}, {hotspot.y_mm:.4f}) mm"
+                )
+            lines.append("  Current-density confidence: ESTIMATED")
+            for warning in density.warnings:
+                lines.append(f"  Current-density warning: {warning}")
         compute = data.get("compute_metadata")
         if compute is not None:
             lines.extend([
@@ -130,6 +150,11 @@ def format_dc_report(system_results):
             if compute.fallback_reason:
                 lines.append(f"  Fallback: {compute.fallback_reason}")
             lines.append("")
+        if density is not None:
+            lines.extend([
+                "  Current-density scope: DC branch-current diagnostic; not an IPC ampacity certification.",
+                "",
+            ])
     return "\n".join(lines) + "\n"
 
 

@@ -22,6 +22,14 @@ class FakePlotter:
         self.calls.append((layer_id, kwargs))
         return str(layer_id).encode()
 
+    def plot_current_density_layer(self, _mesh, layer_id, _density, **kwargs):
+        self.calls.append((f"density-{layer_id}", kwargs))
+        return f"density-{layer_id}".encode()
+
+    def plot_vertical_current_density(self, _density, **kwargs):
+        self.calls.append(("vertical-density", kwargs))
+        return b"vertical-density"
+
 
 class DCPlotPresenterTests(unittest.TestCase):
     def test_layer_name_uses_stackup_with_stable_fallback(self):
@@ -52,6 +60,27 @@ class DCPlotPresenterTests(unittest.TestCase):
             drop_pct=150, plotter_factory=FakePlotter,
         )
         self.assertEqual(FakePlotter.calls[0][1]["vmin"], 0.0)
+
+    def test_density_views_follow_each_voltage_layer_and_vias_are_separate(self):
+        mesh = SimpleNamespace(
+            node_coords={1: (0, 0, 2), 2: (1, 0, 0)}, nodes=[1, 2],
+        )
+        density = SimpleNamespace(vertical_samples=[object()])
+        groups = render_dc_plots(
+            {"VCC": {
+                "mesh": mesh, "results": {1: 3.2, 2: 3.3},
+                "stats": (3.2, 3.3, 0.1), "current_density": density,
+            }},
+            stackup={"copper": {0: {"name": "F.Cu"}, 2: {"name": "In1.Cu"}}},
+            plotter_factory=FakePlotter,
+        )
+        self.assertEqual(
+            [title for title, _png in groups[0][1]],
+            [
+                "3D View", "F.Cu", "F.Cu — Current density",
+                "In1.Cu", "In1.Cu — Current density", "Vias/PTH — Current density",
+            ],
+        )
 
     def test_flattened_titles_identify_rail_and_view_for_history(self):
         flattened = flatten_dc_plot_groups([

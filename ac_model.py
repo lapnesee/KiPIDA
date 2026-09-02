@@ -273,6 +273,8 @@ class ACModelBuilder:
             resistance_ohm=branch.resistance_ohm,
             inductance_h=branch.inductance_h,
             kind=branch.kind,
+            cross_section_mm2=branch.cross_section_mm2,
+            geometry_source=branch.geometry_source,
         ) for branch in mesh.branches]
         coords = {node_id + offset: coord for node_id, coord in mesh.node_coords.items()}
         return branches, coords
