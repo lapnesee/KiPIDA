@@ -141,7 +141,9 @@ class DifferentialRuleInjector:
         live_classes = []
         for class_name, rule in generated_rules.items():
             net_class = existing.get(class_name) or NetClass()
-            net_class.name = class_name
+            # ``name`` is read-only on current kipy wrappers; the public
+            # ``proto`` property is the supported mutable representation.
+            net_class.proto.name = class_name
             net_class.priority = int(rule["priority"])
             net_class.clearance = int(round(float(rule["clearance"]) * 1_000_000))
             net_class.track_width = int(round(float(rule["track_width"]) * 1_000_000))
