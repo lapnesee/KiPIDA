@@ -202,6 +202,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.PAGE_EMC: ("emc", "cancel_emc"),
             self.PAGE_THERMAL: ("thermal", "coupled"),
             self.PAGE_CFD: ("cfd",),
+            self.PAGE_RESULTS: ("campaign",),
         }
         handlers = {
             "dc": self.on_run, "ac": self.on_run_ac,
@@ -209,7 +210,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             "differential": self.on_run_differential,
             "emc": self.on_run_emc, "cancel_emc": self.on_cancel_emc,
             "thermal": self.on_run_thermal, "coupled": self.on_run_coupled_thermal,
-            "cfd": self.on_run_cfd, "close": self.on_close,
+            "cfd": self.on_run_cfd, "campaign": self.on_build_campaign_report,
+            "close": self.on_close,
         }
         self.action_bar = DialogActionBar(self, handlers, actions_by_page)
         self.lbl_interaction_status = self.action_bar.status
@@ -418,6 +420,69 @@ class KiPIDA_MainDialog(wx.Dialog):
         self._select_workspace(self.PAGE_RESULTS)
         return page
 
+
+    def _campaign_output_directory(self):
+        """Where the consolidated report is written: beside the board."""
+        history = self._results_history_directory()
+        return history if history is not None else Path.cwd() / "KiPIDA-results"
+
+    def on_build_campaign_report(self, _event):
+        """Aggregate this session's analyses into one report and open it.
+
+        This consolidates rather than re-runs.  Each per-domain button already
+        produces an AnalysisResult; this merges them, deduplicates findings
+        that describe the same physical defect across domains, ranks the
+        resulting actions by gain over effort, and writes a standalone HTML
+        report plus CSV exports.  Domains never run are absent, which the
+        campaign scores as NO_DATA -- never as passing.
+        """
+        from campaign import CampaignResult
+        from report.html_report import write_campaign_html
+        from report.csv_export import write_actions_csv, write_findings_csv
+
+        results = self.results_workspace.session_results()
+        if not results:
+            wx.MessageBox(
+                "No analysis has produced a result yet in this session.\n\n"
+                "Run at least one analysis (DC, AC, Differential, EMI/EMC, "
+                "Thermal or CFD), then build the consolidated report.",
+                "Nothing to consolidate", wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+
+        board_path = self._board_file_path()
+        try:
+            self._set_interaction_status("Consolidated report · building")
+            campaign = CampaignResult(
+                project_name=Path(board_path).stem if board_path else "KiPIDA",
+                board_fingerprint=next(
+                    (r.board_fingerprint for r in results if r.board_fingerprint), "",
+                ),
+                results=list(results),
+            ).recompute()
+
+            directory = self._campaign_output_directory()
+            directory.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            html_path = directory / f"campaign-{stamp}.html"
+            write_campaign_html(campaign, html_path)
+            write_findings_csv(campaign, directory / f"findings-{stamp}.csv")
+            write_actions_csv(campaign, directory / f"actions-{stamp}.csv")
+
+            domains = ", ".join(score.domain for score in campaign.domain_scores)
+            self.log(
+                f"Consolidated report: {campaign.overall_status} across [{domains}], "
+                f"{len(campaign.actions)} action(s) from {len(results)} analysis result(s)."
+            )
+            self.log(f"Report written to {html_path}")
+            self._set_interaction_status(
+                f"Consolidated report · {campaign.overall_status} · {len(campaign.actions)} action(s)"
+            )
+            wx.LaunchDefaultBrowser(html_path.as_uri())
+        except Exception as exc:
+            self.log(f"Consolidated report failed: {exc}")
+            self._set_interaction_status("Consolidated report · failed")
+            wx.MessageBox(str(exc), "Consolidated Report Error", wx.OK | wx.ICON_ERROR)
 
     def _init_log_tab(self, parent):
         sizer = wx.BoxSizer(wx.VERTICAL)

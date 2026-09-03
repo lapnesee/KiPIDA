@@ -16,6 +16,7 @@ class DialogActionBar(wx.Panel):
         ("thermal", "Run Thermal"),
         ("coupled", "Run Coupled"),
         ("cfd", "Run Enclosure CFD"),
+        ("campaign", "Build Consolidated Report"),
     )
 
     def __init__(self, parent, handlers, actions_by_page):
