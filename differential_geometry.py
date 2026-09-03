@@ -224,6 +224,33 @@ class EdgeCoupledDifferentialSolver:
     def _solve_cached(cls, width_mm, gap_mm, copper_thickness_mm, height_below_mm,
                       epsilon_below, height_above_mm, epsilon_above,
                       solder_mask_thickness_mm, solder_mask_epsilon_r, include_solder_mask):
+        return cls._solve_common(
+            width_mm, gap_mm, copper_thickness_mm, height_below_mm,
+            epsilon_below, height_above_mm, epsilon_above,
+            solder_mask_thickness_mm, solder_mask_epsilon_r, include_solder_mask,
+            left_trace_value=-0.5,
+        )
+
+    @classmethod
+    @lru_cache(maxsize=256)
+    def _solve_cached_even(cls, width_mm, gap_mm, copper_thickness_mm, height_below_mm,
+                           epsilon_below, height_above_mm, epsilon_above,
+                           solder_mask_thickness_mm, solder_mask_epsilon_r, include_solder_mask):
+        """Even (common) mode: both traces driven to +0.5 V instead of the
+        odd-mode +/-0.5 V split used by :meth:`_solve_cached`. Same grid,
+        dielectric map, and capacitance-ratio impedance extraction."""
+        return cls._solve_common(
+            width_mm, gap_mm, copper_thickness_mm, height_below_mm,
+            epsilon_below, height_above_mm, epsilon_above,
+            solder_mask_thickness_mm, solder_mask_epsilon_r, include_solder_mask,
+            left_trace_value=0.5,
+        )
+
+    @classmethod
+    def _solve_common(cls, width_mm, gap_mm, copper_thickness_mm, height_below_mm,
+                      epsilon_below, height_above_mm, epsilon_above,
+                      solder_mask_thickness_mm, solder_mask_epsilon_r, include_solder_mask,
+                      left_trace_value):
         if min(width_mm, gap_mm, copper_thickness_mm, height_below_mm) <= 0.0:
             raise ValueError("Edge-coupled width, gap, thickness and reference height must be positive.")
         if min(float(epsilon_below), float(epsilon_above)) < 1.0:
@@ -264,7 +291,7 @@ class EdgeCoupledDifferentialSolver:
         left_trace = (x_values >= -pair_half_width) & (x_values <= -gap_mm / 2.0)
         right_trace = (x_values >= gap_mm / 2.0) & (x_values <= pair_half_width)
         fixed[np.ix_(conductor_rows, left_trace | right_trace)] = True
-        values[np.ix_(conductor_rows, left_trace)] = -0.5
+        values[np.ix_(conductor_rows, left_trace)] = left_trace_value
         values[np.ix_(conductor_rows, right_trace)] = 0.5
         epsilon_rows = dielectric_map(
             y_values, signal_y, conductor_top_y, top_reference_y,
@@ -281,3 +308,28 @@ class EdgeCoupledDifferentialSolver:
         differential_impedance = 1.0 / (cls.LIGHT_SPEED_M_S * math.sqrt(capacitance * vacuum_capacitance))
         return EdgeCoupledSolveResult(differential_impedance, 0.5 * differential_impedance,
                                       effective_epsilon, nx, ny)
+
+    @classmethod
+    def solve_microstrip_even(cls, width_mm, gap_mm, copper_thickness_mm, height_below_mm,
+                              epsilon_below, include_solder_mask=True,
+                              solder_mask_thickness_mm=0.02, solder_mask_epsilon_r=3.3):
+        """Even (common) mode counterpart of :meth:`solve_microstrip` — both
+        traces driven to the same potential, used to derive crosstalk
+        coefficients alongside the odd-mode result."""
+        return cls._solve_cached_even(
+            *(round(float(value), 9) for value in (
+                width_mm, gap_mm, copper_thickness_mm, height_below_mm, epsilon_below,
+                0.0, epsilon_below, solder_mask_thickness_mm, solder_mask_epsilon_r,
+            )), bool(include_solder_mask),
+        )
+
+    @classmethod
+    def solve_stripline_even(cls, width_mm, gap_mm, copper_thickness_mm,
+                             height_above_mm, epsilon_above, height_below_mm, epsilon_below):
+        """Even (common) mode counterpart of :meth:`solve_stripline`."""
+        return cls._solve_cached_even(
+            *(round(float(value), 9) for value in (
+                width_mm, gap_mm, copper_thickness_mm, height_below_mm, epsilon_below,
+                height_above_mm, epsilon_above, 0.0, 3.3,
+            )), False,
+        )
