@@ -32,6 +32,12 @@ class ACNetwork:
     node_coords: Dict[int, Tuple[float, float, int]] = field(default_factory=dict)
     requested_grid_size_mm: float = 0.0
     effective_grid_size_mm: float = 0.0
+    # Every candidate observation point, keyed by reference designator.
+    # ``measurement`` remains one of these and stays the single-port contract
+    # the existing UI and result adapter consume.
+    ports: Dict[str, ACNodeConnection] = field(default_factory=dict)
+    source_ref_des: str = ""
+    source_resolution: str = ""
 
 
 def parse_capacitance(value) -> Optional[float]:
@@ -368,6 +374,86 @@ class ACModelBuilder:
 
         return sorted(set(found))
 
+    def components_on_net(self, net_name):
+        """Every (ref_des, pad_numbers) pair touching *net_name*, board order."""
+        found = []
+        for footprint in self._get_board_items("footprints"):
+            reference = self._get_footprint_reference(footprint)
+            if not reference:
+                continue
+            pads = [self._pad_number(pad) for pad in self._get_pads(footprint)
+                    if self._pad_net_name(pad) == net_name]
+            if pads:
+                found.append((reference, pads))
+        return found
+
+    @staticmethod
+    def _source_preference(ref_des):
+        """Rank a fallback source candidate. Lower sorts first.
+
+        An explicit heuristic, not a measurement: a rail is normally reached
+        through its regulator's output inductor or ferrite, so L/FB references
+        are the best guess for where energy enters the rail, then active parts,
+        then anything else. Recorded here so the ordering is reviewable rather
+        than buried in a sort key.
+        """
+        name = str(ref_des).upper()
+        if name.startswith("FB") or name.startswith("L"):
+            return 0
+        if name.startswith("U"):
+            return 1
+        return 2
+
+    def resolve_source(self, rail, settings, all_rails=None):
+        """Pick the component injecting energy into the rail.
+
+        Order: the explicit setting, a declared UnifiedSource, the output of a
+        regulator feeding this rail, then a heuristic pick among components on
+        the rail. Returns (ref_des, rail_pad_names, how) where *how* records
+        which rule fired, for logging and for the failure message.
+        """
+        if settings.source.ref_des:
+            return settings.source.ref_des, list(settings.source.rail_pad_names), "explicit"
+        if rail is not None and rail.sources:
+            source = rail.sources[0]
+            return source.component_ref.ref_des, list(source.pad_names), "power-tree source"
+
+        # PowerRail.child_regulators lists regulators this rail *feeds*, so the
+        # one that produces this rail lives on some other rail's list.
+        for candidate_rail in (all_rails or ([rail] if rail is not None else [])):
+            for regulator in getattr(candidate_rail, "child_regulators", ()) or ():
+                if getattr(regulator, "output_rail_name", "") == settings.rail_name:
+                    return (
+                        regulator.output_ref_des,
+                        list(regulator.output_pad_names or []),
+                        f"regulator '{getattr(regulator, 'name', '')}' output",
+                    )
+
+        candidates = self.components_on_net(settings.rail_name)
+        if candidates:
+            reference, pads = min(
+                candidates, key=lambda item: (self._source_preference(item[0]), item[0]),
+            )
+            return reference, list(pads), "heuristic pick among rail components"
+        return "", [], "unresolved"
+
+    def resolve_ports(self, rail, settings):
+        """Every candidate measurement port, as (ref_des, rail_pad_names).
+
+        An explicit port wins. Otherwise every declared load is a port: the
+        PDN is qualified by its worst observation point, and which point that
+        is cannot be known before solving.
+        """
+        if settings.measurement_port.ref_des:
+            return [(
+                settings.measurement_port.ref_des,
+                list(settings.measurement_port.rail_pad_names),
+            )]
+        ports = []
+        for load in (getattr(rail, "loads", ()) or ()):
+            ports.append((load.component_ref.ref_des, list(load.pad_names)))
+        return ports
+
     def _connection(
         self, rail_mesh, ground_mesh, offset, ref_des,
         rail_pad_names, ground_pad_names, settings, label="port",
@@ -435,7 +521,8 @@ class ACModelBuilder:
         coords = {node_id + offset: coord for node_id, coord in mesh.node_coords.items()}
         return branches, coords
 
-    def build(self, rail: PowerRail, settings: ACAnalysisSettings, grid_size_mm=0.5):
+    def build(self, rail: PowerRail, settings: ACAnalysisSettings, grid_size_mm=0.5,
+              all_rails=None):
         extractor = GeometryExtractor(self.board, debug=self.debug, log_callback=self.log_callback)
         stackup = extractor.get_board_stackup()
         rail_geometry = extractor.get_net_geometry(settings.rail_name)
@@ -455,20 +542,17 @@ class ACModelBuilder:
         rail_branches, rail_coords = self._translate_mesh(rail_mesh, 0)
         ground_branches, ground_coords = self._translate_mesh(ground_mesh, offset)
 
-        source_ref = settings.source.ref_des
-        source_rail_pads = settings.source.rail_pad_names
-        if not source_ref and rail.sources:
-            source_ref = rail.sources[0].component_ref.ref_des
-            source_rail_pads = rail.sources[0].pad_names
+        source_ref, source_rail_pads, source_rule = self.resolve_source(
+            rail, settings, all_rails=all_rails,
+        )
+        if source_rule != "explicit":
+            self._log(f"AC source resolved to '{source_ref or '(none)'}' via {source_rule}.")
         source_ground_pads = settings.source.ground_pad_names or self.pad_names_for_net(
             source_ref, settings.ground_net_name
         )
 
-        port_ref = settings.measurement_port.ref_des
-        port_rail_pads = settings.measurement_port.rail_pad_names
-        if not port_ref and rail.loads:
-            port_ref = rail.loads[0].component_ref.ref_des
-            port_rail_pads = rail.loads[0].pad_names
+        candidate_ports = self.resolve_ports(rail, settings)
+        port_ref, port_rail_pads = candidate_ports[0] if candidate_ports else ("", [])
         port_ground_pads = settings.measurement_port.ground_pad_names or self.pad_names_for_net(
             port_ref, settings.ground_net_name
         )
@@ -509,6 +593,28 @@ class ACModelBuilder:
             else:
                 self._log(f"Skipping {capacitor.ref_des}: pads could not be mapped to both meshes.")
 
+        # Map every remaining candidate port so the solver can sweep them all.
+        # The first is already mapped as `measurement`, which stays the
+        # single-port contract the existing UI and adapter consume.
+        ports = {}
+        for candidate_ref, candidate_pads in candidate_ports:
+            if candidate_ref in ports:
+                continue
+            connection = (
+                measurement if candidate_ref == port_ref
+                else self._connection(
+                    rail_mesh, ground_mesh, offset, candidate_ref, candidate_pads,
+                    self.pad_names_for_net(candidate_ref, settings.ground_net_name),
+                    settings, label=f"port '{candidate_ref}'",
+                )
+            )
+            if connection.rail_nodes and connection.ground_nodes:
+                ports[candidate_ref] = connection
+            else:
+                self._log(
+                    f"Skipping port '{candidate_ref}': pads could not be mapped to both meshes."
+                )
+
         return ACNetwork(
             node_count=len(rail_mesh.nodes) + len(ground_mesh.nodes),
             branches=rail_branches + ground_branches,
@@ -520,4 +626,7 @@ class ACModelBuilder:
             effective_grid_size_mm=max(
                 float(rail_mesh.grid_step), float(ground_mesh.grid_step),
             ),
+            ports=ports,
+            source_ref_des=source_ref,
+            source_resolution=source_rule,
         )

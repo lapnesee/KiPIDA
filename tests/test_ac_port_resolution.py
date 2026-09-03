@@ -134,5 +134,103 @@ class SourceGroundFallbackTests(unittest.TestCase):
         self.assertTrue(connection.ground_nodes)
 
 
+class SourceResolutionTests(unittest.TestCase):
+    def _builder(self):
+        inductor = SimpleNamespace(
+            reference="L1", value="2u2",
+            pads=[pad("1", "SW"), pad("2", "+5V_RAIL")],
+        )
+        regulator_ic = SimpleNamespace(
+            reference="U4", value="TPS62",
+            pads=[pad("1", "VBUS"), pad("2", "SW"), pad("3", "GND")],
+        )
+        load = SimpleNamespace(
+            reference="J6", value="Conn",
+            pads=[pad("5", "+5V_RAIL"), pad("7", "GND")],
+        )
+        return ACModelBuilder(SimpleNamespace(
+            footprints=[inductor, regulator_ic, load],
+        ))
+
+    def test_regulator_output_is_used_when_the_rail_has_no_source(self):
+        # p02_alimentation's +5V_RAIL: sources=[] and fed by a regulator whose
+        # output lives on another rail's child_regulators list.
+        rail = PowerRail(net_name="+5V_RAIL", nominal_voltage=5.0)
+        upstream = PowerRail(net_name="VBUS", nominal_voltage=12.0)
+        upstream.child_regulators.append(VoltageRegulator(
+            name="Buck 1",
+            input_rail_name="VBUS", input_ref_des="U4", input_pad_names=["1"],
+            output_rail_name="+5V_RAIL", output_ref_des="L1", output_pad_names=["2"],
+        ))
+        settings = ACAnalysisSettings(rail_name="+5V_RAIL", ground_net_name="GND")
+
+        ref_des, pads, rule = self._builder().resolve_source(
+            rail, settings, all_rails=[upstream, rail],
+        )
+
+        self.assertEqual(ref_des, "L1")
+        self.assertEqual(pads, ["2"])
+        self.assertIn("regulator", rule)
+
+    def test_explicit_setting_wins_over_everything(self):
+        rail = PowerRail(net_name="+5V_RAIL")
+        rail.sources.append(UnifiedSource(ComponentRef("U4"), ["1"]))
+        settings = ACAnalysisSettings(
+            rail_name="+5V_RAIL",
+            source=ACSourceModel(ref_des="J6", rail_pad_names=["5"]),
+        )
+
+        ref_des, _pads, rule = self._builder().resolve_source(rail, settings)
+
+        self.assertEqual(ref_des, "J6")
+        self.assertEqual(rule, "explicit")
+
+    def test_heuristic_prefers_an_inductor_over_a_connector(self):
+        rail = PowerRail(net_name="+5V_RAIL")
+        settings = ACAnalysisSettings(rail_name="+5V_RAIL")
+
+        ref_des, _pads, rule = self._builder().resolve_source(rail, settings, all_rails=[rail])
+
+        self.assertEqual(ref_des, "L1", "L/FB outranks other rail components")
+        self.assertIn("heuristic", rule)
+
+    def test_rail_with_nothing_on_it_reports_what_to_do(self):
+        rail = PowerRail(net_name="+12V_ABSENT")
+        settings = ACAnalysisSettings(rail_name="+12V_ABSENT")
+        builder = self._builder()
+
+        ref_des, _pads, rule = builder.resolve_source(rail, settings, all_rails=[rail])
+        self.assertEqual(ref_des, "")
+        self.assertEqual(rule, "unresolved")
+
+        message = builder._unmapped_message("AC source", ref_des, settings)
+        self.assertIn("+12V_ABSENT", message)
+        self.assertIn("Power Tree", message)
+
+
+class PortResolutionTests(unittest.TestCase):
+    def test_every_load_becomes_a_candidate_port(self):
+        rail = PowerRail(net_name="+5V_RAIL")
+        rail.loads.append(UnifiedLoad(ComponentRef("J6"), 3.8, ["5", "6"]))
+        rail.loads.append(UnifiedLoad(ComponentRef("U7"), 0.001, ["12"]))
+        settings = ACAnalysisSettings(rail_name="+5V_RAIL")
+
+        ports = ACModelBuilder(SimpleNamespace(footprints=[])).resolve_ports(rail, settings)
+
+        self.assertEqual([ref for ref, _pads in ports], ["J6", "U7"])
+
+    def test_explicit_port_suppresses_the_sweep(self):
+        rail = PowerRail(net_name="+5V_RAIL")
+        rail.loads.append(UnifiedLoad(ComponentRef("J6"), 3.8, ["5"]))
+        settings = ACAnalysisSettings(
+            rail_name="+5V_RAIL",
+            measurement_port=ACMeasurementPort(ref_des="U7", rail_pad_names=["12"]),
+        )
+
+        ports = ACModelBuilder(SimpleNamespace(footprints=[])).resolve_ports(rail, settings)
+
+        self.assertEqual(ports, [("U7", ["12"])])
+
+
 if __name__ == "__main__":
     unittest.main()

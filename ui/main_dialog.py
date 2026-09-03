@@ -630,15 +630,14 @@ class KiPIDA_MainDialog(wx.Dialog):
         rail = next((item for item in self.power_tree.rails if item.net_name == settings.rail_name), None)
         if rail is None:
             raise ValueError(f"Power rail '{settings.rail_name}' is not available.")
-        if not settings.source.ref_des:
-            raise ValueError("Select a source component in the AC Impedance tab.")
-        if not settings.measurement_port.ref_des:
-            raise ValueError("Select a measurement component in the AC Impedance tab.")
-
+        # Source and port are resolved automatically when left unset. A rail
+        # fed by a regulator has no UnifiedSource to select, so demanding one
+        # here made every such rail unanalysable whatever the user picked.
         debug_mode = self.chk_debug.GetValue()
         builder = ACModelBuilder(self.board, debug=debug_mode, log_callback=self.log)
         network = builder.build(
             rail, settings, grid_size_mm=max(0.1, float(settings.mesh_resolution_mm)),
+            all_rails=self.power_tree.rails,
         )
         self.log(
             f"AC network: {network.node_count:,} nodes, requested grid "
