@@ -162,6 +162,13 @@ def _drill_snapshot(item):
     size = _value(drill, "size", drill)
     diameter = _value(size, "diameter", _value(drill, "diameter"))
     if diameter is not None:
+        # kipy returns DrillProperties.diameter as a Vector2, because a hole
+        # may be a milled slot with different X and Y dimensions. A snapshot
+        # already carries both axes, so keep them rather than collapsing.
+        dx = _value(diameter, "x")
+        if dx is not None:
+            dy = _value(diameter, "y", dx)
+            return DCPointSnapshot(float(dx), float(dy if dy is not None else dx))
         value = float(diameter)
         return DCPointSnapshot(value, value)
     x = _value(size, "x")

@@ -15,6 +15,38 @@ except (ImportError, ValueError):
 def to_mm(val):
     return val / 1e6
 
+
+def scalar_dimension(value, default=None):
+    """Reduce a board dimension to one number, tolerating a Vector2.
+
+    kipy models a drill as ``DrillProperties.diameter -> Vector2`` because a
+    hole may be a milled slot with different X and Y dimensions.  Callers that
+    want a single diameter previously did ``float(value)`` or ``value / 1e6``
+    on it, which raises ``TypeError`` on every real board that has vias --
+    the round case is a Vector2 with x == y, not a scalar.
+
+    Round holes return their diameter unchanged.  A slot returns the mean of
+    its two axes: the barrel-area and spreading models downstream assume a
+    circular barrel, so the mean is the honest single-number stand-in rather
+    than silently picking one axis.
+    """
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    x = getattr(value, "x", None)
+    y = getattr(value, "y", None)
+    if x is None and y is None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+    if x is None:
+        return float(y)
+    if y is None:
+        return float(x)
+    return 0.5 * (float(x) + float(y))
+
 try:
     import numpy as np
     from shapely.geometry import Point, box
@@ -741,9 +773,9 @@ class Mesher:
         drill = self._get_val(via, 'drill_size')
         if drill is None and padstack is not None:
             drill = self._get_val(padstack, 'drill')
-        raw_drill = self._get_val(
+        raw_drill = scalar_dimension(self._get_val(
             drill, 'diameter', self._get_val(drill, 'x', self._get_val(via, 'drill', 0.0)),
-        )
+        ))
         drill_mm = to_mm(raw_drill) if raw_drill else max(0.05, dia_mm * 0.5)
         geometry_source = (
             "PCB_DRILL+ESTIMATED_PLATING_0.025MM" if raw_drill
