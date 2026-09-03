@@ -14,7 +14,7 @@ if plugin_dir not in sys.path:
     sys.path.insert(0, plugin_dir)
 
 from extractor import GeometryExtractor
-from ac_model import ACModelBuilder
+from ac_model import ACModelBuilder, resolve_target_impedance
 from differential_impedance import DifferentialGeometrySnapshot
 from emc_analyzer import EMCGeometrySnapshot
 from thermal_model import ThermalModelBuilder
@@ -633,6 +633,17 @@ class KiPIDA_MainDialog(wx.Dialog):
         # Source and port are resolved automatically when left unset. A rail
         # fed by a regulator has no UnifiedSource to select, so demanding one
         # here made every such rail unanalysable whatever the user picked.
+        #
+        # The impedance target is resolved the same way: left blank it follows
+        # from the rail's own voltage and configured load, so a board is never
+        # judged against a number nobody chose.
+        target_ohm, target_provenance = resolve_target_impedance(rail, settings)
+        settings = replace(
+            settings,
+            target_impedance_ohm=target_ohm,
+            target_impedance_provenance=target_provenance,
+        )
+        self.log(f"AC target impedance: {target_provenance}.")
         debug_mode = self.chk_debug.GetValue()
         builder = ACModelBuilder(self.board, debug=debug_mode, log_callback=self.log)
         network = builder.build(

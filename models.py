@@ -183,7 +183,18 @@ class ACAnalysisSettings:
     frequency_stop_hz: float = 1.0e8
     frequency_points: int = 121
     mesh_resolution_mm: float = 0.5
-    target_impedance_ohm: float = 0.05
+    # Zero means "derive from the rail" (see ac_model.resolve_target_impedance).
+    # The former 0.05 default decided pass/fail on every board without anyone
+    # choosing it, which is the arbitrary-default problem the audit records: a
+    # target only means something once a rail voltage and a load current exist
+    # to compute it from.
+    target_impedance_ohm: float = 0.0
+    # Inputs to that derivation, both design decisions rather than board facts.
+    ripple_fraction: float = 0.02
+    transient_fraction: float = 0.5
+    # Filled in once the target is resolved, so the report can state where the
+    # number came from instead of presenting a derived value as a chosen one.
+    target_impedance_provenance: str = ""
     source: ACSourceModel = field(default_factory=ACSourceModel)
     measurement_port: ACMeasurementPort = field(default_factory=ACMeasurementPort)
     capacitors: List[CapacitorModel] = field(default_factory=list)

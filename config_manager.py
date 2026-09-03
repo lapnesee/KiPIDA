@@ -249,6 +249,8 @@ def _ac_settings_to_dict(settings: ACAnalysisSettings) -> dict:
         "frequency_points": settings.frequency_points,
         "mesh_resolution_mm": settings.mesh_resolution_mm,
         "target_impedance_ohm": settings.target_impedance_ohm,
+        "ripple_fraction": settings.ripple_fraction,
+        "transient_fraction": settings.transient_fraction,
         "source": {
             "ref_des": settings.source.ref_des,
             "rail_pad_names": settings.source.rail_pad_names,
@@ -287,7 +289,11 @@ def _dict_to_ac_settings(data: dict) -> ACAnalysisSettings:
         frequency_stop_hz=float(data.get("frequency_stop_hz", 1e8)),
         frequency_points=int(data.get("frequency_points", 121)),
         mesh_resolution_mm=max(0.1, float(data.get("mesh_resolution_mm", 0.5))),
-        target_impedance_ohm=float(data.get("target_impedance_ohm", 0.05)),
+        # Absent means "derive from the rail", matching the dataclass default.
+        # A file that stored a target keeps it: a saved number is a decision.
+        target_impedance_ohm=float(data.get("target_impedance_ohm", 0.0)),
+        ripple_fraction=float(data.get("ripple_fraction", 0.02)),
+        transient_fraction=float(data.get("transient_fraction", 0.5)),
         source=ACSourceModel(
             ref_des=source_data.get("ref_des", ""),
             rail_pad_names=source_data.get("rail_pad_names", []),

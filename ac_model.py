@@ -25,6 +25,89 @@ EPT_UNKNOWN = 0
 EPT_POWER_INPUT = 8
 EPT_POWER_OUTPUT = 9
 
+# Defaults for the derived PDN target impedance.  A rail's ripple allowance is
+# a design decision rather than a property of the board, so 2 % is a starting
+# point and not a truth; the transient fraction expresses how much of the
+# configured DC draw is assumed to step at once, for which half is the usual
+# working figure.
+RIPPLE_FRACTION_DEFAULT = 0.02
+TRANSIENT_FRACTION_DEFAULT = 0.5
+
+
+def derive_target_impedance(
+    rail, *, ripple_fraction=RIPPLE_FRACTION_DEFAULT,
+    transient_fraction=TRANSIENT_FRACTION_DEFAULT,
+):
+    """Z_target = (V_rail * ripple) / I_transient, from the rail's own data.
+
+    A PDN target is not a universal constant: it follows from how much ripple
+    the rail tolerates and how much current steps at once.  Both are already
+    implied by the power tree -- the rail carries its nominal voltage and its
+    configured loads -- so the target can be computed instead of typed, which
+    is what stops an arbitrary default from silently deciding whether a board
+    passes.
+
+    Returns ``(value_ohm, provenance)`` on success, or ``(None, reason)`` when
+    the rail has no nominal voltage or no configured load.  In that case the
+    caller must not invent a target: an impedance budget without a current is
+    meaningless, and stating one would be worse than stating none.
+    """
+    try:
+        voltage = float(getattr(rail, "nominal_voltage", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        voltage = 0.0
+    if voltage <= 0.0:
+        return None, "the rail has no nominal voltage"
+
+    total_current = 0.0
+    for load in getattr(rail, "loads", ()) or ():
+        try:
+            total_current += float(getattr(load, "total_current", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+    if total_current <= 0.0:
+        return None, "the rail has no configured load current"
+
+    try:
+        ripple = float(ripple_fraction)
+        transient = float(transient_fraction)
+    except (TypeError, ValueError):
+        return None, "the ripple and transient fractions must be numbers"
+    if ripple <= 0.0 or transient <= 0.0:
+        return None, "the ripple and transient fractions must both be positive"
+
+    transient_current = total_current * transient
+    value = (voltage * ripple) / transient_current
+    provenance = (
+        f"derived from {voltage:.2f} V x {ripple * 100.0:.1f} % ripple / "
+        f"{transient_current:.3g} A transient "
+        f"({transient * 100.0:.0f} % of {total_current:.3g} A configured load)"
+    )
+    return value, provenance
+
+
+def resolve_target_impedance(rail, settings):
+    """Return ``(target_ohm, provenance)`` for *settings* applied to *rail*.
+
+    An explicitly configured target always wins: the user's number is a
+    decision, not an estimate, and must not be silently overridden.  Only a
+    zero or absent target triggers derivation.
+    """
+    try:
+        configured = float(getattr(settings, "target_impedance_ohm", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        configured = 0.0
+    if configured > 0.0:
+        return configured, f"{configured:.6g} ohm as configured"
+    value, detail = derive_target_impedance(
+        rail,
+        ripple_fraction=getattr(settings, "ripple_fraction", RIPPLE_FRACTION_DEFAULT),
+        transient_fraction=getattr(settings, "transient_fraction", TRANSIENT_FRACTION_DEFAULT),
+    )
+    if value is None:
+        return 0.0, f"not determinable: {detail}"
+    return value, f"{value:.6g} ohm {detail}"
+
 
 def pad_electrical_type(pad):
     """The pad's schematic pin type, or None when the board does not carry one.

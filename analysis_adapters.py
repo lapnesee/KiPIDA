@@ -180,8 +180,28 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
         item["reference"] for item in capacitors
         if "estimat" in item["model_source"].lower()
     ]
+    target_provenance = str(getattr(settings, "target_impedance_provenance", "") or "")
+    target_is_derived = "derived from" in target_provenance
     findings = []
-    if not bool(getattr(final, "meets_target", False)):
+    if target <= 0.0:
+        # Nothing to fail against. A rail with no configured load is not a
+        # defective rail, so this stays INFO and out of the verdict rather
+        # than inventing a budget to judge it by.
+        rail_name = str(getattr(settings, "rail_name", ""))
+        reason = target_provenance or "no rail voltage or load current is configured"
+        finding = _finding(
+            "AC-002", 1, "TARGET_IMPEDANCE", FindingSeverity.INFO,
+            "Target impedance could not be determined",
+            f"The sweep ran but no impedance target applies: {reason}. "
+            f"Worst impedance is {worst:.6g} ohm at "
+            f"{getattr(final, 'worst_frequency_hz', 0.0):.6g} Hz.",
+            "Configure the rail's load current, or set an explicit target, to "
+            "qualify this sweep.",
+        )
+        finding.confidence = EvidenceConfidence.DETERMINISTIC
+        finding.nets = [item for item in (rail_name,) if item]
+        findings.append(finding)
+    elif not bool(getattr(final, "meets_target", False)):
         rail_name = str(getattr(settings, "rail_name", ""))
         ground_name = str(getattr(settings, "ground_net_name", ""))
         band = (
@@ -195,16 +215,22 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
             if at_upper_edge else
             "Review the rail model, anti-resonance peaks, and decoupling placement."
         )
+        # Where the target came from decides what the verdict is worth, so it
+        # is stated with the number rather than left for the reader to assume.
+        origin = f" Target {target_provenance}." if target_provenance else ""
         finding = _finding(
             "AC-001", 1, "TARGET_IMPEDANCE", FindingSeverity.HIGH,
             "Target impedance is not met",
             f"Worst impedance is {worst:.6g} ohm at "
             f"{getattr(final, 'worst_frequency_hz', 0.0):.6g} Hz "
-            f"({exceedance_ratio:.3g}x the {target:.6g} ohm target).{band}",
+            f"({exceedance_ratio:.3g}x the {target:.6g} ohm target).{band}{origin}",
             recommendation,
         )
+        # A derived target rests on an assumed ripple and transient fraction,
+        # so the finding is an estimate however exact the sweep itself was.
         finding.confidence = (
-            EvidenceConfidence.ESTIMATED if estimated_components
+            EvidenceConfidence.ESTIMATED
+            if (estimated_components or target_is_derived)
             else EvidenceConfidence.DETERMINISTIC
         )
         finding.nets = [item for item in (rail_name, ground_name) if item]
@@ -228,6 +254,7 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
             "frequency_points": int(getattr(settings, "frequency_points", len(sweep)) or len(sweep)),
             "mesh_resolution_mm": float(getattr(settings, "mesh_resolution_mm", 0.0) or 0.0),
             "target_impedance_ohm": target,
+            "target_impedance_provenance": target_provenance,
             "source": {
                 "reference": str(getattr(getattr(settings, "source", None), "ref_des", "")),
                 "resistance_ohm": float(getattr(getattr(settings, "source", None), "resistance_ohm", 0.0) or 0.0),
