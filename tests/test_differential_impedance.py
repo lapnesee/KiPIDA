@@ -54,8 +54,13 @@ class DifferentialImpedanceTests(unittest.TestCase):
         self.assertEqual(result.skew_limit_ps, 25.0)
 
     def test_excessive_length_skew_forces_pair_fail(self):
+        # Mismatch must clear the USB 25 ps limit using the *effective*
+        # dielectric constant from the 2-D microstrip field solve (~2.7 for
+        # this geometry, lower than the substrate's raw 4.2 because part of
+        # the field fringes through air above the trace). 6 mm of mismatch
+        # gives comfortable margin over the ~4.5 mm failure threshold.
         short_negative = segment(0.3)
-        short_negative.update(end=(6.0, 0.3), length_mm=6.0)
+        short_negative.update(end=(4.0, 0.3), length_mm=4.0)
         snapshot = DifferentialGeometrySnapshot(
             tracks_by_net={"USB_DP": [segment(0.0)], "USB_DM": [short_negative]},
             zones_by_net={"GND": {1: Polygon([(-1, -2), (11, -2), (11, 2), (-1, 2)])}},
