@@ -734,6 +734,12 @@ class ImpedanceSweepResult:
     # empty by a single-port solve, so existing consumers are unaffected.
     per_port_results: Dict[str, "ImpedanceSweepResult"] = field(default_factory=dict)
     worst_port_ref_des: str = ""
+    # Observation points dropped before solving, each {"ref_des", "reason"}.
+    # An impedance computed on copper that never reaches the source is
+    # meaningless, so such a port is removed rather than reported -- but
+    # removing it silently would hide a degraded analysis, so it is carried
+    # here and surfaced as a limitation.
+    excluded_ports: List[Dict[str, str]] = field(default_factory=list)
 
 
 @dataclass

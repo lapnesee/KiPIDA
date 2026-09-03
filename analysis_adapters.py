@@ -281,6 +281,12 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
         limitations=[
             "The AC result is an engineering PDN model; package, connector, and measurement-fixture parasitics require explicit models or measurement.",
             "The AC mesh is intentionally independent from the finer DC voltage-drop mesh; refine it only after validating runtime and convergence.",
+        ] + [
+            # A dropped observation point narrows what the sweep actually
+            # qualifies, so it belongs in the report rather than only in a log.
+            f"Observation point {item.get('ref_des') or '(unnamed)'} was excluded "
+            f"from the sweep: it {item.get('reason', 'could not be measured')}."
+            for item in (getattr(final, "excluded_ports", None) or ())
         ],
         compute_metadata={
             "backend": getattr(final, "compute_backend", ""),

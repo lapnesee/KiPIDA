@@ -407,5 +407,72 @@ class MultiPortSweepTests(unittest.TestCase):
         self.assertEqual(swept.worst_port_ref_des, "NEAR")
 
 
+class DisconnectedPortTests(unittest.TestCase):
+    """A port on isolated copper must be reported, never silently measured."""
+
+    def setUp(self):
+        try:
+            import ac_solver
+        except ImportError:  # pragma: no cover
+            self.skipTest("solver dependencies unavailable")
+        if ac_solver.np is None or ac_solver.scipy is None:
+            self.skipTest("NumPy/SciPy are not installed in this test interpreter")
+
+    @staticmethod
+    def _network_with_island():
+        """NEAR reaches the source; ISLAND sits on copper joined to nothing."""
+        from ac_model import ACNetwork, ACNodeConnection
+        from models import MeshBranch
+
+        near = ACNodeConnection([0], [1])
+        island = ACNodeConnection([2], [3])
+        return ACNetwork(
+            node_count=4,
+            branches=[MeshBranch(node_a=2, node_b=3, resistance_ohm=1.0)],
+            source=near,
+            measurement=near,
+            capacitor_nodes={},
+            ports={"NEAR": near, "ISLAND": island},
+        )
+
+    def test_island_port_is_excluded_with_a_reason_and_the_sweep_survives(self):
+        from ac_solver import ACSolver
+
+        result = ACSolver().solve_sweep_multiport(
+            self._network_with_island(), MultiPortSweepTests._settings(),
+        )
+
+        self.assertEqual(set(result.per_port_results), {"NEAR"})
+        self.assertEqual(
+            [item["ref_des"] for item in result.excluded_ports], ["ISLAND"],
+        )
+        self.assertIn("not electrically connected", result.excluded_ports[0]["reason"])
+
+    def test_exclusion_reaches_the_report_as_a_limitation(self):
+        from analysis_adapters import adapt_ac_result
+        from ac_solver import ACSolver
+
+        result = ACSolver().solve_sweep_multiport(
+            self._network_with_island(), MultiPortSweepTests._settings(),
+        )
+        adapted = adapt_ac_result(result, settings=MultiPortSweepTests._settings())
+
+        self.assertTrue(
+            any("ISLAND" in text for text in adapted.limitations),
+            "a dropped observation point must be visible in the report",
+        )
+
+    def test_disconnected_primary_measurement_still_raises(self):
+        # Non-regression: the single-port path keeps failing loudly.
+        from ac_model import ACNodeConnection
+        from ac_solver import ACSolver
+
+        network = self._network_with_island()
+        network.measurement = ACNodeConnection([2], [3])
+
+        with self.assertRaises(ValueError):
+            ACSolver().solve_sweep(network, MultiPortSweepTests._settings())
+
+
 if __name__ == "__main__":
     unittest.main()

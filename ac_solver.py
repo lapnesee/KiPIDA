@@ -54,8 +54,14 @@ class ACSolver:
                 self._stamp_branch(matrix, rail_node, ground_node, distributed)
 
     @staticmethod
-    def _topology_anchors(network, capacitors):
-        """Find floating islands and verify that the measurement reaches the source."""
+    def _connectivity(network, capacitors):
+        """Connected components of the AC network.
+
+        Returns (anchors, component_by_node, source_component). The anchors
+        pin one node per floating island so the system stays non-singular;
+        the component map lets any port be checked against the source's
+        island, not just the primary measurement.
+        """
         adjacency = [set() for _ in range(network.node_count)]
 
         def connect(node_a, node_b):
@@ -99,15 +105,37 @@ class ACSolver:
 
         source_anchor = network.source.ground_nodes[0]
         source_component = component_by_node[source_anchor]
-        measurement_nodes = network.measurement.rail_nodes + network.measurement.ground_nodes
-        if any(node < 0 or node >= network.node_count for node in measurement_nodes):
-            raise ValueError("The measurement port contains an invalid node reference.")
-        if any(component_by_node[node] != source_component for node in measurement_nodes):
-            raise ValueError("The measurement port is not electrically connected to the AC source.")
 
         anchors = [source_anchor]
         anchors.extend(component[0] for index, component in enumerate(components)
                        if index != source_component)
+        return anchors, component_by_node, source_component
+
+    @classmethod
+    def _port_disconnection(cls, network, connection, component_by_node, source_component):
+        """Why *connection* cannot be measured, or None when it can be.
+
+        Same test the primary measurement has always had, factored out so
+        every swept port gets it rather than only the first one.
+        """
+        nodes = list(connection.rail_nodes) + list(connection.ground_nodes)
+        if not connection.rail_nodes or not connection.ground_nodes:
+            return "not connected to both the rail and the return mesh"
+        if any(node < 0 or node >= network.node_count for node in nodes):
+            return "contains an invalid node reference"
+        if any(component_by_node[node] != source_component for node in nodes):
+            return "sits on copper that is not electrically connected to the AC source"
+        return None
+
+    @classmethod
+    def _topology_anchors(cls, network, capacitors):
+        """Anchors, with the primary measurement validated as before."""
+        anchors, component_by_node, source_component = cls._connectivity(network, capacitors)
+        nodes = network.measurement.rail_nodes + network.measurement.ground_nodes
+        if any(node < 0 or node >= network.node_count for node in nodes):
+            raise ValueError("The measurement port contains an invalid node reference.")
+        if any(component_by_node[node] != source_component for node in nodes):
+            raise ValueError("The measurement port is not electrically connected to the AC source.")
         return anchors
 
     def _assemble(self, network, settings, capacitors, frequency):
@@ -208,16 +236,28 @@ class ACSolver:
         if settings.frequency_points < 2:
             raise ValueError("At least two frequency points are required.")
         capacitors = list(settings.capacitors if capacitors is None else capacitors)
-        anchors = self._topology_anchors(network, capacitors)
+        anchors, component_by_node, source_component = self._connectivity(network, capacitors)
 
-        usable = {
-            ref: connection for ref, connection in ports.items()
-            if connection.rail_nodes and connection.ground_nodes
-        }
-        for ref in sorted(set(ports) - set(usable)):
-            self._log(f"Port '{ref}' is not connected to both meshes; skipped.")
+        # Every port gets the connectivity test the primary measurement has
+        # always had. A port on a copper island that never reaches the source
+        # would otherwise return a number with no physical meaning.
+        usable = {}
+        excluded = []
+        for ref in sorted(ports):
+            reason = self._port_disconnection(
+                network, ports[ref], component_by_node, source_component,
+            )
+            if reason is None:
+                usable[ref] = ports[ref]
+            else:
+                excluded.append({"ref_des": ref, "reason": reason})
+                self._log(f"Port '{ref}' excluded: {reason}.")
         if not usable:
-            raise ValueError("No measurement port is connected to the AC network.")
+            detail = "; ".join(f"{item['ref_des']} {item['reason']}" for item in excluded)
+            raise ValueError(
+                "No measurement port is connected to the AC network"
+                + (f" ({detail})." if detail else ".")
+            )
 
         frequencies = np.logspace(
             np.log10(settings.frequency_start_hz),
@@ -264,6 +304,7 @@ class ACSolver:
         worst = results[worst_ref]
         worst.per_port_results = results
         worst.worst_port_ref_des = worst_ref
+        worst.excluded_ports = excluded
         if self.debug:
             self._log(
                 f"Swept {len(usable)} port(s); worst is '{worst_ref}' at "
