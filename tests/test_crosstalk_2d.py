@@ -36,24 +36,29 @@ class NearEndCoefficientTests(unittest.TestCase):
 class FarEndCrosstalkTests(unittest.TestCase):
     def test_zero_when_even_and_odd_velocity_are_equal(self):
         # Kf_per_m = 0.5*(1/v_even - 1/v_odd) must vanish exactly when the
-        # two modal velocities coincide -- a formula-level invariant tested
-        # against a synthetic CoupledModeResult rather than a solved
-        # geometry.
-        #
-        # NOTE: a *solved* homogeneous symmetric stripline (equal epsilon
-        # and spacing above/below) does NOT currently reach v_even == v_odd
-        # with the shared field_solver_2d.py dielectric_map(): the region
-        # spanning the copper thickness, off to the sides of the traces, is
-        # left at epsilon=1 (vacuum) instead of the local substrate
-        # epsilon. This is a pre-existing characteristic inherited from
-        # GroundedCoplanarDifferentialSolver (present before Phase 2b, not
-        # introduced by the even-mode extension here) and is out of scope
-        # for this module -- it affects solver accuracy, not the crosstalk
-        # formulas themselves. Flagged for a future fix to dielectric_map().
+        # two modal velocities coincide -- a formula-level invariant.
         modes = CoupledModeResult(
             odd_mode_impedance_ohm=45.0, even_mode_impedance_ohm=55.0,
             odd_mode_velocity_m_s=1.55e8, even_mode_velocity_m_s=1.55e8,
         )
+        fext = far_end_crosstalk_ratio(modes, coupled_length_m=0.05, rise_time_s=1e-9)
+        self.assertEqual(fext, 0.0)
+
+    def test_solved_homogeneous_stripline_has_zero_fext(self):
+        # A homogeneous symmetric stripline (same epsilon and spacing above
+        # and below) has no dielectric inhomogeneity between the even and
+        # odd modes, so a *solved* cross-section -- not just the formula in
+        # isolation -- must reach v_even == v_odd and therefore zero FEXT.
+        # This is the physical case field_solver_2d.dielectric_map() got
+        # wrong before its conductor-thickness-band fix (it left that row
+        # band at vacuum instead of substrate epsilon, producing a spurious
+        # ~3.7% velocity spread here).
+        modes = SymmetricCoupledLineSolver.solve_stripline_pair(
+            width_mm=0.15, gap_mm=0.15, copper_thickness_mm=0.035,
+            height_above_mm=0.15, epsilon_above=4.0,
+            height_below_mm=0.15, epsilon_below=4.0,
+        )
+        self.assertAlmostEqual(modes.even_mode_velocity_m_s, modes.odd_mode_velocity_m_s, places=6)
         fext = far_end_crosstalk_ratio(modes, coupled_length_m=0.05, rise_time_s=1e-9)
         self.assertEqual(fext, 0.0)
 

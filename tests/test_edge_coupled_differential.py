@@ -67,15 +67,26 @@ class EdgeCoupledFieldSolverTests(unittest.TestCase):
             EdgeCoupledDifferentialSolver.solve_microstrip(0.2, 0.15, 0.035, 0.0, 4.2)
 
     def test_shared_sor_core_matches_coplanar_solver_pre_refactor_result(self):
-        # Non-regression check for the field_solver_2d.py extraction: this
-        # exact value (92.12018601552057 ohm) was captured from
-        # GroundedCoplanarDifferentialSolver.solve() before its internals
-        # were moved into field_solver_2d.py. Any drift means the refactor
-        # changed numerics, not just code organization.
+        # Non-regression check for the field_solver_2d.py extraction: these
+        # values were captured from GroundedCoplanarDifferentialSolver.solve()
+        # right after its internals were moved into field_solver_2d.py (pure
+        # refactor, verified bit-identical to pre-extraction at the time).
+        #
+        # They were updated once since: dielectric_map() left the conductor-
+        # thickness row band (the trace-to-trace gap at trace height) at
+        # vacuum (epsilon=1) instead of the surrounding substrate. Fixing
+        # that (see field_solver_2d.py) moved effective_epsilon_r from an
+        # implausibly low 2.79 to 3.31 -- much closer to the 4.1 substrate
+        # epsilon, as physically expected for a mostly-substrate-backed
+        # structure -- and dropped Z_diff from 92.1 to 84.5 ohm accordingly.
+        # A homogeneous symmetric stripline's even/odd mode velocities are
+        # now numerically equal (see test_crosstalk_2d.py), which they were
+        # not before this fix. Any further drift here means a real change to
+        # the field solver's physics, not just code organization.
         GroundedCoplanarDifferentialSolver._solve_cached.cache_clear()
         result = GroundedCoplanarDifferentialSolver.solve(0.145, 0.18, 0.15, 0.0994, 4.1, 0.035)
-        self.assertAlmostEqual(result.differential_impedance_ohm, 92.12018601552057, places=6)
-        self.assertAlmostEqual(result.effective_epsilon_r, 2.7903490791896037, places=6)
+        self.assertAlmostEqual(result.differential_impedance_ohm, 84.52334256801902, places=6)
+        self.assertAlmostEqual(result.effective_epsilon_r, 3.3144755805060626, places=6)
 
 
 class EdgeCoupledIntegrationTests(unittest.TestCase):

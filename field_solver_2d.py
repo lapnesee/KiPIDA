@@ -29,9 +29,17 @@ def dielectric_map(y_values, signal_y, conductor_top_y, top_reference_y,
     (``top_reference_y`` not None), or a thin solder-mask layer capping an
     open top boundary."""
     epsilon = np.ones(len(y_values), dtype=np.float64)
-    epsilon[y_values < signal_y] = epsilon_below
+    # The conductor-thickness band [signal_y, conductor_top_y] is not copper
+    # everywhere: between and beside the traces it is substrate (or air, for
+    # an unbacked open top). It must carry epsilon_below, not the default
+    # vacuum, or the fringing field in the trace-to-trace gap -- the region
+    # most influential for coupled-line capacitance -- is under-permittized.
+    # Grid rows exactly at the trace faces are Dirichlet-fixed where a
+    # conductor sits, so their nominal epsilon only matters for the free
+    # (gap) nodes at that height.
+    epsilon[y_values <= conductor_top_y] = epsilon_below
     if top_reference_y is not None:
-        epsilon[y_values > conductor_top_y] = epsilon_above
+        epsilon[y_values >= conductor_top_y] = epsilon_above
     elif include_solder_mask and solder_mask_thickness > 0.0:
         mask = (y_values >= conductor_top_y) & (
             y_values <= conductor_top_y + solder_mask_thickness
