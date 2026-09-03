@@ -15,6 +15,21 @@ _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
+# NOTE ON SKIPPING IN A FULL-SUITE RUN
+# tests/test_plotter.py installs a stub module under sys.modules['wx'] at
+# import time when the key is still absent. unittest discovery imports every
+# test module before running any test, so by the time these tests execute the
+# stub has usually won the race and they skip -- even on a runner with
+# wxPython installed. They do run under `python -m unittest
+# tests.test_campaign_button`.
+#
+# Importing the real wx at module scope here would win that race, but it also
+# hands test_plotter the real wx.Bitmap/wx.Image instead of its lambdas, and
+# its plot calls then fail with "wx.App object must be created first" -- its
+# assertions still pass, but against the error path rather than the one they
+# were written for. Weakening an existing test to make these run is the wrong
+# trade, so the skip stands.
+
 
 class CampaignButtonWiringTests(unittest.TestCase):
     def setUp(self):
