@@ -109,6 +109,53 @@ class AnalysisEvidence:
         return cls(**{key: data[key] for key in cls.__dataclass_fields__ if key in data})
 
 
+class RemediationEffort(_StringEnum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
+@dataclass
+class Remediation:
+    """A structured, quantified corrective action attached to a finding.
+
+    The free-text ``AnalysisFinding.recommendation`` says *what* to consider;
+    this says *where*, *from what value to what value*, and *what it buys* --
+    the difference between an audit note and an actionable design change.
+
+    ``predicted_gain`` is a human-readable statement of the expected effect
+    ("drop 3.1% -> 1.8%").  Whether that prediction has actually been
+    re-simulated is carried by ``verified``: an unverified prediction is a
+    first-order estimate, a verified one has been re-solved with the change
+    applied.  Never present the former as the latter.
+    """
+    action: str                       # WIDEN_TRACK, ADD_STITCHING_VIAS, MOVE_CAPACITOR...
+    target: str = ""                  # refdes / net / segment identifier
+    current_value: Optional[float] = None
+    proposed_value: Optional[float] = None
+    unit: str = ""
+    predicted_gain: str = ""
+    effort: RemediationEffort = RemediationEffort.MEDIUM
+    verified: bool = False            # True only after what-if re-simulation
+    x_mm: Optional[float] = None
+    y_mm: Optional[float] = None
+    layer: str = ""
+    alternatives: List[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.action = str(self.action).strip().upper()
+        if not self.action:
+            raise ValueError("Remediation.action must not be empty")
+        if not isinstance(self.effort, RemediationEffort):
+            self.effort = RemediationEffort(str(self.effort).upper())
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Remediation":
+        payload = dict(data)
+        payload["effort"] = RemediationEffort(str(payload.get("effort", "MEDIUM")).upper())
+        return cls(**{key: payload[key] for key in cls.__dataclass_fields__ if key in payload})
+
+
 @dataclass
 class AnalysisFinding:
     rule_id: str
@@ -122,6 +169,7 @@ class AnalysisFinding:
     nets: List[str] = field(default_factory=list)
     components: List[str] = field(default_factory=list)
     evidence: List[AnalysisEvidence] = field(default_factory=list)
+    remediations: List[Remediation] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AnalysisFinding":
@@ -131,6 +179,9 @@ class AnalysisFinding:
             str(payload.get("confidence", "HEURISTIC")).upper().replace("-", "_")
         )
         payload["evidence"] = [AnalysisEvidence.from_dict(item) for item in payload.get("evidence", [])]
+        payload["remediations"] = [
+            Remediation.from_dict(item) for item in payload.get("remediations", [])
+        ]
         return cls(**{key: payload[key] for key in cls.__dataclass_fields__ if key in payload})
 
 
