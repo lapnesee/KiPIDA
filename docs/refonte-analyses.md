@@ -113,6 +113,41 @@ Le `DesignModel` doit porter une **empreinte (hash)** de la carte et du schéma 
 c'est elle qui rend possible le cache, le recalcul incrémental et la comparaison
 de campagnes avant/après correction.
 
+### Cas multi-cartes
+
+Le projet de référence est un projet **multi-cartes** : un schéma parent et
+plusieurs PCB sous `boards/`. Cela invalide l'hypothèse implicite de la section
+précédente — « le `.kicad_sch` est à côté du `.kicad_pcb` » — et impose quatre
+décisions dans la couche d'ingestion.
+
+1. **Résolution de projet explicite.** À partir du board ouvert, il faut remonter
+   au projet parent puis déterminer *quelles feuilles* du schéma correspondent à
+   cette carte. Ce n'est pas une recherche de fichier voisin mais une étape à
+   part entière, avec son échec explicite quand la correspondance est ambiguë.
+2. **Le périmètre d'un rail dépasse la carte.** Sur une carte d'alimentation, les
+   charges ne sont pas sur la carte : ce sont des connecteurs. Une découverte
+   automatique naïve trouvera zéro charge. Le courant doit venir des cartes
+   consommatrices, d'un champ de symbole, ou rester saisi. Corollaire : la chute
+   calculée sur une carte n'est qu'un maillon ; le budget réel additionne les
+   chutes carte par carte, plus les câbles et les contacts de connecteur.
+   Le code porte déjà une trace de ce raisonnement — `thermal_mode = AUTO` traite
+   les références `J*` comme puissance exportée — mais c'est la seule.
+3. **Les noms de nets ne sont pas uniques globalement.** `GND` et `+3V3` existent
+   sur chaque carte sans désigner la même instance. Le `DesignModel` a besoin
+   d'un identifiant qualifié (`board_id` + net) et d'une table d'appariement
+   inter-cartes établie par connecteur.
+4. **La configuration sidecar.** `<project>.kipida.json` est aujourd'hui posé à
+   côté du `.kicad_pro`. Avec N projets : une configuration par carte — cohérent
+   avec l'existant — plus une configuration « système » facultative décrivant les
+   liaisons inter-cartes.
+
+C'est aussi une opportunité. Un rapport système qui chaîne le budget de tension
+depuis l'alimentation jusqu'à la charge finale, à travers connecteurs et câbles,
+est une capacité que peu d'outils libres offrent. Elle doit rester **facultative** :
+le mode mono-carte demeure le défaut, et la phase 0 se contente d'une ingestion
+mono-carte dont l'étape de résolution de projet est conçue pour le multi-cartes.
+Le chaînage système arrive avec le rapport de campagne (phase 3).
+
 ---
 
 ## 3. Limites du moteur numérique DC (et comment les lever)
