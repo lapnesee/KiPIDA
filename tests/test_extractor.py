@@ -116,11 +116,11 @@ class TestGeometryExtractor(unittest.TestCase):
         self.assertIn(0, geo)
         poly = geo[0]
         
-        # Geometry extraction deliberately adds a 0.05 mm rasterization safety
-        # buffer around the physical 0.25 mm track radius.
-        buffered_radius = 0.25 + 0.05
+        # safety_buffer was removed in Phase 1 (HybridMesher / exact geometry
+        # made the rasterization inflation unnecessary and non-conservative).
+        radius = 0.25
         self.assertAlmostEqual(
-            poly.area, 10.0 * (2.0 * buffered_radius) + math.pi * buffered_radius**2,
+            poly.area, 10.0 * (2.0 * radius) + math.pi * radius**2,
             delta=0.01,
         )
 
