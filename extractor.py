@@ -776,10 +776,10 @@ class GeometryExtractor:
         # 1. Process Tracks
         tracks = self._get_items_for_net('tracks', net_name)
         
-        # We might want to buffer tracks slightly more than half-width to ensure 
-        # grid points are caught if the track is very thin.
-        # A safety buffer of 0.1mm helps catch grid nodes.
-        safety_buffer = 0.05 
+        # safety_buffer was 0.05 mm; zeroed to remove systematic resistance under-estimation.
+        # HybridMesher uses exact analytical geometry; the legacy raster path is unaffected
+        # in terms of topology (grid nodes still land inside tracks at normal grid steps).
+        safety_buffer = 0.0
         
         for track in tracks:
             start = self._get_val(track, 'start')

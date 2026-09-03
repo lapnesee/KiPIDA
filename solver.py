@@ -81,14 +81,17 @@ class Solver:
 
     def solve(
         self, mesh, sources, loads, branch_resistance_scales=None,
-        initial_voltages=None,
+        initial_voltages=None, use_precond=False,
     ):
         """
         Solves the DC circuit Mesh: [G][V] = [I]
-        
+
         Args:
             mesh: Mesh object with .nodes (list) and .edges (list of u,v,g)
             sources: list of dicts { 'node_id': int, 'voltage': float } (Dirichlet)
+            use_precond: If True, use an ILU(0) preconditioned CG solver instead of
+                the default direct/iterative backend.  Disabled by default to preserve
+                existing behaviour.
             loads: list of dicts { 'node_id': int, 'current': float } (Neumann/Source)
             
         Returns:
@@ -319,14 +322,43 @@ class Solver:
                 initial_guess = np.full(N, float(np.median(source_voltages)), dtype=float)
                 for idx, value in constrained_values.items():
                     initial_guess[idx] = value
-            solved = self.compute_backend.solve(
-                G_csr, I, system_kind="SPD",
-                cache_key=("dc", id(mesh)), matrix_values_static=static_values,
-                initial_guess=initial_guess,
-            )
-            self.last_compute = solved.metadata
-            V_solution = solved.values
-            
+
+            V_solution = None
+            if use_precond:
+                # ILU(0)-preconditioned conjugate gradient — O(N log N) vs O(N^1.5)
+                # for unpreconditioned CG on 2-D Laplacians.
+                try:
+                    ilu = scipy.sparse.linalg.spilu(
+                        G_csr, drop_tol=1e-4, fill_factor=10
+                    )
+                    M = scipy.sparse.linalg.LinearOperator(G_csr.shape, ilu.solve)
+                    x0 = initial_guess if initial_guess is not None else np.zeros(N)
+                    x, info = scipy.sparse.linalg.cg(
+                        G_csr, I, x0=x0, M=M, rtol=1e-8, maxiter=5 * N
+                    )
+                    if info == 0:
+                        V_solution = x
+                        self.last_compute = {"solver": "ILU-CG", "converged": True}
+                    else:
+                        self._log(
+                            f"ILU-CG did not converge (info={info}); "
+                            "falling back to default backend."
+                        )
+                except Exception as precond_exc:
+                    self._log(
+                        f"ILU preconditioner failed ({precond_exc}); "
+                        "falling back to default backend."
+                    )
+
+            if V_solution is None:
+                solved = self.compute_backend.solve(
+                    G_csr, I, system_kind="SPD",
+                    cache_key=("dc", id(mesh)), matrix_values_static=static_values,
+                    initial_guess=initial_guess,
+                )
+                self.last_compute = solved.metadata
+                V_solution = solved.values
+
             if np.any(np.isnan(V_solution)):
                 self._log("Warning: Solution contains NaN values.")
         except Exception as e:
