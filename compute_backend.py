@@ -160,6 +160,110 @@ class SparseComputeBackend:
                 return result
         return self._solve_cpu(matrix, rhs)
 
+    def solve_many(self, matrix, right_hand_sides, system_kind="SPD", cache_key=None):
+        """Solve A x = b for several b against one shared setup.
+
+        The multi-port AC sweep needs the same matrix solved once per
+        observation point at every frequency. Doing that through repeated
+        ``solve()`` calls would re-transfer the matrix and rebuild its
+        preconditioner for each port.
+
+        CPU factorises once with splu and applies the factors per RHS. CUDA
+        uploads the matrix and builds its Jacobi preconditioner on the first
+        RHS, then reuses both residents for the rest -- the two dominant costs
+        are paid once, and each further port is one preconditioned iterative
+        solve.
+
+        Returns a list of ComputeSolution in the order given. A CUDA failure
+        falls back to CPU for the whole group, exactly as ``solve()`` does,
+        so a partially-GPU group can never be reported as if it were uniform.
+        """
+        right_hand_sides = [np.asarray(rhs) for rhs in right_hand_sides]
+        if not right_hand_sides:
+            return []
+        complex_problem = np.iscomplexobj(matrix.data) or any(
+            np.iscomplexobj(rhs) for rhs in right_hand_sides
+        )
+        dtype = np.complex128 if complex_problem else np.float64
+        if not (scipy.sparse.isspmatrix_csr(matrix) and matrix.dtype == dtype):
+            matrix = scipy.sparse.csr_matrix(matrix, dtype=dtype)
+        matrix.sort_indices()
+        right_hand_sides = [np.asarray(rhs, dtype=dtype) for rhs in right_hand_sides]
+
+        if self._select(matrix.shape[0]) == "CUDA":
+            try:
+                return self._solve_many_cuda(
+                    matrix, right_hand_sides, system_kind, cache_key,
+                )
+            except Exception as exc:
+                if self.settings.backend == "CUDA":
+                    raise
+                self._log(f"CUDA fallback to CPU: {exc}")
+                results = self._solve_many_cpu(matrix, right_hand_sides)
+                for result in results:
+                    result.metadata.fallback_reason = str(exc)
+                return results
+        return self._solve_many_cpu(matrix, right_hand_sides)
+
+    def _solve_many_cpu(self, matrix, right_hand_sides):
+        """One splu factorisation applied to every right-hand side."""
+        threads = self._cpu_threads()
+        context = threadpool_limits(limits=threads) if threadpool_limits else nullcontext()
+        started = time.perf_counter()
+        with context:
+            factorized = scipy.sparse.linalg.splu(matrix.tocsc())
+            solutions = [factorized.solve(rhs) for rhs in right_hand_sides]
+        elapsed = time.perf_counter() - started
+        share = elapsed / len(solutions)
+
+        results = []
+        for values, rhs in zip(solutions, right_hand_sides):
+            values = np.asarray(values, dtype=matrix.dtype)
+            if not np.all(np.isfinite(values)):
+                raise RuntimeError("CPU sparse solution contains non-finite values.")
+            relative_residual = self._residual(matrix, values, rhs)
+            residual_limit = max(5.0 * float(self.settings.solver_rtol), 1.0e-12)
+            if not np.isfinite(relative_residual) or relative_residual > residual_limit:
+                raise RuntimeError(
+                    f"CPU sparse solver residual {relative_residual:.3g} exceeds "
+                    f"{residual_limit:.3g}."
+                )
+            results.append(ComputeSolution(values, ComputeMetadata(
+                backend="CPU_SCIPY",
+                solve_seconds=share,
+                relative_residual=relative_residual,
+                cpu_threads=threads,
+                solver_method="DIRECT",
+            )))
+        return results
+
+    def _solve_many_cuda(self, matrix, right_hand_sides, system_kind, cache_key):
+        """Upload and precondition once, then iterate per right-hand side.
+
+        The first RHS goes in with ``matrix_values_static=False`` so the
+        workspace takes this matrix's values and builds its preconditioner;
+        the rest declare the values static so both are reused verbatim.
+
+        The stored previous solution is cleared between right-hand sides. It
+        is a warm start meant for a *slightly* changed RHS during coupled
+        iteration; one port's solution is a poor and possibly divergent guess
+        for the next port, whose injection is somewhere else entirely.
+        """
+        workspace_key = None if cache_key is None else (
+            self.settings.cuda_device, cache_key, matrix.shape,
+            matrix.dtype.str, str(system_kind).upper(),
+        )
+        results = []
+        for index, rhs in enumerate(right_hand_sides):
+            workspace = self._cuda_workspaces.get(workspace_key) if workspace_key else None
+            if workspace is not None:
+                workspace["last_solution"] = None
+            results.append(self._solve_cuda(
+                matrix, rhs, system_kind, cache_key=cache_key,
+                matrix_values_static=index > 0,
+            ))
+        return results
+
     def _solve_cpu(self, matrix, rhs):
         matrix = scipy.sparse.csr_matrix(matrix, dtype=matrix.dtype)
         matrix.sort_indices()

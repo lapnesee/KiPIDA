@@ -474,5 +474,123 @@ class DisconnectedPortTests(unittest.TestCase):
             ACSolver().solve_sweep(network, MultiPortSweepTests._settings())
 
 
+class SolveManyTests(unittest.TestCase):
+    """Multi-RHS must be an efficiency change, never a physics change."""
+
+    def setUp(self):
+        try:
+            import numpy, scipy.sparse  # noqa: F401
+        except ImportError:  # pragma: no cover
+            self.skipTest("NumPy/SciPy are not installed in this test interpreter")
+
+    @staticmethod
+    def _system():
+        import numpy as np
+        import scipy.sparse
+
+        # A small SPD matrix and three unrelated right-hand sides.
+        matrix = scipy.sparse.csr_matrix(np.array([
+            [4.0, -1.0, 0.0],
+            [-1.0, 4.0, -1.0],
+            [0.0, -1.0, 4.0],
+        ]))
+        rhs = [
+            np.array([1.0, 0.0, 0.0]),
+            np.array([0.0, 1.0, 0.0]),
+            np.array([0.5, -0.25, 2.0]),
+        ]
+        return matrix, rhs
+
+    def test_matches_individual_solves(self):
+        import numpy as np
+        from compute_backend import SparseComputeBackend
+        from runtime_config import RuntimeComputeSettings
+
+        matrix, rhs = self._system()
+        backend = SparseComputeBackend(RuntimeComputeSettings(backend="CPU"))
+
+        grouped = backend.solve_many(matrix, rhs, system_kind="SPD")
+        individually = [backend.solve(matrix, item, system_kind="SPD") for item in rhs]
+
+        self.assertEqual(len(grouped), len(rhs))
+        for many, one in zip(grouped, individually):
+            np.testing.assert_allclose(many.values, one.values, rtol=1e-9, atol=1e-12)
+
+    def test_solutions_actually_satisfy_the_system(self):
+        import numpy as np
+        from compute_backend import SparseComputeBackend
+        from runtime_config import RuntimeComputeSettings
+
+        matrix, rhs = self._system()
+        backend = SparseComputeBackend(RuntimeComputeSettings(backend="CPU"))
+
+        for solved, expected in zip(backend.solve_many(matrix, rhs), rhs):
+            np.testing.assert_allclose(matrix.dot(solved.values), expected, atol=1e-10)
+
+    def test_complex_right_hand_sides_are_supported(self):
+        # The AC matrix is complex; a real-only path would silently truncate.
+        import numpy as np
+        import scipy.sparse
+        from compute_backend import SparseComputeBackend
+        from runtime_config import RuntimeComputeSettings
+
+        matrix = scipy.sparse.csr_matrix(
+            np.array([[2.0 + 1.0j, -1.0], [-1.0, 2.0 - 1.0j]])
+        )
+        rhs = [np.array([1.0 + 0.0j, 0.0]), np.array([0.0, 1.0 + 1.0j])]
+        backend = SparseComputeBackend(RuntimeComputeSettings(backend="CPU"))
+
+        for solved, expected in zip(backend.solve_many(matrix, rhs), rhs):
+            self.assertTrue(np.iscomplexobj(solved.values))
+            np.testing.assert_allclose(matrix.dot(solved.values), expected, atol=1e-10)
+
+    def test_empty_input_is_not_an_error(self):
+        from compute_backend import SparseComputeBackend
+        from runtime_config import RuntimeComputeSettings
+
+        matrix, _rhs = self._system()
+        backend = SparseComputeBackend(RuntimeComputeSettings(backend="CPU"))
+        self.assertEqual(backend.solve_many(matrix, []), [])
+
+    def test_cuda_group_matches_cpu_when_a_gpu_is_present(self):
+        # Skips wherever CuPy is absent, which includes this development venv.
+        # It runs inside KiCad's interpreter, where the GPU the multi-port
+        # path exists for actually lives. Simulating a GPU here would assert
+        # nothing about the code that runs there.
+        import numpy as np
+        from compute_backend import SparseComputeBackend, cuda_diagnostics
+        from runtime_config import RuntimeComputeSettings
+
+        if not cuda_diagnostics()["available"]:
+            self.skipTest("no CUDA device available in this interpreter")
+
+        matrix, rhs = self._system()
+        reference = SparseComputeBackend(
+            RuntimeComputeSettings(backend="CPU")
+        ).solve_many(matrix, rhs, system_kind="SPD")
+        gpu = SparseComputeBackend(
+            RuntimeComputeSettings(backend="CUDA", cuda_min_nodes=0)
+        ).solve_many(matrix, rhs, system_kind="SPD", cache_key=("test", 1))
+
+        for on_gpu, on_cpu in zip(gpu, reference):
+            np.testing.assert_allclose(on_gpu.values, on_cpu.values, rtol=1e-6, atol=1e-9)
+        self.assertTrue(gpu[0].metadata.backend.startswith("CUDA"))
+        # The point of the exercise: the matrix is uploaded and preconditioned
+        # for the first RHS only, then reused for the rest.
+        self.assertTrue(any(item.metadata.matrix_reused for item in gpu[1:]))
+
+    def test_multiport_reports_the_backend_that_ran(self):
+        # Honesty check: the sweep must not claim a device it did not use.
+        from ac_solver import ACSolver
+
+        result = ACSolver().solve_sweep_multiport(
+            MultiPortSweepTests._network_two_ports(), MultiPortSweepTests._settings(),
+        )
+
+        self.assertTrue(result.compute_backend.startswith("CPU"))
+        for port in result.per_port_results.values():
+            self.assertEqual(port.compute_backend, result.compute_backend)
+
+
 if __name__ == "__main__":
     unittest.main()

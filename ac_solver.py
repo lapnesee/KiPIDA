@@ -266,6 +266,7 @@ class ACSolver:
         )
         per_port = {ref: [] for ref in usable}
         solve_seconds = 0.0
+        compute_samples = []
 
         for index, frequency in enumerate(frequencies):
             matrix = self._assemble(network, settings, capacitors, frequency)
@@ -278,25 +279,41 @@ class ACSolver:
                     current[anchor] = 0.0
 
             started = time.perf_counter()
+            order = list(usable)
             try:
-                factorized = scipy.sparse.linalg.splu(matrix.tocsc())
+                solutions = self.compute_backend.solve_many(
+                    matrix.tocsr(), [injections[ref] for ref in order],
+                    system_kind="GENERAL", cache_key=("ac-multiport", id(network)),
+                )
             except Exception as exc:
                 raise ValueError(f"AC solve failed at {frequency:g} Hz: {exc}") from exc
-            for ref, connection in usable.items():
-                voltage = factorized.solve(injections[ref])
+            for ref, solved in zip(order, solutions):
+                voltage = solved.values
                 if not np.all(np.isfinite(voltage)):
                     raise ValueError(f"AC solve produced non-finite values at {frequency:g} Hz.")
-                per_port[ref].append(self._port_voltage(connection, voltage))
+                per_port[ref].append(self._port_voltage(usable[ref], voltage))
+                compute_samples.append(solved.metadata)
             solve_seconds += time.perf_counter() - started
 
             if progress_callback:
                 progress_callback(index + 1, len(frequencies), float(frequency))
 
+        # Report the backend that actually ran. solve_many falls back to CPU
+        # as a group, so the last sample describes every port at that point.
         results = {
             ref: self._summarize(
                 frequencies, impedances, settings, network,
-                compute_backend="CPU_SCIPY", compute_device="CPU",
+                compute_backend=compute_samples[-1].backend if compute_samples else "CPU",
+                compute_device=compute_samples[-1].device if compute_samples else "CPU",
                 compute_solve_seconds=solve_seconds / max(len(usable), 1),
+                compute_transfer_seconds=sum(
+                    item.transfer_seconds for item in compute_samples
+                ) / max(len(usable), 1),
+                compute_relative_residual=max(
+                    (item.relative_residual for item in compute_samples), default=0.0
+                ),
+                compute_iterations=sum(item.iterations for item in compute_samples),
+                compute_cache_hits=sum(bool(item.cache_hit) for item in compute_samples),
             )
             for ref, impedances in per_port.items()
         }
