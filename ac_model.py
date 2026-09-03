@@ -1,6 +1,8 @@
 """Build frequency-domain PDN models from the existing Ki-PIDA mesh pipeline."""
 
+from collections import defaultdict
 from dataclasses import dataclass, field
+import math
 import re
 from typing import Dict, List, Optional, Tuple
 
@@ -68,6 +70,106 @@ def format_capacitance(value_f: float) -> str:
         if value_f >= scale:
             return f"{value_f / scale:g}{suffix}"
     return f"{value_f:g}F"
+
+
+class _PlanarNodeIndex:
+    """Bucketed (x, y) index over mesh nodes for nearest-neighbour lookups.
+
+    A ground plane mesh routinely holds tens of thousands of nodes, so the
+    naive scan a port would otherwise do per rail node is O(N*M) and dominates
+    model build time. Bucketing by a cell close to the grid pitch keeps roughly
+    one node per bucket, so a lookup touches a handful of cells.
+    """
+
+    def __init__(self, node_coords: Dict[int, Tuple[float, float, int]], cell_mm: float = 0.0):
+        self._buckets = defaultdict(list)
+        cell = float(cell_mm or 0.0)
+        if cell <= 0.0:
+            cell = self._auto_cell(node_coords)
+        self._cell = cell
+        for node_id, coord in node_coords.items():
+            x, y = float(coord[0]), float(coord[1])
+            self._buckets[(int(math.floor(x / cell)), int(math.floor(y / cell)))].append(
+                (x, y, int(node_id))
+            )
+
+    @staticmethod
+    def _auto_cell(node_coords) -> float:
+        """Pick a cell size giving roughly one node per bucket."""
+        if not node_coords:
+            return 1.0
+        xs = [float(coord[0]) for coord in node_coords.values()]
+        ys = [float(coord[1]) for coord in node_coords.values()]
+        span = max(max(xs) - min(xs), max(ys) - min(ys))
+        if span <= 0.0:
+            return 1.0
+        return max(span / max(math.sqrt(len(node_coords)), 1.0), 1e-6)
+
+    def nearest(self, x: float, y: float, count: int = 1, max_distance_mm=None):
+        """Return up to *count* node ids closest to (x, y), nearest first."""
+        if not self._buckets or count <= 0:
+            return []
+        cell = self._cell
+        cx, cy = int(math.floor(x / cell)), int(math.floor(y / cell))
+        found = []
+        ring = 0
+        # Expand ring by ring. A node in ring r+1 can still beat a corner hit
+        # in ring r, so once enough candidates exist keep going until the ring's
+        # guaranteed minimum distance exceeds the worst kept candidate.
+        max_rings = max(len(self._buckets), 1)
+        while ring <= max_rings:
+            for bx in range(cx - ring, cx + ring + 1):
+                for by in range(cy - ring, cy + ring + 1):
+                    if ring and abs(bx - cx) != ring and abs(by - cy) != ring:
+                        continue
+                    for px, py, node_id in self._buckets.get((bx, by), ()):
+                        distance = math.hypot(px - x, py - y)
+                        if max_distance_mm is not None and distance > max_distance_mm:
+                            continue
+                        found.append((distance, node_id))
+            if len(found) >= count:
+                found.sort()
+                # Anything beyond this ring is at least ring*cell away.
+                if found[min(count, len(found)) - 1][0] <= ring * cell:
+                    break
+            ring += 1
+        found.sort()
+        return [node_id for _distance, node_id in found[:count]]
+
+
+def nearest_ground_nodes(
+    ground_mesh, rail_mesh, rail_nodes, *, max_distance_mm=None, per_rail_node=1,
+):
+    """Ground-side nodes for a port whose component carries no return pads.
+
+    A switching regulator reaches its rail through an output inductor with no
+    ground pad, so requiring the return on the same component makes every such
+    rail unanalysable. The physical return is the plane under the injection
+    point, so pick the ground node(s) closest in (x, y) to each rail node,
+    across all layers.
+
+    Returns ground-mesh node ids (NOT yet offset into the combined network).
+    """
+    ground_coords = getattr(ground_mesh, "node_coords", None) or {}
+    rail_coords = getattr(rail_mesh, "node_coords", None) or {}
+    if not ground_coords or not rail_nodes:
+        return []
+
+    index = _PlanarNodeIndex(ground_coords, getattr(ground_mesh, "grid_step", 0.0) or 0.0)
+    resolved = []
+    seen = set()
+    for rail_node in rail_nodes:
+        coord = rail_coords.get(int(rail_node))
+        if coord is None:
+            continue
+        for node_id in index.nearest(
+            float(coord[0]), float(coord[1]),
+            count=max(1, int(per_rail_node)), max_distance_mm=max_distance_mm,
+        ):
+            if node_id not in seen:
+                seen.add(node_id)
+                resolved.append(node_id)
+    return sorted(resolved)
 
 
 class ACModelBuilder:
@@ -266,6 +368,60 @@ class ACModelBuilder:
 
         return sorted(set(found))
 
+    def _connection(
+        self, rail_mesh, ground_mesh, offset, ref_des,
+        rail_pad_names, ground_pad_names, settings, label="port",
+    ):
+        """Map one port to rail and return nodes, falling back to the plane.
+
+        Ground resolution order: the pads named on the component, then the
+        nearest ground-mesh nodes under the rail pads. The second path is what
+        makes a regulator output inductor -- which has no ground pad at all --
+        usable as a port.
+        """
+        rail_nodes = self.find_pad_nodes(
+            rail_mesh, ref_des, rail_pad_names, settings.rail_name,
+        )
+        ground_nodes = self.find_pad_nodes(
+            ground_mesh, ref_des, ground_pad_names, settings.ground_net_name,
+        )
+        if not ground_nodes and rail_nodes:
+            ground_nodes = nearest_ground_nodes(ground_mesh, rail_mesh, rail_nodes)
+            if ground_nodes:
+                self._log(
+                    f"{label} '{ref_des}' has no {settings.ground_net_name} pad; "
+                    f"using the {len(ground_nodes)} nearest return-plane node(s) "
+                    "under its rail pads as the AC return."
+                )
+        return ACNodeConnection(
+            rail_nodes=rail_nodes,
+            ground_nodes=[node + offset for node in ground_nodes],
+        )
+
+    def _unmapped_message(self, label, ref_des, settings):
+        """Explain a failed port mapping in terms the user can act on."""
+        if not ref_des:
+            return (
+                f"No {label} could be resolved automatically for rail "
+                f"'{settings.rail_name}'. Declare a source or a load on the rail in "
+                "the Power Tree, or pick a component explicitly in the AC Impedance tab."
+            )
+        available = self.pad_names_for_net(ref_des, settings.rail_name)
+        if not self._find_footprint(ref_des):
+            return (
+                f"The {label} component '{ref_des}' was not found on the board."
+            )
+        if not available:
+            return (
+                f"The {label} component '{ref_des}' has no pad on rail "
+                f"'{settings.rail_name}'. Pick a component that connects to the rail."
+            )
+        return (
+            f"The {label} pads of '{ref_des}' on '{settings.rail_name}' "
+            f"(pads {', '.join(available)}) could not be matched to the rail mesh. "
+            "Try a finer AC mesh resolution."
+        )
+
     def _translate_mesh(self, mesh, offset):
         branches = [MeshBranch(
             node_a=branch.node_a + offset,
@@ -317,22 +473,28 @@ class ACModelBuilder:
             port_ref, settings.ground_net_name
         )
 
-        source = ACNodeConnection(
-            rail_nodes=self.find_pad_nodes(rail_mesh, source_ref, source_rail_pads, settings.rail_name),
-            ground_nodes=[node + offset for node in self.find_pad_nodes(
-                ground_mesh, source_ref, source_ground_pads, settings.ground_net_name
-            )],
+        source = self._connection(
+            rail_mesh, ground_mesh, offset, source_ref,
+            source_rail_pads, source_ground_pads, settings, label="AC source",
         )
-        measurement = ACNodeConnection(
-            rail_nodes=self.find_pad_nodes(rail_mesh, port_ref, port_rail_pads, settings.rail_name),
-            ground_nodes=[node + offset for node in self.find_pad_nodes(
-                ground_mesh, port_ref, port_ground_pads, settings.ground_net_name
-            )],
+        measurement = self._connection(
+            rail_mesh, ground_mesh, offset, port_ref,
+            port_rail_pads, port_ground_pads, settings, label="measurement port",
         )
-        if not source.rail_nodes or not source.ground_nodes:
-            raise ValueError("The AC source must map to pads on both the rail and the return net.")
-        if not measurement.rail_nodes or not measurement.ground_nodes:
-            raise ValueError("The measurement port must map to pads on both the rail and the return net.")
+        if not source.rail_nodes:
+            raise ValueError(self._unmapped_message("AC source", source_ref, settings))
+        if not source.ground_nodes:
+            raise ValueError(
+                f"No return-net copper was found beneath the AC source pads on "
+                f"'{settings.ground_net_name}'."
+            )
+        if not measurement.rail_nodes:
+            raise ValueError(self._unmapped_message("measurement port", port_ref, settings))
+        if not measurement.ground_nodes:
+            raise ValueError(
+                f"No return-net copper was found beneath the measurement port pads on "
+                f"'{settings.ground_net_name}'."
+            )
 
         capacitor_nodes = {}
         for capacitor in settings.capacitors:
