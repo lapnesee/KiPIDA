@@ -33,12 +33,13 @@ Il faut le dire avant la critique, parce que la refonte doit s'appuyer dessus :
 
 ---
 
-## 2. La limitation structurante : il n'y a pas de schéma
+## 2. Le plugin ne lit jamais le schéma du projet
 
-`plugin.json` déclare `"scopes": ["pcb"]`, et une recherche sur l'ensemble du
-dépôt ne trouve **aucune lecture de `.kicad_sch`, d'annotation, de netlist ou de
-propriété de symbole**. Toute l'intention de conception est donc reconstruite
-par expressions régulières sur les **noms de nets** :
+`plugin.json` déclare `"scopes": ["pcb"]`, et aucun module du dépôt n'ouvre de
+`.kicad_sch`, d'annotation, de netlist ou de propriété de symbole. Le plugin
+ouvre le `.kicad_pcb` de l'utilisateur et s'arrête là : il n'exploite que la
+moitié des données que KiCad a sous la main. Toute l'intention de conception est
+donc reconstruite par expressions régulières sur les **noms de nets** :
 
 | Ce qu'il faut savoir | Comment c'est obtenu aujourd'hui | Fiabilité |
 |---|---|---|
@@ -51,6 +52,13 @@ par expressions régulières sur les **noms de nets** :
 | Les paires différentielles | suffixes `_P/_N`, `+/-`, `DP/DM` | moyenne |
 | Les découplages | valeur du champ `Value` de l'empreinte | moyenne |
 | Les protections/filtres | nom d'empreinte (`emc_analyzer.py` note lui-même : *« low confidence without schematic pin metadata »*) | faible |
+
+C'est précisément ce qui limite l'universalité de l'outil. Tout projet KiCad a
+son schéma à côté de son PCB : le lire ne spécialise le plugin sur aucune carte,
+cela lui permet au contraire d'en comprendre n'importe laquelle sans que
+l'utilisateur ressaisisse à la main ce que le schéma dit déjà. À l'inverse, la
+découverte par regex ne fonctionne que sur les cartes dont les nets sont nommés
+comme le plugin l'espère.
 
 Conséquences directes :
 
@@ -410,6 +418,25 @@ de campagnes.
 **Phase 4 — Finition.** Découpage de l'UI autour du parcours « configurer →
 tout lancer → lire le rapport », recalcul incrémental par empreinte,
 localisation, documentation des règles.
+
+### Deux arbitrages tranchés
+
+**Comment mailler les plans de cuivre.** Le *cut-cell* conserve la grille
+régulière et pondère chaque liaison par la fraction de cuivre réellement
+présente : environ 200 lignes dans `mesh.py`, tout le pipeline aval (cartes,
+sondes, densité de courant, couplage thermique) continue de fonctionner. Les
+*éléments finis P1* sur triangulation épousent exactement les contours et se
+raffinent autour des pads — plus juste et plus rapide à erreur égale, mais
+nouveau mailleur, dépendance externe et réécriture de tout ce qui consomme le
+maillage. **Retenu : cut-cell en phase 1**, P1 seulement si l'erreur résiduelle
+le justifie une fois mesurée sur les bancs de validation.
+
+**Fiabiliser avant d'élargir.** La phase 1 fiabilise les chiffres des analyses
+existantes, la phase 2 ajoute les analyses manquantes ; inverser reviendrait à
+bâtir de nouvelles règles sur des résultats faux. **Retenu : phase 1 avant
+phase 2**, à une exception près — les règles issues du schéma qui ne consomment
+aucun résultat de solveur (dérating V/I/P, découplage par broche, cohérence
+BOM/PCB/schéma, broches non connectées) peuvent démarrer dès la phase 0.
 
 **Principe à ne pas perdre** : chaque valeur automatiquement déduite du schéma
 doit rester **modifiable et tracée** (`source=auto|schematic|manual`,
