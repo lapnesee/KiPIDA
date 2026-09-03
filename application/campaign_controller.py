@@ -78,19 +78,50 @@ class CampaignCallbacks:
 # ``callable(domain_result, request) -> AnalysisResult`` -- by pulling the
 # extra arguments off the domain request.
 #
-# The getattr fallbacks are deliberate.  A caller wiring a real UI supplies a
-# request that carries these values; a caller that does not gets a documented
-# default rather than a TypeError.  Override any entry via
-# ``CampaignEngine(adapters=...)`` when the real value lives elsewhere.
+# Two classes of extra argument, treated differently on purpose:
+#
+#   * Arguments the underlying adapter declares WITH a default
+#     (``adapt_ac_result(..., optimization=None, settings=None)``,
+#     ``adapt_thermal_result(..., coupled=False, elapsed_seconds=0.0)``) are
+#     genuinely optional.  Falling back to that same default is correct.
+#
+#   * Arguments the adapter declares as required positionals carry no safe
+#     default, and inventing one silently corrupts the verdict.  The clearest
+#     case is ``maximum_drop_pct``: substituting 0.0 turns
+#     ``if drop_pct > maximum_drop_pct`` into "every rail with any drop at
+#     all", so a clean board would report one HIGH "exceeds the voltage-drop
+#     target" finding per rail, each claiming a 0.000% budget that nobody set.
+#     A campaign full of confident, fabricated failures is worse than one that
+#     says it was not configured.
+#
+# So required context is demanded, not defaulted.  ``CampaignEngine`` isolates
+# per-domain failures, so a missing value surfaces as one honest DomainOutcome
+# error naming exactly what to supply, while the other domains still run.
+# Override any entry via ``CampaignEngine(adapters=...)`` when the real value
+# lives somewhere other than the request.
+
+
+def _require(request, attribute: str, analysis_id: str):
+    """Pull required adapter context off *request* or fail with a usable message."""
+    value = getattr(request, attribute, None)
+    if value is None:
+        raise ValueError(
+            f"{analysis_id} result cannot be adapted: the run request carries no "
+            f"'{attribute}'. Supply it on the request, or override the {analysis_id} "
+            f"entry via CampaignEngine(adapters=...). Refusing to substitute a "
+            f"default, which would report fabricated pass/fail verdicts."
+        )
+    return value
 
 
 def _adapt_dc(domain_result, request) -> AnalysisResult:
     return analysis_adapters.adapt_dc_result(
-        domain_result, getattr(request, "maximum_drop_pct", 0.0),
+        domain_result, _require(request, "maximum_drop_pct", "DC"),
     )
 
 
 def _adapt_ac(domain_result, request) -> AnalysisResult:
+    # Both extras are optional in adapt_ac_result's own signature.
     return analysis_adapters.adapt_ac_result(
         domain_result,
         getattr(request, "optimization", None),
@@ -101,18 +132,19 @@ def _adapt_ac(domain_result, request) -> AnalysisResult:
 def _adapt_differential(domain_result, request) -> AnalysisResult:
     return analysis_adapters.adapt_differential_result(
         domain_result,
-        getattr(request, "stackup", None),
-        getattr(request, "tolerance_pct", 0.0),
+        _require(request, "stackup", "DIFFERENTIAL"),
+        _require(request, "tolerance_pct", "DIFFERENTIAL"),
     )
 
 
 def _adapt_emc(domain_result, request) -> AnalysisResult:
     return analysis_adapters.adapt_emc_result(
-        getattr(request, "settings", None), domain_result,
+        _require(request, "settings", "EMC"), domain_result,
     )
 
 
 def _adapt_thermal(domain_result, request) -> AnalysisResult:
+    # Both extras are optional in adapt_thermal_result's own signature.
     return analysis_adapters.adapt_thermal_result(
         domain_result,
         getattr(request, "coupled", False),
@@ -122,7 +154,7 @@ def _adapt_thermal(domain_result, request) -> AnalysisResult:
 
 def _adapt_cfd(domain_result, request) -> AnalysisResult:
     return analysis_adapters.adapt_cfd_result(
-        getattr(request, "mesh", None), domain_result,
+        _require(request, "mesh", "CFD"), domain_result,
     )
 
 

@@ -265,5 +265,57 @@ class AggregationTests(unittest.TestCase):
         self.assertEqual(campaign.results[0].board_fingerprint, "fp-abc")
 
 
+class DefaultAdapterContextTests(unittest.TestCase):
+    """Missing adapter context must fail loudly, not fabricate a verdict."""
+
+    def test_dc_without_target_refuses_rather_than_defaulting_to_zero(self):
+        # Regression: a 0.0 fallback for maximum_drop_pct turns
+        # `drop_pct > maximum_drop_pct` into "every rail with any drop at
+        # all", so a clean board would report one HIGH voltage-drop failure
+        # per rail against a 0.000% budget nobody configured.
+        from application.campaign_controller import _adapt_dc
+
+        with self.assertRaises(ValueError) as caught:
+            _adapt_dc({"+5V": {"stats": (4.9, 5.0, 0.1)}}, FakeRequest())
+        message = str(caught.exception)
+        self.assertIn("maximum_drop_pct", message)
+        self.assertIn("DC", message)
+
+    def test_optional_context_still_falls_back(self):
+        # adapt_thermal_result declares coupled/elapsed_seconds WITH defaults,
+        # so falling back to them is correct and must keep working.
+        from application.campaign_controller import _adapt_thermal
+
+        result = _adapt_thermal(_ThermalStub(), FakeRequest())
+        self.assertEqual(result.analysis_type, "THERMAL")
+
+    def test_missing_context_is_isolated_to_its_own_domain(self):
+        # The refusal must surface as one domain error while siblings still run.
+        from application.campaign_controller import _adapt_dc
+
+        engine = build({"DC": FakeEngine(), "EMC": FakeEngine()}, ["DC", "EMC"])
+        engine._adapters["DC"] = _adapt_dc          # real adapter, no context
+        outcomes = []
+        engine.set_domain_listener(outcomes.append)
+
+        campaign, _, _ = run(engine, CampaignRunRequest(domain_requests={
+            "DC": FakeRequest(), "EMC": FakeRequest(),
+        }))
+
+        dc = next(o for o in outcomes if o.analysis_id == "DC")
+        emc = next(o for o in outcomes if o.analysis_id == "EMC")
+        self.assertIsNotNone(dc.error)
+        self.assertIn("maximum_drop_pct", dc.error)
+        self.assertIsNotNone(emc.result, "a sibling domain must survive")
+        self.assertEqual([r.analysis_type for r in campaign.results], ["EMC"])
+
+
+class _ThermalStub:
+    """Minimal stand-in for a thermal domain result."""
+    converged = True
+    maximum_temperature_c = 40.0
+    ambient_temperature_c = 25.0
+
+
 if __name__ == "__main__":
     unittest.main()
