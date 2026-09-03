@@ -74,6 +74,10 @@ class Via:
 class Zone:
     net_name: str
     layer: str
+    # Filled copper polygon vertices [(x, y), ...], empty list if zones not filled
+    filled_polygon: list[tuple[float, float]] = field(default_factory=list)
+    # Design-rule outline polygon [(x, y), ...], used as fallback
+    outline_polygon: list[tuple[float, float]] = field(default_factory=list)
 
 
 @dataclass
@@ -445,6 +449,20 @@ def _parse_vias(root: list, net_map: dict[str, str]) -> list[Via]:
     return vias
 
 
+def _parse_polygon_pts(container: list) -> list[tuple[float, float]]:
+    """Extract [(x, y), ...] from a (pts (xy X Y) ...) sub-tree."""
+    pts_node = find(container, "pts")
+    if not pts_node:
+        return []
+    coords: list[tuple[float, float]] = []
+    for xy in find_all(pts_node, "xy"):
+        try:
+            coords.append((float(xy[1]), float(xy[2])))
+        except (IndexError, ValueError):
+            pass
+    return coords
+
+
 def _parse_zones(root: list, net_map: dict[str, str]) -> list[Zone]:
     zones: list[Zone] = []
     for zone_node in find_all(root, "zone"):
@@ -460,5 +478,30 @@ def _parse_zones(root: list, net_map: dict[str, str]) -> list[Zone]:
         layer_node = find(zone_node, "layer")
         layer = layer_node[1] if layer_node and len(layer_node) > 1 else ""
 
-        zones.append(Zone(net_name=net_name, layer=layer))
+        # Design-rule outline polygon (always present in a zone definition)
+        outline: list[tuple[float, float]] = []
+        poly_node = find(zone_node, "polygon")
+        if poly_node:
+            outline = _parse_polygon_pts(poly_node)
+
+        # Filled copper — KiCad writes (filled_polygon (layer "...") (pts ...))
+        # after zone fill. A zone may contain multiple filled_polygon blocks
+        # (one per island). We take the largest (most vertices) for the primary
+        # cut-cell geometry; additional islands are ignored for now.
+        filled: list[tuple[float, float]] = []
+        for fp_node in find_all(zone_node, "filled_polygon"):
+            fp_layer_node = find(fp_node, "layer")
+            fp_layer = fp_layer_node[1] if fp_layer_node and len(fp_layer_node) > 1 else ""
+            if fp_layer and fp_layer != layer:
+                continue
+            pts = _parse_polygon_pts(fp_node)
+            if len(pts) > len(filled):
+                filled = pts
+
+        zones.append(Zone(
+            net_name=net_name,
+            layer=layer,
+            filled_polygon=filled,
+            outline_polygon=outline,
+        ))
     return zones

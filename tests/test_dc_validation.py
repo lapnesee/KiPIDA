@@ -371,8 +371,9 @@ class TestSolverPreconditioner(unittest.TestCase):
     def _solve(self, use_precond):
         from solver import Solver
         mesh = self._three_node_mesh()
-        sources = [{"node_id": 0, "voltage": 5.0}]
-        loads = [{"node_id": 2, "voltage": 0.0}]
+        # Both source and ground must be Dirichlet; loads carry current, not voltage.
+        sources = [{"node_id": 0, "voltage": 5.0}, {"node_id": 2, "voltage": 0.0}]
+        loads = []
         return Solver().solve(mesh, sources, loads, use_precond=use_precond)
 
     def test_direct_gives_midpoint(self):
@@ -393,8 +394,8 @@ class TestSolverPreconditioner(unittest.TestCase):
         """Calling solve() without use_precond must behave identically to False."""
         from solver import Solver
         mesh = self._three_node_mesh()
-        sources = [{"node_id": 0, "voltage": 5.0}]
-        loads = [{"node_id": 2, "voltage": 0.0}]
+        sources = [{"node_id": 0, "voltage": 5.0}, {"node_id": 2, "voltage": 0.0}]
+        loads = []
         s = Solver()
         result_default = s.solve(mesh, sources, loads)
         result_false = s.solve(mesh, sources, loads, use_precond=False)
@@ -422,6 +423,104 @@ class TestSolverPreconditioner(unittest.TestCase):
         precond = Solver().solve(m, sources, loads, use_precond=True)
         for i in range(n):
             self.assertAlmostEqual(direct.get(i, 0), precond.get(i, 0), places=5)
+
+
+# ---------------------------------------------------------------------------
+# Tests: HybridMesher — zone cut-cell
+# ---------------------------------------------------------------------------
+
+class TestHybridMesherZoneCutCell(unittest.TestCase):
+    """Zone cut-cell meshing with a synthetic filled polygon."""
+
+    def setUp(self):
+        try:
+            import shapely  # noqa: F401
+            import numpy  # noqa: F401
+        except ImportError:
+            self.skipTest("shapely or numpy not available")
+
+    def _board_with_zone(self, poly_pts, net="GND", layer="F.Cu", thickness=0.035):
+        from ingest.board_reader import (
+            BoardBounds, CopperLayer, ParsedBoard, Stackup, Zone,
+        )
+        stackup = Stackup(
+            layers=[CopperLayer(0, layer, "signal", thickness)],
+            total_thickness_mm=1.6,
+            copper_layer_count=1,
+        )
+        zone = Zone(net_name=net, layer=layer, filled_polygon=poly_pts)
+        return ParsedBoard(
+            pcb_path=None, stackup=stackup,
+            bounds=BoardBounds(0, 0, 10, 10),
+            footprints=[], segments=[], vias=[], zones=[zone],
+        )
+
+    def test_square_zone_produces_edges(self):
+        """A 2×2 mm filled square should produce horizontal and vertical edges."""
+        from mesh_hybrid import HybridMesher
+        pts = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]
+        board = self._board_with_zone(pts, net="GND")
+        mesh = HybridMesher(board, grid_step_mm=0.5).build_mesh("GND")
+        # With 0.5mm grid over [0,2]×[0,2]: 5×5 = 25 nodes max, many edges
+        self.assertGreater(len(mesh.branches), 0)
+        self.assertGreater(len(mesh.nodes), 1)
+
+    def test_edge_conductances_positive(self):
+        """All cut-cell edges must have positive conductance."""
+        from mesh_hybrid import HybridMesher
+        pts = [(0.0, 0.0), (3.0, 0.0), (3.0, 1.0), (0.0, 1.0)]
+        board = self._board_with_zone(pts, net="GND")
+        mesh = HybridMesher(board, grid_step_mm=0.5).build_mesh("GND")
+        for branch in mesh.branches:
+            self.assertGreater(branch.resistance_ohm, 0)
+
+    def test_full_square_conductance_equals_analytical(self):
+        """For a 1×1 cell fully inside the zone, g must equal σ·t (unit-aspect square).
+
+        With grid_step=1.0 mm and a 2×2 zone, all internal cells are full-copper.
+        Each horizontal edge models a 1×1×t block → G = σ·t·1/1 = σ·t.
+        """
+        from mesh_hybrid import HybridMesher, RHO_COPPER
+        pts = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]
+        board = self._board_with_zone(pts, net="GND", thickness=0.035)
+        mesh = HybridMesher(board, grid_step_mm=1.0).build_mesh("GND")
+        # σ in S/mm = 1/(ρ_Cu Ω·m) converted to per-mm: σ_mm = 1/(ρ * 1e6)
+        sigma_mm = 1.0 / (RHO_COPPER * 1e6)
+        g_expected = sigma_mm * 0.035  # one S/mm square → G = σ·t
+        # At least some branches should match (full-copper interior edges)
+        full_edges = [b for b in mesh.branches if abs(b.resistance_ohm - 1/g_expected) < 1e-6]
+        self.assertGreater(len(full_edges), 0,
+                           msg="No full-copper edge found — check cut-cell formula")
+
+    def test_wrong_net_no_edges(self):
+        """Zone not on requested net must produce no edges."""
+        from mesh_hybrid import HybridMesher
+        pts = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]
+        board = self._board_with_zone(pts, net="GND")
+        mesh = HybridMesher(board, grid_step_mm=0.5).build_mesh("+5V_RAIL")
+        self.assertEqual(len(mesh.branches), 0)
+
+    def test_outline_fallback(self):
+        """If filled_polygon is empty, outline_polygon is used as fallback."""
+        from ingest.board_reader import (
+            BoardBounds, CopperLayer, ParsedBoard, Stackup, Zone,
+        )
+        from mesh_hybrid import HybridMesher
+        stackup = Stackup(
+            layers=[CopperLayer(0, "F.Cu", "signal", 0.035)],
+            total_thickness_mm=1.6, copper_layer_count=1,
+        )
+        pts = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]
+        zone = Zone(net_name="GND", layer="F.Cu",
+                    filled_polygon=[],    # empty — should fall back to outline
+                    outline_polygon=pts)
+        board = ParsedBoard(
+            pcb_path=None, stackup=stackup,
+            bounds=BoardBounds(0, 0, 5, 5),
+            footprints=[], segments=[], vias=[], zones=[zone],
+        )
+        mesh = HybridMesher(board, grid_step_mm=0.5).build_mesh("GND")
+        self.assertGreater(len(mesh.branches), 0)
 
 
 if __name__ == "__main__":

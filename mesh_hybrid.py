@@ -53,6 +53,15 @@ try:
 except (ImportError, ValueError):
     from mesh import Mesh
 
+try:
+    import numpy as np
+    from shapely import Polygon as ShapelyPolygon
+    from shapely import box as shapely_box, intersection as shapely_intersect, prepare as shapely_prepare
+    _SHAPELY_OK = True
+except ImportError:
+    np = None  # type: ignore[assignment]
+    _SHAPELY_OK = False
+
 # Coordinate snap precision in mm (1 µm → 0.001 mm)
 _SNAP = 0.001
 
@@ -233,17 +242,123 @@ class HybridMesher:
         self._log(f"[HybridMesher] Net '{net_name}': {via_count} via branches")
 
         # ------------------------------------------------------------------
-        # 3. Zones — cut-cell (pending polygon geometry in ParsedBoard.Zone)
+        # 3. Zones — cut-cell area-weighted conductances
         # ------------------------------------------------------------------
-        zone_layers = set(z.layer for z in board.zones if z.net_name == net_name)
-        if zone_layers:
+        zone_count = 0
+        for zone in board.zones:
+            if zone.net_name != net_name:
+                continue
+            added = self._mesh_zone_cutcell(zone, board, mesh, get_or_create)
+            zone_count += added
+
+        self._log(f"[HybridMesher] Net '{net_name}': {zone_count} zone edges")
+        return mesh
+
+    # ------------------------------------------------------------------
+    # Zone cut-cell implementation
+    # ------------------------------------------------------------------
+
+    def _zone_polygon(self, zone: Zone):
+        """Return a Shapely Polygon for the zone, or None if unavailable."""
+        if not _SHAPELY_OK:
+            return None
+        pts = zone.filled_polygon or zone.outline_polygon
+        if len(pts) < 3:
+            return None
+        try:
+            poly = ShapelyPolygon(pts)
+            if not poly.is_valid:
+                poly = poly.buffer(0)  # fix self-intersections
+            return poly if not poly.is_empty else None
+        except Exception:
+            return None
+
+    def _mesh_zone_cutcell(
+        self,
+        zone: Zone,
+        board: ParsedBoard,
+        mesh: Mesh,
+        get_or_create,
+    ) -> int:
+        """Add cut-cell edges for one zone. Returns edge count added."""
+        poly = self._zone_polygon(zone)
+        if poly is None:
             self._log(
-                f"[HybridMesher] Net '{net_name}': zone copper on {sorted(zone_layers)} "
-                "not yet meshed — Zone.polygon not available in ParsedBoard. "
-                "Add polygon geometry to Zone to enable cut-cell."
+                f"[HybridMesher] Zone '{zone.net_name}' on {zone.layer}: "
+                "no polygon geometry available — zone skipped."
+            )
+            return 0
+
+        if not _SHAPELY_OK or np is None:
+            return 0
+
+        thickness_mm = _thickness_for_layer(board, zone.layer)
+        layer_id = _layer_id_for_name(board, zone.layer)
+        sigma = 1.0 / self._rho / 1e6  # S/mm (convert Ω·m → Ω·mm, then invert)
+
+        # Grid over zone bounding box
+        xmin, ymin, xmax, ymax = poly.bounds
+        h = self._grid_step
+
+        # Budget check — degrade grid if needed
+        nx_est = max(1, int((xmax - xmin) / h) + 1)
+        ny_est = max(1, int((ymax - ymin) / h) + 1)
+        estimated_nodes = nx_est * ny_est
+        if estimated_nodes > self.MAX_ZONE_NODES:
+            scale = math.sqrt(estimated_nodes / self.MAX_ZONE_NODES) * 1.05
+            h = min(5.0, h * scale)
+            self._log(
+                f"[HybridMesher] Zone '{zone.net_name}': grid degraded to {h:.3f} mm "
+                f"(estimated {estimated_nodes:,} > {self.MAX_ZONE_NODES:,} budget)"
             )
 
-        return mesh
+        xs = np.arange(xmin, xmax + h * 0.5, h)
+        ys = np.arange(ymin, ymax + h * 0.5, h)
+        if len(xs) < 2 or len(ys) < 2:
+            return 0
+
+        # Prepare geometry for fast intersection tests
+        shapely_prepare(poly)
+        h2 = h * h  # cell area
+        edges_added = 0
+
+        for iy, y in enumerate(ys):
+            for ix, x in enumerate(xs):
+                u = get_or_create(x, y, layer_id)
+
+                # Horizontal edge → (x+h, y)
+                if ix + 1 < len(xs):
+                    xr = xs[ix + 1]
+                    cell_h = shapely_box(x, y - h / 2, xr, y + h / 2)
+                    overlap = shapely_intersect(poly, cell_h)
+                    frac = overlap.area / h2 if overlap and not overlap.is_empty else 0.0
+                    if frac > 1e-9:
+                        g = sigma * thickness_mm * frac
+                        v = get_or_create(xr, y, layer_id)
+                        mesh.add_edge_direct(
+                            u, v, g, kind="lateral",
+                            cross_section_mm2=frac * h * thickness_mm,
+                            geometry_source=f"zone:{zone.layer}:h",
+                        )
+                        edges_added += 1
+
+                # Vertical edge → (x, y+h)
+                if iy + 1 < len(ys):
+                    yt = ys[iy + 1]
+                    cell_v = shapely_box(x - h / 2, y, x + h / 2, yt)
+                    overlap = shapely_intersect(poly, cell_v)
+                    frac = overlap.area / h2 if overlap and not overlap.is_empty else 0.0
+                    if frac > 1e-9:
+                        g = sigma * thickness_mm * frac
+                        v = get_or_create(x, yt, layer_id)
+                        mesh.add_edge_direct(
+                            u, v, g, kind="lateral",
+                            cross_section_mm2=frac * h * thickness_mm,
+                            geometry_source=f"zone:{zone.layer}:v",
+                        )
+                        edges_added += 1
+
+        return edges_added
 
     # ------------------------------------------------------------------
     # Internal helpers
