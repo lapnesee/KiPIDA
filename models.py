@@ -761,6 +761,12 @@ class ImpedanceSweepResult:
     # True when the worst case landed on the last swept point, so the real
     # maximum may lie outside the window rather than at its edge.
     worst_at_sweep_edge: bool = False
+    # Outcome of the GPU-against-CPU audit run on the first swept point. Empty
+    # when the sweep never touched a GPU or the check was switched off. It
+    # records the agreement measured, or the disagreement that sent the rest
+    # of the sweep back to the CPU, so a reader can tell which arithmetic
+    # produced the impedances above.
+    gpu_accuracy_check: str = ""
 
 
 @dataclass

@@ -1,5 +1,6 @@
 """Sparse frequency-domain solver for Ki-PIDA power distribution networks."""
 
+from dataclasses import replace
 import time
 import warnings
 
@@ -19,17 +20,92 @@ except (ImportError, ValueError):
     from compute_backend import SparseComputeBackend
 
 
+# Relative disagreement between the GPU and CPU solutions of the same system
+# above which the GPU result is not trusted for this network. The sweep is
+# compared against a target expressed in milliohms, so agreement well below
+# the part-per-million level is what "as accurate as CPU" has to mean here.
+GPU_ACCURACY_TOLERANCE = 1.0e-6
+
+
 class ACSolver:
     def __init__(self, debug=False, log_callback=None, compute_settings=None):
         self.debug = debug
         self.log_callback = log_callback
         self.compute_backend = SparseComputeBackend(compute_settings, log_callback)
+        # Built on demand, and only to audit a GPU answer against a direct
+        # factorisation. Exposed as an attribute so a test can inject one.
+        self._cpu_reference_backend = None
         if np is None or scipy is None:
             raise ImportError("NumPy and SciPy are required for AC analysis.")
 
     def _log(self, message):
         if self.log_callback:
             self.log_callback(f"[AC SOLVER] {message}")
+
+    def _cpu_reference(self):
+        """A CPU-pinned backend used solely to check a GPU result."""
+        if self._cpu_reference_backend is None:
+            settings = getattr(self.compute_backend, "settings", None)
+            cpu_settings = None
+            if settings is not None:
+                try:
+                    cpu_settings = replace(settings, backend="CPU")
+                except TypeError:
+                    # A stand-in settings object (tests) is not a dataclass;
+                    # a default CPU backend is still a valid reference.
+                    cpu_settings = None
+            self._cpu_reference_backend = SparseComputeBackend(
+                cpu_settings, self.log_callback,
+            )
+        return self._cpu_reference_backend
+
+    @staticmethod
+    def _measured_impedance(network, voltage):
+        rail_voltage = np.mean([voltage[node] for node in network.measurement.rail_nodes])
+        ground_voltage = np.mean([voltage[node] for node in network.measurement.ground_nodes])
+        return complex(rail_voltage - ground_voltage)
+
+    def _audit_gpu_against_cpu(self, network, matrix, current, gpu_voltage):
+        """Compare a GPU solution with a CPU direct solve of the same system.
+
+        Returns ``(trusted, note, cpu_voltage)``. ``trusted`` is False when the
+        two disagree by more than :data:`GPU_ACCURACY_TOLERANCE`, in which case
+        the caller must abandon the GPU for the rest of the sweep and keep the
+        CPU answer for this point -- the direct factorisation is the reference,
+        not the thing under test.
+
+        An exception here means the audit itself could not run. That is not
+        evidence against the GPU, so the sweep continues on it and the note
+        records that the check was inconclusive.
+        """
+        try:
+            reference = self._cpu_reference().solve(
+                matrix, current, system_kind="GENERAL",
+            )
+        except Exception as exc:
+            return True, f"not verified: CPU reference solve failed ({exc})", None
+        cpu_voltage = reference.values
+        gpu_impedance = self._measured_impedance(network, gpu_voltage)
+        cpu_impedance = self._measured_impedance(network, cpu_voltage)
+        scale = max(abs(cpu_impedance), 1.0e-30)
+        deviation = abs(gpu_impedance - cpu_impedance) / scale
+        if not np.isfinite(deviation) or deviation > GPU_ACCURACY_TOLERANCE:
+            return (
+                False,
+                (
+                    f"failed: GPU and CPU disagree by {deviation:.3g} relative "
+                    f"(limit {GPU_ACCURACY_TOLERANCE:.0e}); the sweep continued on CPU"
+                ),
+                cpu_voltage,
+            )
+        return (
+            True,
+            (
+                f"passed: GPU matches the CPU direct solve to {deviation:.3g} "
+                f"relative (limit {GPU_ACCURACY_TOLERANCE:.0e})"
+            ),
+            cpu_voltage,
+        )
 
     @staticmethod
     def capacitor_impedance(capacitor, frequency_hz):
@@ -362,6 +438,8 @@ class ACSolver:
         )
         impedances = []
         compute_samples = []
+        audited = False
+        accuracy_note = ""
 
         for index, frequency in enumerate(frequencies):
             matrix = self._assemble(network, settings, capacitors, frequency)
@@ -396,34 +474,50 @@ class ACSolver:
                             "CUDA did not converge for this AC network; continuing "
                             "the remaining frequency points on CPU."
                         )
+                    elif not audited and str(
+                        getattr(solved.metadata, "backend", "")
+                    ).upper().startswith("CUDA"):
+                        # First point that genuinely ran on the GPU: audit it
+                        # against a direct factorisation before letting the
+                        # remaining points inherit that trust.
+                        audited = True
+                        if getattr(
+                            self.compute_backend.settings, "verify_gpu_accuracy", True
+                        ):
+                            trusted, accuracy_note, cpu_voltage = self._audit_gpu_against_cpu(
+                                network, matrix.tocsr(), current, voltage,
+                            )
+                            self._log(f"GPU accuracy check {accuracy_note}.")
+                            if not trusted:
+                                # The direct solve is the reference: keep its
+                                # answer here and drop to CPU for the rest.
+                                if cpu_voltage is not None:
+                                    voltage = cpu_voltage
+                                self.compute_backend.settings.backend = "CPU"
+                        else:
+                            accuracy_note = "skipped: verification disabled"
                 except Exception as exc:
                     raise ValueError(f"AC solve failed at {frequency:g} Hz: {exc}") from exc
 
-            rail_voltage = np.mean([voltage[node] for node in network.measurement.rail_nodes])
-            ground_voltage = np.mean([voltage[node] for node in network.measurement.ground_nodes])
-            impedances.append(complex(rail_voltage - ground_voltage))
+            impedances.append(self._measured_impedance(network, voltage))
 
             if progress_callback:
                 progress_callback(index + 1, len(frequencies), float(frequency))
 
-        magnitudes = np.abs(np.asarray(impedances))
-        worst_index = int(np.argmax(magnitudes))
-        target = max(0.0, float(settings.target_impedance_ohm))
-        meets_target = bool(target > 0 and np.all(magnitudes <= target))
         if self.debug:
+            magnitudes = np.abs(np.asarray(impedances))
+            worst_index = int(np.argmax(magnitudes))
             self._log(
                 f"Solved {len(frequencies)} points; worst |Z|={magnitudes[worst_index]:.6g} ohm "
                 f"at {frequencies[worst_index]:.6g} Hz."
             )
 
-        return ImpedanceSweepResult(
-            frequencies_hz=[float(value) for value in frequencies],
-            impedance_ohm=impedances,
-            target_impedance_ohm=target,
-            worst_frequency_hz=float(frequencies[worst_index]),
-            worst_impedance_ohm=float(magnitudes[worst_index]),
-            meets_target=meets_target,
-            compute_backend=compute_samples[-1].backend if compute_samples else "CPU",
+        # Reuse the shared summary so a single-port sweep gets the same
+        # validity bounds a multi-port one does; this path used to build the
+        # result inline and silently omitted them.
+        return self._summarize(
+            frequencies, impedances, settings, network,
+            compute_backend=self._effective_backend_name(compute_samples),
             compute_device=compute_samples[-1].device if compute_samples else "CPU",
             compute_solve_seconds=sum(item.solve_seconds for item in compute_samples),
             compute_transfer_seconds=sum(item.transfer_seconds for item in compute_samples),
@@ -432,7 +526,21 @@ class ACSolver:
             ),
             compute_iterations=sum(item.iterations for item in compute_samples),
             compute_cache_hits=sum(bool(item.cache_hit) for item in compute_samples),
-            mesh_node_count=int(network.node_count),
-            requested_grid_size_mm=float(network.requested_grid_size_mm),
-            effective_grid_size_mm=float(network.effective_grid_size_mm),
+            gpu_accuracy_check=accuracy_note,
         )
+
+    @staticmethod
+    def _effective_backend_name(compute_samples):
+        """Name the arithmetic that actually produced the sweep.
+
+        A sweep that starts on the GPU and finishes on the CPU is neither, and
+        reporting only the last point would hide the transition while
+        reporting only the first would be a straight falsehood.
+        """
+        if not compute_samples:
+            return "CPU"
+        names = [str(item.backend) for item in compute_samples]
+        first, last = names[0], names[-1]
+        if first == last:
+            return last
+        return f"{first} -> {last}"

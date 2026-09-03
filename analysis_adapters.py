@@ -186,6 +186,11 @@ def _ac_validity_limitations(final: Any) -> list:
             "the impedance was still rising when the window closed, so this is a "
             "lower bound on the maximum. Extend the stop frequency to locate it."
         )
+    accuracy = str(getattr(final, "gpu_accuracy_check", "") or "")
+    if accuracy.startswith("failed"):
+        # The sweep still produced trustworthy numbers -- it moved to the CPU
+        # reference -- but the reader should know the GPU was rejected here.
+        notes.append(f"GPU accuracy check {accuracy}.")
     limit_hz = float(getattr(final, "quasi_static_limit_hz", 0.0) or 0.0)
     beyond = int(getattr(final, "points_beyond_quasi_static", 0) or 0)
     if limit_hz > 0.0 and beyond > 0:
@@ -355,6 +360,9 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
             "mesh_node_count": getattr(final, "mesh_node_count", 0),
             "requested_grid_size_mm": getattr(final, "requested_grid_size_mm", 0.0),
             "effective_grid_size_mm": getattr(final, "effective_grid_size_mm", 0.0),
+            # Which arithmetic produced these impedances, and whether it was
+            # audited against a direct factorisation. Empty when no GPU ran.
+            "gpu_accuracy_check": getattr(final, "gpu_accuracy_check", ""),
         },
     )
     return result.finish()

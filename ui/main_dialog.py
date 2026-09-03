@@ -697,10 +697,15 @@ class KiPIDA_MainDialog(wx.Dialog):
             settings, network = self._prepare_ac_analysis()
             compute_settings = self.runtime_panel.get_settings(persist=True)
             if compute_settings.backend == "AUTO":
-                compute_settings = replace(compute_settings, backend="CPU")
+                # AUTO used to be rewritten to CPU here, before the solver had
+                # any say. The backend already handles a complex non-Hermitian
+                # matrix with BiCGSTAB, and the sweep already falls back to CPU
+                # on non-convergence, so let it choose -- guarded by the
+                # first-point accuracy audit.
                 self.log(
-                    "AC backend AUTO: selected CPU direct sparse solve for the general "
-                    "complex frequency-domain matrix. Force CUDA in Runtime settings to override."
+                    "AC backend AUTO: will attempt CUDA and verify its first "
+                    "frequency point against a CPU direct solve, falling back to "
+                    "CPU if they disagree or if CUDA fails to converge."
                 )
             request = ACRunRequest(
                 settings=settings,
