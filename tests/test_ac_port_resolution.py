@@ -232,5 +232,77 @@ class PortResolutionTests(unittest.TestCase):
         self.assertEqual(ports, [("U7", ["12"])])
 
 
+class MultiPortSweepTests(unittest.TestCase):
+    """Sweeping every port replaces making the user try combinations."""
+
+    def setUp(self):
+        try:
+            import ac_solver
+        except ImportError:  # pragma: no cover
+            self.skipTest("solver dependencies unavailable")
+        if ac_solver.np is None or ac_solver.scipy is None:
+            self.skipTest("NumPy/SciPy are not installed in this test interpreter")
+
+    @staticmethod
+    def _network_two_ports():
+        """Source at node 0/1; a near port and a port behind a resistor."""
+        from ac_model import ACNetwork, ACNodeConnection
+        from models import MeshBranch
+
+        near = ACNodeConnection([0], [1])
+        far = ACNodeConnection([2], [1])
+        return ACNetwork(
+            node_count=3,
+            # 1 ohm between the rail node and the far port's rail node.
+            branches=[MeshBranch(node_a=0, node_b=2, resistance_ohm=1.0)],
+            source=near,
+            measurement=near,
+            capacitor_nodes={},
+            ports={"NEAR": near, "FAR": far},
+        )
+
+    @staticmethod
+    def _settings():
+        from models import ACAnalysisSettings, ACSourceModel
+        return ACAnalysisSettings(
+            rail_name="3V3", frequency_start_hz=1e3, frequency_stop_hz=1e5,
+            frequency_points=3, target_impedance_ohm=0.11,
+            source=ACSourceModel(resistance_ohm=0.1, inductance_h=0.0),
+        )
+
+    def test_worst_case_is_the_far_port(self):
+        from ac_solver import ACSolver
+
+        result = ACSolver().solve_sweep_multiport(
+            self._network_two_ports(), self._settings(),
+        )
+
+        self.assertEqual(set(result.per_port_results), {"NEAR", "FAR"})
+        self.assertEqual(result.worst_port_ref_des, "FAR")
+        near = result.per_port_results["NEAR"].worst_impedance_ohm
+        far = result.per_port_results["FAR"].worst_impedance_ohm
+        # Near port sees the 0.1 ohm source; far port adds the 1 ohm branch.
+        self.assertAlmostEqual(near, 0.1, places=6)
+        self.assertAlmostEqual(far, 1.1, places=6)
+        self.assertEqual(result.worst_impedance_ohm, far)
+
+    def test_single_port_matches_the_historical_solve(self):
+        from ac_model import ACNodeConnection
+        from ac_solver import ACSolver
+
+        network = self._network_two_ports()
+        network.ports = {"NEAR": ACNodeConnection([0], [1])}
+        settings = self._settings()
+
+        single = ACSolver().solve_sweep(network, settings)
+        swept = ACSolver().solve_sweep_multiport(network, settings)
+
+        self.assertEqual(
+            [abs(z) for z in single.impedance_ohm],
+            [abs(z) for z in swept.impedance_ohm],
+        )
+        self.assertEqual(swept.worst_port_ref_des, "NEAR")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -729,6 +729,11 @@ class ImpedanceSweepResult:
     mesh_node_count: int = 0
     requested_grid_size_mm: float = 0.0
     effective_grid_size_mm: float = 0.0
+    # Populated by a multi-port sweep: one sweep per observation point, keyed
+    # by reference designator, plus which one produced this worst case. Left
+    # empty by a single-port solve, so existing consumers are unaffected.
+    per_port_results: Dict[str, "ImpedanceSweepResult"] = field(default_factory=dict)
+    worst_port_ref_des: str = ""
 
 
 @dataclass

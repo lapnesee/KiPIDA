@@ -55,9 +55,18 @@ class ACSolverEngine:
             if cancelled():
                 raise ACAnalysisCancelled("AC analysis cancelled.")
             return optimization.baseline, optimization
-        result = solver.solve_sweep(
-            request.network, request.settings, progress_callback=checked_progress,
-        )
+        # More than one candidate observation point means the rail's worst port
+        # is not known before solving, so sweep them all rather than reporting
+        # whichever one happened to be listed first.
+        ports = getattr(request.network, "ports", None) or {}
+        if len(ports) > 1 and hasattr(solver, "solve_sweep_multiport"):
+            result = solver.solve_sweep_multiport(
+                request.network, request.settings, progress_callback=checked_progress,
+            )
+        else:
+            result = solver.solve_sweep(
+                request.network, request.settings, progress_callback=checked_progress,
+            )
         if cancelled():
             raise ACAnalysisCancelled("AC analysis cancelled.")
         return result, None
