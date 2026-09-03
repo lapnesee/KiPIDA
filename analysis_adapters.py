@@ -166,6 +166,38 @@ def _ac_sweep_snapshot(final: Any):
     return points
 
 
+def _ac_validity_limitations(final: Any) -> list:
+    """Say where the swept numbers stop deserving equal confidence.
+
+    Two distinct caveats, both invisible in the metrics alone: a worst case
+    pinned to the last swept point is a lower bound rather than a maximum,
+    and points above the quasi-static limit come from a lumped model that no
+    longer represents the structure. Neither invalidates the sweep; both
+    change how it should be read.
+    """
+    notes = []
+    if bool(getattr(final, "worst_at_sweep_edge", False)):
+        stop_hz = 0.0
+        frequencies = getattr(final, "frequencies_hz", ()) or ()
+        if frequencies:
+            stop_hz = float(frequencies[-1])
+        notes.append(
+            f"The worst impedance falls on the last swept point ({stop_hz:.4g} Hz): "
+            "the impedance was still rising when the window closed, so this is a "
+            "lower bound on the maximum. Extend the stop frequency to locate it."
+        )
+    limit_hz = float(getattr(final, "quasi_static_limit_hz", 0.0) or 0.0)
+    beyond = int(getattr(final, "points_beyond_quasi_static", 0) or 0)
+    if limit_hz > 0.0 and beyond > 0:
+        notes.append(
+            f"{beyond} swept point(s) lie above the quasi-static validity limit of "
+            f"{limit_hz / 1e6:.1f} MHz, where the lumped mesh omits plane-cavity "
+            "resonances and distributed propagation. Treat those points as "
+            "indicative only."
+        )
+    return notes
+
+
 def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any = None) -> AnalysisResult:
     final = getattr(optimization, "optimized", None) or domain_result
     target = float(getattr(final, "target_impedance_ohm", 0.0) or 0.0)
@@ -314,7 +346,7 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
             f"Observation point {item.get('ref_des') or '(unnamed)'} was excluded "
             f"from the sweep: it {item.get('reason', 'could not be measured')}."
             for item in (getattr(final, "excluded_ports", None) or ())
-        ],
+        ] + _ac_validity_limitations(final),
         compute_metadata={
             "backend": getattr(final, "compute_backend", ""),
             "device": getattr(final, "compute_device", ""),

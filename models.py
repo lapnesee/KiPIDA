@@ -751,6 +751,16 @@ class ImpedanceSweepResult:
     # removing it silently would hide a degraded analysis, so it is carried
     # here and surfaced as a limitation.
     excluded_ports: List[Dict[str, str]] = field(default_factory=list)
+    # Frequency above which the lumped quasi-static model stops being
+    # trustworthy, and how many swept points fall beyond it. Zero means no
+    # bound could be established. Points past it are still solved and
+    # reported -- the user may legitimately want to look -- but the report
+    # must say the confidence there is lower.
+    quasi_static_limit_hz: float = 0.0
+    points_beyond_quasi_static: int = 0
+    # True when the worst case landed on the last swept point, so the real
+    # maximum may lie outside the window rather than at its edge.
+    worst_at_sweep_edge: bool = False
 
 
 @dataclass

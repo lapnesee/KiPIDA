@@ -86,6 +86,50 @@ def derive_target_impedance(
     return value, provenance
 
 
+LIGHT_SPEED_M_S = 299792458.0
+
+
+def quasi_static_limit_hz(span_mm, epsilon_r=4.4):
+    """Rough upper frequency for which a lumped PDN mesh still means something.
+
+    The AC network is quasi-static: lumped resistances and inductances per
+    branch, lumped RLC capacitors, no plane-cavity modes and no distributed
+    propagation.  That holds while the structure is electrically small.  The
+    usual working threshold is a tenth of a wavelength in the dielectric,
+
+        f = c / (10 * L_max * sqrt(eps_r))
+
+    which for an 80 mm board in FR4 lands near 180 MHz.  This is an
+    order-of-magnitude indicator, not a hard cliff: accuracy degrades
+    gradually either side of it, and the plane resonances the model omits
+    start well before the geometry stops being electrically small.  Its
+    purpose is to stop a swept number being read with the same confidence
+    at 1 GHz as at 1 MHz.
+
+    Returns 0.0 when the span is unusable, meaning "no bound available"
+    rather than "no bound applies".
+    """
+    try:
+        span_m = float(span_mm) / 1000.0
+        epsilon = float(epsilon_r)
+    except (TypeError, ValueError):
+        return 0.0
+    if span_m <= 0.0 or epsilon < 1.0:
+        return 0.0
+    return LIGHT_SPEED_M_S / (10.0 * span_m * math.sqrt(epsilon))
+
+
+def network_span_mm(node_coords):
+    """Largest planar extent of the meshed copper, in mm."""
+    if not node_coords:
+        return 0.0
+    xs = [coord[0] for coord in node_coords.values()]
+    ys = [coord[1] for coord in node_coords.values()]
+    if not xs or not ys:
+        return 0.0
+    return max(max(xs) - min(xs), max(ys) - min(ys))
+
+
 def resolve_target_impedance(rail, settings):
     """Return ``(target_ohm, provenance)`` for *settings* applied to *rail*.
 
@@ -152,6 +196,9 @@ class ACNetwork:
     ports: Dict[str, ACNodeConnection] = field(default_factory=dict)
     source_ref_des: str = ""
     source_resolution: str = ""
+    # Above this frequency the lumped quasi-static model stops being trustworthy
+    # (see quasi_static_limit_hz). Zero means no bound could be established.
+    quasi_static_limit_hz: float = 0.0
 
 
 def parse_capacitance(value) -> Optional[float]:
@@ -772,13 +819,24 @@ class ACModelBuilder:
                     f"Skipping port '{candidate_ref}': pads could not be mapped to both meshes."
                 )
 
+        combined_coords = {**rail_coords, **ground_coords}
+        substrates = (stackup or {}).get("substrate") or ()
+        epsilon_values = [
+            float(entry.get("epsilon_r", 4.4)) for entry in substrates
+            if isinstance(entry, dict)
+        ]
+        # The largest permittivity gives the shortest wavelength and so the
+        # most conservative bound of the stack.
+        epsilon = max(epsilon_values) if epsilon_values else 4.4
+        limit_hz = quasi_static_limit_hz(network_span_mm(combined_coords), epsilon)
+
         return ACNetwork(
             node_count=len(rail_mesh.nodes) + len(ground_mesh.nodes),
             branches=rail_branches + ground_branches,
             source=source,
             measurement=measurement,
             capacitor_nodes=capacitor_nodes,
-            node_coords={**rail_coords, **ground_coords},
+            node_coords=combined_coords,
             requested_grid_size_mm=float(grid_size_mm),
             effective_grid_size_mm=max(
                 float(rail_mesh.grid_step), float(ground_mesh.grid_step),
@@ -786,4 +844,5 @@ class ACModelBuilder:
             ports=ports,
             source_ref_des=source_ref,
             source_resolution=source_rule,
+            quasi_static_limit_hz=limit_hz,
         )

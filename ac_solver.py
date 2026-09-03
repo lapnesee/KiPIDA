@@ -186,6 +186,15 @@ class ACSolver:
         magnitudes = np.abs(np.asarray(impedances))
         worst_index = int(np.argmax(magnitudes))
         target = max(0.0, float(settings.target_impedance_ohm))
+        # A worst case sitting on the last swept point means the impedance was
+        # still climbing when the window closed: the real maximum may be
+        # outside it, so the number is a lower bound rather than a maximum.
+        worst_at_edge = bool(len(frequencies) > 1 and worst_index == len(frequencies) - 1)
+        limit_hz = float(getattr(network, "quasi_static_limit_hz", 0.0) or 0.0)
+        beyond = (
+            int(np.count_nonzero(np.asarray(frequencies, dtype=float) > limit_hz))
+            if limit_hz > 0.0 else 0
+        )
         return ImpedanceSweepResult(
             frequencies_hz=[float(value) for value in frequencies],
             impedance_ohm=list(impedances),
@@ -196,6 +205,9 @@ class ACSolver:
             mesh_node_count=int(network.node_count),
             requested_grid_size_mm=float(network.requested_grid_size_mm),
             effective_grid_size_mm=float(network.effective_grid_size_mm),
+            quasi_static_limit_hz=limit_hz,
+            points_beyond_quasi_static=beyond,
+            worst_at_sweep_edge=worst_at_edge,
             **compute,
         )
 
