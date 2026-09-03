@@ -136,6 +136,36 @@ def _number(value: Optional[float], unit: str = "") -> str:
     return f"{_esc(text)}&nbsp;{_esc(unit)}" if unit else _esc(text)
 
 
+def _resolve_artifact(raw_path: str, search_roots) -> Optional[Path]:
+    """Locate an artifact file, tolerating a bare recorded filename.
+
+    ProjectResultsHistory records ``AnalysisArtifact.path`` as just the file
+    name and stores the file inside a per-entry subdirectory, so resolving it
+    against the process working directory (KiCad's, in practice) always misses.
+    Try the path as given, then each search root, then a recursive search
+    under each root by file name.
+    """
+    if not raw_path:
+        return None
+    candidate = Path(raw_path)
+    if candidate.is_file():
+        return candidate
+    if candidate.is_absolute():
+        return None
+    for root in search_roots or ():
+        root = Path(root)
+        direct = root / candidate
+        if direct.is_file():
+            return direct
+        try:
+            found = next(root.rglob(candidate.name), None)
+        except OSError:
+            found = None
+        if found is not None and found.is_file():
+            return found
+    return None
+
+
 def _data_uri(path: Path) -> Optional[str]:
     media_type = _IMAGE_MEDIA_TYPES.get(path.suffix.lower())
     if media_type is None:
@@ -344,7 +374,7 @@ def _render_findings(result: AnalysisResult) -> str:
     return "".join(blocks)
 
 
-def _render_artifacts(result: AnalysisResult, embed_images: bool) -> str:
+def _render_artifacts(result: AnalysisResult, embed_images: bool, search_roots=()) -> str:
     if not result.artifacts:
         return ""
     blocks = []
@@ -354,7 +384,8 @@ def _render_artifacts(result: AnalysisResult, embed_images: bool) -> str:
         if not embed_images:
             blocks.append(f'<p class="meta">{title} &mdash; <code>{_esc(raw_path)}</code></p>')
             continue
-        uri = _data_uri(Path(raw_path)) if raw_path else None
+        resolved = _resolve_artifact(raw_path, search_roots)
+        uri = _data_uri(resolved) if resolved is not None else None
         if uri is None:
             blocks.append(
                 f'<div class="missing-artifact"><strong>Artifact unavailable:</strong> '
@@ -369,7 +400,7 @@ def _render_artifacts(result: AnalysisResult, embed_images: bool) -> str:
     return f"<h4>Artifacts</h4>{''.join(blocks)}"
 
 
-def _render_domains(campaign: CampaignResult, embed_images: bool) -> str:
+def _render_domains(campaign: CampaignResult, embed_images: bool, search_roots=()) -> str:
     if not campaign.results:
         return ('<section id="domains"><h2>3. Per domain</h2>'
                 '<p class="muted">No analysis results.</p></section>')
@@ -385,7 +416,7 @@ def _render_domains(campaign: CampaignResult, embed_images: bool) -> str:
             f"{_render_metrics(result)}"
             "<h4>Findings</h4>"
             f"{_render_findings(result)}"
-            f"{_render_artifacts(result, embed_images)}"
+            f"{_render_artifacts(result, embed_images, search_roots)}"
         )
     return f'<section id="domains"><h2>3. Per domain</h2>{"".join(blocks)}</section>'
 
@@ -441,8 +472,15 @@ def _render_appendices(campaign: CampaignResult) -> str:
 # Public API
 # ----------------------------------------------------------------------
 
-def render_campaign_html(campaign: CampaignResult, *, embed_images: bool = True) -> str:
-    """Render *campaign* as a fully self-contained HTML document."""
+def render_campaign_html(
+    campaign: CampaignResult, *, embed_images: bool = True, artifact_roots=(),
+) -> str:
+    """Render *campaign* as a fully self-contained HTML document.
+
+    ``artifact_roots`` are directories to search for artifact files whose
+    recorded path is a bare file name, which is what ProjectResultsHistory
+    stores. Without them, every plot renders as "artifact unavailable".
+    """
     title = _esc(campaign.project_name or "Ki-PIDA campaign report")
     return (
         "<!DOCTYPE html>\n"
@@ -454,7 +492,7 @@ def render_campaign_html(campaign: CampaignResult, *, embed_images: bool = True)
         '<p class="meta">Ki-PIDA consolidated analysis report</p>'
         f"{_render_synthesis(campaign)}"
         f"{_render_actions(campaign)}"
-        f"{_render_domains(campaign, embed_images)}"
+        f"{_render_domains(campaign, embed_images, artifact_roots)}"
         f"{_render_appendices(campaign)}"
         "</body></html>\n"
     )
@@ -462,11 +500,21 @@ def render_campaign_html(campaign: CampaignResult, *, embed_images: bool = True)
 
 def write_campaign_html(
     campaign: CampaignResult, path: Path, *, embed_images: bool = True,
+    artifact_roots=(),
 ) -> Path:
-    """Render *campaign* and write it to *path*, creating parent directories."""
+    """Render *campaign* and write it to *path*, creating parent directories.
+
+    When ``artifact_roots`` is empty the report's own parent directory is
+    searched, which covers the common case of writing beside the analysis
+    history that holds the plots.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    roots = tuple(artifact_roots) or (path.parent,)
     path.write_text(
-        render_campaign_html(campaign, embed_images=embed_images), encoding="utf-8",
+        render_campaign_html(
+            campaign, embed_images=embed_images, artifact_roots=roots,
+        ),
+        encoding="utf-8",
     )
     return path

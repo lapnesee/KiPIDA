@@ -426,6 +426,28 @@ class KiPIDA_MainDialog(wx.Dialog):
         history = self._results_history_directory()
         return history if history is not None else Path.cwd() / "KiPIDA-results"
 
+    @staticmethod
+    def _board_fingerprint(board_path):
+        """SHA-256 of the .kicad_pcb, used to tell campaigns apart.
+
+        The per-domain adapters do not currently stamp board_fingerprint, so
+        without this the field is empty and comparing a before/after campaign
+        cannot tell whether the board changed. Hashing the file is the same
+        thing the DesignModel does, and is cheap enough at report time.
+        """
+        if not board_path:
+            return ""
+        try:
+            import hashlib
+
+            digest = hashlib.sha256()
+            with open(board_path, "rb") as handle:
+                for block in iter(lambda: handle.read(131072), b""):
+                    digest.update(block)
+            return digest.hexdigest()
+        except OSError:
+            return ""
+
     def on_build_campaign_report(self, _event):
         """Aggregate this session's analyses into one report and open it.
 
@@ -456,7 +478,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             campaign = CampaignResult(
                 project_name=Path(board_path).stem if board_path else "KiPIDA",
                 board_fingerprint=next(
-                    (r.board_fingerprint for r in results if r.board_fingerprint), "",
+                    (r.board_fingerprint for r in results if r.board_fingerprint),
+                    self._board_fingerprint(board_path),
                 ),
                 results=list(results),
             ).recompute()
@@ -465,7 +488,10 @@ class KiPIDA_MainDialog(wx.Dialog):
             directory.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             html_path = directory / f"campaign-{stamp}.html"
-            write_campaign_html(campaign, html_path)
+            # Plots live in per-analysis subdirectories of the history folder,
+            # and are recorded by bare file name, so the renderer needs a root
+            # to search or every figure reports itself unavailable.
+            write_campaign_html(campaign, html_path, artifact_roots=(directory,))
             write_findings_csv(campaign, directory / f"findings-{stamp}.csv")
             write_actions_csv(campaign, directory / f"actions-{stamp}.csv")
 
