@@ -20,7 +20,10 @@ plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if plugin_dir not in sys.path:
     sys.path.insert(0, plugin_dir)
 
-from ac_model import ACModelBuilder, nearest_ground_nodes
+from ac_model import (
+    EPT_POWER_INPUT, EPT_POWER_OUTPUT, EPT_UNKNOWN,
+    ACModelBuilder, nearest_ground_nodes, pad_electrical_type,
+)
 from models import (
     ACAnalysisSettings, ACMeasurementPort, ACSourceModel, ComponentRef,
     PowerRail, UnifiedLoad, UnifiedSource, VoltageRegulator,
@@ -33,6 +36,15 @@ def pad(number, net_name, x=0.0, y=0.0):
         net=SimpleNamespace(name=net_name),
         position=SimpleNamespace(x=x, y=y),
     )
+
+
+def typed_pad(number, net_name, electrical_type, x=0.0, y=0.0):
+    """A pad carrying a schematic pin type, shaped like kipy's Pad.proto."""
+    item = pad(number, net_name, x, y)
+    item.proto = SimpleNamespace(
+        symbol_pin=SimpleNamespace(name="", type=electrical_type, no_connect=False),
+    )
+    return item
 
 
 class FakeMesh:
@@ -206,6 +218,97 @@ class SourceResolutionTests(unittest.TestCase):
         message = builder._unmapped_message("AC source", ref_des, settings)
         self.assertIn("+12V_ABSENT", message)
         self.assertIn("Power Tree", message)
+
+
+class PinTypeSourceTests(unittest.TestCase):
+    """Schematic pin type beats guessing from a reference designator."""
+
+    def _builder(self, footprints):
+        return ACModelBuilder(SimpleNamespace(footprints=footprints))
+
+    def test_power_output_pin_outranks_the_naming_heuristic(self):
+        # L1 would win on name alone; U4's declared power output must win
+        # instead, because that is a fact off the board rather than a guess.
+        inductor = SimpleNamespace(
+            reference="L1", value="2u2",
+            pads=[pad("1", "SW"), pad("2", "+5V_RAIL")],
+        )
+        regulator = SimpleNamespace(
+            reference="U4", value="TPS62",
+            pads=[typed_pad("5", "+5V_RAIL", EPT_POWER_OUTPUT)],
+        )
+        rail = PowerRail(net_name="+5V_RAIL")
+        settings = ACAnalysisSettings(rail_name="+5V_RAIL")
+
+        ref_des, pads, rule = self._builder([inductor, regulator]).resolve_source(
+            rail, settings, all_rails=[rail],
+        )
+
+        self.assertEqual(ref_des, "U4")
+        self.assertEqual(pads, ["5"])
+        self.assertEqual(rule, "pin-type:power_output")
+
+    def test_power_input_is_never_chosen_as_a_source(self):
+        # A connector declaring a power input is a load; with nothing else on
+        # the rail there is no source to report, and saying so beats returning
+        # the load as if it supplied the net.
+        connector = SimpleNamespace(
+            reference="J6", value="Conn",
+            pads=[typed_pad("5", "+5V_RAIL", EPT_POWER_INPUT)],
+        )
+        rail = PowerRail(net_name="+5V_RAIL")
+        settings = ACAnalysisSettings(rail_name="+5V_RAIL")
+
+        ref_des, _pads, rule = self._builder([connector]).resolve_source(
+            rail, settings, all_rails=[rail],
+        )
+
+        self.assertEqual(ref_des, "")
+        self.assertIn("power input", rule)
+
+    def test_power_input_is_excluded_leaving_the_heuristic_the_rest(self):
+        inductor = SimpleNamespace(
+            reference="L1", value="2u2", pads=[pad("2", "+5V_RAIL")],
+        )
+        connector = SimpleNamespace(
+            reference="J6", value="Conn",
+            pads=[typed_pad("5", "+5V_RAIL", EPT_POWER_INPUT)],
+        )
+        rail = PowerRail(net_name="+5V_RAIL")
+        settings = ACAnalysisSettings(rail_name="+5V_RAIL")
+
+        ref_des, _pads, rule = self._builder([connector, inductor]).resolve_source(
+            rail, settings, all_rails=[rail],
+        )
+
+        self.assertEqual(ref_des, "L1")
+        self.assertIn("excluded 1 power-input", rule)
+
+    def test_board_without_pin_metadata_degrades_to_the_heuristic(self):
+        # Synthetic pads carry no `proto`; that must not raise, it must simply
+        # leave the earlier behaviour intact.
+        self.assertIsNone(pad_electrical_type(pad("1", "+5V_RAIL")))
+
+        inductor = SimpleNamespace(
+            reference="L1", value="2u2", pads=[pad("2", "+5V_RAIL")],
+        )
+        rail = PowerRail(net_name="+5V_RAIL")
+        settings = ACAnalysisSettings(rail_name="+5V_RAIL")
+
+        ref_des, _pads, rule = self._builder([inductor]).resolve_source(
+            rail, settings, all_rails=[rail],
+        )
+
+        self.assertEqual(ref_des, "L1")
+        self.assertIn("heuristic", rule)
+
+    def test_unset_enum_reads_as_no_information(self):
+        # An unset protobuf enum is 0 (EPT_UNKNOWN), which is absence of data,
+        # not a pin type -- it must not be treated as a usable answer.
+        self.assertIsNone(pad_electrical_type(typed_pad("1", "N", EPT_UNKNOWN)))
+        self.assertEqual(
+            pad_electrical_type(typed_pad("1", "N", EPT_POWER_OUTPUT)), EPT_POWER_OUTPUT,
+        )
 
 
 class PortResolutionTests(unittest.TestCase):

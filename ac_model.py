@@ -16,6 +16,37 @@ except (ImportError, ValueError):
     from models import ACAnalysisSettings, CapacitorModel, MeshBranch, PowerRail
 
 
+# kiapi.common.types.ElectricalPinType, as carried by Pad.symbol_pin.type on a
+# live board.  A pin declared a power output is factually where energy enters a
+# net; a power input is factually a load.  Using them replaces guessing from a
+# reference designator prefix, which only works on boards named the way this
+# plugin happens to expect.
+EPT_UNKNOWN = 0
+EPT_POWER_INPUT = 8
+EPT_POWER_OUTPUT = 9
+
+
+def pad_electrical_type(pad):
+    """The pad's schematic pin type, or None when the board does not carry one.
+
+    KiCad exposes it through ``Pad.proto.symbol_pin.type``.  Older files,
+    footprints with no schematic association, and the synthetic pads used in
+    tests have no such field, and an unset protobuf enum reads as
+    ``EPT_UNKNOWN`` rather than being absent -- both mean "no information",
+    so both return None and let the caller fall through to the next rule.
+    """
+    try:
+        symbol_pin = pad.proto.symbol_pin
+    except Exception:
+        return None
+    value = getattr(symbol_pin, "type", None)
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return None
+    return None if value == EPT_UNKNOWN else value
+
+
 @dataclass
 class ACNodeConnection:
     rail_nodes: List[int] = field(default_factory=list)
@@ -387,6 +418,27 @@ class ACModelBuilder:
                 found.append((reference, pads))
         return found
 
+    def pads_on_net_by_type(self, net_name, electrical_type):
+        """(ref_des, pad_numbers) for pads on *net_name* declaring *electrical_type*.
+
+        Board order, and only pads whose schematic pin type is actually known
+        -- a board without pin metadata yields nothing here rather than a
+        misleading empty-versus-absent distinction.
+        """
+        found = []
+        for footprint in self._get_board_items("footprints"):
+            reference = self._get_footprint_reference(footprint)
+            if not reference:
+                continue
+            pads = [
+                self._pad_number(pad) for pad in self._get_pads(footprint)
+                if self._pad_net_name(pad) == net_name
+                and pad_electrical_type(pad) == electrical_type
+            ]
+            if pads:
+                found.append((reference, pads))
+        return found
+
     @staticmethod
     def _source_preference(ref_des):
         """Rank a fallback source candidate. Lower sorts first.
@@ -429,12 +481,34 @@ class ACModelBuilder:
                         f"regulator '{getattr(regulator, 'name', '')}' output",
                     )
 
+        # A pin the schematic declares a power output is where energy enters
+        # this net.  That is a fact off the board, not an inference from a
+        # reference designator, so it outranks the naming heuristic below.
+        power_outputs = self.pads_on_net_by_type(settings.rail_name, EPT_POWER_OUTPUT)
+        if power_outputs:
+            reference, pads = power_outputs[0]
+            return reference, list(pads), "pin-type:power_output"
+
         candidates = self.components_on_net(settings.rail_name)
-        if candidates:
+        # A power input is a load by definition and can never be the source.
+        # Dropping those leaves the naming heuristic a smaller, saner pool.
+        power_inputs = {
+            reference for reference, _pads
+            in self.pads_on_net_by_type(settings.rail_name, EPT_POWER_INPUT)
+        }
+        remaining = [item for item in candidates if item[0] not in power_inputs]
+        if remaining:
             reference, pads = min(
-                candidates, key=lambda item: (self._source_preference(item[0]), item[0]),
+                remaining, key=lambda item: (self._source_preference(item[0]), item[0]),
             )
-            return reference, list(pads), "heuristic pick among rail components"
+            rule = "heuristic pick among rail components"
+            if power_inputs:
+                rule += f" (excluded {len(power_inputs)} power-input load(s))"
+            return reference, list(pads), rule
+        if candidates:
+            # Everything on the rail is a declared load.  Naming it explicitly
+            # beats silently returning a load as if it were a supply.
+            return "", [], "unresolved: every component on the rail is a power input"
         return "", [], "unresolved"
 
     def resolve_ports(self, rail, settings):
