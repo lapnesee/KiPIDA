@@ -59,6 +59,43 @@ class ACSolver:
             )
         return self._cpu_reference_backend
 
+    # A sweep never drops the CUDA threshold below this. Very small systems
+    # are genuinely faster on CPU whatever the repeat count, and the audit's
+    # extra CPU solve would then cost more than the sweep it guards.
+    MIN_SWEEP_CUDA_NODES = 10000
+
+    def _amortise_cuda_threshold(self, solve_count):
+        """Lower the AUTO CUDA threshold to reflect a repeated solve.
+
+        ``cuda_min_nodes`` is calibrated for one solve, where the transfer and
+        preconditioner setup must pay for themselves once. A sweep solves a
+        same-sized system at every frequency against a resident matrix, so the
+        fixed cost amortises across all of them and the break-even node count
+        drops roughly in proportion. Without this an AC network sits below a
+        threshold meant for single solves and never reaches the GPU at all --
+        which is what happened on a 39,569-node board against the 100,000-node
+        default.
+
+        Only AUTO is adjusted: an explicit CPU or CUDA choice is the user's.
+        """
+        settings = getattr(self.compute_backend, "settings", None)
+        if settings is None or getattr(settings, "backend", "") != "AUTO":
+            return
+        current = int(getattr(settings, "cuda_min_nodes", 0) or 0)
+        if current <= 0 or solve_count <= 1:
+            return
+        amortised = max(self.MIN_SWEEP_CUDA_NODES, current // solve_count)
+        if amortised >= current:
+            return
+        try:
+            settings.cuda_min_nodes = amortised
+        except Exception:
+            return
+        self._log(
+            f"Sweep of {solve_count} solves amortises the CUDA setup cost: "
+            f"threshold lowered from {current:,} to {amortised:,} nodes for this run."
+        )
+
     @staticmethod
     def _measured_impedance(network, voltage):
         rail_voltage = np.mean([voltage[node] for node in network.measurement.rail_nodes])
@@ -436,6 +473,7 @@ class ACSolver:
             np.log10(settings.frequency_stop_hz),
             int(settings.frequency_points),
         )
+        self._amortise_cuda_threshold(int(len(frequencies)))
         impedances = []
         compute_samples = []
         audited = False

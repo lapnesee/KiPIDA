@@ -702,11 +702,26 @@ class KiPIDA_MainDialog(wx.Dialog):
                 # matrix with BiCGSTAB, and the sweep already falls back to CPU
                 # on non-convergence, so let it choose -- guarded by the
                 # first-point accuracy audit.
-                self.log(
-                    "AC backend AUTO: will attempt CUDA and verify its first "
-                    "frequency point against a CPU direct solve, falling back to "
-                    "CPU if they disagree or if CUDA fails to converge."
-                )
+                #
+                # Report the decision the backend will actually make rather
+                # than an intention: AUTO only reaches CUDA once the network
+                # clears cuda_min_nodes, and announcing an attempt that the
+                # node count rules out is how a log starts lying.
+                nodes = int(getattr(network, "node_count", 0) or 0)
+                threshold = int(getattr(compute_settings, "cuda_min_nodes", 0) or 0)
+                if nodes >= threshold:
+                    self.log(
+                        f"AC backend AUTO: {nodes:,} nodes reaches the {threshold:,}-node "
+                        "CUDA threshold; the first frequency point will be verified "
+                        "against a CPU direct solve, falling back to CPU if they "
+                        "disagree or if CUDA fails to converge."
+                    )
+                else:
+                    self.log(
+                        f"AC backend AUTO: {nodes:,} nodes is below the {threshold:,}-node "
+                        "CUDA threshold, so this sweep runs on CPU. Force CUDA in Runtime "
+                        "settings to use the GPU and its accuracy audit anyway."
+                    )
             request = ACRunRequest(
                 settings=settings,
                 network=network,
