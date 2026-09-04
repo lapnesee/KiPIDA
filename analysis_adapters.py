@@ -574,11 +574,11 @@ def attach_dc_remediations(result: Any, board_path: Any, rails: Any,
         if remediations:
             finding.remediations.extend(remediations)
             attached += 1
-        else:
-            _log(
-                f"{rail.net_name}: the advisor produced no action (drop already "
-                "within target, no meshable copper, or the solve did not converge)."
-            )
+        # Deliberately silent when the advisor declines. It logs its own reason
+        # through this same callback -- "the dominant loss is not on track
+        # segments", for instance -- and the generic line that used to follow
+        # offered three alternatives, every one of them wrong in that case,
+        # burying a precise answer under guesses.
     return attached
 
 
