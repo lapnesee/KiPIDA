@@ -171,6 +171,31 @@ def map_pads_to_nodes(mesh, parsed_board, ref_des, pad_names, *,
     return node_ids, unlocated
 
 
+def unreachable_nodes(mesh, seed_nodes, target_nodes):
+    """Which of *target_nodes* no branch path reaches from *seed_nodes*.
+
+    A load the source cannot reach carries no current, and the solver drops it
+    from the system. ``load_drop_v`` then finds no load voltage and returns
+    0.0 V, which reads exactly like a rail comfortably within target -- a
+    fictitious pass. Checking first turns that into something the caller can
+    state.
+    """
+    adjacency = {}
+    for branch in getattr(mesh, "branches", ()) or ():
+        adjacency.setdefault(branch.node_a, []).append(branch.node_b)
+        adjacency.setdefault(branch.node_b, []).append(branch.node_a)
+
+    seen = set(seed_nodes)
+    stack = list(seed_nodes)
+    while stack:
+        node = stack.pop()
+        for neighbour in adjacency.get(node, ()):
+            if neighbour not in seen:
+                seen.add(neighbour)
+                stack.append(neighbour)
+    return [node for node in target_nodes if node not in seen]
+
+
 def solver_loads(mesh, parsed_board, rail, *, grid_step_mm=0.1,
                  log_callback: Optional[Callable[[str], None]] = None):
     """Convert a rail's ``UnifiedLoad`` entries into solver current injections.

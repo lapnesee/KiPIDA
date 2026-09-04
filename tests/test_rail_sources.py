@@ -17,7 +17,7 @@ if _root not in sys.path:
 
 from advisor.rail_sources import (
     map_pads_to_nodes, pad_pin_type, pad_positions, resolve_rail_source,
-    solver_loads,
+    solver_loads, unreachable_nodes,
 )
 
 
@@ -218,6 +218,31 @@ class SolverLoadTests(unittest.TestCase):
         loads = solver_loads(mesh, board, rail, log_callback=messages.append)
         self.assertEqual(loads, [])
         self.assertTrue(any("not modelled" in message for message in messages))
+
+
+@dataclass
+class _Branch:
+    node_a: int
+    node_b: int
+
+
+class _BranchMesh:
+    def __init__(self, branches):
+        self.branches = [_Branch(a, b) for a, b in branches]
+
+
+class ReachabilityTests(unittest.TestCase):
+    def test_a_load_on_its_own_island_is_reported(self):
+        # The real board meshes +5V_RAIL into 63,897 components: its loads sit
+        # on track-segment islands the plane never joins. Left unchecked the
+        # solver drops them, load_drop_v returns 0.0 V, and the rail is
+        # declared within target -- a pass that never happened.
+        mesh = _BranchMesh([(1, 2), (2, 3), (90, 91)])
+        self.assertEqual(unreachable_nodes(mesh, [1], [3, 90]), [90])
+
+    def test_a_connected_load_is_not_reported(self):
+        mesh = _BranchMesh([(1, 2), (2, 3)])
+        self.assertEqual(unreachable_nodes(mesh, [1], [3]), [])
 
 
 if __name__ == "__main__":

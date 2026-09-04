@@ -458,6 +458,7 @@ def attach_dc_remediations(result: Any, board_path: Any, rails: Any,
         from advisor.dc_advisor import build_dc_remediations, build_net_mesh
         from advisor.rail_sources import (
             map_pads_to_nodes, resolve_rail_source, solver_loads,
+            unreachable_nodes,
         )
         from ingest.board_reader import read_board
     except ImportError:
@@ -538,6 +539,20 @@ def attach_dc_remediations(result: Any, board_path: Any, rails: Any,
             _log(
                 f"{rail.net_name} skipped: no load current could be placed on "
                 "the mesh, so there is no drop to size against."
+            )
+            continue
+
+        stranded = unreachable_nodes(
+            mesh, source_nodes, [item["node_id"] for item in loads],
+        )
+        if stranded:
+            # Without this the solver drops the unreachable loads, load_drop_v
+            # finds no load voltage and returns 0.0 V, and the advisor reports
+            # the rail as already within target -- a pass that never happened.
+            _log(
+                f"{rail.net_name} skipped: {len(stranded)} of {len(loads)} load "
+                f"node(s) are not connected to source {source_ref} in the meshed "
+                "copper, so any drop computed would be fictitious."
             )
             continue
 
