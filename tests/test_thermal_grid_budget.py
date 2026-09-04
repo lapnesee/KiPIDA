@@ -73,12 +73,14 @@ class NodeBudgetTests(unittest.TestCase):
         mesher = self.ThermalMesher(compute_settings=_Compute(memory_limit_gib=gib))
         return mesher._node_limit()[0]
 
-    def test_an_explicit_budget_is_no_longer_clipped_by_the_default_ceiling(self):
-        # 16 GiB / 1280 bytes per node = 13.4 M, which the 4 M ceiling used to
-        # discard entirely.
+    def test_an_explicit_budget_cannot_raise_the_limit_past_the_ceiling(self):
+        # This briefly asserted the opposite. Letting a declared 16 GiB reach
+        # the 13.4 M nodes it nominally affords drove the process past 44 GB
+        # without finishing: HOST_PEAK_BYTES_PER_NODE covers the mesh, not the
+        # working set of everything downstream of it. The ceiling is the
+        # backstop for that gap.
         limit = self._limit(16.0)
-        self.assertGreater(limit, self.ThermalMesher.HARD_CUDA_NODE_LIMIT)
-        self.assertEqual(limit, int(16.0 * (1024 ** 3) // 1280))
+        self.assertEqual(limit, self.ThermalMesher.HARD_CUDA_NODE_LIMIT)
 
     def test_no_declared_budget_keeps_the_conservative_default(self):
         limit = self._limit(0.0)

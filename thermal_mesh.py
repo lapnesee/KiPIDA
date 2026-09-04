@@ -349,22 +349,19 @@ class ThermalMesher:
         if configured_gib <= 0.0:
             return base_limit, cuda_requested
         memory_nodes = int(configured_gib * (1024 ** 3) // self.HOST_PEAK_BYTES_PER_NODE)
-        # An explicit memory_limit_gib is a statement about this machine, so it
-        # governs. The hard ceiling protects a user who never made that
-        # statement; applying it on top of one turns a considered declaration
-        # into a no-op -- a 16 GiB budget allows 13.4 M nodes and the ceiling
-        # silently refused 9.4 M of them, so the setting did nothing past 4 M.
-        # The declared budget still bounds the mesh; only the blanket cap goes.
-        limit = max(10000, memory_nodes)
-        if limit > hard_limit:
-            self._log(
-                f"Explicit {configured_gib:g} GiB budget allows {limit:,} nodes, above the "
-                f"{hard_limit:,}-node default ceiling. Honouring the budget: at "
-                f"{self.HOST_PEAK_BYTES_PER_NODE} bytes per node a full mesh needs about "
-                f"{limit * self.HOST_PEAK_BYTES_PER_NODE / (1024 ** 3):.1f} GiB of host RAM "
-                "at peak. Lower the ceiling in Runtime settings if that is too close."
-            )
-        return limit, cuda_requested
+        # The ceiling is reinstated, and it was not the conservative figure it
+        # looked like. Letting a declared 16 GiB budget reach 12.3 M nodes drove
+        # the process past 44 GB -- roughly 3,600 bytes per node against the
+        # 1,280 assumed here -- without finishing, and it had to be killed.
+        #
+        # HOST_PEAK_BYTES_PER_NODE covers the mesh containers, packed branches,
+        # assembled matrix and iterative vectors, and it is about right for
+        # those. What it cannot cover is the working set of everything the mesh
+        # then feeds, which is not proportional to node count and not ours to
+        # predict. The ceiling is the backstop for that gap, so an explicit
+        # budget lowers the limit but never raises it past what the machine was
+        # shown to survive.
+        return max(10000, min(hard_limit, memory_nodes)), cuda_requested
 
     @staticmethod
     def _sample_layer_band(outline, copper, min_x, min_y, nx, row_start, row_stop, grid,

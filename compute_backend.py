@@ -303,6 +303,13 @@ class SparseComputeBackend:
             "CPU_SCIPY_CG" if str(system_kind).upper() == "SPD" else "CPU_SCIPY_BICGSTAB"
         )
 
+    # Above this, a sparse direct solve is not attempted at all. Fill-in for a
+    # 3-D-like Laplacian grows far faster than the matrix, and the factorisation
+    # is not bounded by any budget we set: a 12.3 M-node thermal mesh drove the
+    # process past 44 GB without finishing or failing, and had to be killed.
+    # Catching the failure afterwards is too late -- the damage is the attempt.
+    DIRECT_SOLVE_MAX_NODES = 2000000
+
     def _solve_cpu(self, matrix, rhs, system_kind="SPD"):
         matrix = scipy.sparse.csr_matrix(matrix, dtype=matrix.dtype)
         matrix.sort_indices()
@@ -310,6 +317,18 @@ class SparseComputeBackend:
         context = threadpool_limits(limits=threads) if threadpool_limits else nullcontext()
         started = time.perf_counter()
         solver_method = "DIRECT"
+        if matrix.shape[0] > self.DIRECT_SOLVE_MAX_NODES:
+            self._log(
+                f"{matrix.shape[0]:,} unknowns exceeds the {self.DIRECT_SOLVE_MAX_NODES:,} "
+                "direct-solve limit; solving iteratively, which needs no "
+                "factorisation memory."
+            )
+            values, elapsed, backend_name = self._solve_cpu_iterative(
+                matrix, rhs, system_kind,
+            )
+            return self._finish_cpu(
+                matrix, rhs, values, elapsed, backend_name, threads, "ITERATIVE",
+            )
         try:
             with context:
                 if pypardiso is not None and not np.iscomplexobj(matrix.data):
@@ -335,6 +354,19 @@ class SparseComputeBackend:
             )
             effective_threads = threads
             solver_method = "ITERATIVE"
+        return self._finish_cpu(
+            matrix, rhs, values, elapsed, backend_name, effective_threads,
+            solver_method,
+        )
+
+    def _finish_cpu(self, matrix, rhs, values, elapsed, backend_name,
+                    threads, solver_method):
+        """Validate a CPU solution and wrap it, whichever method produced it.
+
+        The residual gate applies to the iterative path exactly as to the
+        direct one, so a fallback cannot pass off a worse answer as an equal
+        one.
+        """
         values = np.asarray(values, dtype=matrix.dtype)
         if not np.all(np.isfinite(values)):
             raise RuntimeError("CPU sparse solution contains non-finite values.")
@@ -349,7 +381,7 @@ class SparseComputeBackend:
             backend=backend_name,
             solve_seconds=elapsed,
             relative_residual=relative_residual,
-            cpu_threads=effective_threads,
+            cpu_threads=threads,
             solver_method=solver_method,
         ))
 
@@ -469,7 +501,17 @@ class SparseComputeBackend:
             # symmetrically and submits an SPD matrix, which takes the CG path
             # without this cap.
             dc_trial = str(system_kind).upper() == "DC"
-            max_iterations = min(self.settings.solver_max_iterations, 750) if dc_trial else self.settings.solver_max_iterations
+            if dc_trial:
+                max_iterations = min(self.settings.solver_max_iterations, 750)
+            else:
+                # A flat cap is a size-independent answer to a size-dependent
+                # question: Jacobi-preconditioned CG needs iterations growing
+                # with sqrt(N), so 5,000 that suffices at 125 k unknowns simply
+                # runs out at 12.3 M and reports a false non-convergence.
+                max_iterations = max(
+                    int(self.settings.solver_max_iterations),
+                    10 * int(np.sqrt(matrix.shape[0])),
+                )
             kwargs = {
                 "rtol": self.settings.solver_rtol,
                 "atol": 0.0,
