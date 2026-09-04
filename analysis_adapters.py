@@ -455,7 +455,10 @@ def attach_dc_remediations(result: Any, board_path: Any, rails: Any,
     try:
         from pathlib import Path
 
-        from advisor.dc_advisor import build_dc_remediations
+        from advisor.dc_advisor import build_dc_remediations, build_net_mesh
+        from advisor.rail_sources import (
+            map_pads_to_nodes, resolve_rail_source, solver_loads,
+        )
         from ingest.board_reader import read_board
     except ImportError:
         return 0
@@ -470,6 +473,16 @@ def attach_dc_remediations(result: Any, board_path: Any, rails: Any,
         _log(f"Board could not be read for remediation sizing: {exc}")
         return 0
 
+    # The advisor re-meshes internally with these same parameters, and node ids
+    # are stable for a given (board, net, grid) per dc_advisor's docstring, so
+    # ids resolved here address the mesh it will solve.
+    #
+    # The rail is meshed alone. merge_meshes exists for a rail+return loop, but
+    # build_dc_remediations takes flat source/load lists that carry no pairing
+    # between a rail node and its return, so adding the ground net would attach
+    # a floating island rather than a return path -- slower and noisier for no
+    # gain in accuracy.
+    grid_step_mm = 0.1
     rails_by_net = {str(getattr(rail, "net_name", "")): rail for rail in rails}
     attached = 0
     for finding in getattr(result, "findings", ()):
@@ -487,23 +500,57 @@ def attach_dc_remediations(result: Any, board_path: Any, rails: Any,
                 "target to size against; skipped."
             )
             continue
-        if not getattr(rail, "sources", None):
-            # The advisor needs a Dirichlet anchor to solve against. A rail fed
-            # by a regulator carries no UnifiedSource, which is most rails on a
-            # power board -- the same gap the AC path closed by resolving the
-            # source from pin type. Say so rather than returning silently.
+        source_ref, source_pads, rule = resolve_rail_source(board, rail, rails)
+        if source_ref is None:
+            _log(f"{rail.net_name} skipped: {rule}.")
+            continue
+
+        try:
+            mesh = build_net_mesh(board, rail.net_name, "", grid_step_mm=grid_step_mm)
+        except Exception as exc:
+            _log(f"{rail.net_name} could not be meshed for sizing: {exc}")
+            continue
+        if not mesh.nodes:
+            _log(f"{rail.net_name} has no meshable copper; skipped.")
+            continue
+
+        source_nodes, unlocated = map_pads_to_nodes(
+            mesh, board, source_ref, source_pads,
+            net_name=rail.net_name, grid_step_mm=grid_step_mm,
+        )
+        if not source_nodes:
             _log(
-                f"{rail.net_name} declares no source component, so the advisor "
-                "has no reference to solve against; skipped. Declare a source "
-                "on the rail, or wait for pin-type source resolution here."
+                f"{rail.net_name} skipped: source {source_ref} ({rule}) has no "
+                "pad on the meshed copper"
+                + (f"; unlocated pad(s) {', '.join(unlocated)}" if unlocated else "")
+                + "."
             )
             continue
+        _log(
+            f"{rail.net_name} source resolved to {source_ref} via {rule} "
+            f"({len(source_nodes)} node(s))."
+        )
+
+        loads = solver_loads(
+            mesh, board, rail, grid_step_mm=grid_step_mm, log_callback=_log,
+        )
+        if not loads:
+            _log(
+                f"{rail.net_name} skipped: no load current could be placed on "
+                "the mesh, so there is no drop to size against."
+            )
+            continue
+
         try:
             remediations = build_dc_remediations(
-                board, rail.net_name, "GND",
-                sources=list(getattr(rail, "sources", ()) or ()),
-                loads=list(getattr(rail, "loads", ()) or ()),
+                board, rail.net_name, "",
+                sources=[
+                    {"node_id": node_id, "voltage": nominal}
+                    for node_id in source_nodes
+                ],
+                loads=loads,
                 target_drop_v=nominal * float(maximum_drop_pct) / 100.0,
+                grid_step_mm=grid_step_mm,
                 verify=verify, log_callback=log_callback,
             )
         except Exception as exc:
@@ -518,6 +565,8 @@ def attach_dc_remediations(result: Any, board_path: Any, rails: Any,
                 "within target, no meshable copper, or the solve did not converge)."
             )
     return attached
+
+
 def _thermal_surface_metrics(domain_result: Any) -> list:
     """Publish the surface coefficients that produced the temperatures.
 
