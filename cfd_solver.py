@@ -234,6 +234,16 @@ class EnclosureCFDSolver:
             elif kind in {"OUTLET", "VENT"}:
                 outlets.extend((cell, axis, inward_sign, areas[axis]) for cell in mapped.cells)
         outlet_area = sum(item[3] for item in outlets)
+        # Record what the projection actually delivered to the outlet *before*
+        # the fix-up below overwrites it. Comparing the inflow against the
+        # imposed outflow is a tautology -- it made mass_balance_error_pct read
+        # 4e-14% on a duct that was losing 5.2% of its mass. This is the honest
+        # measurement: how far the solver was off before being corrected.
+        self._natural_outflow = sum(
+            max(0.0, -inward_sign * velocity[axis][cell]) * area
+            for cell, axis, inward_sign, area in outlets
+        )
+        self._imposed_inflow = incoming
         if incoming > 0.0 and outlet_area > 0.0:
             outward_velocity = incoming / outlet_area
             for cell, axis, inward_sign, _ in outlets:
@@ -341,24 +351,86 @@ class EnclosureCFDSolver:
         return temperatures, residual
 
     def _flow_balance(self, mesh, velocity):
-        incoming = outgoing = 0.0
-        areas = (mesh.spacing_m[1] * mesh.spacing_m[2],
-                 mesh.spacing_m[0] * mesh.spacing_m[2],
-                 mesh.spacing_m[0] * mesh.spacing_m[1])
-        for mapped in mesh.patch_cells:
-            kind = str(mapped.patch.kind).upper()
-            if kind not in {"INLET", "FAN", "OUTLET", "VENT"}:
-                continue
-            axis, inward_sign = self._normal(str(mapped.patch.face).upper())
-            for cell in mapped.cells:
-                inward_velocity = inward_sign * velocity[axis][cell]
-                if inward_velocity >= 0:
-                    incoming += inward_velocity * areas[axis]
-                else:
-                    outgoing += -inward_velocity * areas[axis]
+        """Percentage of the inflow the solver failed to carry to the outlet.
+
+        This compares the imposed inflow against the outflow the pressure
+        projection *produced*, captured before the outlet fix-up overwrites it.
+        The previous version compared the inflow against the imposed outflow,
+        which are the same number by construction; it reported 4e-14% on a duct
+        that was losing 5.2% of its mass. See docs/validation-cfd.md.
+
+        Falls back to the patch-based comparison only when no projection has run
+        yet, so the value is never fabricated.
+        """
+        incoming = float(getattr(self, "_imposed_inflow", 0.0))
+        outgoing = getattr(self, "_natural_outflow", None)
+        if outgoing is None:
+            areas = (mesh.spacing_m[1] * mesh.spacing_m[2],
+                     mesh.spacing_m[0] * mesh.spacing_m[2],
+                     mesh.spacing_m[0] * mesh.spacing_m[1])
+            incoming = outgoing = 0.0
+            for mapped in mesh.patch_cells:
+                kind = str(mapped.patch.kind).upper()
+                if kind not in {"INLET", "FAN", "OUTLET", "VENT"}:
+                    continue
+                axis, inward_sign = self._normal(str(mapped.patch.face).upper())
+                for cell in mapped.cells:
+                    inward_velocity = inward_sign * velocity[axis][cell]
+                    if inward_velocity >= 0:
+                        incoming += inward_velocity * areas[axis]
+                    else:
+                        outgoing += -inward_velocity * areas[axis]
+        outgoing = float(outgoing)
         if incoming + outgoing <= 1e-15:
             return 0.0
         return abs(incoming - outgoing) / max(incoming, outgoing, 1e-15) * 100.0
+
+    @staticmethod
+    def _board_free_stream(mesh, speed):
+        """Mean air speed approaching the board, in m/s, with its cell count.
+
+        The flat-plate correlation Nu = 0.664 Re^0.5 Pr^(1/3) takes the
+        *free-stream* velocity: it derives the boundary layer analytically, so
+        feeding it a near-wall speed would count the same physics twice and
+        under-predict the coefficient.
+
+        That happens to align with what a coarse enclosure mesh can be trusted
+        for. The validation duct showed the bulk speed converging to 0.4% of the
+        analytic answer once resolved, while the wall-adjacent layer is exactly
+        where a 5 mm cell is least reliable -- at six cells across a channel the
+        solver produced no boundary layer at all.
+
+        So this samples fluid cells at a stand-off of two cells from any solid,
+        restricted to the slab the board occupies. It returns 0.0 rather than a
+        fabricated fallback when the mesh is too coarse to offer such cells,
+        which is the caller's signal to stay with natural convection.
+        """
+        names = getattr(mesh, "obstacle_names", None)
+        if names is None:
+            return 0.0, 0
+        board = np.asarray(names) == "PCB"
+        if not np.any(board):
+            return 0.0, 0
+        # Dilate the solid mask by two cells; anything still fluid afterwards is
+        # at least two cells clear of every obstacle.
+        near_solid = np.asarray(mesh.solid_mask, dtype=bool).copy()
+        for _ in range(2):
+            grown = near_solid.copy()
+            for axis in range(3):
+                grown |= EnclosureCFDSolver._shift(near_solid, axis, 1, False)
+                grown |= EnclosureCFDSolver._shift(near_solid, axis, -1, False)
+            near_solid = grown
+        # Restrict to the slab spanned by the board, so a fan blowing through an
+        # empty corner of a large enclosure cannot masquerade as flow over it.
+        extent = np.argwhere(board)
+        slab = np.zeros(mesh.shape, dtype=bool)
+        lower = extent.min(axis=0)
+        upper = extent.max(axis=0)
+        slab[lower[0]:upper[0] + 1, lower[1]:upper[1] + 1, lower[2]:upper[2] + 1] = True
+        sample = mesh.fluid_mask & ~near_solid & slab
+        if not np.any(sample):
+            return 0.0, 0
+        return float(np.mean(speed[sample])), int(np.count_nonzero(sample))
 
     def _energy_balance(self, mesh, settings, temperature, velocity):
         ambient = float(settings.ambient_c)
@@ -425,6 +497,13 @@ class EnclosureCFDSolver:
         converged = False
         max_iterations = max(1, int(controls.max_iterations))
         energy_residual = math.inf
+        # Velocity scale used to make the residuals dimensionless. A forced case
+        # has one from the start; a purely buoyant case has to grow its own, so
+        # fall back to the evolving maximum speed.
+        inlet_speed = max(
+            [float(mapped.patch.velocity_m_s) for mapped in mesh.patch_cells
+             if str(mapped.patch.kind).upper() in {"INLET", "FAN"}] or [0.0]
+        )
 
         for iteration in range(max_iterations):
             if cancel_callback and cancel_callback():
@@ -465,10 +544,28 @@ class EnclosureCFDSolver:
                     mesh, settings, velocity, temperature
                 )
                 temperature = (1.0 - relaxation) * temperature + relaxation * new_temperature
-            residuals.continuity.append(continuity)
-            residuals.momentum.append(momentum)
-            residuals.energy.append(float(energy_residual))
-            combined = max(continuity, momentum, energy_residual)
+            # Normalise before comparing. The raw quantities carry three
+            # different units -- continuity is a divergence in 1/s, momentum a
+            # velocity change in m/s, energy a temperature change in K -- so
+            # maxing them together and testing against one dimensionless
+            # tolerance was meaningless. Continuity sits around 2.4 1/s on the
+            # validation duct, so the test could never pass and `converged` was
+            # structurally always False, which in turn made adapt_cfd_result
+            # raise a HIGH numerics finding on every single run.
+            # energy_residual carries over between energy solves, so normalise
+            # into separate names -- rescaling it in place would compound the
+            # division on every iteration that skips the energy step.
+            reference_speed = max(max_speed, inlet_speed, 1e-9)
+            reference_delta_t = max(
+                float(np.max(np.abs(temperature - float(settings.ambient_c)))), 1.0
+            )
+            continuity_norm = continuity * min(mesh.spacing_m) / reference_speed
+            momentum_norm = momentum / reference_speed
+            energy_norm = float(energy_residual) / reference_delta_t
+            residuals.continuity.append(continuity_norm)
+            residuals.momentum.append(momentum_norm)
+            residuals.energy.append(energy_norm)
+            combined = max(continuity_norm, momentum_norm, energy_norm)
             if progress_callback and (iteration == 0 or (iteration + 1) % 5 == 0):
                 progress_callback(iteration + 1, max_iterations, f"residual={combined:.3g}")
             if iteration >= 5 and combined <= max(1e-10, float(controls.tolerance)):
@@ -483,6 +580,7 @@ class EnclosureCFDSolver:
         solid_values = temperature[mesh.solid_mask]
         air_values = temperature[fluid]
         total_heat = float(np.sum(mesh.heat_sources_w))
+        free_stream, free_stream_cells = self._board_free_stream(mesh, speed)
         self._log(
             f"Solved {mesh.cell_count:,} cells in {iteration + 1} iterations; "
             f"Vmax={np.max(speed):.4g} m/s, mass error={mass_error:.3g}%."
@@ -500,6 +598,8 @@ class EnclosureCFDSolver:
             mass_balance_error_pct=float(mass_error),
             energy_balance_error_pct=float(energy_error),
             maximum_velocity_m_s=float(np.max(speed[fluid])) if np.any(fluid) else 0.0,
+            board_free_stream_velocity_m_s=free_stream,
+            board_free_stream_cells=free_stream_cells,
             maximum_air_temperature_c=float(np.max(air_values)) if air_values.size else settings.ambient_c,
             maximum_solid_temperature_c=float(np.max(solid_values)) if solid_values.size else settings.ambient_c,
             total_heat_w=total_heat,

@@ -988,7 +988,14 @@ class CFDSolverSettings:
     tolerance: float = 1.0e-4
     relaxation: float = 0.45
     pseudo_time_step_s: float = 0.02
-    pressure_iterations: int = 60
+    # Jacobi sweeps for the pressure Poisson solve. Jacobi damps low-frequency
+    # error slowly, and it is exactly that long-wavelength component which
+    # enforces global mass balance, so too few sweeps leak mass. Measured on the
+    # validation duct (docs/validation-cfd.md): 30 sweeps -> -8.2%, 60 -> -5.2%,
+    # 240 -> -1.6%, 960 -> -0.6%. 240 buys most of the accuracy at a quarter of
+    # the cost of 960. The principled fix is to solve the Poisson system with
+    # SparseComputeBackend instead of hand-rolled Jacobi.
+    pressure_iterations: int = 240
     include_buoyancy: bool = True
     gravity_x_m_s2: float = 0.0
     gravity_y_m_s2: float = 0.0
@@ -1030,6 +1037,14 @@ class EnclosureCFDResult:
     mass_balance_error_pct: float = 0.0
     energy_balance_error_pct: float = 0.0
     maximum_velocity_m_s: float = 0.0
+    # Free-stream air speed approaching the board, for the flat-plate forced
+    # correlation. Deliberately not the wall-adjacent speed: Nu = 0.664 Re^0.5
+    # Pr^(1/3) models the boundary layer analytically and expects the
+    # free-stream value, which is also the quantity a coarse enclosure mesh
+    # resolves best. Zero when no board cells were found. See
+    # docs/validation-cfd.md.
+    board_free_stream_velocity_m_s: float = 0.0
+    board_free_stream_cells: int = 0
     maximum_air_temperature_c: float = 0.0
     maximum_solid_temperature_c: float = 0.0
     total_heat_w: float = 0.0

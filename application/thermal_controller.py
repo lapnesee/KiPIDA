@@ -27,6 +27,12 @@ class ThermalRunRequest:
     dc_request: Any = None
     board_signature: Any = None
     cached_entries: Optional[Dict[Any, Any]] = None
+    # Free-stream speed resolved by a preceding enclosure CFD run, in m/s.
+    # None keeps the configured airflow; a value overrides it for the surface
+    # coefficients. It is part of thermal_cache_key, because two runs that
+    # differ only by this number have genuinely different surface physics and
+    # must not share a cached mesh.
+    air_velocity_m_s: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -48,7 +54,8 @@ class ThermalControllerCallbacks:
     on_log: Callable[[str], None] = lambda _message: None
 
 
-def thermal_cache_key(settings, compute_settings, coupled, copper_losses):
+def thermal_cache_key(settings, compute_settings, coupled, copper_losses,
+                      air_velocity_m_s=None):
     airflow = settings.airflow
     components = tuple(sorted(
         (
@@ -70,6 +77,7 @@ def thermal_cache_key(settings, compute_settings, coupled, copper_losses):
         float(airflow.velocity_m_s), float(airflow.direction_deg),
         float(airflow.custom_h_w_m2k), bool(airflow.expose_top),
         bool(airflow.expose_bottom), bool(airflow.expose_edges), components, losses,
+        None if air_velocity_m_s is None else float(air_velocity_m_s),
     )
     runtime = (
         str(getattr(compute_settings, "backend", "AUTO")),
@@ -143,6 +151,7 @@ class ThermalSolverEngine:
             request.board_signature,
             thermal_cache_key(
                 request.settings, request.compute_settings, request.coupled, copper_losses,
+                request.air_velocity_m_s,
             ),
         )
         cached = (request.cached_entries or {}).get(key)
@@ -159,7 +168,13 @@ class ThermalSolverEngine:
             )
             mesh = mesher.generate_mesh(
                 model, request.settings, progress_callback=checked_progress,
+                air_velocity_m_s=request.air_velocity_m_s,
             )
+            if request.air_velocity_m_s:
+                emit(
+                    "Surface coefficients use the CFD free-stream speed of "
+                    f"{float(request.air_velocity_m_s):.4g} m/s (estimated, not measured)."
+                )
             thermal_solver = self._solver_factory(
                 debug=request.debug, log_callback=emit,
                 compute_settings=request.compute_settings,

@@ -561,7 +561,8 @@ class ThermalMesher:
     def _harmonic(k_a, k_b):
         return 2.0 * k_a * k_b / max(k_a + k_b, 1e-30)
 
-    def generate_mesh(self, model, settings: ThermalAnalysisSettings, progress_callback=None):
+    def generate_mesh(self, model, settings: ThermalAnalysisSettings, progress_callback=None,
+                      air_velocity_m_s=None):
         if Point is None or prep is None:
             raise ImportError("Shapely is required for thermal meshing.")
         requested_grid = max(0.01, float(settings.grid_size_mm))
@@ -787,8 +788,22 @@ class ThermalMesher:
         nominal_rise_k = self.NOMINAL_SURFACE_RISE_K
 
         mode = str(settings.airflow.mode or "NATURAL").upper()
+        # A CFD-resolved free-stream speed, when one was handed over, stands in
+        # for the configured airflow. Kept on the mesh so the solver's surface
+        # refinement sees the same number without threading it through every
+        # signature in between.
+        mesh.air_velocity_m_s = (
+            None if air_velocity_m_s is None else max(0.0, float(air_velocity_m_s))
+        )
+        if mesh.air_velocity_m_s is not None and mesh.air_velocity_m_s <= 0.0:
+            mesh.air_velocity_m_s = None
         if mode == "CUSTOM":
             mesh.convection_basis = "custom (user-specified h)"
+        elif mesh.air_velocity_m_s is not None:
+            mesh.convection_basis = (
+                "Rayleigh plate correlation blended with laminar flat-plate forced "
+                f"convection at the CFD free-stream speed ({mesh.air_velocity_m_s:.4g} m/s)"
+            )
         elif mode == "FORCED":
             mesh.convection_basis = (
                 "Rayleigh plate correlation blended with laminar flat-plate forced convection"
@@ -799,6 +814,7 @@ class ThermalMesher:
         def surface_h(kind):
             convective = self.surface_coefficient(
                 settings, kind, nominal_rise_k, characteristic_length,
+                air_velocity_m_s=mesh.air_velocity_m_s,
             )
             radiative = 0.0
             if settings.include_radiation:
@@ -817,6 +833,7 @@ class ThermalMesher:
         # and is the one a reader will compare against a handbook figure.
         convective_h = self.surface_coefficient(
             settings, "top", nominal_rise_k, characteristic_length,
+            air_velocity_m_s=mesh.air_velocity_m_s,
         )
         h = top_h
         mesh.convection_coefficient_w_m2k = h

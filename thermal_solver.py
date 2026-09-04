@@ -138,6 +138,7 @@ class ThermalSolver:
             delta_t = max(0.0, face_mean_c - ambient)
             convective = ThermalMesher.surface_coefficient(
                 settings, kind, delta_t, length_m,
+                air_velocity_m_s=getattr(mesh, "air_velocity_m_s", None),
             )
             radiative = 0.0
             if settings.include_radiation:

@@ -755,6 +755,7 @@ def adapt_cfd_result(mesh: Any, domain_result: Any) -> AnalysisResult:
         findings=findings,
         metrics=[
             AnalysisMetric("maximum_velocity", "Maximum velocity", float(getattr(domain_result, "maximum_velocity_m_s", 0.0)), "m/s", overall_status.value),
+            AnalysisMetric("board_free_stream_velocity", "Free-stream velocity over the board", float(getattr(domain_result, "board_free_stream_velocity_m_s", 0.0)), "m/s", overall_status.value),
             AnalysisMetric("maximum_air_temperature", "Maximum air temperature", float(getattr(domain_result, "maximum_air_temperature_c", 0.0)), "°C", overall_status.value),
             AnalysisMetric("maximum_solid_temperature", "Maximum solid temperature", float(getattr(domain_result, "maximum_solid_temperature_c", 0.0)), "°C", overall_status.value),
         ],
@@ -771,7 +772,15 @@ def adapt_cfd_result(mesh: Any, domain_result: Any) -> AnalysisResult:
             ),
         ],
         compute_metadata={"backend": getattr(domain_result, "compute_backend", ""), "device": getattr(domain_result, "compute_device", "")},
-        limitations=["Laminar steady-state model; turbulence, fan blades, radiation, and transients are excluded."],
+        limitations=[
+            "Laminar steady-state model; turbulence, fan blades, radiation, and transients are excluded.",
+            "Momentum discretisation validated against laminar duct flow to 0.4% at 20 cells "
+            "across the channel; at 6 cells it produced no boundary layer at all. "
+            "See docs/validation-cfd.md.",
+            f"Mass balance is measured before the outlet fix-up: "
+            f"{float(getattr(domain_result, 'mass_balance_error_pct', 0.0)):.3g}% of the inflow "
+            "did not reach the outlet.",
+        ],
     ).finish()
 
 
