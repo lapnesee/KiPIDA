@@ -431,6 +431,95 @@ def adapt_differential_result(results: Any, stackup: Any, tolerance_pct: float) 
     ).finish()
 
 
+def attach_dc_remediations(result: Any, board_path: Any, rails: Any,
+                           maximum_drop_pct: float, *, verify: bool = False,
+                           log_callback=None) -> int:
+    """Give each voltage-drop finding a sized, quantified fix.
+
+    The DC advisor ranks branches by R*I^2, sizes the widening the dominant
+    segments need, and can re-simulate to check the prediction. It was written
+    and tested and then never called, so every action in the consolidated
+    report read "No structured remediation was computed". This is the missing
+    call.
+
+    ``verify=False`` by default: verification re-meshes and re-solves the net,
+    which is worth seconds per rail and belongs to a deliberate request rather
+    than to every DC run. Unverified remediations are marked as first-order
+    estimates by the advisor itself.
+
+    Returns the number of findings given a remediation. Never raises -- an
+    advisor failure must not cost the user their DC result.
+    """
+    if not board_path or not rails:
+        return 0
+    try:
+        from pathlib import Path
+
+        from advisor.dc_advisor import build_dc_remediations
+        from ingest.board_reader import read_board
+    except ImportError:
+        return 0
+
+    def _log(message: str) -> None:
+        if log_callback is not None:
+            log_callback(f"[remediation] {message}")
+
+    try:
+        board = read_board(Path(board_path))
+    except Exception as exc:
+        _log(f"Board could not be read for remediation sizing: {exc}")
+        return 0
+
+    rails_by_net = {str(getattr(rail, "net_name", "")): rail for rail in rails}
+    attached = 0
+    for finding in getattr(result, "findings", ()):
+        if finding.rule_id != "DC-003":
+            continue
+        rail = next(
+            (rails_by_net[net] for net in finding.nets if net in rails_by_net), None,
+        )
+        if rail is None:
+            continue
+        nominal = float(getattr(rail, "nominal_voltage", 0.0) or 0.0)
+        if nominal <= 0.0:
+            _log(
+                f"{rail.net_name} has no nominal voltage, so there is no drop "
+                "target to size against; skipped."
+            )
+            continue
+        if not getattr(rail, "sources", None):
+            # The advisor needs a Dirichlet anchor to solve against. A rail fed
+            # by a regulator carries no UnifiedSource, which is most rails on a
+            # power board -- the same gap the AC path closed by resolving the
+            # source from pin type. Say so rather than returning silently.
+            _log(
+                f"{rail.net_name} declares no source component, so the advisor "
+                "has no reference to solve against; skipped. Declare a source "
+                "on the rail, or wait for pin-type source resolution here."
+            )
+            continue
+        try:
+            remediations = build_dc_remediations(
+                board, rail.net_name, "GND",
+                sources=list(getattr(rail, "sources", ()) or ()),
+                loads=list(getattr(rail, "loads", ()) or ()),
+                target_drop_v=nominal * float(maximum_drop_pct) / 100.0,
+                verify=verify, log_callback=log_callback,
+            )
+        except Exception as exc:
+            _log(f"Remediation sizing failed for {rail.net_name}: {exc}")
+            continue
+        if remediations:
+            finding.remediations.extend(remediations)
+            attached += 1
+        else:
+            _log(
+                f"{rail.net_name}: the advisor produced no action (drop already "
+                "within target, no meshable copper, or the solve did not converge)."
+            )
+    return attached
+
+
 def _thermal_grid_limitations(domain_result: Any) -> list:
     """Say so when the mesh was coarsened below the requested resolution.
 

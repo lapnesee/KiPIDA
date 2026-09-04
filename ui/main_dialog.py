@@ -28,6 +28,7 @@ from ui.log_stream import DialogStreamCapture
 from plotter import Plotter
 from analysis_adapters import (
     adapt_ac_result, adapt_cfd_result, adapt_dc_result, adapt_differential_result,
+    attach_dc_remediations,
     adapt_emc_result, adapt_thermal_result,
 )
 from application.ac_controller import (
@@ -1506,9 +1507,22 @@ class KiPIDA_MainDialog(wx.Dialog):
             drop_pct_ui = min(100.0, max(0.0, float(self.txt_drop_pct.GetValue())))
         except (TypeError, ValueError):
             drop_pct_ui = 5.0
+        dc_result = adapt_dc_result(self.system_results, drop_pct_ui)
+        # Give the voltage-drop findings a sized fix. Without this the report
+        # says "No structured remediation was computed" on every action, which
+        # is what it did until now: the advisor existed and nothing called it.
+        try:
+            attached = attach_dc_remediations(
+                dc_result, self._board_file_path(), self.power_tree.rails,
+                drop_pct_ui, log_callback=self.log,
+            )
+            if attached:
+                self.log(f"Sized a copper fix for {attached} voltage-drop finding(s).")
+        except Exception as exc:
+            self.log(f"Remediation sizing skipped: {exc}")
         page = self._publish_results(
             "DC", format_dc_report(self.system_results), [],
-            structured_result=adapt_dc_result(self.system_results, drop_pct_ui),
+            structured_result=dc_result,
         )
         if not self.system_results:
             return
