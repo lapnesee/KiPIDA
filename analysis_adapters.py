@@ -120,7 +120,22 @@ def adapt_emc_result(settings: Any, domain_result: Any) -> AnalysisResult:
     return result.finish()
 
 
-def _finding(rule_id, index, category, severity, title, description, recommendation=""):
+def _finding(rule_id, index, category, severity, title, description, recommendation="",
+             confidence=EvidenceConfidence.ESTIMATED):
+    """Build a finding, stating what its confidence actually rests on.
+
+    This hardcoded DETERMINISTIC for every caller, so a report could print
+    "J2_ESD_D: Estimate" carrying a DETERMINISTIC badge -- the deliverable
+    contradicting itself on the project's central rule, that an estimate is
+    never presented as a measurement.
+
+    The default is now ESTIMATED, because most findings here are the verdict
+    of a numerical model: a solved voltage drop, a swept impedance, a meshed
+    temperature. DETERMINISTIC is passed explicitly by the callers whose
+    finding is a fact about the run rather than a model output -- a solver
+    that did not converge, or an island with no source, are observed, not
+    estimated.
+    """
     return AnalysisFinding(
         rule_id=rule_id,
         finding_id=f"{rule_id}:{index}",
@@ -129,7 +144,7 @@ def _finding(rule_id, index, category, severity, title, description, recommendat
         title=title,
         description=description,
         recommendation=recommendation,
-        confidence=EvidenceConfidence.DETERMINISTIC,
+        confidence=confidence,
     )
 
 
@@ -457,6 +472,7 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
             "TH-002", 1, "NUMERICS", FindingSeverity.HIGH,
             "Thermal solver did not converge", "The iteration limit was reached.",
             "Review mesh resolution and convergence settings.",
+            confidence=EvidenceConfidence.DETERMINISTIC,
         ))
     balance = float(getattr(domain_result, "energy_balance_error_pct", 0.0))
     if abs(balance) > 5.0:
@@ -518,6 +534,7 @@ def adapt_cfd_result(mesh: Any, domain_result: Any) -> AnalysisResult:
             "CFD-001", 1, "NUMERICS", FindingSeverity.HIGH,
             "CFD solver did not converge", "The iteration limit was reached.",
             "Review the mesh, relaxation, and boundary conditions.",
+            confidence=EvidenceConfidence.DETERMINISTIC,
         ))
     for index, (key, label) in enumerate((("mass_balance_error_pct", "Mass"), ("energy_balance_error_pct", "Energy")), start=1):
         value = float(getattr(domain_result, key, 0.0))
@@ -617,12 +634,14 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
                 f"{rail} contains source-free loads",
                 f"{getattr(detailed, 'excluded_load_node_count', 0)} load node(s) were excluded.",
                 "Repair copper connectivity before using this rail result.",
+                confidence=EvidenceConfidence.DETERMINISTIC,
             ))
         if compute is not None and not getattr(compute, "converged", True):
             findings.append(_finding(
                 "DC-002", index, "NUMERICS", FindingSeverity.HIGH,
                 f"{rail} solve did not converge", "The DC linear solve did not converge.",
                 "Review connectivity, mesh resolution, and solver diagnostics.",
+                confidence=EvidenceConfidence.DETERMINISTIC,
             ))
         if drop_pct > float(maximum_drop_pct):
             findings.append(_finding(
