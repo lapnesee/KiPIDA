@@ -31,7 +31,11 @@ class ACSolver:
     def __init__(self, debug=False, log_callback=None, compute_settings=None):
         self.debug = debug
         self.log_callback = log_callback
-        self.compute_backend = SparseComputeBackend(compute_settings, log_callback)
+        # Every solve this class performs is part of a sweep, so the backend is
+        # built against the sweep threshold rather than the single-solve one.
+        self.compute_backend = SparseComputeBackend(
+            self.sweep_compute_settings(compute_settings), log_callback,
+        )
         # Built on demand, and only to audit a GPU answer against a direct
         # factorisation. Exposed as an attribute so a test can inject one.
         self._cpu_reference_backend = None
@@ -59,42 +63,32 @@ class ACSolver:
             )
         return self._cpu_reference_backend
 
-    # A sweep never drops the CUDA threshold below this. Very small systems
-    # are genuinely faster on CPU whatever the repeat count, and the audit's
-    # extra CPU solve would then cost more than the sweep it guards.
-    MIN_SWEEP_CUDA_NODES = 10000
+    @staticmethod
+    def sweep_compute_settings(settings):
+        """Settings judging CUDA by the sweep threshold, on a copy.
 
-    def _amortise_cuda_threshold(self, solve_count):
-        """Lower the AUTO CUDA threshold to reflect a repeated solve.
+        ``cuda_min_nodes`` is the single-solve bar. A frequency sweep solves a
+        same-sized system at every point against a resident matrix, so its
+        break-even node count is far lower and lives in
+        ``cuda_min_nodes_sweep``. Returning a copy matters: the caller's
+        settings object is shared with the DC and thermal paths, which are
+        single solves and must keep the stricter bar.
 
-        ``cuda_min_nodes`` is calibrated for one solve, where the transfer and
-        preconditioner setup must pay for themselves once. A sweep solves a
-        same-sized system at every frequency against a resident matrix, so the
-        fixed cost amortises across all of them and the break-even node count
-        drops roughly in proportion. Without this an AC network sits below a
-        threshold meant for single solves and never reaches the GPU at all --
-        which is what happened on a 39,569-node board against the 100,000-node
-        default.
-
-        Only AUTO is adjusted: an explicit CPU or CUDA choice is the user's.
+        Returns *settings* unchanged when there is nothing to swap -- a
+        stand-in object without the field, or an explicit CPU/CUDA choice,
+        which is the user's to make and not ours to reinterpret.
         """
-        settings = getattr(self.compute_backend, "settings", None)
         if settings is None or getattr(settings, "backend", "") != "AUTO":
-            return
-        current = int(getattr(settings, "cuda_min_nodes", 0) or 0)
-        if current <= 0 or solve_count <= 1:
-            return
-        amortised = max(self.MIN_SWEEP_CUDA_NODES, current // solve_count)
-        if amortised >= current:
-            return
+            return settings
+        sweep_minimum = getattr(settings, "cuda_min_nodes_sweep", None)
+        if sweep_minimum is None:
+            return settings
         try:
-            settings.cuda_min_nodes = amortised
-        except Exception:
-            return
-        self._log(
-            f"Sweep of {solve_count} solves amortises the CUDA setup cost: "
-            f"threshold lowered from {current:,} to {amortised:,} nodes for this run."
-        )
+            return replace(settings, cuda_min_nodes=int(sweep_minimum))
+        except TypeError:
+            # Not a dataclass (tests use stand-ins); leave it alone rather
+            # than mutating an object we do not own.
+            return settings
 
     @staticmethod
     def _measured_impedance(network, voltage):
@@ -473,7 +467,6 @@ class ACSolver:
             np.log10(settings.frequency_stop_hz),
             int(settings.frequency_points),
         )
-        self._amortise_cuda_threshold(int(len(frequencies)))
         impedances = []
         compute_samples = []
         audited = False

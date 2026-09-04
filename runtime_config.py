@@ -28,6 +28,14 @@ class RuntimeComputeSettings:
     cuda_enabled: bool = False
     cuda_device: int = 0
     cuda_min_nodes: int = 100000
+    # Threshold for an analysis that solves the same-sized system many times
+    # over -- an AC frequency sweep, above all. cuda_min_nodes is calibrated
+    # for a single solve, where the upload and preconditioner setup must pay
+    # for themselves once; a sweep amortises that fixed cost across every
+    # frequency against a resident matrix, so the break-even node count is far
+    # lower. Judging a sweep by the single-solve bar kept a 39,569-node AC
+    # network on the CPU against a 100,000-node default.
+    cuda_min_nodes_sweep: int = 10000
     memory_limit_gib: float = 0.0  # 0 = built-in conservative mesh limit
     solver_rtol: float = 1.0e-8
     solver_max_iterations: int = 5000
@@ -50,6 +58,7 @@ class RuntimeComputeSettings:
         self.cpu_threads = max(0, int(self.cpu_threads))
         self.cuda_device = max(0, int(self.cuda_device))
         self.cuda_min_nodes = max(1, int(self.cuda_min_nodes))
+        self.cuda_min_nodes_sweep = max(1, int(self.cuda_min_nodes_sweep))
         self.memory_limit_gib = min(256.0, max(0.0, float(self.memory_limit_gib)))
         self.solver_rtol = min(1.0e-2, max(1.0e-12, float(self.solver_rtol)))
         self.solver_max_iterations = max(10, int(self.solver_max_iterations))

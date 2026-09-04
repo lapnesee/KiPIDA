@@ -705,10 +705,16 @@ class KiPIDA_MainDialog(wx.Dialog):
                 #
                 # Report the decision the backend will actually make rather
                 # than an intention: AUTO only reaches CUDA once the network
-                # clears cuda_min_nodes, and announcing an attempt that the
+                # clears the threshold, and announcing an attempt that the
                 # node count rules out is how a log starts lying.
+                #
+                # A sweep is judged by cuda_min_nodes_sweep, not the
+                # single-solve cuda_min_nodes, so quote the bar that applies.
                 nodes = int(getattr(network, "node_count", 0) or 0)
-                threshold = int(getattr(compute_settings, "cuda_min_nodes", 0) or 0)
+                threshold = int(
+                    getattr(compute_settings, "cuda_min_nodes_sweep", None)
+                    or getattr(compute_settings, "cuda_min_nodes", 0) or 0
+                )
                 if nodes >= threshold:
                     self.log(
                         f"AC backend AUTO: {nodes:,} nodes reaches the {threshold:,}-node "
