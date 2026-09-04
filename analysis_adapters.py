@@ -733,10 +733,35 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
 def adapt_cfd_result(mesh: Any, domain_result: Any) -> AnalysisResult:
     findings = []
     if not bool(getattr(domain_result, "converged", False)):
+        # Report which residual fell short and by how much. A bare "did not
+        # converge" was useless here: continuity is floored around 1e-2 by the
+        # inlet-cell discontinuity documented in docs/validation-cfd.md, so on a
+        # run whose momentum and energy have both reached 1e-12 the flag says
+        # nothing about solution quality. Grading by distance from tolerance
+        # keeps HIGH meaningful for runs that genuinely stalled.
+        history = getattr(domain_result, "residuals", None)
+        tail = {
+            name: float(getattr(history, name)[-1])
+            for name in ("continuity", "momentum", "energy")
+            if history is not None and getattr(history, name, None)
+        }
+        worst_name, worst = ("", 0.0)
+        if tail:
+            worst_name, worst = max(tail.items(), key=lambda item: item[1])
+        detail = (
+            "The iteration limit was reached. Final residuals: "
+            + ", ".join(f"{name}={value:.3g}" for name, value in tail.items())
+            if tail else "The iteration limit was reached."
+        )
         findings.append(_finding(
-            "CFD-001", 1, "NUMERICS", FindingSeverity.HIGH,
-            "CFD solver did not converge", "The iteration limit was reached.",
-            "Review the mesh, relaxation, and boundary conditions.",
+            "CFD-001", 1, "NUMERICS",
+            FindingSeverity.HIGH if worst > 0.1 else FindingSeverity.MEDIUM,
+            f"CFD solver did not converge ({worst_name or 'residual'} limiting)"
+            if worst_name else "CFD solver did not converge",
+            detail,
+            "Raise max_iterations, refine the mesh, or lower relaxation. A "
+            "continuity residual near 1e-2 with momentum and energy far lower "
+            "is the known inlet-cell artifact, not a stalled solve.",
             confidence=EvidenceConfidence.DETERMINISTIC,
         ))
     for index, (key, label) in enumerate((("mass_balance_error_pct", "Mass"), ("energy_balance_error_pct", "Energy")), start=1):

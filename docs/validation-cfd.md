@@ -200,7 +200,43 @@ measurement has been made.
 | 1 — tautological diagnostic | `_pressure_projection` records the outflow it produced before the fix-up; `_flow_balance` compares against that. On the 12-iteration smoke case the reported error went from **4e-14 % to 10.1 %**. |
 | 3 — under-solved pressure | `pressure_iterations` default 60 → **240**, set from the measured table, not from taste. |
 | 4 — dimensionless convergence | Each residual is normalised by its own scale before being compared to the tolerance. They now *fall* (0.0505 → 0.0372 → 0.0240 over 12 iterations) instead of sitting at 2.4 forever. |
+| 4b — the flag still says False | Normalising made the residuals meaningful; it did **not** make convergence reachable. See below. |
 | coupling | `EnclosureCFDResult.board_free_stream_velocity_m_s` samples fluid cells two cells clear of any solid, within the board's slab; `ThermalRunRequest.air_velocity_m_s` carries it to `surface_coefficient`. |
+
+### `converged` is still always False, and that is not fully fixed
+
+After normalisation the validation duct ends at:
+
+```
+continuity = 0.0169    momentum = 1.29e-12    energy = 1.5e-11    tolerance = 1e-5
+```
+
+Momentum and energy are converged to twelve digits. Continuity is floored
+around 1e-2 by the inlet-cell discontinuity of finding 2, which is not fixed —
+so the combined test still fails and `converged` is still `False` on every run.
+
+Normalising the residuals made the *number* meaningful without removing the
+*consequence* it was blamed for. Since `CFD-001` fires on that flag, the
+remaining repair was to stop reporting a bare boolean: the finding now names
+the limiting residual and grades severity by distance from tolerance, so a run
+at 1e-2 continuity with 1e-12 momentum reports MEDIUM with an explanation,
+while a genuinely stalled solve still reports HIGH. Crying wolf on every run
+would have trained a reader to ignore the one run that mattered.
+
+The real fix is to ramp the inlet profile instead of imposing a plug against
+no-slip, which would remove the floor rather than explain it.
+
+### Cross-validation of the mass diagnostic
+
+The two independent measurements now agree, which is the point of having both:
+
+| method | value |
+|---|---|
+| solver's own `mass_balance_error_pct` (outlet, pre-fix-up) | 1.42 % |
+| benchmark's plane-by-plane interior flux | 1.62 % |
+
+Before the fix these read 4e-14 % and 5.2 %. The reproduced −1.62 % also lands
+exactly on the 240-sweep row of the pressure table above.
 
 Findings 2 and 5 are *not* fixed. The inlet-cell mass loss is inherent to
 imposing a plug profile against no-slip, and the production defaults

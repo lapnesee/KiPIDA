@@ -158,6 +158,46 @@ class ResidualsAreDimensionless(unittest.TestCase):
         self.assertLess(continuity[-1], continuity[len(continuity) // 2])
         self.assertLess(continuity[-1], 1.0)
 
+    def test_a_near_converged_run_is_not_reported_as_a_high_failure(self):
+        # The validation duct ends at continuity=1.7e-2 with momentum and
+        # energy at 1e-12: the inlet-cell artifact, not a stalled solve.
+        # Grading it HIGH made every enclosure run cry wolf.
+        from analysis_adapters import adapt_cfd_result
+        from analysis_contract import FindingSeverity
+        from models import CFDResidualHistory, EnclosureCFDResult
+
+        result = EnclosureCFDResult(
+            converged=False, iterations=3000,
+            residuals=CFDResidualHistory(
+                continuity=[1.0, 0.0169], momentum=[1.0, 1.29e-12],
+                energy=[1.0, 1.5e-11],
+            ),
+        )
+
+        adapted = adapt_cfd_result(mesh=None, domain_result=result)
+
+        stalled = [f for f in adapted.findings if f.rule_id == "CFD-001"]
+        self.assertEqual(len(stalled), 1)
+        self.assertEqual(stalled[0].severity, FindingSeverity.MEDIUM)
+        self.assertIn("continuity", stalled[0].description)
+
+    def test_a_genuinely_stalled_run_is_still_high(self):
+        from analysis_adapters import adapt_cfd_result
+        from analysis_contract import FindingSeverity
+        from models import CFDResidualHistory, EnclosureCFDResult
+
+        result = EnclosureCFDResult(
+            converged=False, iterations=250,
+            residuals=CFDResidualHistory(
+                continuity=[5.0, 4.2], momentum=[5.0, 3.1], energy=[5.0, 2.0],
+            ),
+        )
+
+        adapted = adapt_cfd_result(mesh=None, domain_result=result)
+
+        stalled = [f for f in adapted.findings if f.rule_id == "CFD-001"]
+        self.assertEqual(stalled[0].severity, FindingSeverity.HIGH)
+
     def test_pressure_sweeps_default_to_the_validated_value(self):
         # 60 leaked 5.2 % of the mass; 240 leaks 1.6 %. See docs/validation-cfd.md.
         self.assertGreaterEqual(EnclosureCFDSettings().solver.pressure_iterations, 240)
