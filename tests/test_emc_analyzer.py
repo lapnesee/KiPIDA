@@ -1,3 +1,4 @@
+import re
 import unittest
 import tempfile
 from pathlib import Path
@@ -341,6 +342,112 @@ class TestEMCAnalyzer(unittest.TestCase):
         )
         result = EMCAnalyzer(snap, EMCAnalysisSettings(sources=[])).analyze()
         self.assertFalse(any(finding.rule_id.startswith("DC-") for finding in result.findings))
+
+
+@unittest.skipUnless(box is not None, "Shapely is required for geometric EMC tests")
+class TestQuantifiedCrosstalk(unittest.TestCase):
+    """XT-001 compared a spacing to a 3H threshold and reported nothing about
+    coupling.  It now solves the even/odd modes of the cross-section, so the
+    finding carries a percentage of the aggressor swing."""
+
+    def settings(self, rise_time_ns=2.0):
+        return EMCAnalysisSettings(
+            sources=[EMCSignalSource("CLK", "SYS_CLK", "CLOCK", 25e6, rise_time_ns)],
+        )
+
+    def snapshot(self, separation_mm, victim="VICTIM", layers=None):
+        return EMCGeometrySnapshot(
+            bounds_mm=(0.0, 0.0, 100.0, 80.0),
+            stackup=layers if layers is not None else stackup(),
+            tracks=[
+                EMCTrack("SYS_CLK", (5.0, 10.0), (55.0, 10.0), 0.2, 0, 50.0),
+                EMCTrack(victim, (5.0, 10.0 + separation_mm),
+                         (55.0, 10.0 + separation_mm), 0.2, 0, 50.0),
+            ],
+            vias=[], footprints=[],
+            zones_by_net={"GND": {1: box(0.0, 0.0, 100.0, 80.0)}},
+        )
+
+    def crosstalk(self, snapshot, settings=None):
+        result = EMCAnalyzer(snapshot, settings or self.settings()).analyze()
+        return next(
+            (item for item in result.findings if item.rule_id == "XT-001"), None,
+        )
+
+    def coupling_percent(self, finding):
+        """The leading '<x> % into <victim>' figure of a quantified finding."""
+        match = re.search(r"couples ([\d.]+) %", finding.description)
+        self.assertIsNotNone(match, f"not a quantified finding: {finding.description}")
+        return float(match.group(1))
+
+    def test_closer_traces_couple_more_and_the_figure_is_calculated(self):
+        close = self.crosstalk(self.snapshot(0.3))
+        far = self.crosstalk(self.snapshot(0.5))
+        self.assertIsNotNone(close)
+        self.assertIsNotNone(far)
+        # Calculated, not merely ranked: both carry a coupling percentage and
+        # the tighter gap couples more.
+        self.assertGreater(self.coupling_percent(close), self.coupling_percent(far))
+
+    def test_a_quantified_finding_reports_both_modal_impedances(self):
+        finding = self.crosstalk(self.snapshot(0.3))
+        self.assertIn("Z0e=", finding.description)
+        self.assertIn("Z0o=", finding.description)
+        # The odd mode is always the lower impedance of a coupled pair.
+        even = float(re.search(r"Z0e=([\d.]+)", finding.description).group(1))
+        odd = float(re.search(r"Z0o=([\d.]+)", finding.description).group(1))
+        self.assertGreater(even, odd)
+
+    def test_a_quantified_finding_is_estimated_not_heuristic(self):
+        finding = self.crosstalk(self.snapshot(0.3))
+        self.assertEqual(finding.confidence, "MEDIUM")
+        self.assertEqual(finding.title, "Quantified parallel trace coupling")
+
+    def test_without_a_reference_plane_it_falls_back_and_says_so(self):
+        # No GND pour means no reference plane, so no cross-section to solve.
+        snapshot = self.snapshot(0.3)
+        snapshot.zones_by_net = {}
+        finding = self.crosstalk(snapshot)
+        self.assertIsNotNone(finding)
+        self.assertEqual(finding.title, "Long parallel trace coupling")
+        self.assertIn("not quantified", finding.description)
+        self.assertIn("spacing check", finding.description)
+
+    def test_the_geometric_fallback_is_labelled_heuristic(self):
+        # A spacing check must not carry the confidence of a solved coupling.
+        snapshot = self.snapshot(0.3)
+        snapshot.zones_by_net = {}
+        self.assertEqual(self.crosstalk(snapshot).confidence, "LOW")
+
+    def test_a_sensitive_victim_escalates_on_a_tenth_of_the_budget(self):
+        # 0.55 mm sits inside the 3H gate and couples ~9 %: over the 1 %
+        # sensitive budget but under the 10 % logic budget, so the same
+        # coupling escalates for an ADC input and not for a data bus.
+        ordinary = self.crosstalk(self.snapshot(0.55, victim="DATA_BUS"))
+        sensitive = self.crosstalk(self.snapshot(0.55, victim="ADC_IN"))
+        self.assertEqual(ordinary.severity, "MEDIUM")
+        self.assertEqual(sensitive.severity, "HIGH")
+        # Same geometry, so the coupling itself must be identical.
+        self.assertAlmostEqual(
+            self.coupling_percent(ordinary), self.coupling_percent(sensitive), places=6,
+        )
+
+    def test_a_degenerate_cross_section_does_not_abort_the_analysis(self):
+        # Zero-thickness copper cannot be solved; the EMC run must still finish.
+        broken = StackupProfile(layers=[
+            StackupLayerModel("F.Cu", "COPPER", 0.0, layer_id=0),
+            StackupLayerModel("Prepreg", "DIELECTRIC", 0.0, epsilon_r=4.4),
+            StackupLayerModel("In1.GND", "COPPER", 0.0, layer_id=1),
+        ], source="TEST", trustworthy=True)
+        result = EMCAnalyzer(
+            self.snapshot(0.3, layers=broken), self.settings(),
+        ).analyze()
+        self.assertIsNotNone(result)
+
+    def test_no_rise_time_still_reports_the_saturated_worst_case(self):
+        finding = self.crosstalk(self.snapshot(0.3), self.settings(rise_time_ns=0.0))
+        self.assertIn("Saturated near-end coupling", finding.description)
+        self.assertIn("No aggressor rise time", finding.description)
 
 
 if __name__ == "__main__":

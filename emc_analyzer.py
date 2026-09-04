@@ -36,9 +36,46 @@ except (ImportError, ValueError):
         EMCProbePoint, EMCSignalSource,
     )
 
+try:
+    from .crosstalk_2d import (
+        SymmetricCoupledLineSolver, far_end_crosstalk_ratio,
+        near_end_crosstalk_coefficient, near_end_crosstalk_ratio,
+        saturation_length_m,
+    )
+except (ImportError, ValueError):
+    try:
+        from crosstalk_2d import (
+            SymmetricCoupledLineSolver, far_end_crosstalk_ratio,
+            near_end_crosstalk_coefficient, near_end_crosstalk_ratio,
+            saturation_length_m,
+        )
+    except ImportError:  # pragma: no cover - NumPy absent
+        SymmetricCoupledLineSolver = None
+        far_end_crosstalk_ratio = near_end_crosstalk_coefficient = None
+        near_end_crosstalk_ratio = saturation_length_m = None
+
 
 SEVERITY_WEIGHT = {"CRITICAL": 25, "HIGH": 12, "MEDIUM": 6, "LOW": 2, "INFO": 0}
 CONFIDENCE_WEIGHT = {"HIGH": 1.0, "MEDIUM": 0.65, "LOW": 0.25}
+
+# Near-end coupling, as a fraction of the aggressor swing, above which XT-001
+# escalates.  A widely used board-level budget allows a victim to see a few
+# percent of an aggressor edge before it threatens a logic threshold: 5 % of a
+# 3.3 V swing is ~165 mV, comparable to the noise margin of common LVCMOS
+# receivers, and 10 % is ~330 mV, which most of them cannot absorb.  These are
+# design budgets rather than a standard, so they are stated here and repeated
+# in the finding rather than hidden in a comparison.
+NEXT_RATIO_HIGH = 0.10
+NEXT_RATIO_MEDIUM = 0.05
+# A sensitive victim gets one severity step earlier, on a tenth of the budget.
+NEXT_RATIO_SENSITIVE = 0.01
+# Beyond this edge-to-edge gap the 2-D solver's fixed side margin
+# (max(4h, 2w), independent of the gap) stops bounding the domain properly and
+# the extracted impedances drift; see docs/audit-si-pdn.md.  Coupling is
+# negligible there anyway, so the rule falls back rather than quoting a number
+# from outside the solver's trustworthy range.
+COUPLING_SOLVER_MAX_GAP_MM = 2.0
+SENSITIVE_VICTIM_PATTERN = re.compile(r"ADC|ANALOG|SENSE", re.I)
 SWITCH_TOKEN_PATTERN = re.compile(r"(^|[_/])(PH|LX)([_/]|$)", re.I)
 CONTEXTUAL_SW_PATTERN = re.compile(
     r"(^|[^A-Z0-9])(?:U\d+|BUCK\d*|REG\d*|CONVERTER|SWITCHER)[_-]SW(?:[^A-Z0-9]|$)", re.I,
@@ -535,6 +572,98 @@ class EMCAnalyzer:
             return None, None
         distance, reference = min(candidates)
         return reference, distance
+
+    def _copper_thickness(self, layer_id):
+        for layer in self._copper_layers:
+            if layer.layer_id is not None and int(layer.layer_id) == int(layer_id):
+                return max(float(layer.thickness_mm), 1.0e-4)
+        return 0.035
+
+    def _dielectric_between(self, layer_a, layer_b):
+        """Thickness-weighted epsilon_r of the dielectric separating two layers.
+
+        A pair separated by prepreg and core sees neither value alone, so the
+        substrate the field actually crosses is averaged by thickness.  Falls
+        back to 4.4 (FR-4) when the stackup carries no permittivity, which is
+        the same assumption the rest of the analyzer already makes.
+        """
+        positions = self._layer_positions()
+        if layer_a not in positions or layer_b not in positions:
+            return 4.4
+        low, high = sorted((positions[layer_a], positions[layer_b]))
+        cursor, weighted, total = 0.0, 0.0, 0.0
+        for layer in self.snapshot.stackup.layers:
+            thickness = max(float(layer.thickness_mm), 0.0)
+            centre = cursor + thickness / 2.0
+            cursor += thickness
+            if layer.kind.upper() != "DIELECTRIC" or not (low < centre < high):
+                continue
+            epsilon = float(getattr(layer, "epsilon_r", 0.0) or 0.0)
+            if epsilon >= 1.0:
+                weighted += epsilon * thickness
+                total += thickness
+        return weighted / total if total > 0.0 else 4.4
+
+    def _references_around(self, layer_id):
+        """Nearest reference plane above and below a layer, by stackup position."""
+        positions = self._layer_positions()
+        if layer_id not in positions:
+            return (None, None), (None, None)
+        here = positions[layer_id]
+        above = below = (None, None)
+        for reference in self._reference_ground_zones:
+            if reference not in positions or reference == layer_id:
+                continue
+            offset = positions[reference] - here
+            if offset > 0 and (above[1] is None or offset < above[1]):
+                above = (reference, offset)
+            elif offset < 0 and (below[1] is None or -offset < below[1]):
+                below = (reference, -offset)
+        return above, below
+
+    def _coupled_modes(self, track, gap_mm, width_mm):
+        """Solve the even/odd modes of this trace pair, or explain why not.
+
+        Returns ``(modes, topology, note)``; ``modes`` is None when the
+        cross-section cannot be solved, in which case ``note`` says why and the
+        caller must fall back to the geometric rule rather than invent a number.
+        """
+        if SymmetricCoupledLineSolver is None:
+            return None, "", "the 2-D solver is unavailable in this runtime"
+        if gap_mm <= 0.0:
+            return None, "", "the traces overlap once their widths are removed"
+        if gap_mm > COUPLING_SOLVER_MAX_GAP_MM:
+            return None, "", (
+                f"the {gap_mm:.3f} mm gap is beyond the {COUPLING_SOLVER_MAX_GAP_MM:g} mm "
+                "range where the 2-D solver is trustworthy"
+            )
+        layer_id = int(track.layer_id)
+        thickness = self._copper_thickness(layer_id)
+        above, below = self._references_around(layer_id)
+        try:
+            if above[0] is not None and below[0] is not None:
+                return (
+                    SymmetricCoupledLineSolver.solve_stripline_pair(
+                        width_mm, gap_mm, thickness,
+                        above[1], self._dielectric_between(layer_id, above[0]),
+                        below[1], self._dielectric_between(layer_id, below[0]),
+                    ),
+                    "stripline",
+                    "",
+                )
+            reference, height = (below if below[0] is not None else above)
+            if reference is None or not height:
+                return None, "", "no reference plane was found for this layer"
+            return (
+                SymmetricCoupledLineSolver.solve_microstrip_pair(
+                    width_mm, gap_mm, thickness, height,
+                    self._dielectric_between(layer_id, reference),
+                ),
+                "microstrip",
+                "",
+            )
+        except (ValueError, ZeroDivisionError, ArithmeticError) as exc:
+            return None, "", f"the 2-D solve failed ({exc})"
 
     def _pair_reference_coverage(self, pair, tracks):
         """Measure adjacent-plane and coplanar return coverage point by point."""
@@ -1188,12 +1317,97 @@ class EMCAnalyzer:
                     distance = line_a.distance(LineString([second.start, second.end]))
                     if parallel and min(first.length_mm, second.length_mm) >= 5.0 and distance < threshold:
                         x, y = self._track_midpoint(first)
-                        severity = "HIGH" if re.search(r"ADC|ANALOG|SENSE", victim, re.I) else "MEDIUM"
-                        self._add("XT-001", "CROSSTALK", severity, "Long parallel trace coupling",
-                                  f"{aggressor} and {victim} run in parallel within {distance:.3f} mm; 3H target is {threshold:.3f} mm.",
-                                  "Increase spacing to at least 3H, change layer, or insert a grounded guard.",
-                                  "MEDIUM", [aggressor, victim], location=(x, y, first.layer_id))
+                        self._report_crosstalk(
+                            aggressor, victim, first, second, distance, threshold,
+                            (x, y, first.layer_id),
+                        )
                         reported.add(key)
+
+    def _report_crosstalk(self, aggressor, victim, first, second, distance, threshold, location):
+        """Emit XT-001, quantifying the coupling when the cross-section allows.
+
+        The rule used to compare a centreline distance with a 3H threshold and
+        stop there, which says the traces are close but not how much they
+        couple.  ``crosstalk_2d`` turns the same geometry into an even/odd mode
+        solve and a near-end coupling coefficient, so the finding can carry a
+        percentage of the aggressor swing instead of a spacing.
+
+        When the cross-section cannot be solved the geometric rule still fires,
+        because a proximity warning is better than silence -- but it is
+        labelled HEURISTIC and says which path produced it, so a reader never
+        mistakes a spacing check for a coupling calculation.
+        """
+        sensitive = bool(SENSITIVE_VICTIM_PATTERN.search(victim))
+        width_mm = 0.5 * (float(first.width_mm) + float(second.width_mm))
+        # LineString.distance measures centreline to centreline; the solver
+        # wants the copper-edge gap.
+        gap_mm = distance - width_mm
+        coupled_length_mm = min(float(first.length_mm), float(second.length_mm))
+        modes, topology, reason = self._coupled_modes(first, gap_mm, width_mm)
+
+        if modes is None:
+            severity = "HIGH" if sensitive else "MEDIUM"
+            self._add(
+                "XT-001", "CROSSTALK", severity, "Long parallel trace coupling",
+                f"{aggressor} and {victim} run in parallel within {distance:.3f} mm; "
+                f"3H target is {threshold:.3f} mm. Coupling was not quantified because "
+                f"{reason}; this is a spacing check, not a coupling calculation.",
+                "Increase spacing to at least 3H, change layer, or insert a grounded guard.",
+                "LOW", [aggressor, victim], location=location,
+            )
+            return
+
+        kb_sat = near_end_crosstalk_coefficient(modes)
+        source = self._source_by_net.get(aggressor)
+        rise_time_s = max(float(getattr(source, "rise_time_ns", 0.0) or 0.0), 0.0) * 1e-9
+        coupled_length_m = coupled_length_mm / 1000.0
+
+        # Kb_sat is the saturated worst case and needs no rise time, so it is
+        # always reported.  The length-corrected NEXT additionally needs the
+        # aggressor edge, whose provenance is stated rather than assumed.
+        detail = (
+            f"Saturated near-end coupling Kb={abs(kb_sat) * 100:.2f} % of the aggressor "
+            f"swing, from a {topology} even/odd mode solve "
+            f"(Z0e={modes.even_mode_impedance_ohm:.1f} ohm, "
+            f"Z0o={modes.odd_mode_impedance_ohm:.1f} ohm) over {coupled_length_mm:.2f} mm "
+            f"at a {gap_mm:.3f} mm edge gap."
+        )
+        next_ratio = abs(kb_sat)
+        if rise_time_s > 0.0:
+            next_ratio = abs(near_end_crosstalk_ratio(modes, coupled_length_m, rise_time_s))
+            fext_ratio = far_end_crosstalk_ratio(modes, coupled_length_m, rise_time_s)
+            provenance = (
+                "measured from the configured source"
+                if str(getattr(source, "source", "auto")).lower() != "auto"
+                else "an engineering default, not a datasheet value"
+            )
+            detail += (
+                f" With a {rise_time_s * 1e9:.2f} ns aggressor edge ({provenance}), "
+                f"NEXT={next_ratio * 100:.2f} % and FEXT={fext_ratio * 100:+.2f} % "
+                f"of the swing; saturation length is "
+                f"{saturation_length_m(modes, rise_time_s) * 1000.0:.2f} mm."
+            )
+        else:
+            detail += " No aggressor rise time is configured, so only the saturated worst case is given."
+
+        limit_high = NEXT_RATIO_SENSITIVE if sensitive else NEXT_RATIO_HIGH
+        limit_medium = NEXT_RATIO_SENSITIVE / 2.0 if sensitive else NEXT_RATIO_MEDIUM
+        if next_ratio >= limit_high:
+            severity = "HIGH"
+        elif next_ratio >= limit_medium:
+            severity = "MEDIUM"
+        else:
+            severity = "LOW"
+
+        self._add(
+            "XT-001", "CROSSTALK", severity, "Quantified parallel trace coupling",
+            f"{aggressor} couples {next_ratio * 100:.2f} % into {victim}. {detail} "
+            f"Escalation budget: {limit_high * 100:g} % HIGH / {limit_medium * 100:g} % MEDIUM"
+            f"{' (sensitive victim)' if sensitive else ''}.",
+            "Increase spacing, change layer, or insert a grounded guard trace; "
+            "the coupling falls roughly with the square of the gap-to-height ratio.",
+            "MEDIUM", [aggressor, victim], location=location, detail=detail,
+        )
 
     def _pdn_rules(self):
         if not self._enabled("PDN"):
