@@ -148,13 +148,28 @@ def read_schematic(root_sch_path: Path) -> ParsedSchematic:
                 pins=pin_defs,
             ))
 
-        # Recurse into sub-sheets
+        # Recurse into sub-sheets.
+        #
+        # KiCad 6+ names the child file in a property, not a node of its own:
+        #     (sheet ... (property "Sheetfile" "child.kicad_sch" ...) ...)
+        # Looking only for a bare (sheetfile ...) matched nothing, so no
+        # hierarchy was ever followed. On the reference project that meant
+        # reading the 11 symbols of the bridge sheet and missing the 114 in
+        # its child, after which SCH-005 reported 119 footprints as having no
+        # schematic symbol -- every one of them false. The node form is still
+        # accepted in case an older file uses it.
         for sheet_node in find_all(root, "sheet"):
+            sub_filename = ""
             sheetfile_node = find(sheet_node, "sheetfile")
             if sheetfile_node and len(sheetfile_node) > 1:
-                sub_filename = sheetfile_node[1]
-                sub_path = sch_path.parent / sub_filename
-                _process_sheet(sub_path)
+                sub_filename = str(sheetfile_node[1])
+            else:
+                for prop in find_all(sheet_node, "property"):
+                    if len(prop) >= 3 and str(prop[1]).lower() == "sheetfile":
+                        sub_filename = str(prop[2])
+                        break
+            if sub_filename:
+                _process_sheet(sch_path.parent / sub_filename)
 
     _process_sheet(root_sch_path)
     return ParsedSchematic(
