@@ -190,8 +190,11 @@ class ThermalSolverEngine:
             result = coupled_result.thermal
         else:
             coupled_result = None
-            result = thermal_solver.solve(
-                mesh, ambient_c=request.settings.ambient_c,
+            # Natural convection and radiation both depend on the surface
+            # temperature being solved for, so the coefficients are refined
+            # against the solution instead of staying at their nominal values.
+            result = thermal_solver.solve_with_surface_refinement(
+                mesh, request.settings,
                 progress_callback=checked_progress,
             )
         if cancelled():

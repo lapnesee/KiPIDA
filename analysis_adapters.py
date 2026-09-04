@@ -518,6 +518,47 @@ def attach_dc_remediations(result: Any, board_path: Any, rails: Any,
                 "within target, no meshable copper, or the solve did not converge)."
             )
     return attached
+def _thermal_surface_metrics(domain_result: Any) -> list:
+    """Publish the surface coefficients that produced the temperatures.
+
+    A hotspot is only as trustworthy as the exchange coefficient behind it, and
+    that coefficient was previously computed, stored and never shown. Reporting
+    it lets a reader sanity-check the result against a handbook figure instead
+    of taking the temperature on faith.
+    """
+    surfaces = dict(getattr(domain_result, "surface_h_w_m2k", {}) or {})
+    if not surfaces:
+        return []
+    labels = {"top": "Top", "bottom": "Bottom", "edge": "Edge"}
+    return [
+        AnalysisMetric(
+            f"surface_h_{kind}", f"{labels.get(kind, kind.title())} surface exchange",
+            float(value), "W/m²K", "INFO",
+        )
+        for kind, value in sorted(surfaces.items())
+    ]
+
+
+def _thermal_surface_detail(domain_result: Any) -> str:
+    """One line naming the coefficients used and where they came from."""
+    surfaces = dict(getattr(domain_result, "surface_h_w_m2k", {}) or {})
+    basis = str(getattr(domain_result, "convection_basis", "") or "unspecified correlation")
+    length_m = float(getattr(domain_result, "characteristic_length_m", 0.0) or 0.0)
+    if not surfaces:
+        return (
+            f"Surface exchange follows {basis}; per-face coefficients were not recorded."
+        )
+    applied = ", ".join(
+        f"{kind} {value:.1f} W/m²K" for kind, value in sorted(surfaces.items())
+    )
+    length_note = (
+        f" Characteristic length A/P = {length_m * 1000.0:.1f} mm."
+        if length_m > 0.0 else ""
+    )
+    return (
+        f"Convection and radiation combined, refined against the solved surface "
+        f"temperature: {applied}. Basis: {basis}.{length_note}"
+    )
 
 
 def _thermal_grid_limitations(domain_result: Any) -> list:
@@ -590,14 +631,23 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
             ),
             AnalysisMetric(
                 "energy_balance", "Energy balance error", balance, "%",
-                "PASS" if abs(balance) <= 5.0 else "WARN",
+                # Renamed from a bare "PASS": this measures only that the
+                # linear solve converged, and would look just as good with a
+                # coefficient wrong by a factor of ten. Calling it PASS invited
+                # it to be read as physical accuracy.
+                "NUMERICS_OK" if abs(balance) <= 5.0 else "WARN",
             ),
-        ],
+        ] + _thermal_surface_metrics(domain_result),
         provenance=[
             AnalysisEvidence(
                 "PCB_GEOMETRY",
                 "The thermal mesh uses a detached snapshot of board copper, stackup, outline, and component geometry.",
                 reference="KiCad IPC snapshot",
+            ),
+            AnalysisEvidence(
+                "SURFACE_EXCHANGE",
+                _thermal_surface_detail(domain_result),
+                reference=str(getattr(domain_result, "convection_basis", "") or "surface correlation"),
             ),
             AnalysisEvidence(
                 "POWER_MODEL",

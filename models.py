@@ -904,6 +904,13 @@ class ThermalResult:
     total_boundary_power_w: float = 0.0
     energy_balance_error_pct: float = 0.0
     convection_coefficient_w_m2k: float = 0.0
+    # The surface exchange as actually applied, per exposed face, plus the
+    # correlation it came from. A hotspot is only as good as the coefficient
+    # that produced it, so the report must be able to state both rather than
+    # leaving a first-order assumption invisible.
+    surface_h_w_m2k: Dict[str, float] = field(default_factory=dict)
+    convection_basis: str = ""
+    characteristic_length_m: float = 0.0
     iterations: int = 1
     converged: bool = True
     compute_backend: str = "CPU"
