@@ -117,6 +117,10 @@ class HybridMesher:
         self._grid_step = grid_step_mm
         self._log_cb = log_callback
         self._rho = rho
+        # The zone mesher may coarsen the grid to fit its node budget, so
+        # tracks must attach against the step actually used, not the one asked
+        # for. Seeded here so a board with no zones still has a sane value.
+        self._effective_grid_step = grid_step_mm
 
     # ------------------------------------------------------------------
     # Public API
@@ -138,6 +142,10 @@ class HybridMesher:
         mesh = Mesh()
         node_registry: dict[tuple[float, float, int], int] = {}
         node_counter = [0]
+        # Zone nodes indexed by their grid cell, so a track landing on a plane
+        # can find the plane node instead of minting a private one. Populated
+        # while the zones are meshed, consulted when tracks and vias are.
+        zone_index: dict[tuple[int, int, int], int] = {}
 
         def get_or_create(x: float, y: float, layer_id: int) -> int:
             key = (_snap(x), _snap(y), layer_id)
@@ -149,7 +157,54 @@ class HybridMesher:
                 mesh.node_coords[nid] = (_snap(x), _snap(y), layer_id)
             return node_registry[key]
 
+        def attach(x: float, y: float, layer_id: int) -> int:
+            """Node for a track endpoint or via, joined to the plane it touches.
+
+            Track endpoints snap to 1 um so two tracks meeting share a node.
+            Zone nodes sit on the cut-cell grid, typically 0.1 mm. Those two
+            lattices coincide only by accident, so every track was galvanically
+            separate from every plane: one real rail split into 63,897
+            connected components, and the loads on tracks could not be reached
+            from a source on the pour.
+
+            So a track endpoint first looks for a zone node in the surrounding
+            grid cells on its own layer, and adopts the nearest one within half
+            a cell. Only when the copper genuinely has no pour there does it
+            create a node of its own.
+            """
+            if zone_index:
+                step = self._effective_grid_step
+                ix, iy = x / step, y / step
+                best_id, best_distance = None, None
+                for cx in (math.floor(ix), math.ceil(ix)):
+                    for cy in (math.floor(iy), math.ceil(iy)):
+                        found = zone_index.get((int(cx), int(cy), layer_id))
+                        if found is None:
+                            continue
+                        zx, zy, _layer = mesh.node_coords[found]
+                        distance = math.hypot(zx - x, zy - y)
+                        if best_distance is None or distance < best_distance:
+                            best_id, best_distance = found, distance
+                if best_id is not None and best_distance <= 0.5 * step:
+                    return best_id
+            return get_or_create(x, y, layer_id)
+
         board = self._board
+
+        # ------------------------------------------------------------------
+        # 0. Zones first — they lay down the grid that tracks then attach to.
+        #
+        # Order matters here. Tracks can only adopt a plane node if the plane
+        # nodes already exist, so meshing zones last left every track isolated.
+        # ------------------------------------------------------------------
+        zone_count = 0
+        for zone in board.zones:
+            if zone.net_name != net_name:
+                continue
+            zone_count += self._mesh_zone_cutcell(
+                zone, board, mesh, get_or_create, zone_index,
+            )
+        self._log(f"[HybridMesher] Net '{net_name}': {zone_count} zone edges")
 
         # ------------------------------------------------------------------
         # 1. Track segments — analytical resistance
@@ -177,8 +232,8 @@ class HybridMesher:
                 )
                 continue
             layer_id = _layer_id_for_name(board, seg.layer)
-            u = get_or_create(x0, y0, layer_id)
-            v = get_or_create(x1, y1, layer_id)
+            u = attach(x0, y0, layer_id)
+            v = attach(x1, y1, layer_id)
             if u == v:
                 # Both endpoints snapped to same node — treat as short
                 continue
@@ -226,33 +281,55 @@ class HybridMesher:
             except ValueError:
                 continue
 
-            u = get_or_create(vx, vy, lid_top)
-            v = get_or_create(vx, vy, lid_bot)
-            if u == v:
+            # A through via touches every copper layer it passes, not just the
+            # two it is named after. Modelling only the outer pair left the
+            # rail's tracks on F.Cu/B.Cu unable to reach its plane on In2.Cu:
+            # the barrel physically shorts them, the model did not, and the
+            # loads were unreachable from the source.
+            span = self._layers_spanned(board, top_layer, bot_layer)
+            if len(span) < 2:
                 continue
-            g = 1.0 / R_via
-            mesh.add_edge_direct(
-                u, v, g,
-                kind="vertical",
-                cross_section_mm2=math.pi * drill_mm * plating_mm,
-                geometry_source=f"via:{top_layer}-{bot_layer}",
-            )
-            via_count += 1
+            # The barrel resistance is for the full board thickness; give each
+            # inter-layer hop its share so the total across the stack is right.
+            hops = len(span) - 1
+            g = hops / R_via
+            previous = attach(vx, vy, span[0][1])
+            added = False
+            for name, layer_id in span[1:]:
+                node = attach(vx, vy, layer_id)
+                if node != previous:
+                    mesh.add_edge_direct(
+                        previous, node, g,
+                        kind="vertical",
+                        cross_section_mm2=math.pi * drill_mm * plating_mm,
+                        geometry_source=f"via:{top_layer}-{bot_layer}",
+                    )
+                    added = True
+                previous = node
+            if added:
+                via_count += 1
 
         self._log(f"[HybridMesher] Net '{net_name}': {via_count} via branches")
 
-        # ------------------------------------------------------------------
-        # 3. Zones — cut-cell area-weighted conductances
-        # ------------------------------------------------------------------
-        zone_count = 0
-        for zone in board.zones:
-            if zone.net_name != net_name:
-                continue
-            added = self._mesh_zone_cutcell(zone, board, mesh, get_or_create)
-            zone_count += added
-
-        self._log(f"[HybridMesher] Net '{net_name}': {zone_count} zone edges")
         return mesh
+
+    @staticmethod
+    def _layers_spanned(board: ParsedBoard, top_layer: str, bottom_layer: str):
+        """Copper layers a via crosses, in stackup order, ends included.
+
+        ``Via.layers`` names only the two ends. A through via drilled from
+        F.Cu to B.Cu also passes every inner layer, and is electrically common
+        with the net's copper on each of them -- which is how a track on an
+        outer layer reaches a plane on an inner one.
+        """
+        order = [(cl.name, cl.layer_id) for cl in board.stackup.layers]
+        names = [name for name, _ in order]
+        if top_layer not in names or bottom_layer not in names:
+            return []
+        first, last = names.index(top_layer), names.index(bottom_layer)
+        if first > last:
+            first, last = last, first
+        return order[first:last + 1]
 
     # ------------------------------------------------------------------
     # Zone cut-cell implementation
@@ -279,6 +356,7 @@ class HybridMesher:
         board: ParsedBoard,
         mesh: Mesh,
         get_or_create,
+        zone_index=None,
     ) -> int:
         """Add cut-cell edges for one zone. Returns edge count added."""
         poly = self._zone_polygon(zone)
@@ -311,6 +389,8 @@ class HybridMesher:
                 f"[HybridMesher] Zone '{zone.net_name}': grid degraded to {h:.3f} mm "
                 f"(estimated {estimated_nodes:,} > {self.MAX_ZONE_NODES:,} budget)"
             )
+        # Tracks attach against the step actually used, not the requested one.
+        self._effective_grid_step = h
 
         xs = np.arange(xmin, xmax + h * 0.5, h)
         ys = np.arange(ymin, ymax + h * 0.5, h)
@@ -325,6 +405,8 @@ class HybridMesher:
         for iy, y in enumerate(ys):
             for ix, x in enumerate(xs):
                 u = get_or_create(x, y, layer_id)
+                if zone_index is not None:
+                    zone_index[(int(round(x / h)), int(round(y / h)), layer_id)] = u
 
                 # Horizontal edge → (x+h, y)
                 if ix + 1 < len(xs):
