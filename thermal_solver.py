@@ -235,4 +235,8 @@ class ThermalSolver:
             compute_fallback_reason=compute.metadata.fallback_reason,
             compute_matrix_assembly=compute.metadata.matrix_assembly,
             compute_warm_start_used=compute.metadata.warm_start_used,
+            requested_grid_size_mm=float(getattr(mesh, "requested_grid_size_mm", 0.0) or 0.0),
+            effective_grid_size_mm=float(getattr(mesh, "grid_size_mm", 0.0) or 0.0),
+            adaptive_grid=bool(getattr(mesh, "adaptive_grid", False)),
+            mesh_node_count=len(getattr(mesh, "nodes", ()) or ()),
         )

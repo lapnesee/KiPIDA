@@ -349,7 +349,22 @@ class ThermalMesher:
         if configured_gib <= 0.0:
             return base_limit, cuda_requested
         memory_nodes = int(configured_gib * (1024 ** 3) // self.HOST_PEAK_BYTES_PER_NODE)
-        return max(10000, min(hard_limit, memory_nodes)), cuda_requested
+        # An explicit memory_limit_gib is a statement about this machine, so it
+        # governs. The hard ceiling protects a user who never made that
+        # statement; applying it on top of one turns a considered declaration
+        # into a no-op -- a 16 GiB budget allows 13.4 M nodes and the ceiling
+        # silently refused 9.4 M of them, so the setting did nothing past 4 M.
+        # The declared budget still bounds the mesh; only the blanket cap goes.
+        limit = max(10000, memory_nodes)
+        if limit > hard_limit:
+            self._log(
+                f"Explicit {configured_gib:g} GiB budget allows {limit:,} nodes, above the "
+                f"{hard_limit:,}-node default ceiling. Honouring the budget: at "
+                f"{self.HOST_PEAK_BYTES_PER_NODE} bytes per node a full mesh needs about "
+                f"{limit * self.HOST_PEAK_BYTES_PER_NODE / (1024 ** 3):.1f} GiB of host RAM "
+                "at peak. Lower the ceiling in Runtime settings if that is too close."
+            )
+        return limit, cuda_requested
 
     @staticmethod
     def _sample_layer_band(outline, copper, min_x, min_y, nx, row_start, row_stop, grid,

@@ -131,10 +131,17 @@ class TestThermalSolver(unittest.TestCase):
         self.assertEqual(cuda._node_limit(), (1250000, True))
 
     def test_explicit_ram_ceiling_can_extend_cuda_mesh_budget(self):
+        # This asserted 4,000,000 -- the default ceiling clipping the declared
+        # budget -- which contradicted the behaviour the test's own name
+        # describes. An explicit memory_limit_gib is a statement about the
+        # machine and now governs: 32 GiB at 1280 bytes per node is 26.8 M,
+        # and the ceiling no longer discards 22.8 M of them.
         mesher = ThermalMesher(compute_settings=RuntimeComputeSettings(
             backend="CUDA", cuda_enabled=True, memory_limit_gib=32.0,
         ))
-        self.assertEqual(mesher._node_limit(), (4000000, True))
+        self.assertEqual(
+            mesher._node_limit(), (int(32.0 * (1024 ** 3) // 1280), True),
+        )
 
 
 if __name__ == "__main__":

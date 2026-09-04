@@ -916,6 +916,15 @@ class ThermalResult:
     compute_fallback_reason: str = ""
     compute_matrix_assembly: str = "CPU_CSR"
     compute_warm_start_used: bool = False
+    # The mesher silently coarsens the grid when the requested one would
+    # exceed the node budget. Carried here so the report can say the requested
+    # resolution was not honoured: someone who asks for 0.05 mm and receives
+    # 0.089 mm is otherwise told nothing outside the log, and reads the result
+    # as though it were the resolution they chose.
+    requested_grid_size_mm: float = 0.0
+    effective_grid_size_mm: float = 0.0
+    adaptive_grid: bool = False
+    mesh_node_count: int = 0
 
 
 @dataclass

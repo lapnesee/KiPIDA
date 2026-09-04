@@ -416,6 +416,30 @@ def adapt_differential_result(results: Any, stackup: Any, tolerance_pct: float) 
     ).finish()
 
 
+def _thermal_grid_limitations(domain_result: Any) -> list:
+    """Say so when the mesh was coarsened below the requested resolution.
+
+    The mesher silently rescales the grid to fit its node budget. Until now
+    that appeared only in the run log, so a report read later showed a hotspot
+    computed at 0.089 mm to someone who had asked for 0.05 mm, with nothing
+    marking the difference. Mesh resolution moved this board's hotspot by
+    7.4 C between 0.5 and 0.1 mm, so it is not a detail.
+    """
+    if not bool(getattr(domain_result, "adaptive_grid", False)):
+        return []
+    requested = float(getattr(domain_result, "requested_grid_size_mm", 0.0) or 0.0)
+    effective = float(getattr(domain_result, "effective_grid_size_mm", 0.0) or 0.0)
+    if requested <= 0.0 or effective <= 0.0 or effective <= requested:
+        return []
+    nodes = int(getattr(domain_result, "mesh_node_count", 0) or 0)
+    return [
+        f"The thermal mesh was coarsened from the requested {requested:g} mm to "
+        f"{effective:g} mm ({nodes:,} nodes) to fit the node budget. Temperatures "
+        "are those of the coarser mesh; raise the memory ceiling in Runtime "
+        "settings to honour the requested resolution."
+    ]
+
+
 def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seconds: float = 0.0) -> AnalysisResult:
     findings = []
     components = list(getattr(domain_result, "component_results", ()) or ())
@@ -481,7 +505,9 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
             "device": getattr(domain_result, "compute_device", ""),
             "relative_residual": getattr(domain_result, "compute_relative_residual", 0.0),
         },
-        limitations=["Compact thermal models require datasheet and measurement validation."],
+        limitations=[
+            "Compact thermal models require datasheet and measurement validation.",
+        ] + _thermal_grid_limitations(domain_result),
     ).finish()
 
 
