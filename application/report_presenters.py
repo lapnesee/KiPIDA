@@ -85,7 +85,9 @@ def format_cfd_report(mesh, result):
         f"Maximum air temperature: {result.maximum_air_temperature_c:.3f} C",
         f"Maximum solid temperature: {result.maximum_solid_temperature_c:.3f} C",
         f"Mapped heat: {result.total_heat_w:.6g} W",
-        f"Mass balance error: {result.mass_balance_error_pct:.4g}%",
+        "Mass balance error: not applicable (sealed enclosure, no through-flow)"
+        if not getattr(result, "mass_balance_applicable", True)
+        else f"Mass balance error: {result.mass_balance_error_pct:.4g}%",
         f"Energy balance error: {result.energy_balance_error_pct:.4g}%",
         f"Compute backend: {result.compute_backend} ({result.compute_device})",
         f"Last energy solve: {result.compute_solve_seconds:.4g} s, residual {result.compute_relative_residual:.4g}",

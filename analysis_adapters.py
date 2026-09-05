@@ -771,20 +771,28 @@ def adapt_cfd_result(mesh: Any, domain_result: Any) -> AnalysisResult:
     # benchmark found the momentum discretisation accurate to 0.4% at 20 cells
     # across a channel, 7% at 10, and at 6 cells it produced no boundary layer
     # at all -- a plug profile with u_max/u_mean = 1.000.
+    # The threshold follows the measured error curve, not a round number:
+    # 20 cells -> 0.4%, 14 -> 3.5%, 10 -> 7.1%, 6 -> no boundary layer at all.
+    # An earlier version warned only below 10, which let the reference board
+    # through silently at exactly 10 cells -- the 7% case. Warning has to start
+    # where the error does.
     across = min(getattr(mesh, "shape", ()) or (0,))
-    if across and across < 10:
+    if across and across < 14:
         findings.append(_finding(
             "CFD-003", 1, "RESOLUTION",
-            FindingSeverity.HIGH if across < 7 else FindingSeverity.MEDIUM,
+            FindingSeverity.HIGH if across < 10 else FindingSeverity.MEDIUM,
             "Enclosure mesh is too coarse for the velocity field to be trusted",
-            f"The narrowest enclosure direction spans {across} cells. The solver "
-            "was validated to 0.4% at 20 cells and 7% at 10; below 7 it produced "
-            "no boundary layer at all.",
+            f"The narrowest enclosure direction spans {across} cells. Measured "
+            "profile error against laminar duct theory: 0.4% at 20 cells, 3.5% "
+            "at 14, 7.1% at 10, and at 6 cells no boundary layer formed at all.",
             "Reduce the CFD cell size until the smallest dimension spans at "
-            "least 10 cells, or read the velocity as indicative only.",
+            "least 14 cells, or read the velocity as indicative only.",
             confidence=EvidenceConfidence.DETERMINISTIC,
         ))
+    mass_applicable = bool(getattr(domain_result, "mass_balance_applicable", True))
     for index, (key, label) in enumerate((("mass_balance_error_pct", "Mass"), ("energy_balance_error_pct", "Energy")), start=1):
+        if key == "mass_balance_error_pct" and not mass_applicable:
+            continue
         value = float(getattr(domain_result, key, 0.0))
         if abs(value) > 5.0:
             findings.append(_finding(
@@ -822,6 +830,9 @@ def adapt_cfd_result(mesh: Any, domain_result: Any) -> AnalysisResult:
             "Momentum discretisation validated against laminar duct flow to 0.4% at 20 cells "
             "across the channel; at 6 cells it produced no boundary layer at all. "
             "See docs/validation-cfd.md.",
+            "Sealed enclosure: no flow crosses a boundary, so mass balance is "
+            "not applicable rather than perfect."
+            if not mass_applicable else
             f"Mass balance is measured before the outlet fix-up: "
             f"{float(getattr(domain_result, 'mass_balance_error_pct', 0.0)):.3g}% of the inflow "
             "did not reach the outlet.",

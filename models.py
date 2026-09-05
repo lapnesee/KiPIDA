@@ -1035,6 +1035,10 @@ class EnclosureCFDResult:
     iterations: int = 0
     converged: bool = False
     mass_balance_error_pct: float = 0.0
+    # False for a sealed enclosure, where no flow crosses a boundary and the
+    # figure above is meaningless rather than good. Reporting 0% there would
+    # read as a conservation check that passed.
+    mass_balance_applicable: bool = True
     energy_balance_error_pct: float = 0.0
     maximum_velocity_m_s: float = 0.0
     # Free-stream air speed approaching the board, for the flat-plate forced

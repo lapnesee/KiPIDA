@@ -193,6 +193,59 @@ class UnderResolvedMeshesAreReported(unittest.TestCase):
         findings = [f for f in self._adapt(20).findings if f.rule_id == "CFD-003"]
         self.assertEqual(findings, [])
 
+    def test_the_reference_board_resolution_is_flagged(self):
+        # p02_alimentation meshes to 24 x 20 x 10. An earlier threshold warned
+        # only below 10, so exactly 10 slipped through silently -- and 10 cells
+        # is the 7.1% case. Warning has to start where the error does.
+        from analysis_contract import FindingSeverity
+
+        findings = [f for f in self._adapt(10).findings if f.rule_id == "CFD-003"]
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].severity, FindingSeverity.MEDIUM)
+
+
+class SealedEnclosuresReportNoMassBalance(unittest.TestCase):
+    """A sealed box has no through-flow, so 0% is not a passed check.
+
+    The reference board logged "mass error=0%" for a buoyancy-only enclosure,
+    which reads exactly like the tautology this replaced.
+    """
+
+    def test_a_sealed_enclosure_marks_the_balance_inapplicable(self):
+        from cfd_mesh import CFDMeshGenerator
+        from cfd_model import CFDObstacle, EnclosureModel
+
+        settings = EnclosureCFDSettings()
+        settings.geometry.width_mm = 30.0
+        settings.geometry.depth_mm = 30.0
+        settings.geometry.height_mm = 30.0
+        settings.solver.cell_size_mm = 6.0
+        settings.solver.max_iterations = 6
+        settings.solver.pressure_iterations = 6
+        model = EnclosureModel(
+            dimensions_mm=(30.0, 30.0, 30.0),
+            obstacles=[CFDObstacle("HOT", (12, 12, 12, 18, 18, 18), 5.0, 0.5)],
+        )
+        mesh = CFDMeshGenerator().generate_mesh(model, settings)
+
+        result = EnclosureCFDSolver().solve(mesh, settings)
+
+        self.assertFalse(result.mass_balance_applicable)
+
+    def test_the_conservation_finding_does_not_fire_on_a_sealed_box(self):
+        from analysis_adapters import adapt_cfd_result
+        from models import EnclosureCFDResult
+
+        adapted = adapt_cfd_result(None, EnclosureCFDResult(
+            converged=True, mass_balance_error_pct=0.0,
+            mass_balance_applicable=False,
+        ))
+        mass = [
+            f for f in adapted.findings
+            if f.rule_id == "CFD-002" and "Mass" in f.title
+        ]
+        self.assertEqual(mass, [])
+
 
 class ViaLossesGetAnAction(unittest.TestCase):
     """A rail whose loss lives in its vias used to get no advice at all.

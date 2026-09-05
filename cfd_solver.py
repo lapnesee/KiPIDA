@@ -448,7 +448,12 @@ class EnclosureCFDSolver:
                         outgoing += -inward_velocity * areas[axis]
         outgoing = float(outgoing)
         if incoming + outgoing <= 1e-15:
-            return 0.0
+            # A sealed enclosure has no through-flow, so there is nothing to
+            # conserve across a boundary. Returning 0.0 here would print
+            # "mass error=0%" and read as a conservation check that passed --
+            # the same false reassurance as the tautology this replaced, just
+            # arrived at differently. None means "not applicable".
+            return None
         return abs(incoming - outgoing) / max(incoming, outgoing, 1e-15) * 100.0
 
     @staticmethod
@@ -649,7 +654,9 @@ class EnclosureCFDSolver:
         free_stream, free_stream_cells = self._board_free_stream(mesh, speed)
         self._log(
             f"Solved {mesh.cell_count:,} cells in {iteration + 1} iterations; "
-            f"Vmax={np.max(speed):.4g} m/s, mass error={mass_error:.3g}%."
+            f"Vmax={np.max(speed):.4g} m/s, "
+            + ("mass balance not applicable (sealed enclosure, no through-flow)."
+               if mass_error is None else f"mass error={mass_error:.3g}%.")
         )
         return EnclosureCFDResult(
             pressure_pa=pressure.reshape(-1).tolist(),
@@ -661,7 +668,8 @@ class EnclosureCFDSolver:
             residuals=residuals,
             iterations=iteration + 1,
             converged=converged,
-            mass_balance_error_pct=float(mass_error),
+            mass_balance_error_pct=0.0 if mass_error is None else float(mass_error),
+            mass_balance_applicable=mass_error is not None,
             energy_balance_error_pct=float(energy_error),
             maximum_velocity_m_s=float(np.max(speed[fluid])) if np.any(fluid) else 0.0,
             board_free_stream_velocity_m_s=free_stream,
