@@ -140,6 +140,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self._stream_capture.install()
         
         self.log("Ki-PIDA UI Initialized.")
+        self._log_module_provenance()
         if not self.board:
              self.log("ERROR: No board object connected. Plugin will not function properly.")
         else:
@@ -1246,6 +1247,40 @@ class KiPIDA_MainDialog(wx.Dialog):
         except Exception as exc:
             self.log(f"Coupled Thermal Analysis Error: {exc}")
             wx.MessageBox(str(exc), "Coupled Thermal Analysis Error", wx.OK | wx.ICON_ERROR)
+
+    # Solver modules whose identity decides what the results mean. If one of
+    # these is supplied by another directory on sys.path, every number below
+    # comes from code nobody deployed.
+    PROVENANCE_MODULES = (
+        "cfd_solver", "mesh_hybrid", "thermal_solver", "solver",
+        "config_manager", "analysis_adapters", "compute_backend",
+    )
+
+    def _log_module_provenance(self):
+        """Name any solver imported from outside this plugin directory.
+
+        The startup line reports where the entry point lives, which is all it
+        can know. The plugin imports flat top-level names, so a second copy
+        earlier on sys.path silently supplies modules while the path and the
+        fingerprint both look right -- new UI, old solver, and no way to see it.
+
+        Silent when everything comes from here, which is the normal case.
+        """
+        try:
+            import os
+
+            from runtime_environment import imported_module_origins
+
+            root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            strangers = imported_module_origins(self.PROVENANCE_MODULES, root)
+        except Exception as exc:  # pragma: no cover - never block startup
+            self.log(f"[INIT] Could not check module provenance: {exc}")
+            return
+        for entry in strangers:
+            self.log(
+                f"[INIT] WARNING: {entry} -- this module is NOT from the plugin "
+                "directory. Its results come from a different copy."
+            )
 
     def _cfd_free_stream_for_thermal(self):
         """CFD free-stream speed to drive the surface coefficients, or None.

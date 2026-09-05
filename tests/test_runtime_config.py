@@ -65,6 +65,48 @@ class RuntimeConfigTests(unittest.TestCase):
             self.assertTrue(before)
             self.assertNotEqual(before, after)
 
+    def test_line_endings_do_not_change_the_fingerprint(self):
+        """Git converts to CRLF on checkout by default on Windows.
+
+        The first version hashed raw bytes, so the same commit checked out on
+        two machines reported two different builds. That is the false alarm the
+        fingerprint exists to prevent, and it caused one: a deployed copy was
+        called stale for several rounds while being byte-for-byte the same code
+        with different newlines.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "solver.py"
+            path.write_bytes(b"x = 1\ny = 2\n")
+            unix = source_fingerprint(root)
+            path.write_bytes(b"x = 1\r\ny = 2\r\n")
+            windows = source_fingerprint(root)
+
+        self.assertEqual(unix, windows)
+
+    def test_a_module_from_another_directory_is_reported(self):
+        # The plugin imports flat top-level names, so a second copy earlier on
+        # sys.path supplies modules while the entry point still reports its own
+        # folder. The fingerprint cannot see that; this can.
+        from runtime_environment import imported_module_origins
+
+        with tempfile.TemporaryDirectory() as directory:
+            # runtime_environment itself lives in the repo, not in this empty
+            # root, so it must be reported as a stranger.
+            strangers = imported_module_origins(
+                ("runtime_environment",), Path(directory),
+            )
+        self.assertEqual(len(strangers), 1)
+        self.assertIn("runtime_environment ->", strangers[0])
+
+    def test_modules_from_the_plugin_itself_are_not_reported(self):
+        from runtime_environment import imported_module_origins
+
+        root = Path(__file__).resolve().parent.parent
+        self.assertEqual(
+            imported_module_origins(("runtime_environment",), root), [],
+        )
+
     def test_the_fingerprint_ignores_tests_and_vendored_runtimes(self):
         # A deployed copy carries no tests and may carry a bundled venv; those
         # must not change the identity of the code being run.
