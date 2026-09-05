@@ -203,6 +203,31 @@ measurement has been made.
 | 4b — the flag still says False | Normalising made the residuals meaningful; it did **not** make convergence reachable. See below. |
 | coupling | `EnclosureCFDResult.board_free_stream_velocity_m_s` samples fluid cells two cells clear of any solid, within the board's slab; `ThermalRunRequest.air_velocity_m_s` carries it to `surface_coefficient`. |
 
+### The Poisson solve replaced Jacobi
+
+Raising `pressure_iterations` to 240 was a workaround for the method, not a
+fix. The operator is geometry — the fluid mask and the cell spacing — while
+only the right-hand side moves between iterations, so it is now assembled once
+per solve and handed to `SparseComputeBackend`, which the project already owned.
+
+| forced smoke case | Jacobi | sparse |
+|---|---|---|
+| mass error, 12 iterations | 10.10 % | **0.13 %** |
+| mass error, 250 iterations | — | **0.084 %** |
+| continuity floor | 1.7e-2 | **1.4e-3** |
+
+`pressure_iterations` is now inert. It is documented as dead and kept so saved
+projects still load, rather than removed or quietly repurposed; a test asserts
+that 1 and 960 sweeps give identical answers, which would fail if anything
+still read it.
+
+**The floor moved but did not go away**: 1.4e-3 against a 1e-4 tolerance, so
+`converged` is still False. And it is now the binding constraint rather than
+the iteration count — 60 and 250 iterations both end at 0.00143 on that case.
+That matters for a decision that looked independent: raising `max_iterations`
+buys nothing on a forced run until the floor itself is understood. The two are
+not separate work items.
+
 ### The inlet was fixed; the residual floor was not what I said it was
 
 The plug inlet is gone. Only the inlet cells that must vanish — those on a
@@ -235,7 +260,43 @@ rose slightly with more sweeps (2.384 → 2.573 for 30 → 960) — a better-sol
 interior makes the boundary correction larger, not smaller. This has not been
 tested.
 
-### `converged` is still always False, and that is not fully fixed
+### Found: the residual was measuring the boundary conditions
+
+The floor is gone, and the cause was not what either earlier guess said.
+
+`_apply_velocity_boundaries` prescribes the velocity in the six outer cell
+layers and in every patch cell. The pressure projection cannot move those
+values — they are Dirichlet data — so whatever divergence they carry is a
+property of the boundary condition, not a convergence failure. The residual
+averaged them in anyway, reporting the solver as stuck on cells it does not own.
+
+Measured before it was believed: on the validation duct the one-cell shell
+against the walls holds **99.9 %** of the total squared divergence, with a mean
+9.5× the deep interior's.
+
+Restricting the residual to cells the projection actually controls:
+
+| forced case | before | after |
+|---|---|---|
+| continuity residual | 1.4e-3 | **7e-17** |
+| `converged` at 250 iterations | False | **True** |
+
+Seven times ten-to-the-minus-seventeen is machine zero: the projection was
+always exact on its own degrees of freedom. `converged` is now reachable for
+the first time in this solver's life, and it means the flow has settled rather
+than that a fixed artifact happened to clear.
+
+**Why this is not narrowing the measurement until it passes.** The obvious
+objection to excluding cells from an error metric is that it can hide the
+error. The defence is that mass balance is an independent, physical check that
+was not touched — and it did not move: 0.0845 % before and after. A masked
+divergence problem would have shown up there. `tests/test_cfd_validation_fixes`
+asserts both together for exactly this reason.
+
+At 60 iterations the same case still reports `converged=False`, because the
+momentum residual has not settled. That is the flag doing its job.
+
+### The old finding: `converged` was structurally unreachable
 
 After normalisation the validation duct ends at:
 
@@ -243,10 +304,11 @@ After normalisation the validation duct ends at:
 continuity = 0.0169    momentum = 1.29e-12    energy = 1.5e-11    tolerance = 1e-5
 ```
 
-Momentum and energy are converged to twelve digits. Continuity is floored
-around 1e-2 for the reason described just above — which is *not* the inlet, as
-this section originally claimed — so the combined test still fails and
-`converged` is still `False` on every run.
+Momentum and energy are converged to twelve digits. Continuity was floored
+around 1e-2, so the combined test failed and `converged` was `False` on every
+run. **This is now fixed** — see the section above; the floor was the residual
+averaging in prescribed boundary cells. The history is kept because two
+explanations were offered and both were wrong before the third was measured.
 
 Normalising the residuals made the *number* meaningful without removing the
 *consequence* it was blamed for. Since `CFD-001` fires on that flag, the

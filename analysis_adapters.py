@@ -759,11 +759,11 @@ def adapt_cfd_result(mesh: Any, domain_result: Any) -> AnalysisResult:
             f"CFD solver did not converge ({worst_name or 'residual'} limiting)"
             if worst_name else "CFD solver did not converge",
             detail,
-            "Raise max_iterations, refine the mesh, or lower relaxation. A "
-            "continuity residual near 1e-2 with momentum and energy many orders "
-            "lower is the known floor described in docs/validation-cfd.md, not "
-            "a stalled solve: the flow field has settled and mass is conserved "
-            "to well under a percent.",
+            "Raise max_iterations, refine the mesh, or lower relaxation. "
+            "Check the mass balance alongside this: a solve can miss the "
+            "tolerance while still conserving mass to a fraction of a percent, "
+            "which usually means the flow had not finished developing rather "
+            "than that the solution is wrong.",
             confidence=EvidenceConfidence.DETERMINISTIC,
         ))
     # Resolution is the dominant error term and the user controls it directly,

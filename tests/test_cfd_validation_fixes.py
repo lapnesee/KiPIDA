@@ -474,6 +474,40 @@ class ResidualsAreDimensionless(unittest.TestCase):
         stalled = [f for f in adapted.findings if f.rule_id == "CFD-001"]
         self.assertEqual(stalled[0].severity, FindingSeverity.HIGH)
 
+    def _forced_case(self, iterations):
+        from cfd_mesh import CFDMeshGenerator
+        from cfd_model import EnclosureModel
+        from models import CFDBoundaryPatch
+
+        settings = EnclosureCFDSettings()
+        settings.geometry.width_mm = 30.0
+        settings.geometry.depth_mm = 30.0
+        settings.geometry.height_mm = 30.0
+        settings.solver.cell_size_mm = 6.0
+        settings.solver.max_iterations = iterations
+        settings.solver.include_buoyancy = False
+        model = EnclosureModel((30.0, 30.0, 30.0), patches=[
+            CFDBoundaryPatch("Fan", "FAN", "XMIN", 0.5, 0.5, 0.5, 0.5, 0.8, 25.0),
+            CFDBoundaryPatch("Outlet", "OUTLET", "XMAX", 0.5, 0.5, 0.5, 0.5),
+        ])
+        mesh = CFDMeshGenerator().generate_mesh(model, settings)
+        return EnclosureCFDSolver().solve(mesh, settings)
+
+    def test_a_settled_forced_run_can_actually_converge(self):
+        # `converged` was unreachable for the life of this solver. The residual
+        # summed over the six prescribed outer layers, where the projection has
+        # no degrees of freedom, so it floored at ~1e-2 regardless of effort.
+        self.assertTrue(self._forced_case(250).converged)
+
+    def test_excluding_prescribed_cells_did_not_hide_a_real_error(self):
+        # The guard against narrowing the measurement until it passes: mass
+        # balance is an independent physical check that was NOT changed. If
+        # restricting the residual had masked a genuine divergence problem,
+        # this number would have moved. It did not (0.0845% before and after).
+        result = self._forced_case(250)
+        self.assertLess(result.mass_balance_error_pct, 1.0)
+        self.assertGreater(result.mass_balance_error_pct, 1.0e-6)
+
     def test_the_projection_no_longer_depends_on_a_sweep_count(self):
         # pressure_iterations tuned the Jacobi projection, which the sparse
         # backend replaced. Two wildly different values must now give the same

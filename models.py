@@ -984,7 +984,17 @@ class EnclosureGeometrySettings:
 class CFDSolverSettings:
     """Numerical controls for steady incompressible enclosure flow."""
     cell_size_mm: float = 5.0
-    max_iterations: int = 250
+    # A safety cap, not a target. Until the continuity residual stopped
+    # averaging in prescribed boundary cells, `converged` could never become
+    # True, so this bound was always reached and doubling it doubled every run.
+    # Now the loop breaks as soon as the solve settles: the validation duct
+    # converges at 845 iterations, the forced smoke case at 250, and neither
+    # pays for the headroom it does not use.
+    #
+    # Raised 250 -> 1000 because 250 silently truncated the duct at a third of
+    # what it needed. Cases that settle sooner are unaffected; only a genuinely
+    # unconverged run pays, and that run now says so honestly.
+    max_iterations: int = 1000
     tolerance: float = 1.0e-4
     relaxation: float = 0.45
     pseudo_time_step_s: float = 0.02
