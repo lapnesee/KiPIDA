@@ -1124,6 +1124,45 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.log(f"Coupled Thermal Analysis Error: {exc}")
             wx.MessageBox(str(exc), "Coupled Thermal Analysis Error", wx.OK | wx.ICON_ERROR)
 
+    def _cfd_free_stream_for_thermal(self):
+        """CFD free-stream speed to drive the surface coefficients, or None.
+
+        The campaign engine grew this handover first, but nothing in this
+        dialog reaches CampaignEngine -- on_build_campaign_report consolidates
+        finished results rather than running the engine -- so the coupling was
+        unreachable code. This is the same rule on the path the user actually
+        takes: run the enclosure CFD, then run thermal.
+
+        Forced flow only. Under buoyancy the velocity is *caused* by the
+        temperature field thermal is about to compute, so handing it a speed
+        resolved against a cold board would feed the answer back into its own
+        question.
+        """
+        result = getattr(self, "cfd_result", None)
+        if result is None:
+            return None
+        if not getattr(self, "_cfd_forced_flow", False):
+            self.log(
+                "Enclosure CFD was buoyancy-driven, so its velocity is not used "
+                "for the thermal surface coefficients: it depends on the "
+                "temperature field rather than setting it."
+            )
+            return None
+        velocity = float(getattr(result, "board_free_stream_velocity_m_s", 0.0) or 0.0)
+        cells = int(getattr(result, "board_free_stream_cells", 0) or 0)
+        if velocity <= 0.0 or cells <= 0:
+            self.log(
+                "Enclosure CFD produced no usable free-stream sample over the "
+                "board (mesh too coarse to offer cells clear of every solid); "
+                "thermal keeps its configured airflow."
+            )
+            return None
+        self.log(
+            f"Thermal will use the CFD free-stream speed of {velocity:.4g} m/s "
+            f"sampled over {cells} cell(s) -- estimated, not measured."
+        )
+        return velocity
+
     def _start_thermal_pipeline(self, coupled):
         """Capture wx settings, then prepare and solve entirely off the GUI thread."""
         self._refresh_live_board_state()
@@ -1165,6 +1204,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             dc_request=dc_request,
             board_signature=self._thermal_board_signature,
             cached_entries=dict(self._thermal_session_cache),
+            air_velocity_m_s=self._cfd_free_stream_for_thermal(),
         )
         callbacks = ThermalControllerCallbacks(
             on_progress=self._thermal_worker_progress,
@@ -1346,6 +1386,14 @@ class KiPIDA_MainDialog(wx.Dialog):
         """Extract all KiCad-dependent data before starting the worker thread."""
         self._refresh_live_board_state()
         settings = self.cfd_panel.get_settings()
+        # Captured now, not when the result arrives: the user is free to edit
+        # the patch list while the solve runs, and the coupling rule must
+        # describe the run that actually happened.
+        self._cfd_forced_flow = any(
+            str(getattr(patch, "kind", "")).upper() in {"INLET", "FAN"}
+            and float(getattr(patch, "velocity_m_s", 0.0) or 0.0) > 0.0
+            for patch in (settings.patches or ())
+        )
         if not self.thermal_panel.settings.components:
             self.thermal_panel.refresh_components(preserve_user=True)
         thermal_settings = self.thermal_panel.get_settings()

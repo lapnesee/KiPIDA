@@ -173,6 +173,57 @@ class CFDFeedsThermalOnlyWhenTheFlowIsForced(unittest.TestCase):
         self.assertIsNone(request.domain_requests["THERMAL"].air_velocity_m_s)
 
 
+class TheDialogHandsTheVelocityToThermal(unittest.TestCase):
+    """The coupling has to live on the path the user actually takes.
+
+    It was built in CampaignEngine first, but nothing reaches CampaignEngine:
+    on_build_campaign_report consolidates finished results instead of running
+    the engine, so grep finds no production caller. The rule is re-tested here
+    against the dialog method, which the Run-Thermal button does reach.
+
+    The method touches only cfd_result, _cfd_forced_flow and log, so it is
+    exercised against a stub rather than a constructed wx.Dialog. Importing
+    ui.main_dialog can still lose the wx-stub race that test_campaign_button
+    documents, hence the skip.
+    """
+
+    def setUp(self):
+        try:
+            from ui.main_dialog import KiPIDA_MainDialog
+        except Exception as exc:  # pragma: no cover - depends on import order
+            self.skipTest(f"ui.main_dialog unavailable: {exc}")
+        self.method = KiPIDA_MainDialog._cfd_free_stream_for_thermal
+
+    def _stub(self, forced, velocity, cells):
+        import types
+
+        from models import EnclosureCFDResult
+
+        return types.SimpleNamespace(
+            cfd_result=EnclosureCFDResult(
+                board_free_stream_velocity_m_s=velocity,
+                board_free_stream_cells=cells,
+            ),
+            _cfd_forced_flow=forced,
+            log=lambda _message: None,
+        )
+
+    def test_forced_flow_hands_over_the_speed(self):
+        self.assertAlmostEqual(self.method(self._stub(True, 0.31, 22)), 0.31)
+
+    def test_buoyancy_hands_over_nothing(self):
+        self.assertIsNone(self.method(self._stub(False, 0.31, 22)))
+
+    def test_an_unsampled_field_hands_over_nothing(self):
+        self.assertIsNone(self.method(self._stub(True, 0.0, 0)))
+
+    def test_no_cfd_run_yet_hands_over_nothing(self):
+        import types
+
+        stub = types.SimpleNamespace(log=lambda _m: None)
+        self.assertIsNone(self.method(stub))
+
+
 class UnderResolvedMeshesAreReported(unittest.TestCase):
     """At six cells across a channel the solver produced no boundary layer."""
 
