@@ -95,10 +95,50 @@ than "was checked". A via-count what-if needs a defensible position for the
 added vias; a copper-weight what-if needs the stackup change fed back through
 the mesher. Both are feasible; neither is trivial.
 
-**A4. 900 single-node components in the advisor's mesh.**
-`+3V3_MAIN` meshes to 902 connected components, 900 of them isolated single
-nodes. They no longer strand loads, but they are cut-cell grid points with no
-connected neighbour and they inflate every mesh. Root cause not investigated.
+**A4. 900 single-node components in the advisor's mesh. Done -- the lattice
+now follows the copper.**
+`+3V3_MAIN` meshed to 902 connected components, 900 of them isolated single
+nodes. Root cause: `_mesh_zone_cutcell` grids the pour's *bounding box* and
+minted a node at every lattice point of it, before knowing whether any copper
+was there. A branch is only added where a cut-cell overlaps the pour, so a
+lattice point with no copper on any of its four incident cells could never gain
+one, and became a component of one node. Nodes are now minted lazily, by the
+edge that needs them.
+
+It was constated rather than assumed, on two shapes that isolate the two ways
+a pour fails to fill its own bounding box. At a 0.1 mm step, on a 5 mm box:
+
+| geometry | isolated nodes before | after | branches |
+| --- | --- | --- | --- |
+| square pour filling its bounding box | 0 | 0 | 5,100 |
+| diamond pour (empty corners) | 1,200 | 0 | 2,700 |
+| square pour, one 0.6 mm antipad hole | 25 | 0 | 5,040 |
+| square pour, one 0.4 mm antipad hole | 9 | 0 | 5,076 |
+
+The branch count is identical on both sides of the fix in every case, which is
+the claim that matters: nodes were deleted and no conduction path was. Rail
+resistances, and every number derived from them, are unchanged. So the two
+mechanisms are the empty corners of a non-rectangular pour and the antipad
+holes inside it, and 900 is the sum of both -- on the order of thirty 0.6 mm
+holes' worth, or a pour whose outline leaves that much of its box empty.
+
+What it exposed, and the reason this outranked "they only inflate the mesh":
+the phantom nodes were *indexed as plane nodes*. `probe` reads that index to
+decide whether a pad meets copper at all, and its whole purpose is to skip a
+pad that touches nothing -- because a private node sitting on the pad wins the
+nearest-node lookup against the real network node a fraction of a millimetre
+away, which is how a source lands on an island. A phantom node inside a
+clearance hole defeated exactly that guard: a pad whose zone connection is
+"none" looked connected to the pour and minted a barrel down to copper no
+current can reach. `tests/test_mesh_hybrid_zone_nodes.py` covers it, and all
+four of its cases fail on the old mesher.
+
+Not yet confirmed on the reference board, because that needs a session on the
+machine that has it. The prediction to check is exact and falsifiable:
+`validation/mesh_connectivity.py <board> +3V3_MAIN` should now report 2
+connected components instead of 902, 0 isolated single nodes instead of 900,
+and the **same branch count** as before. A changed branch count would mean the
+fix removed copper, not phantoms.
 
 **A5. Palace goes silent after the upload.**
 The log ends at "Uploading the explicit Palace project directory" with no

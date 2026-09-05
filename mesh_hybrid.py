@@ -548,12 +548,33 @@ class HybridMesher:
         h2 = h * h  # cell area
         edges_added = 0
 
+        def node_at(x: float, y: float) -> int:
+            """Lattice node at a point, minted only when copper attaches to it.
+
+            The grid spans the pour's *bounding box*, and a pour rarely fills
+            its own bounding box. Minting a node per lattice point therefore
+            put nodes where the net has no copper: in the empty corners of a
+            non-rectangular pour, and inside every antipad hole. None of them
+            can ever gain a branch, because a branch only exists where a cell
+            overlaps copper, so each became a component of one node.
+
+            On the reference board that is 900 of +3V3_MAIN's 902 connected
+            components. Measured on the two shapes separately: a diamond pour
+            on a 5 mm box at a 0.1 mm step yields 1,200 isolated nodes, and one
+            0.6 mm antipad hole yields 25.
+
+            They are not merely waste. They are indexed as plane nodes, so a
+            pad or track endpoint over a hole in the pour adopts one and binds
+            to copper that is not there -- ``probe`` reads the index to decide
+            whether a pad meets copper at all.
+            """
+            nid = get_or_create(x, y, layer_id)
+            if zone_index is not None:
+                zone_index[(int(round(x / h)), int(round(y / h)), layer_id)] = nid
+            return nid
+
         for iy, y in enumerate(ys):
             for ix, x in enumerate(xs):
-                u = get_or_create(x, y, layer_id)
-                if zone_index is not None:
-                    zone_index[(int(round(x / h)), int(round(y / h)), layer_id)] = u
-
                 # Horizontal edge → (x+h, y)
                 if ix + 1 < len(xs):
                     xr = xs[ix + 1]
@@ -562,7 +583,8 @@ class HybridMesher:
                     frac = overlap.area / h2 if overlap and not overlap.is_empty else 0.0
                     if frac > 1e-9:
                         g = sigma * thickness_mm * frac
-                        v = get_or_create(xr, y, layer_id)
+                        u = node_at(x, y)
+                        v = node_at(xr, y)
                         mesh.add_edge_direct(
                             u, v, g, kind="lateral",
                             cross_section_mm2=frac * h * thickness_mm,
@@ -578,7 +600,8 @@ class HybridMesher:
                     frac = overlap.area / h2 if overlap and not overlap.is_empty else 0.0
                     if frac > 1e-9:
                         g = sigma * thickness_mm * frac
-                        v = get_or_create(x, yt, layer_id)
+                        u = node_at(x, y)
+                        v = node_at(x, yt)
                         mesh.add_edge_direct(
                             u, v, g, kind="lateral",
                             cross_section_mm2=frac * h * thickness_mm,
