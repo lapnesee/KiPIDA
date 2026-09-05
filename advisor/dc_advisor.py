@@ -391,6 +391,88 @@ def _layer_of(geometry_source: str) -> str:
     return ""
 
 
+def _via_pair_of(geometry_source: str) -> str:
+    """``"via:F.Cu-In2.Cu"`` -> ``"F.Cu-In2.Cu"``; empty for anything else."""
+    if geometry_source.startswith("via:"):
+        return geometry_source[4:]
+    return ""
+
+
+def _stitching_via_actions(
+    net_name: str, dominant, baseline_drop: float, target_drop_v: float,
+    log,
+) -> list["Remediation"]:
+    """Propose parallel vias when the dominant loss sits in via barrels.
+
+    Until now the advisor could size exactly one thing -- track width -- so a
+    rail whose loss lives in its vias got no advice at all. That is the common
+    case on a power board: the reference rail's loss was in vias and plane
+    copper, and the correct-but-useless answer was silence.
+
+    Sizing is first order and says so. N vias of equal geometry in parallel
+    carry R/N, so cutting the via contribution by a factor f needs f times as
+    many. That assumes the added vias sit beside the existing ones, span the
+    same layer pair, and split the current evenly -- true enough for stitching
+    a pour, and wrong if a single via is a bottleneck feeding a long spur.
+
+    Deliberately NOT re-simulated. simulate_width_change rebuilds the board with
+    modified segment widths; there is no equivalent for "add a via near this
+    one" that does not require inventing a position. Reporting verified=False is
+    honest; inventing coordinates so a re-simulation could run would dress a
+    guess up as a measurement.
+    """
+    power_by_pair: dict[str, float] = {}
+    for loss in dominant:
+        pair = _via_pair_of(loss.geometry_source)
+        if pair:
+            power_by_pair[pair] = power_by_pair.get(pair, 0.0) + loss.power_w
+    if not power_by_pair:
+        return []
+
+    total_power = sum(loss.power_w for loss in dominant)
+    if total_power <= 0.0:
+        return []
+    excess = baseline_drop - target_drop_v
+    if excess <= 0.0:
+        return []
+
+    remediations = []
+    for pair, power in sorted(power_by_pair.items(), key=lambda kv: kv[1], reverse=True):
+        # Attribute drop in proportion to dissipated power along the dominant
+        # path, which is exact for a series path and approximate once current
+        # redistributes -- the same assumption simulate_width_change documents.
+        via_drop = baseline_drop * (power / total_power)
+        if via_drop <= excess:
+            log(
+                f"Vias {pair} on '{net_name}' carry {via_drop:.3f} V of the "
+                f"{baseline_drop:.3f} V drop, less than the {excess:.3f} V that "
+                "must be removed; adding vias alone cannot reach the target."
+            )
+            continue
+        factor = via_drop / (via_drop - excess)
+        count = len([loss for loss in dominant if _via_pair_of(loss.geometry_source) == pair])
+        proposed = max(count + 1, int(math.ceil(count * factor)))
+        remediations.append(Remediation(
+            action="ADD_STITCHING_VIAS",
+            target=f"{net_name} / {pair} / {count} via(s) on the dominant path",
+            current_value=float(count),
+            proposed_value=float(proposed),
+            unit="vias",
+            predicted_gain=(
+                f"drop {baseline_drop:.3f} V -> ~{target_drop_v:.3f} V "
+                "(first-order, parallel-resistance estimate, not re-simulated)"
+            ),
+            effort="LOW" if proposed <= 2 * count else "MEDIUM",
+            verified=False,
+            layer=pair,
+            alternatives=[
+                "Increase the finished via diameter instead of the count",
+                "Widen the pour feeding these vias so current reaches them evenly",
+            ],
+        ))
+    return remediations
+
+
 def build_dc_remediations(
     parsed_board: ParsedBoard, net_name: str, ground_net_name: str,
     sources: list, loads: list, *,
@@ -452,9 +534,15 @@ def build_dc_remediations(
         if layer:
             power_by_layer[layer] = power_by_layer.get(layer, 0.0) + loss.power_w
     if not power_by_layer:
+        via_actions = _stitching_via_actions(
+            net_name, dominant, baseline_drop, target_drop_v, _log,
+        )
+        if via_actions:
+            return via_actions[:max_actions]
         _log(
-            f"Dominant loss on net '{net_name}' is not on track segments "
-            "(vias or zone copper); widening tracks would not help."
+            f"Dominant loss on net '{net_name}' is not on track segments, and "
+            "not concentrated in vias either (zone copper carries it); neither "
+            "widening tracks nor adding stitching vias would help."
         )
         return []
 

@@ -92,6 +92,167 @@ class VelocityParticipatesInTheThermalCacheKey(unittest.TestCase):
         self.assertNotEqual(still, moving)
 
 
+class CFDFeedsThermalOnlyWhenTheFlowIsForced(unittest.TestCase):
+    """One-way CFD -> thermal coupling is only sound in forced flow.
+
+    Under buoyancy the velocity is caused by the temperature field the thermal
+    solve produces, so running CFD first against a cold board would hand
+    thermal a velocity derived from an answer that does not exist yet.
+    """
+
+    def _request(self, patches):
+        from application.campaign_controller import CampaignRunRequest
+        from application.thermal_controller import ThermalRunRequest
+        from models import EnclosureCFDSettings
+
+        settings = EnclosureCFDSettings()
+        settings.patches = list(patches)
+        cfd = type("CFDReq", (), {"settings": settings})()
+        thermal = ThermalRunRequest(settings=None, board_model=None)
+        return CampaignRunRequest(domain_requests={"CFD": cfd, "THERMAL": thermal})
+
+    def _order(self, request):
+        from application.campaign_controller import CampaignEngine
+
+        engine = CampaignEngine(domain_engines={})
+        descriptors = engine._order_for_cfd_coupling(request, lambda _m: None)
+        return [d.analysis_id for d in descriptors]
+
+    def test_a_fan_hoists_cfd_ahead_of_thermal(self):
+        from models import CFDBoundaryPatch
+
+        order = self._order(self._request([
+            CFDBoundaryPatch("Fan", "FAN", "XMIN", 0.5, 0.5, 0.5, 0.5, 0.8, 25.0),
+            CFDBoundaryPatch("Out", "OUTLET", "XMAX", 0.5, 0.5, 0.5, 0.5),
+        ]))
+        self.assertLess(order.index("CFD"), order.index("THERMAL"))
+
+    def test_buoyancy_only_keeps_the_registry_order(self):
+        from models import CFDBoundaryPatch
+
+        order = self._order(self._request([
+            CFDBoundaryPatch("Vent", "VENT", "XMAX", 0.5, 0.5, 0.5, 0.5),
+        ]))
+        self.assertLess(order.index("THERMAL"), order.index("CFD"))
+
+    def test_a_velocity_reaches_the_thermal_request(self):
+        from application.campaign_controller import CampaignEngine
+        from models import CFDBoundaryPatch, EnclosureCFDResult
+
+        request = self._request([
+            CFDBoundaryPatch("Fan", "FAN", "XMIN", 0.5, 0.5, 0.5, 0.5, 0.8, 25.0),
+        ])
+        engine = CampaignEngine(domain_engines={})
+        engine._couple_cfd_into_thermal(
+            request,
+            EnclosureCFDResult(
+                board_free_stream_velocity_m_s=0.42, board_free_stream_cells=17,
+            ),
+            lambda _m: None,
+        )
+        self.assertAlmostEqual(
+            request.domain_requests["THERMAL"].air_velocity_m_s, 0.42,
+        )
+
+    def test_an_unsampled_field_leaves_thermal_untouched(self):
+        # A mesh too coarse to offer cells clear of every solid must not
+        # silently hand thermal a zero and call it a resolved velocity.
+        from application.campaign_controller import CampaignEngine
+        from models import CFDBoundaryPatch, EnclosureCFDResult
+
+        request = self._request([
+            CFDBoundaryPatch("Fan", "FAN", "XMIN", 0.5, 0.5, 0.5, 0.5, 0.8, 25.0),
+        ])
+        CampaignEngine(domain_engines={})._couple_cfd_into_thermal(
+            request,
+            EnclosureCFDResult(
+                board_free_stream_velocity_m_s=0.0, board_free_stream_cells=0,
+            ),
+            lambda _m: None,
+        )
+        self.assertIsNone(request.domain_requests["THERMAL"].air_velocity_m_s)
+
+
+class UnderResolvedMeshesAreReported(unittest.TestCase):
+    """At six cells across a channel the solver produced no boundary layer."""
+
+    def _adapt(self, cells_across):
+        from analysis_adapters import adapt_cfd_result
+        from models import EnclosureCFDResult
+
+        mesh = type("Mesh", (), {
+            "shape": (40, cells_across, 40), "cell_count": 40 * cells_across * 40,
+        })()
+        return adapt_cfd_result(mesh, EnclosureCFDResult(converged=True))
+
+    def test_a_coarse_enclosure_raises_a_resolution_finding(self):
+        findings = [f for f in self._adapt(6).findings if f.rule_id == "CFD-003"]
+        self.assertEqual(len(findings), 1)
+
+    def test_a_resolved_enclosure_does_not(self):
+        findings = [f for f in self._adapt(20).findings if f.rule_id == "CFD-003"]
+        self.assertEqual(findings, [])
+
+
+class ViaLossesGetAnAction(unittest.TestCase):
+    """A rail whose loss lives in its vias used to get no advice at all.
+
+    On the reference board the dominant loss on +5V_RAIL was in vias and plane
+    copper, so the advisor -- which could size only track width -- correctly but
+    uselessly declined.
+    """
+
+    def _losses(self, sources_and_power):
+        from advisor.dc_advisor import BranchLoss
+
+        return [
+            BranchLoss(branch_index=index, node_a=index, node_b=index + 1,
+                       power_w=power, resistance_ohm=1.0, current_a=1.0,
+                       geometry_source=source)
+            for index, (source, power) in enumerate(sources_and_power)
+        ]
+
+    def test_via_dominated_loss_proposes_parallel_vias(self):
+        from advisor.dc_advisor import _stitching_via_actions
+
+        losses = self._losses([("via:F.Cu-In2.Cu", 1.0)] * 4)
+        actions = _stitching_via_actions(
+            "+5V_RAIL", losses, baseline_drop=0.30, target_drop_v=0.15,
+            log=lambda _m: None,
+        )
+
+        self.assertEqual(len(actions), 1)
+        action = actions[0]
+        self.assertEqual(action.action, "ADD_STITCHING_VIAS")
+        # Halving a drop carried entirely by vias needs twice the vias.
+        self.assertEqual(action.current_value, 4.0)
+        self.assertEqual(action.proposed_value, 8.0)
+        # First order only -- there is no re-simulation for "add a via nearby".
+        self.assertFalse(action.verified)
+
+    def test_vias_carrying_too_little_cannot_reach_the_target(self):
+        # Removing 0.25 V when the vias only carry 0.15 V is impossible by
+        # adding vias, however many. Saying so beats proposing a fix that
+        # cannot work.
+        from advisor.dc_advisor import _stitching_via_actions
+
+        losses = self._losses([("via:F.Cu-In2.Cu", 0.5), ("zone:In2.Cu", 0.5)])
+        actions = _stitching_via_actions(
+            "+5V_RAIL", losses, baseline_drop=0.30, target_drop_v=0.05,
+            log=lambda _m: None,
+        )
+        self.assertEqual(actions, [])
+
+    def test_zone_only_loss_still_produces_nothing(self):
+        from advisor.dc_advisor import _stitching_via_actions
+
+        losses = self._losses([("zone:In2.Cu", 1.0)])
+        self.assertEqual(
+            _stitching_via_actions("+5V_RAIL", losses, 0.30, 0.15, lambda _m: None),
+            [],
+        )
+
+
 class ResidualsAreDimensionless(unittest.TestCase):
     """continuity was a divergence in 1/s compared against a tolerance of 1e-4.
 

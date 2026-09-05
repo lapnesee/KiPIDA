@@ -203,6 +203,38 @@ measurement has been made.
 | 4b — the flag still says False | Normalising made the residuals meaningful; it did **not** make convergence reachable. See below. |
 | coupling | `EnclosureCFDResult.board_free_stream_velocity_m_s` samples fluid cells two cells clear of any solid, within the board's slab; `ThermalRunRequest.air_velocity_m_s` carries it to `surface_coefficient`. |
 
+### The inlet was fixed; the residual floor was not what I said it was
+
+The plug inlet is gone. Only the inlet cells that must vanish — those on a
+transverse wall or against a solid — are zeroed, and the rest are scaled up so
+the requested volumetric flow is unchanged. In effect the inlet is now plug
+flow across the *open* area rather than the nominal area.
+
+| | before | after |
+|---|---|---|
+| first interior plane / imposed flux | 0.770 | **0.997** |
+| settled interior mass error | −1.62 % | **−0.25 %** |
+| reported `mass_balance_error_pct` | 1.424 % | **0.055 %** |
+
+A parabolic taper was tried first and **rejected on measurement**: on a
+three-cell-wide patch it zeroes both edges and forces the whole flow through
+the middle cell, taking the smoke case from 10 % to 15 % mass error. Coarse
+patches are the normal case for this tool, so the gentler rule won.
+
+**And it disproved my own explanation.** The continuity residual floor did not
+move: 0.0169 → 0.0174. Finding 4 above claimed the floor was "dominated by the
+irreducible inlet discontinuity of finding 2". Mass is now conserved to 0.25 %
+and the floor is unchanged, so that attribution was wrong.
+
+The cause is currently **unidentified**. The most plausible remaining
+candidate, stated as a hypothesis and not as a result: `_pressure_projection`
+calls `_apply_velocity_boundaries` *after* correcting the velocity, which
+re-zeroes wall cells the projection had just cleaned, re-introducing divergence
+in the cells adjacent to every wall. That would also explain why the residual
+rose slightly with more sweeps (2.384 → 2.573 for 30 → 960) — a better-solved
+interior makes the boundary correction larger, not smaller. This has not been
+tested.
+
 ### `converged` is still always False, and that is not fully fixed
 
 After normalisation the validation duct ends at:
@@ -212,8 +244,9 @@ continuity = 0.0169    momentum = 1.29e-12    energy = 1.5e-11    tolerance = 1e
 ```
 
 Momentum and energy are converged to twelve digits. Continuity is floored
-around 1e-2 by the inlet-cell discontinuity of finding 2, which is not fixed —
-so the combined test still fails and `converged` is still `False` on every run.
+around 1e-2 for the reason described just above — which is *not* the inlet, as
+this section originally claimed — so the combined test still fails and
+`converged` is still `False` on every run.
 
 Normalising the residuals made the *number* meaningful without removing the
 *consequence* it was blamed for. Since `CFD-001` fires on that flag, the
@@ -238,11 +271,15 @@ The two independent measurements now agree, which is the point of having both:
 Before the fix these read 4e-14 % and 5.2 %. The reproduced −1.62 % also lands
 exactly on the 240-sweep row of the pressure table above.
 
-Findings 2 and 5 are *not* fixed. The inlet-cell mass loss is inherent to
-imposing a plug profile against no-slip, and the production defaults
+Finding 2 is now fixed (see above). Finding 5 is not: the production defaults
 (`cell_size_mm = 5.0`, `max_iterations = 250`) remain below the resolved
-regime. Both are now stated in the CFD result's `limitations` so a reader sees
-them next to the number rather than in a document they may never open.
+regime. Rather than silently lower a default and multiply everyone's runtime,
+`CFD-003` now *measures* the narrowest enclosure direction and says so — HIGH
+below 7 cells, MEDIUM below 10, quoting the accuracy the benchmark actually
+found at each resolution.
+
+The CFD result's `limitations` carry the same facts, so a reader sees them next
+to the number rather than in a document they may never open.
 
 Two guards worth noting in `tests/test_cfd_validation_fixes.py`: the mass-error
 test asserts `> 1.0 %` rather than `> 0`, because the old tautology returned

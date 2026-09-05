@@ -95,6 +95,62 @@ class EnclosureCFDSolver:
                 min(shape[1] - 1, max(0, j)),
                 min(shape[2] - 1, max(0, k)))
 
+    def _inlet_weights(self, mesh, mapped):
+        """Per-cell shape factors for an inlet, normalised to preserve flux.
+
+        A uniform plug across the whole patch is discontinuous wherever the
+        patch meets a wall: the wall cell must be zero by no-slip, the inlet
+        cell beside it carries the full velocity. The pressure solver cannot
+        reconcile that, and on the validation duct it lost 5.2% of the mass in
+        the first cell (docs/validation-cfd.md, finding 2). Fixing it took the
+        duct from -1.62% to -0.25%, and the first interior plane from 0.770 to
+        0.997 of the imposed flux.
+
+        It did *not* move the continuity residual floor (0.0169 -> 0.0174),
+        which had been attributed to this same discontinuity. That attribution
+        was wrong; the floor has another cause.
+
+        Only the cells that genuinely must vanish are zeroed -- those sitting on
+        a transverse domain wall or against a solid -- and the rest are scaled
+        up so the volumetric flow the user asked for is unchanged. In effect the
+        inlet becomes plug flow across the *open* area rather than across the
+        nominal area.
+
+        A parabolic taper was tried first and rejected on measurement: on a
+        three-cell-wide patch it zeroes both edges and forces the entire flow
+        through the middle cell, which took the smoke case from 10% mass error
+        to 15%. Coarse patches are the normal case for this tool, so the gentler
+        rule wins.
+
+        A patch floating in the middle of a face touches nothing and keeps a
+        flat profile, exactly as before.
+        """
+        cells = list(mapped.cells)
+        if not cells:
+            return {}
+        axis, _sign = self._normal(str(mapped.patch.face).upper())
+        transverse = [a for a in range(3) if a != axis]
+        solid = np.asarray(mesh.solid_mask, dtype=bool)
+
+        def must_vanish(cell):
+            for a in transverse:
+                if cell[a] == 0 or cell[a] == mesh.shape[a] - 1:
+                    return True
+                for step in (-1, 1):
+                    neighbour = list(cell)
+                    neighbour[a] += step
+                    if 0 <= neighbour[a] < mesh.shape[a] and solid[tuple(neighbour)]:
+                        return True
+            return False
+
+        shapes = [0.0 if must_vanish(cell) else 1.0 for cell in cells]
+        mean = sum(shapes) / len(shapes)
+        if mean <= 1e-12:
+            # Every cell touches something; refusing to blank the whole inlet is
+            # better than silently delivering no flow at all.
+            return {cell: 1.0 for cell in cells}
+        return {cell: shape / mean for cell, shape in zip(cells, shapes)}
+
     def _apply_velocity_boundaries(self, mesh, velocity, pressure):
         fluid = mesh.fluid_mask
         for component in velocity:
@@ -110,11 +166,21 @@ class EnclosureCFDSolver:
             kind = str(patch.kind).upper()
             face = str(patch.face).upper()
             axis, inward_sign = self._normal(face)
+            weights = None
+            if kind in {"INLET", "FAN"}:
+                cache = getattr(self, "_inlet_weight_cache", None)
+                if cache is None:
+                    cache = self._inlet_weight_cache = {}
+                key = id(mapped)
+                if key not in cache:
+                    cache[key] = self._inlet_weights(mesh, mapped)
+                weights = cache[key]
             for cell in mapped.cells:
                 neighbor = self._inside_neighbor(cell, face, mesh.shape)
                 if kind in {"INLET", "FAN"}:
+                    speed = inward_sign * patch.velocity_m_s * weights.get(cell, 1.0)
                     for index, component in enumerate(velocity):
-                        component[cell] = inward_sign * patch.velocity_m_s if index == axis else 0.0
+                        component[cell] = speed if index == axis else 0.0
                     pressure[cell] = pressure[neighbor]
                 elif kind in {"OUTLET", "VENT"}:
                     for component in velocity:

@@ -760,8 +760,28 @@ def adapt_cfd_result(mesh: Any, domain_result: Any) -> AnalysisResult:
             if worst_name else "CFD solver did not converge",
             detail,
             "Raise max_iterations, refine the mesh, or lower relaxation. A "
-            "continuity residual near 1e-2 with momentum and energy far lower "
-            "is the known inlet-cell artifact, not a stalled solve.",
+            "continuity residual near 1e-2 with momentum and energy many orders "
+            "lower is the known floor described in docs/validation-cfd.md, not "
+            "a stalled solve: the flow field has settled and mass is conserved "
+            "to well under a percent.",
+            confidence=EvidenceConfidence.DETERMINISTIC,
+        ))
+    # Resolution is the dominant error term and the user controls it directly,
+    # so it gets said out loud rather than buried in a limitation. The
+    # benchmark found the momentum discretisation accurate to 0.4% at 20 cells
+    # across a channel, 7% at 10, and at 6 cells it produced no boundary layer
+    # at all -- a plug profile with u_max/u_mean = 1.000.
+    across = min(getattr(mesh, "shape", ()) or (0,))
+    if across and across < 10:
+        findings.append(_finding(
+            "CFD-003", 1, "RESOLUTION",
+            FindingSeverity.HIGH if across < 7 else FindingSeverity.MEDIUM,
+            "Enclosure mesh is too coarse for the velocity field to be trusted",
+            f"The narrowest enclosure direction spans {across} cells. The solver "
+            "was validated to 0.4% at 20 cells and 7% at 10; below 7 it produced "
+            "no boundary layer at all.",
+            "Reduce the CFD cell size until the smallest dimension spans at "
+            "least 10 cells, or read the velocity as indicative only.",
             confidence=EvidenceConfidence.DETERMINISTIC,
         ))
     for index, (key, label) in enumerate((("mass_balance_error_pct", "Mass"), ("energy_balance_error_pct", "Energy")), start=1):

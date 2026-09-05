@@ -11,7 +11,7 @@ user can press one button and read one report; a thermal engine that raises
 must cost them the thermal section, not the five domains that worked.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import time
 from typing import Any, Callable, Dict, List, Optional
 
@@ -210,8 +210,78 @@ class CampaignEngine:
             if "run" in descriptor.capabilities
         ]
 
-    def solve(self, request, emit_log, emit_progress, cancelled) -> CampaignResult:
+    @staticmethod
+    def _forced_flow_patches(cfd_request) -> bool:
+        """True when the enclosure is driven by a fan or inlet rather than heat."""
+        settings = getattr(cfd_request, "settings", None)
+        patches = getattr(settings, "patches", None) or ()
+        return any(
+            str(getattr(patch, "kind", "")).upper() in {"INLET", "FAN"}
+            and float(getattr(patch, "velocity_m_s", 0.0) or 0.0) > 0.0
+            for patch in patches
+        )
+
+    def _order_for_cfd_coupling(self, request, emit_log):
+        """Registry order, with CFD hoisted ahead of THERMAL when it can feed it.
+
+        The thermal surface coefficients can use a CFD-resolved free-stream
+        speed, but only in forced flow. Under pure buoyancy the velocity is
+        *caused* by the temperature field the thermal solve produces, so running
+        CFD first against a cold board would hand thermal a velocity derived
+        from the answer it has not computed yet. One-way coupling in that
+        direction is only sound when a fan sets the flow independently of the
+        board temperature.
+        """
         descriptors = self.runnable_descriptors()
+        ids = [descriptor.analysis_id for descriptor in descriptors]
+        if "CFD" not in ids or "THERMAL" not in ids:
+            return descriptors
+        if ids.index("CFD") < ids.index("THERMAL"):
+            return descriptors
+        requests = request.domain_requests
+        if "CFD" not in requests or "THERMAL" not in requests:
+            return descriptors
+        if not self._forced_flow_patches(requests["CFD"]):
+            emit_log(
+                "Enclosure flow is buoyancy-driven, so CFD keeps its usual place "
+                "after THERMAL: its velocity depends on the temperature field "
+                "rather than setting it."
+            )
+            return descriptors
+        cfd = descriptors[ids.index("CFD")]
+        reordered = [d for d in descriptors if d.analysis_id != "CFD"]
+        reordered.insert(
+            [d.analysis_id for d in reordered].index("THERMAL"), cfd,
+        )
+        emit_log("Forced enclosure flow: running CFD before THERMAL so its "
+                 "free-stream velocity can drive the surface coefficients.")
+        return reordered
+
+    def _couple_cfd_into_thermal(self, request, domain_result, emit_log) -> None:
+        """Hand the CFD free-stream speed to the pending thermal request."""
+        thermal = request.domain_requests.get("THERMAL")
+        if thermal is None or getattr(thermal, "air_velocity_m_s", None) is not None:
+            return
+        result = getattr(domain_result, "result", domain_result)
+        velocity = float(getattr(result, "board_free_stream_velocity_m_s", 0.0) or 0.0)
+        cells = int(getattr(result, "board_free_stream_cells", 0) or 0)
+        if velocity <= 0.0 or cells <= 0:
+            emit_log(
+                "CFD produced no usable free-stream sample over the board "
+                "(mesh too coarse to offer cells clear of every solid); "
+                "thermal keeps its configured airflow."
+            )
+            return
+        request.domain_requests["THERMAL"] = replace(
+            thermal, air_velocity_m_s=velocity,
+        )
+        emit_log(
+            f"THERMAL will use the CFD free-stream speed of {velocity:.4g} m/s "
+            f"sampled over {cells} cell(s) -- estimated, not measured."
+        )
+
+    def solve(self, request, emit_log, emit_progress, cancelled) -> CampaignResult:
+        descriptors = self._order_for_cfd_coupling(request, emit_log)
         total = len(descriptors)
         outcomes: List[DomainOutcome] = []
         results: List[AnalysisResult] = []
@@ -226,7 +296,17 @@ class CampaignEngine:
 
             analysis_id = descriptor.analysis_id
             emit_progress(done, total, analysis_id)
-            outcome = self._run_domain(analysis_id, request, emit_log, emit_progress, cancelled)
+            outcome = self._run_domain(
+                analysis_id, request, emit_log, emit_progress, cancelled,
+                # Scalars are lifted off the raw result here rather than stored
+                # on the outcome: a CFDRunOutcome holds a mesh and rendered
+                # plots, and retaining one per domain for the whole campaign
+                # would keep every field alive until the report is built.
+                on_domain_result=(
+                    (lambda result: self._couple_cfd_into_thermal(request, result, emit_log))
+                    if analysis_id == "CFD" else None
+                ),
+            )
             done += 1
             outcomes.append(outcome)
             if outcome.result is not None:
@@ -271,7 +351,8 @@ class CampaignEngine:
             # A listener raising must not abort the campaign it is observing.
             pass
 
-    def _run_domain(self, analysis_id, request, emit_log, emit_progress, cancelled) -> DomainOutcome:
+    def _run_domain(self, analysis_id, request, emit_log, emit_progress, cancelled,
+                    on_domain_result=None) -> DomainOutcome:
         domain_request = request.domain_requests.get(analysis_id)
         if domain_request is None:
             emit_log(f"{analysis_id}: skipped (no request provided).")
@@ -300,6 +381,8 @@ class CampaignEngine:
                 emit_progress,
                 cancelled,
             )
+            if on_domain_result is not None:
+                on_domain_result(domain_result)
             adapter = self._adapters.get(analysis_id)
             if adapter is None:
                 raise KeyError(f"No adapter registered for analysis {analysis_id}")
