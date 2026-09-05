@@ -20,7 +20,7 @@ conversation being remembered.
 Working constraints for this project:
 
 * Branch `claude/pcb-analysis-tool-40t1dr`, commit messages in English.
-* `python -m unittest discover -s tests` must stay green. It is currently 817
+* `python -m unittest discover -s tests` must stay green. It is currently 826
   tests. How many skip depends on what is installed: on a machine with
   wxPython, CuPy, openEMS and ngspice nothing should skip but the CUDA
   branches. Without wxPython -- the usual case on a Linux runner, where it has
@@ -38,7 +38,17 @@ Working constraints for this project:
     be worked anywhere Python and numpy run.
   * `advisor_on_board.py` and `mesh_connectivity.py` need the real board and
     take its path as an argument. They open it read-only and write nothing.
-    A3 and A4 cannot be measured without them.
+
+    "A3 and A4 cannot be measured without them" is how this read, and it was
+    too strong -- both were closed without the board. What needed it was the
+    *symptom*, and a symptom is not a cause. A4's 900 isolated nodes reproduce
+    on a five-millimetre synthetic pour, exactly and in the right proportions,
+    because the defect was in the mesher and not in that board. A3 needed no
+    board at all: its blocker was two recorded claims that the actions had no
+    re-simulable form, and both were wrong. What still needs the reference
+    board is confirming the predicted numbers on it, which is a smaller and
+    much better-defined job than "work the item". Read a "needs the board"
+    note as a question about which half is which.
 * The reference board lives on the author's Windows machine, at
   `C:\Users\jbc66\Documents\DAW CONTROLEUR\schema\DAW-Controlleur\boards\p02_alimentation`.
   Nothing in that directory may be modified, created or deleted, and it is not
@@ -49,6 +59,12 @@ The reflex this session most needed, learned the hard way: when a fix produces
 no visible change, look for a second copy of the value before doubting the
 deployment. Three correct fixes were invisible because the default existed in
 three places, and seven exchanges were spent blaming a deployment that was fine.
+
+Its companion, from A3: a recorded reason something *cannot* be done is a claim
+like any other, and it decays. Both what-ifs carried a careful, well-argued
+paragraph explaining why they could not be re-simulated. Both were wrong, and
+they had gone unchallenged precisely because they were well argued and written
+by someone who had looked. Re-derive the objection before inheriting it.
 
 
 
