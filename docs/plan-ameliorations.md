@@ -1,5 +1,40 @@
 # Next improvements
 
+## Resuming from a cold start
+
+Everything needed to continue is in the repository; nothing depends on a
+conversation being remembered.
+
+* This file is the ordered backlog. Items are ranked by what makes the tool
+  report something untrue, and each names the measurement it rests on.
+* `docs/validation-cfd.md` holds the CFD's measured behaviour, including the
+  three wrong explanations that preceded the right one. Read it before touching
+  the enclosure solver, or the same guesses will be made again.
+* `docs/audit-cablage.md` is why "wired to nothing" keeps appearing here.
+* Commit messages carry the reasoning, not just the change. `git log` on this
+  branch is the narrative: what was measured, what was assumed and disproved,
+  and what remains open.
+
+Working constraints for this project:
+
+* Branch `claude/pcb-analysis-tool-40t1dr`, commit messages in English.
+* `python -m unittest discover -s tests` must stay green. It is currently 808
+  tests, 3 skips, and the three are CuPy-absent CUDA branches.
+* The reference board at `DAW CONTROLEUR/schema/DAW-Controlleur` is a real
+  read-only project. Never modify, move or copy it into the repository.
+* Tests stay lean: cover functions that are actually exercised, plus regression
+  tests with a real link to a defect. No exhaustive edge-case matrices.
+* `validation/` holds re-runnable harnesses that need the real board:
+  `cfd_benchmarks.py`, `advisor_on_board.py`, `mesh_connectivity.py`. They open
+  the board read-only.
+
+The reflex this session most needed, learned the hard way: when a fix produces
+no visible change, look for a second copy of the value before doubting the
+deployment. Three correct fixes were invisible because the default existed in
+three places, and seven exchanges were spent blaming a deployment that was fine.
+
+
+
 Ordered by what turns a wrong answer into a right one, not by effort. Every
 item names the evidence it rests on, so a reader can check the premise rather
 than trust the ranking. Items with no measurement behind them say so.
