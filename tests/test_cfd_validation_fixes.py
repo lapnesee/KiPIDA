@@ -374,6 +374,53 @@ class ViaLossesGetAnAction(unittest.TestCase):
         )
 
 
+class SolidFacesGetASurfaceFilm(unittest.TestCase):
+    """A solid shedding heat into air needs a film, not cell conduction.
+
+    Without one the only paths off a component are conduction into still air
+    and advection between cells, and at millimetre resolution neither carries
+    the heat: the reference board reported a 339 C solid against 72.6 C from
+    the 3D thermal analysis of the same board at the same power.
+    """
+
+    def _hot_box(self, film_h):
+        from cfd_mesh import CFDMeshGenerator
+        from cfd_model import CFDObstacle, EnclosureModel
+        from cfd_solver import EnclosureCFDSolver
+
+        settings = EnclosureCFDSettings()
+        settings.geometry.width_mm = 40.0
+        settings.geometry.depth_mm = 40.0
+        settings.geometry.height_mm = 40.0
+        settings.solver.cell_size_mm = 5.0
+        settings.solver.max_iterations = 20
+        model = EnclosureModel((40.0, 40.0, 40.0), obstacles=[
+            CFDObstacle("HOT", (15, 15, 15, 25, 25, 25), 8.0, 2.0),
+        ])
+        mesh = CFDMeshGenerator().generate_mesh(model, settings)
+        solver = EnclosureCFDSolver()
+        solver._film_coefficient = staticmethod(lambda *a, **k: film_h)
+        return solver.solve(mesh, settings).maximum_solid_temperature_c
+
+    def test_a_better_film_gives_a_cooler_solid(self):
+        # Two positive coefficients rather than one and zero: h = 0 makes the
+        # solid adiabatic and the matrix singular, which is a property of the
+        # test rather than of the physics.
+        self.assertLess(self._hot_box(film_h=50.0), self._hot_box(film_h=5.0))
+
+    def test_the_film_is_a_series_path_not_a_replacement_short(self):
+        # The film must not make the interface conduct better than a solid
+        # weld: a physical bound the arithmetic has to respect.
+        from cfd_solver import EnclosureCFDSolver
+
+        film = EnclosureCFDSolver._film_coefficient(
+            delta_t_k=50.0, length_m=0.005, speed_m_s=0.1,
+            ambient_c=25.0, emissivity=0.0,
+        )
+        self.assertGreater(film, 0.0)
+        self.assertLess(film, 500.0)
+
+
 class PlaneCopperLossesGetAnAction(unittest.TestCase):
     """The case the reference board actually presents.
 

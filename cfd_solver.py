@@ -435,6 +435,41 @@ class EnclosureCFDSolver:
     def _harmonic(a, b):
         return 2.0 * a * b / max(a + b, 1e-30)
 
+    @staticmethod
+    def _film_coefficient(delta_t_k, length_m, speed_m_s, ambient_c, emissivity):
+        """Surface film at a solid-air face, W/m^2K.
+
+        Without this the only path off a hot component is conduction into still
+        air and advection between cells, and neither can carry the heat at
+        millimetre resolution: one 5 mm face passes 3.6e-3 W/K by advection and
+        2.6e-4 W/K by conduction, so shedding 1.45 W would need 402 K. The
+        reference board duly reported a 339 C solid against 72.6 C from the 3D
+        thermal analysis of the same board at the same power.
+
+        The convective boundary layer is thinner than a cell and always will be
+        at these mesh sizes, so it is modelled rather than resolved -- which is
+        what the 3D thermal solver already does, through the same correlations.
+        Reusing surface_convection keeps the two analyses answering with one
+        physics instead of two.
+        """
+        try:
+            from .import surface_convection
+        except (ImportError, ValueError):
+            import surface_convection
+
+        natural = surface_convection.natural_convection_h(
+            delta_t_k, length_m, facing="up", ambient_c=ambient_c,
+        )
+        forced = surface_convection.forced_convection_h(
+            speed_m_s, length_m, ambient_c=ambient_c, delta_t_k=delta_t_k,
+        )
+        film = surface_convection.combined_h(natural, forced)
+        if emissivity > 0.0:
+            film += surface_convection.radiation_h(
+                emissivity, ambient_c + delta_t_k, ambient_c,
+            )
+        return film
+
     def _solve_energy(self, mesh, settings, velocity, previous):
         shape = mesh.shape
         count = mesh.cell_count
@@ -457,6 +492,16 @@ class EnclosureCFDSolver:
                 inlet_values.update({cell: float(mapped.patch.temperature_c) for cell in mapped.cells})
         wall_h = max(0.0, float(settings.geometry.wall_heat_transfer_w_m2k))
         ambient = float(settings.ambient_c)
+        # Length scale for the plate correlations at a solid-air face. The mean
+        # cell size is used because the mesh is all the geometry the solver has
+        # here -- it does not carry each obstacle's own A/P. Since h varies only
+        # as L^(-1/4), a length wrong by a factor of two moves the coefficient
+        # by 19%, which is inside the correlation's own spread; a missing film
+        # was wrong by a factor of forty.
+        film_length_m = float(sum(mesh.spacing_m)) / 3.0
+        emissivity = max(0.0, min(1.0, float(
+            getattr(settings.geometry, "emissivity", 0.0) or 0.0
+        )))
         directions = ((-1, 0, 0), (1, 0, 0), (0, -1, 0),
                       (0, 1, 0), (0, 0, -1), (0, 0, 1))
         for i in range(shape[0]):
@@ -499,6 +544,39 @@ class EnclosureCFDSolver:
                         diffusion = self._harmonic(
                             float(conductivity[cell]), float(conductivity[neighbor])
                         ) * area / spacings[axis]
+                        if fluid[cell] != fluid[neighbor]:
+                            # A solid-air face. The path is: conduct from the
+                            # solid cell centre to its surface, then cross the
+                            # boundary layer.
+                            #
+                            #   R = (spacing/2)/(k_solid * A) + 1/(h * A)
+                            #
+                            # The air-side cell-to-cell conduction is dropped
+                            # rather than kept in series, because it is not a
+                            # model of the interface at all -- it is what the
+                            # cell-centred scheme produces in the absence of
+                            # one, and adding the film in series with it only
+                            # made the solid hotter still (162.7 C -> 216.9 C
+                            # on the reproduction case), since series can only
+                            # lower a conductance.
+                            #
+                            # h is evaluated on the previous iterate, the same
+                            # lagging the electro-thermal loop already uses.
+                            solid = cell if not fluid[cell] else neighbor
+                            air = neighbor if solid is cell else cell
+                            delta_t = abs(float(previous[cell]) - float(previous[neighbor]))
+                            speed = float(np.sqrt(sum(
+                                component[air] ** 2 for component in velocity
+                            )))
+                            film = self._film_coefficient(
+                                delta_t, film_length_m, speed, ambient, emissivity,
+                            )
+                            k_solid = max(float(conductivity[solid]), 1e-9)
+                            resistance = (
+                                0.5 * spacings[axis] / (k_solid * area)
+                                + 1.0 / max(film * area, 1e-30)
+                            )
+                            diffusion = 1.0 / resistance
                         outward_sign = direction[axis]
                         face_velocity = 0.5 * (
                             velocity[axis][cell] + velocity[axis][neighbor]
