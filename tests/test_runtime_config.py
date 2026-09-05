@@ -7,7 +7,9 @@ from runtime_config import (
     RUNTIME_CONFIG_VERSION, RuntimeComputeSettings, load_runtime_settings,
     save_runtime_settings,
 )
-from runtime_environment import plugin_version, recommended_cupy_package
+from runtime_environment import (
+    plugin_version, recommended_cupy_package, source_fingerprint,
+)
 from unittest.mock import Mock, patch
 
 
@@ -42,6 +44,41 @@ class RuntimeConfigTests(unittest.TestCase):
     def test_plugin_version_is_read_from_manifest(self):
         root = Path(__file__).resolve().parent.parent
         self.assertEqual(plugin_version(root), "0.19.0")
+
+    def test_the_build_fingerprint_follows_the_sources(self):
+        """The release number cannot tell two builds apart between releases.
+
+        plugin.json was last bumped at the 0.19.0 release, so every change
+        since reports the same string -- which is the one question that matters
+        when checking whether the copy in the plugin folder is the one just
+        built. Establishing that from behaviour instead cost cross-checking a
+        solver iteration count, a residual curve and one log line.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "solver.py").write_text("x = 1\n", encoding="utf-8")
+            before = source_fingerprint(root)
+
+            (root / "solver.py").write_text("x = 2\n", encoding="utf-8")
+            after = source_fingerprint(root)
+
+            self.assertTrue(before)
+            self.assertNotEqual(before, after)
+
+    def test_the_fingerprint_ignores_tests_and_vendored_runtimes(self):
+        # A deployed copy carries no tests and may carry a bundled venv; those
+        # must not change the identity of the code being run.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "solver.py").write_text("x = 1\n", encoding="utf-8")
+            baseline = source_fingerprint(root)
+
+            (root / "tests").mkdir()
+            (root / "tests" / "test_thing.py").write_text("y = 2\n", encoding="utf-8")
+            (root / ".runtime").mkdir()
+            (root / ".runtime" / "vendored.py").write_text("z = 3\n", encoding="utf-8")
+
+            self.assertEqual(source_fingerprint(root), baseline)
 
     @patch("runtime_environment.subprocess.run")
     def test_cuda_wheel_family_follows_driver_runtime(self, run):
