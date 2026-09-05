@@ -873,6 +873,43 @@ def adapt_cfd_result(mesh: Any, domain_result: Any) -> AnalysisResult:
     ).finish()
 
 
+def adapt_dc_run(system_results: Any, maximum_drop_pct: float, *,
+                 board_path: Any = None, rails: Any = None,
+                 log_callback=None) -> AnalysisResult:
+    """Turn one DC solve into the AnalysisResult everything downstream reads.
+
+    ``adapt_dc_result`` builds the findings and ``attach_dc_remediations``
+    sizes the fixes; a DC result that has had only the first done is missing
+    every remediation, and the report says "No structured remediation was
+    computed" for each action.  Two callers doing those two steps separately
+    is how they come to disagree, so this is the one call both make: the
+    dialog when it publishes a result tab, and CampaignEngine's DC adapter.
+
+    Sizing does nothing without a board path and rails, and an advisor that
+    cannot run costs the estimates rather than the result: a failure is caught
+    here and recorded as a limitation, so the report says the fixes are
+    missing instead of the campaign losing its DC section over them.
+    """
+    result = adapt_dc_result(system_results, maximum_drop_pct)
+    try:
+        attached = attach_dc_remediations(
+            result, board_path, rails, maximum_drop_pct, log_callback=log_callback,
+        )
+    except Exception as exc:
+        message = (
+            f"Corrective actions were not sized: the DC advisor failed with "
+            f"{type(exc).__name__}: {exc}. The findings below stand; the fixes "
+            "they would carry do not."
+        )
+        result.limitations.append(message)
+        if log_callback is not None:
+            log_callback(message)
+        return result
+    if attached and log_callback is not None:
+        log_callback(f"Sized a copper fix for {attached} voltage-drop finding(s).")
+    return result
+
+
 def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisResult:
     findings = []
     metrics = []

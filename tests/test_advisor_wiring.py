@@ -14,6 +14,7 @@ _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
+import analysis_adapters as analysis_adapters_module
 from analysis_adapters import attach_dc_remediations
 from analysis_contract import (
     AnalysisFinding, AnalysisResult, EvidenceConfidence, FindingSeverity,
@@ -78,20 +79,83 @@ class AdvisorWiringTests(unittest.TestCase):
         )
 
 
-class MainDialogCallsItTests(unittest.TestCase):
-    def test_the_dc_publish_path_attaches_remediations(self):
-        # Guards the wiring itself: the audit found four packages that were
-        # complete, tested and never called.
-        source = (
-            os.path.join(_root, "ui", "main_dialog.py")
+class EveryDCPathAttachesRemediationsTests(unittest.TestCase):
+    """Guards the wiring itself, on both paths that produce a DC result.
+
+    The audit found four packages that were complete, tested and never
+    called. The advisor was one; it is now called from adapt_dc_run, which is
+    the single entry point precisely so a second caller cannot quietly skip
+    the sizing and publish a result whose actions all read "No structured
+    remediation was computed".
+    """
+
+    def test_adapt_dc_run_sizes_the_fixes_it_adapts(self):
+        from analysis_adapters import adapt_dc_run
+
+        calls = []
+        original = analysis_adapters_module.attach_dc_remediations
+        analysis_adapters_module.attach_dc_remediations = (
+            lambda *args, **kwargs: calls.append((args, kwargs)) or 0
         )
-        with open(source, encoding="utf-8") as handle:
+        self.addCleanup(
+            setattr, analysis_adapters_module, "attach_dc_remediations", original,
+        )
+
+        adapt_dc_run({}, 3.0, board_path="board.kicad_pcb", rails=[_Rail("+5V", 5.0)])
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0][1], "board.kicad_pcb")
+
+    def test_an_advisor_that_raises_costs_the_fixes_not_the_result(self):
+        from analysis_adapters import adapt_dc_run
+
+        original = analysis_adapters_module.attach_dc_remediations
+
+        def _explode(*args, **kwargs):
+            raise RuntimeError("mesh blew up")
+
+        analysis_adapters_module.attach_dc_remediations = _explode
+        self.addCleanup(
+            setattr, analysis_adapters_module, "attach_dc_remediations", original,
+        )
+
+        result = adapt_dc_run({}, 3.0, board_path="board.kicad_pcb", rails=[])
+
+        self.assertEqual(result.analysis_type, "DC")
+        self.assertTrue(any("not sized" in item for item in result.limitations),
+                        "the report must say the fixes are missing")
+
+    def test_the_dialogs_dc_publish_path_goes_through_it(self):
+        with open(os.path.join(_root, "ui", "main_dialog.py"), encoding="utf-8") as handle:
             text = handle.read()
-        self.assertIn("attach_dc_remediations", text)
+        self.assertIn("adapt_dc_run(", text)
         self.assertLess(
-            text.index("attach_dc_remediations("), text.index('"DC", format_dc_report'),
-            "remediations must be attached before the result is published",
+            text.index("adapt_dc_run("), text.index('"DC", format_dc_report'),
+            "the DC result must be adapted before it is published",
         )
+
+    def test_the_campaigns_dc_adapter_goes_through_it(self):
+        # A batch reports from the campaign's own results, so a campaign
+        # adapter calling adapt_dc_result directly would drop every sized fix
+        # from the one report the batch exists to produce.
+        from application.campaign_controller import DEFAULT_ADAPTERS
+
+        calls = []
+        original = analysis_adapters_module.adapt_dc_run
+        analysis_adapters_module.adapt_dc_run = (
+            lambda *args, **kwargs: calls.append((args, kwargs))
+        )
+        self.addCleanup(
+            setattr, analysis_adapters_module, "adapt_dc_run", original,
+        )
+
+        class _Request:
+            maximum_drop_pct = 3.0
+            board_path = "board.kicad_pcb"
+            rails = ()
+
+        DEFAULT_ADAPTERS["DC"]({}, _Request())
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":

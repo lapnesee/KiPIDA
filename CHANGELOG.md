@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- Changed the analysis batch to run through `CampaignEngine` instead of
+  chaining the per-domain buttons: one cancellable background run that keeps
+  the domains already finished, per-domain failure isolation, and one
+  aggregated verdict with its consolidated report built without a second
+  button press.
+- Fixed the campaign's default adapters, which had never met a real engine:
+  the differential tolerance and the CFD mesh are read from the outcome rather
+  than demanded from the request, the AC engine's `(sweep, optimization)` pair
+  is unpacked, and the thermal and EMC adapters take the outcome's `.result`.
+- Added the DC voltage-drop budget and board path to `DCRunRequest`, so the
+  pass/fail threshold travels with the run instead of being read off the panel
+  again when the results arrive.
+- Added `analysis_adapters.adapt_dc_run` as the single way to turn a DC solve
+  into an `AnalysisResult`, so the sized copper fixes reach the batch's report
+  and the DC tab alike; an advisor failure is recorded as a limitation rather
+  than costing the DC result.
+- Fixed EMI/EMC in a batch reading the session's previous AC, differential and
+  thermal results: it now runs after those domains and consumes the ones the
+  same campaign produced.
+
 - Added branch-current-based DC current-density diagnostics for routed copper,
   filled zones, overlaps, vias, and plated through holes. Planar maps use an
   automatic P99.5 colour cap while retaining the real maximum in reports and

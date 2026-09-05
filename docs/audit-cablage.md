@@ -22,6 +22,13 @@ atteignables depuis l'interface.**
 | `application/campaign_controller` | **Personne** | L'orchestrateur « tout lancer » est inaccessible |
 | `ingest/` | Seulement via `mesh_hybrid` et `rules/`, eux-mêmes non atteints | La lecture du schéma ne sert à rien en pratique |
 
+**État actuel du tableau** (l'audit reste tel qu'il a été écrit ; ceci dit où
+il en est) : `advisor/` est atteint via `analysis_adapters.adapt_dc_run`,
+`ingest/` et `mesh_hybrid` le sont à travers lui, et
+`application/campaign_controller` l'est depuis le bouton « Run Analysis
+Batch ». Seul `rules/` reste hors d'atteinte, faute d'un appelant pour
+`application/schematic_controller.py`. Voir la section « Garde-fou » en bas.
+
 Vérifications :
 
 - `application/dc_controller.py:14` → `from mesh import Mesher`
@@ -100,11 +107,20 @@ même carte avant substitution. L'écart attendu est important (l'audit annonça
 15–50 % d'erreur de résistance sur le chemin rasterisé) ; il faut le constater,
 pas le postuler.
 
-### 4. Rendre l'orchestrateur atteignable — effort faible
+### 4. Rendre l'orchestrateur atteignable — fait, et l'effort n'était pas faible
 
 `CampaignController` séquence tous les domaines et alimente le rapport. Le
-bouton actuel consolide les résultats déjà publiés, ce qui est utile mais
-suppose que l'utilisateur ait lancé chaque analyse à la main.
+bouton « Build Consolidated Report » consolide les résultats déjà publiés, ce
+qui est utile mais suppose que l'utilisateur ait lancé chaque analyse à la
+main. Le bouton « Run Analysis Batch » passe désormais par `CampaignEngine`.
+
+Ce que le branchement a révélé, et qui corrige l'estimation ci-dessus : trois
+des six adaptateurs par défaut avaient été écrits contre une forme qu'aucun
+moteur ne renvoie, et le seuil de chute DC n'existait nulle part sur la requête.
+Aucun test ne pouvait le voir, puisque tous injectaient des moteurs factices.
+Le détail est dans `docs/plan-ameliorations.md`, item B2 ; la leçon est celle
+de ce document, un cran plus loin : un module que personne n'appelle n'est pas
+seulement inutile, il est aussi faux sans qu'on le sache.
 
 ---
 
@@ -115,6 +131,14 @@ pour chaque paquet livré (`ingest`, `rules`, `advisor`, `mesh_hybrid`,
 `application/campaign_controller`), vérifier qu'au moins un module de
 production l'importe. Ce test aurait détecté les quatre cas ci-dessus au
 moment de leur introduction, et il coûte quelques lignes.
+
+État : écrit dans `tests/test_campaign_wiring.py`, mais sur
+`application.campaign_controller` seulement. L'étendre aux autres paquets est
+la même poignée de lignes et échouerait aujourd'hui sur `rules/`, importé
+uniquement par `application/schematic_controller.py`, que personne n'importe.
+C'est le dernier cas de ce document encore ouvert, et il est noté comme tel
+dans `docs/plan-ameliorations.md` plutôt que masqué derrière une liste
+d'exceptions.
 
 C'est le complément manquant d'une suite qui compte aujourd'hui 696 tests
 verts tout en laissant l'essentiel du travail hors d'atteinte.

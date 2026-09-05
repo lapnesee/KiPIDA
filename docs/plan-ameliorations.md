@@ -6,7 +6,9 @@ Everything needed to continue is in the repository; nothing depends on a
 conversation being remembered.
 
 * This file is the ordered backlog. Items are ranked by what makes the tool
-  report something untrue, and each names the measurement it rests on.
+  report something untrue, and each names the measurement it rests on. Items
+  that are done say so in place, with what closing them exposed, because the
+  exposure is usually worth more than the item.
 * `docs/validation-cfd.md` holds the CFD's measured behaviour, including the
   three wrong explanations that preceded the right one. Read it before touching
   the enclosure solver, or the same guesses will be made again.
@@ -18,8 +20,13 @@ conversation being remembered.
 Working constraints for this project:
 
 * Branch `claude/pcb-analysis-tool-40t1dr`, commit messages in English.
-* `python -m unittest discover -s tests` must stay green. It is currently 808
-  tests, 3 skips, and the three are CuPy-absent CUDA branches.
+* `python -m unittest discover -s tests` must stay green. It is currently 817
+  tests. How many skip depends on what is installed: on a machine with
+  wxPython, CuPy, openEMS and ngspice nothing should skip but the CUDA
+  branches. Without wxPython -- the usual case on a Linux runner, where it has
+  no wheel -- 25 more skip and `test_plotter`/`test_i18n` fail outright on the
+  missing module. Read a skip count against the environment, not against a
+  number written down here.
 * The reference board at `DAW CONTROLEUR/schema/DAW-Controlleur` is a real
   read-only project. Never modify, move or copy it into the repository.
 * Tests stay lean: cover functions that are actually exercised, plus regression
@@ -92,12 +99,60 @@ This is the highest-value item in the document. It is not a feature; it is the
 reason three correct fixes produced no visible change and a deployment was
 blamed for seven exchanges.
 
-**B2. `CampaignEngine` is still unreachable.**
-The batch button chains the per-domain handlers, which was the smaller change
-and works. `CampaignEngine` -- with its failure isolation, caching and
-per-domain adapters -- is still called only by tests. Either wire the batch to
-it or delete it; a third state where it exists and is maintained but never runs
-is what `docs/audit-cablage.md` was written about.
+**B2. `CampaignEngine` was unreachable. Done -- wired, not deleted.**
+`docs/audit-cablage.md` ranked it "effort faible", and it was not: the engine
+had never met a real engine, so three of its six adapters were written against
+a shape no engine returns. That is the finding, and it is the argument for
+wiring rather than deleting -- an orchestrator nobody calls decays silently,
+and its tests stay green while it does.
+
+What the wiring exposed, each a call that would have raised on first use:
+
+* `_adapt_differential` read `stackup` and `tolerance_pct` off the *request*.
+  `DifferentialRunRequest` has a stackup but no tolerance; the resolved
+  tolerance only exists on the outcome, because it is resolved during the
+  solve. The request's value would have been the target asked for, not the one
+  the results were graded against.
+* `_adapt_cfd` demanded `mesh` from the request. The mesh does not exist until
+  the solve has built it; it is on `CFDRunOutcome`.
+* `_adapt_ac` passed the engine's `(sweep, optimization)` pair where
+  `adapt_ac_result` expects the sweep.
+* `_adapt_thermal` and `_adapt_emc` were handed the outcome dataclass where
+  the underlying adapter expects its `.result`.
+* `maximum_drop_pct` had no home at all: nothing on `DCRunRequest` carried the
+  voltage-drop budget, so the DC domain could only ever fail its `_require`
+  check. It is a field on the request now, still optional and still demanded
+  rather than defaulted.
+
+Two orderings had to become explicit, because the registry's order is a
+catalogue order and the batch had been relying on a hand-written one:
+
+* EMC sits at 40 and thermal at 50 in the registry, but EMC *reads* the
+  thermal field, the AC sweep and the differential results rather than
+  recomputing them. `_order_for_emc_inputs` moves it after them.
+* Those same three inputs used to reach EMC from whatever the session
+  happened to hold, which in a batch is the previous run. The engine now folds
+  its own outcomes into the pending EMC request, so every domain in a campaign
+  grades the same board state.
+
+Also closed on the way past, because a batch now reports from the campaign's
+own results rather than from the published tabs: DC was adapted in two places,
+and only the dialog's copy attached the advisor's sized fixes. One
+`analysis_adapters.adapt_dc_run` is now the single call both make. The same
+double-reading of `txt_drop_pct` is gone with it -- exactly the B1 shape.
+
+Still open, and known rather than assumed:
+
+* The advisor runs once per batch in the campaign's DC adapter and again when
+  the DC tab publishes. Correct but wasteful; it is not measured, because
+  measuring it needs the reference board.
+* `application/schematic_controller.py` -- and through it the whole `rules/`
+  package -- is now the only shipped code nothing imports.
+  `tests/test_campaign_wiring.py` has the reachability guard
+  `docs/audit-cablage.md` asked for, but on `application.campaign_controller`
+  alone; widening it to every package is the same one-line test and would fail
+  today on `rules`, which is the point of writing it down here rather than
+  hiding it behind a pass list.
 
 **B3. Sixteen tests skip under full discovery.**
 The batch and dialog tests run only when invoked directly, because
@@ -116,10 +171,15 @@ The sparse Poisson solve ignores it. It is documented as inert in the
 dataclass, but the CFD panel still shows an editable box. Disable it with a
 tooltip, or remove it and migrate saved projects.
 
-**C2. The batch cannot be cancelled and produces no summary.**
-It runs to completion or until the dialog closes. It should offer a cancel, and
-end by reporting which analyses ran, which failed and why -- and optionally
-build the consolidated report, which is the reason to run a batch at all.
+**C2. The batch cannot be cancelled and produces no summary. Closed by B2.**
+Running through `CampaignController` gave it a cancel that keeps the domains
+that already finished -- the base controller used to raise on cancellation and
+throw the partial campaign away, which for a campaign is the opposite of what
+it is for -- and the run now ends with the verdict, the domains that produced,
+the ones that failed and why, and the consolidated report built without a
+second button press. What remains of this item is only a matter of taste: the
+cancel is the batch button relabelling itself, as the AC and CFD buttons do,
+rather than a separate control.
 
 **C3. "Iterations" now means a cap, not a target.**
 Since the loop exits on convergence, the field's meaning changed. The label

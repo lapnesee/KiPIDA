@@ -281,13 +281,21 @@ class DefaultAdapterContextTests(unittest.TestCase):
         self.assertIn("maximum_drop_pct", message)
         self.assertIn("DC", message)
 
-    def test_optional_context_still_falls_back(self):
-        # adapt_thermal_result declares coupled/elapsed_seconds WITH defaults,
-        # so falling back to them is correct and must keep working.
+    def test_thermal_context_is_read_from_the_outcome_not_the_request(self):
+        # ThermalSolverEngine hands back a ThermalRunOutcome, and whether the
+        # run was coupled and how long it took are properties of that run.
+        # Reading them off the request would report the intent instead.
         from application.campaign_controller import _adapt_thermal
+        from application.thermal_controller import ThermalRunOutcome
 
-        result = _adapt_thermal(_ThermalStub(), FakeRequest())
+        outcome = ThermalRunOutcome(
+            mesh=None, result=_ThermalStub(), coupled_result=object(),
+            system_results={}, cache_key=None, cache_value=None,
+            elapsed_seconds=12.5,
+        )
+        result = _adapt_thermal(outcome, FakeRequest())
         self.assertEqual(result.analysis_type, "THERMAL")
+        self.assertEqual(result.elapsed_seconds, 12.5)
 
     def test_missing_context_is_isolated_to_its_own_domain(self):
         # The refusal must surface as one domain error while siblings still run.

@@ -76,6 +76,16 @@ class DCRunRequest:
     grid_size_mm: float
     compute_settings: Any = None
     debug: bool = False
+    # The voltage-drop budget the results are judged against.  The solve does
+    # not use it -- adapting the results into findings does -- but it belongs
+    # to the run, not to whoever reads it afterwards.  Optional because a DC
+    # solve is perfectly valid without a verdict; adapters that need it demand
+    # it rather than substituting a number nobody chose.
+    maximum_drop_pct: Optional[float] = None
+    # The .kicad_pcb this request was captured from.  The solve reads the
+    # snapshot rather than the file, but sizing a copper fix needs the offline
+    # board, and the run knows where it came from where a later reader does not.
+    board_path: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -233,7 +243,7 @@ def capture_dc_board(board) -> DCBoardSnapshot:
 
 def prepare_dc_request(
     board, rails, grid_size_mm, compute_settings=None, debug=False,
-    log_callback=None, board_path=None,
+    log_callback=None, board_path=None, maximum_drop_pct=None,
 ) -> DCRunRequest:
     """Capture every live-board dependency before starting a worker thread."""
     emit = log_callback or (lambda _message: None)
@@ -265,6 +275,10 @@ def prepare_dc_request(
         grid_size_mm=float(grid_size_mm),
         compute_settings=deepcopy(compute_settings),
         debug=bool(debug),
+        maximum_drop_pct=(
+            None if maximum_drop_pct is None else float(maximum_drop_pct)
+        ),
+        board_path=(None if board_path is None else str(board_path)),
     )
 
 
