@@ -347,7 +347,7 @@ class ViaLossesGetAnAction(unittest.TestCase):
         )
         self.assertEqual(actions, [])
 
-    def test_zone_only_loss_still_produces_nothing(self):
+    def test_zone_only_loss_produces_no_via_action(self):
         from advisor.dc_advisor import _stitching_via_actions
 
         losses = self._losses([("zone:In2.Cu", 1.0)])
@@ -355,6 +355,91 @@ class ViaLossesGetAnAction(unittest.TestCase):
             _stitching_via_actions("+5V_RAIL", losses, 0.30, 0.15, lambda _m: None),
             [],
         )
+
+
+class PlaneCopperLossesGetAnAction(unittest.TestCase):
+    """The case the reference board actually presents.
+
+    On +5V_RAIL the loss sits in 228,153 zone edges against 26 via branches, so
+    neither widening a track nor adding vias touches it. The advisor had
+    nothing to say at all.
+    """
+
+    def _board(self, thickness_mm=0.0348):
+        from ingest.board_reader import (
+            BoardBounds, CopperLayer, ParsedBoard, Stackup,
+        )
+        return ParsedBoard(
+            pcb_path=None,
+            stackup=Stackup(
+                layers=[CopperLayer(4, "In2.Cu", "power", thickness_mm)],
+                total_thickness_mm=1.6, copper_layer_count=1,
+            ),
+            bounds=BoardBounds(0, 0, 10, 10),
+            footprints=[], segments=[], vias=[], zones=[],
+        )
+
+    def _losses(self, sources_and_power):
+        from advisor.dc_advisor import BranchLoss
+
+        return [
+            BranchLoss(branch_index=index, node_a=index, node_b=index + 1,
+                       power_w=power, resistance_ohm=1.0, current_a=1.0,
+                       geometry_source=source)
+            for index, (source, power) in enumerate(sources_and_power)
+        ]
+
+    def test_a_pour_dominated_loss_proposes_heavier_copper(self):
+        from advisor.dc_advisor import _plane_copper_actions
+
+        actions = _plane_copper_actions(
+            self._board(), "+5V_RAIL",
+            self._losses([("zone:In2.Cu", 1.0)]),
+            baseline_drop=0.30, target_drop_v=0.15, log=lambda _m: None,
+        )
+
+        self.assertEqual(len(actions), 1)
+        action = actions[0]
+        self.assertEqual(action.action, "INCREASE_COPPER_WEIGHT")
+        # Halving a drop carried entirely by 1 oz pour needs 2 oz.
+        self.assertAlmostEqual(action.current_value, 1.0, places=2)
+        self.assertEqual(action.proposed_value, 2.0)
+        self.assertFalse(action.verified)
+
+    def test_the_proposal_snaps_to_a_weight_a_fabricator_quotes(self):
+        # 1 oz needing 1.2x lands on 2 oz, not on "1.2 oz", which nobody sells.
+        from advisor.dc_advisor import _plane_copper_actions
+
+        actions = _plane_copper_actions(
+            self._board(), "+5V_RAIL",
+            self._losses([("zone:In2.Cu", 1.0)]),
+            baseline_drop=0.30, target_drop_v=0.25, log=lambda _m: None,
+        )
+        self.assertEqual(actions[0].proposed_value, 2.0)
+
+    def test_an_impossible_target_is_declined_rather_than_rounded_away(self):
+        # Removing 0.29 V from a 0.30 V drop needs 30x the copper. Snapping
+        # that to 4 oz would report a fix that cannot work.
+        from advisor.dc_advisor import _plane_copper_actions
+
+        messages = []
+        actions = _plane_copper_actions(
+            self._board(), "+5V_RAIL",
+            self._losses([("zone:In2.Cu", 1.0)]),
+            baseline_drop=0.30, target_drop_v=0.01, log=messages.append,
+        )
+        self.assertEqual(actions, [])
+        self.assertTrue(any("re-planning" in message for message in messages))
+
+    def test_a_pour_carrying_less_than_the_excess_cannot_help(self):
+        from advisor.dc_advisor import _plane_copper_actions
+
+        actions = _plane_copper_actions(
+            self._board(), "+5V_RAIL",
+            self._losses([("zone:In2.Cu", 0.4), ("via:F.Cu-B.Cu", 0.6)]),
+            baseline_drop=0.30, target_drop_v=0.05, log=lambda _m: None,
+        )
+        self.assertEqual(actions, [])
 
 
 class ResidualsAreDimensionless(unittest.TestCase):

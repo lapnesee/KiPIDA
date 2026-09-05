@@ -37,6 +37,24 @@ class Pad:
     net_name: str
     pintype: str
     position: tuple[float, float]  # absolute (x, y)
+    # "thru_hole", "smd", "connect" or "np_thru_hole" as written by KiCad.
+    # A through-hole pad is a vertical conductor: it shorts every copper layer
+    # it passes, exactly as a via does. Without this the mesher cannot tell one
+    # from a surface pad, and a track ending on a THT pad has no path to the
+    # plane below it -- which stranded loads on four of seven rails of the
+    # reference board.
+    pad_type: str = "smd"
+    # Copper layer names the pad occupies, as declared. "*.Cu" means every
+    # copper layer, which KiCad writes for through-hole pads.
+    layers: tuple[str, ...] = ()
+    # Finished hole diameter in mm, 0.0 for a surface pad. Parsed rather than
+    # assumed: the barrel resistance depends on it, and a guessed drill would
+    # put an invented number into a voltage-drop result.
+    drill_mm: float = 0.0
+
+    @property
+    def is_through_hole(self) -> bool:
+        return str(self.pad_type).lower() in {"thru_hole", "np_thru_hole"}
 
 
 @dataclass
@@ -347,11 +365,40 @@ def _parse_footprints(root: list, net_map: dict[str, str]) -> list[Footprint]:
             else:
                 abs_x, abs_y = px, py
 
+            # (pad "1" thru_hole circle (at ...) ... (layers "*.Cu" "*.Mask"))
+            # The type is the second positional token, before the shape.
+            pad_type = "smd"
+            for token in pad_node[2:4]:
+                if isinstance(token, str) and token in {
+                    "thru_hole", "smd", "connect", "np_thru_hole",
+                }:
+                    pad_type = token
+                    break
+            layers_node = find(pad_node, "layers")
+            pad_layers = tuple(
+                str(item) for item in (layers_node[1:] if layers_node else ())
+                if str(item).endswith(".Cu") or str(item) == "*.Cu"
+            )
+
+            # (drill 0.8) for a round hole, (drill oval 0.8 1.6) otherwise;
+            # the first numeric token is the diameter in both spellings.
+            drill_mm = 0.0
+            drill_node = find(pad_node, "drill")
+            for token in (drill_node[1:] if drill_node else ()):
+                try:
+                    drill_mm = float(token)
+                    break
+                except (TypeError, ValueError):
+                    continue
+
             pads.append(Pad(
                 number=pad_num,
                 net_name=net_name,
                 pintype=pintype,
                 position=(abs_x, abs_y),
+                pad_type=pad_type,
+                layers=pad_layers,
+                drill_mm=drill_mm,
             ))
 
         footprints.append(Footprint(

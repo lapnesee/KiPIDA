@@ -473,6 +473,126 @@ def _stitching_via_actions(
     return remediations
 
 
+def _zone_layer_of(geometry_source: str) -> str:
+    """``"zone:In2.Cu:h"`` -> ``"In2.Cu"``; empty for anything else.
+
+    The mesher tags zone edges with their direction, so the raw suffix is
+    ``In2.Cu:h`` or ``In2.Cu:v``. Keeping it would split one pour into two
+    half-strength candidates and then fail the stackup thickness lookup, since
+    no layer is named "In2.Cu:h".
+    """
+    if not geometry_source.startswith("zone:"):
+        return ""
+    layer = geometry_source[5:]
+    if layer.endswith(":h") or layer.endswith(":v"):
+        layer = layer[:-2]
+    return layer
+
+
+# Finished copper weights a fabricator will quote, in ounces. Sizing is snapped
+# to these rather than reporting an arbitrary thickness: "use 1.4 oz" is not a
+# manufacturable instruction, and rounding down would under-deliver the target.
+COPPER_WEIGHTS_OZ = (0.5, 1.0, 2.0, 3.0, 4.0)
+
+# Nominal finished thickness of one ounce of copper, mm (IPC-2221).
+OUNCE_MM = 0.0348
+
+
+def _plane_copper_actions(
+    parsed_board: ParsedBoard, net_name: str, dominant,
+    baseline_drop: float, target_drop_v: float, log,
+) -> list["Remediation"]:
+    """Propose heavier copper when the dominant loss is spread through a pour.
+
+    This is the case the reference board actually presents: on +5V_RAIL the
+    loss sits in 228,153 zone edges against 26 via branches, so neither
+    widening a track nor adding vias touches it, and the advisor previously had
+    nothing to say at all.
+
+    A pour is a sheet conductor, so its resistance scales as 1/thickness with
+    the geometry untouched. Cutting the zone's share of the drop by a factor f
+    therefore needs f times the copper weight -- snapped up to a weight a
+    fabricator will actually quote.
+
+    The proposal is declined outright when the zone carries less than the
+    excess that must be removed, or when the required weight exceeds 4 oz.
+    Beyond that the honest answer is that copper weight is the wrong lever and
+    the plane needs re-planning, not thickening.
+
+    Not re-simulated. simulate_width_change re-meshes with modified segment
+    widths; there is no equivalent for "the same pour, thicker", and the
+    stackup change also alters etch compensation and trace geometry the mesher
+    does not model. Reporting an unverified first-order estimate is honest;
+    re-simulating only the resistance change would look like verification while
+    ignoring what else moves.
+    """
+    power_by_layer: dict[str, float] = {}
+    for loss in dominant:
+        layer = _zone_layer_of(loss.geometry_source)
+        if layer:
+            power_by_layer[layer] = power_by_layer.get(layer, 0.0) + loss.power_w
+    if not power_by_layer:
+        return []
+
+    total_power = sum(loss.power_w for loss in dominant)
+    excess = baseline_drop - target_drop_v
+    if total_power <= 0.0 or excess <= 0.0:
+        return []
+
+    thickness_by_layer = {
+        layer.name: layer.thickness_mm
+        for layer in parsed_board.stackup.layers
+    }
+
+    remediations = []
+    for layer, power in sorted(power_by_layer.items(), key=lambda kv: kv[1], reverse=True):
+        zone_drop = baseline_drop * (power / total_power)
+        if zone_drop <= excess:
+            log(
+                f"Pour on {layer} carries {zone_drop:.4f} V of the "
+                f"{baseline_drop:.4f} V drop, less than the {excess:.4f} V that "
+                "must be removed; thicker copper alone cannot reach the target."
+            )
+            continue
+        factor = zone_drop / (zone_drop - excess)
+        current_mm = float(thickness_by_layer.get(layer, 0.0) or 0.0)
+        if current_mm <= 0.0:
+            log(f"Pour on {layer} has no stackup thickness; cannot size copper weight.")
+            continue
+        current_oz = current_mm / OUNCE_MM
+        needed_oz = current_oz * factor
+        quotable = next(
+            (weight for weight in COPPER_WEIGHTS_OZ if weight >= needed_oz - 1e-9), None,
+        )
+        if quotable is None:
+            log(
+                f"Pour on {layer} would need {needed_oz:.2f} oz copper to meet "
+                f"the target, beyond the {COPPER_WEIGHTS_OZ[-1]:.0f} oz a "
+                "fabricator will normally quote; the plane needs re-planning "
+                "rather than thickening."
+            )
+            continue
+        remediations.append(Remediation(
+            action="INCREASE_COPPER_WEIGHT",
+            target=f"{net_name} / {layer} pour",
+            current_value=round(current_oz, 3),
+            proposed_value=quotable,
+            unit="oz",
+            predicted_gain=(
+                f"drop {baseline_drop:.4f} V -> ~{target_drop_v:.4f} V "
+                "(first-order, sheet-resistance estimate, not re-simulated)"
+            ),
+            effort="MEDIUM" if quotable <= 2.0 else "HIGH",
+            verified=False,
+            layer=layer,
+            alternatives=[
+                "Move the load closer to the regulator",
+                "Add a second plane layer for this rail and stitch the two",
+            ],
+        ))
+    return remediations
+
+
 def build_dc_remediations(
     parsed_board: ParsedBoard, net_name: str, ground_net_name: str,
     sources: list, loads: list, *,
@@ -539,10 +659,15 @@ def build_dc_remediations(
         )
         if via_actions:
             return via_actions[:max_actions]
+        zone_actions = _plane_copper_actions(
+            parsed_board, net_name, dominant, baseline_drop, target_drop_v, _log,
+        )
+        if zone_actions:
+            return zone_actions[:max_actions]
         _log(
-            f"Dominant loss on net '{net_name}' is not on track segments, and "
-            "not concentrated in vias either (zone copper carries it); neither "
-            "widening tracks nor adding stitching vias would help."
+            f"Dominant loss on net '{net_name}' is not on track segments, not "
+            "concentrated in vias, and not on meshable zone copper either; no "
+            "action this advisor can size would help."
         )
         return []
 

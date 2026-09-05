@@ -65,6 +65,13 @@ except ImportError:
 # Coordinate snap precision in mm (1 µm → 0.001 mm)
 _SNAP = 0.001
 
+# Barrel plating for a through-hole pad, mm. A via's plating is derived from
+# its annular ring (size minus drill); a pad carries no equivalent pair in the
+# parsed data, so the IPC-6012 Class 2 minimum of 20 um is used. It is a floor,
+# which keeps the pad's modelled resistance on the pessimistic side rather than
+# flattering a rail with plating nobody promised.
+PAD_PLATING_MM = 0.020
+
 
 def _snap(v: float) -> float:
     """Round a coordinate to the nearest _SNAP mm to allow junction sharing."""
@@ -185,9 +192,50 @@ class HybridMesher:
                         distance = math.hypot(zx - x, zy - y)
                         if best_distance is None or distance < best_distance:
                             best_id, best_distance = found, distance
-                if best_id is not None and best_distance <= 0.5 * step:
+                # Half the cell *diagonal*, not half its side.
+                #
+                # Zone nodes sit on a square lattice of pitch `step`. A pad or
+                # track endpoint falls at an arbitrary point inside a cell, and
+                # the farthest such a point can be from the nearest lattice
+                # node is at the cell centre: (step/2)*sqrt(2) ~ 0.707*step.
+                # A threshold of 0.5*step therefore rejects legitimately
+                # coincident copper in the corners of every cell -- roughly a
+                # fifth of the cell area.
+                #
+                # It cost a real rail: J6 pad 3 on +3V3_MAIN sat 0.0559 mm from
+                # the plane node it belongs to, against a 0.05 mm limit, and
+                # missing by 6 um left the load unreachable from its source.
+                if best_id is not None and best_distance <= 0.7072 * step:
                     return best_id
             return get_or_create(x, y, layer_id)
+
+        def probe(x: float, y: float, layer_id: int):
+            """Existing node at this point, or None -- never mints one.
+
+            Pads use this before deciding to join. Creating a node for a pad
+            that touches no modelled copper does not merely waste it: pads are
+            also how loads and sources are located, and find_node_at picks the
+            *nearest* node. A private node sitting exactly on the pad wins
+            against the real network node a fraction of a millimetre away, so
+            the anchor lands on an island and the rail becomes unsolvable.
+
+            That regression was real -- meshing pads unconditionally moved
+            +5V_RAIL's source Q3 onto three one-node components while the load
+            sat in the 113,504-node network, turning a solvable rail into an
+            unreachable one.
+            """
+            if zone_index:
+                step = self._effective_grid_step
+                ix, iy = x / step, y / step
+                for cx in (math.floor(ix), math.ceil(ix)):
+                    for cy in (math.floor(iy), math.ceil(iy)):
+                        found = zone_index.get((int(cx), int(cy), layer_id))
+                        if found is None:
+                            continue
+                        zx, zy, _layer = mesh.node_coords[found]
+                        if math.hypot(zx - x, zy - y) <= 0.7072 * step:
+                            return found
+            return node_registry.get((_snap(x), _snap(y), layer_id))
 
         board = self._board
 
@@ -311,7 +359,90 @@ class HybridMesher:
 
         self._log(f"[HybridMesher] Net '{net_name}': {via_count} via branches")
 
+        # ------------------------------------------------------------------
+        # Pads.
+        #
+        # This mesher modelled segments, vias and zones, and never pads. A
+        # through-hole pad is a vertical conductor exactly as a via is: it
+        # shorts every copper layer it passes. Leaving it out meant a track
+        # ending on one had no path to the plane beneath it, and the load on
+        # that pad was unreachable from the source.
+        #
+        # That was not hypothetical. On the reference board it stranded loads
+        # on four of seven rails, while the production rasterising mesher --
+        # which does index pads -- reported no exclusions on the same copper.
+        # +3V3_MAIN's load node sat at (106.610, 76.190), which is J6 pad 3,
+        # `thru_hole` on `*.Cu`, 0.02 mm above a plane it could not reach.
+        pad_count = 0
+        for footprint in board.footprints:
+            for pad in footprint.pads:
+                if pad.net_name != net_name:
+                    continue
+                px, py = pad.position
+                span = self._pad_layers(board, pad)
+                if not span:
+                    continue
+                # Bind a pad only where it meets copper the mesh already has.
+                # A pad floating free of every track and pour contributes no
+                # conduction, and minting nodes for it actively harms the
+                # result: those nodes then capture load and source lookups that
+                # would otherwise have found the real network.
+                if not any(probe(px, py, layer_id) is not None for _n, layer_id in span):
+                    continue
+                if len(span) < 2:
+                    # A surface pad adds no vertical path; attaching it is what
+                    # lets a load anchored on an SMD pad share the pour's node.
+                    attach(px, py, span[0][1])
+                    pad_count += 1
+                    continue
+                drill = float(pad.drill_mm or 0.0)
+                if drill <= 0.0:
+                    # No parsed hole means no defensible barrel resistance.
+                    # Skipping is wrong too -- the pad really does conduct --
+                    # so bind each layer without inventing a drill diameter,
+                    # using the smallest hole KiCad will fabricate as a floor.
+                    drill = 0.2
+                try:
+                    barrel = via_resistance(
+                        board_height_mm, drill, PAD_PLATING_MM, self._rho,
+                    )
+                except ValueError:
+                    continue
+                hops = len(span) - 1
+                conductance = hops / barrel
+                previous = attach(px, py, span[0][1])
+                added = False
+                for _name, layer_id in span[1:]:
+                    node = attach(px, py, layer_id)
+                    if node != previous:
+                        mesh.add_edge_direct(
+                            previous, node, conductance,
+                            kind="vertical",
+                            cross_section_mm2=math.pi * drill * PAD_PLATING_MM,
+                            geometry_source=f"pad:{footprint.reference}-{pad.number}",
+                        )
+                        added = True
+                    previous = node
+                if added:
+                    pad_count += 1
+
+        self._log(f"[HybridMesher] Net '{net_name}': {pad_count} pad connections")
+
         return mesh
+
+    @staticmethod
+    def _pad_layers(board: ParsedBoard, pad):
+        """Copper layers a pad occupies, in stackup order.
+
+        ``*.Cu`` is KiCad's shorthand for every copper layer and is what a
+        through-hole pad carries; a surface pad names the single layer it sits
+        on. Anything unrecognised yields nothing rather than a guess.
+        """
+        order = [(cl.name, cl.layer_id) for cl in board.stackup.layers]
+        if pad.is_through_hole or "*.Cu" in pad.layers:
+            return order
+        named = {str(name) for name in pad.layers}
+        return [entry for entry in order if entry[0] in named]
 
     @staticmethod
     def _layers_spanned(board: ParsedBoard, top_layer: str, bottom_layer: str):
