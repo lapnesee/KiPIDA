@@ -122,6 +122,11 @@ class AnalysisResultPage(wx.Panel):
         self._basis_detail_text = format_result_basis(None)
         self._plot_views = []
 
+    @property
+    def result(self):
+        """The structured AnalysisResult currently shown, or None."""
+        return self._result
+
     def set_result(self, result):
         self._result = result
         self.findings.DeleteAllItems()
@@ -514,6 +519,22 @@ class ResultsWorkspace(wx.Panel):
             self.refresh_history(select_entry=entry)
             self._log(f"Saved {self.TITLES.get(analysis_id, analysis_id)} result history entry.")
         return page
+
+    def session_results(self):
+        """Every structured result published in this session, in page order.
+
+        This is what the consolidated report aggregates: the user runs
+        whichever analyses their board and configuration support, and each one
+        leaves its AnalysisResult here. Domains never run are simply absent --
+        campaign scoring treats an absent domain as NO_DATA, never as passing.
+        """
+        results = []
+        for analysis_id in self._analysis_page_ids:
+            page = self._pages.get(analysis_id)
+            result = getattr(page, "result", None) if page is not None else None
+            if result is not None:
+                results.append(result)
+        return results
 
     def update_history_plots(self, analysis_id, plots):
         entry = self._active_entries.get(analysis_id)

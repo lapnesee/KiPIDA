@@ -155,27 +155,218 @@ class SparseComputeBackend:
                 if self.settings.backend == "CUDA":
                     raise
                 self._log(f"CUDA fallback to CPU: {exc}")
-                result = self._solve_cpu(matrix, rhs)
+                result = self._solve_cpu(matrix, rhs, system_kind)
                 result.metadata.fallback_reason = str(exc)
                 return result
-        return self._solve_cpu(matrix, rhs)
+        return self._solve_cpu(matrix, rhs, system_kind)
 
-    def _solve_cpu(self, matrix, rhs):
+    def solve_many(self, matrix, right_hand_sides, system_kind="SPD", cache_key=None):
+        """Solve A x = b for several b against one shared setup.
+
+        The multi-port AC sweep needs the same matrix solved once per
+        observation point at every frequency. Doing that through repeated
+        ``solve()`` calls would re-transfer the matrix and rebuild its
+        preconditioner for each port.
+
+        CPU factorises once with splu and applies the factors per RHS. CUDA
+        uploads the matrix and builds its Jacobi preconditioner on the first
+        RHS, then reuses both residents for the rest -- the two dominant costs
+        are paid once, and each further port is one preconditioned iterative
+        solve.
+
+        Returns a list of ComputeSolution in the order given. A CUDA failure
+        falls back to CPU for the whole group, exactly as ``solve()`` does,
+        so a partially-GPU group can never be reported as if it were uniform.
+        """
+        right_hand_sides = [np.asarray(rhs) for rhs in right_hand_sides]
+        if not right_hand_sides:
+            return []
+        complex_problem = np.iscomplexobj(matrix.data) or any(
+            np.iscomplexobj(rhs) for rhs in right_hand_sides
+        )
+        dtype = np.complex128 if complex_problem else np.float64
+        if not (scipy.sparse.isspmatrix_csr(matrix) and matrix.dtype == dtype):
+            matrix = scipy.sparse.csr_matrix(matrix, dtype=dtype)
+        matrix.sort_indices()
+        right_hand_sides = [np.asarray(rhs, dtype=dtype) for rhs in right_hand_sides]
+
+        if self._select(matrix.shape[0]) == "CUDA":
+            try:
+                return self._solve_many_cuda(
+                    matrix, right_hand_sides, system_kind, cache_key,
+                )
+            except Exception as exc:
+                if self.settings.backend == "CUDA":
+                    raise
+                self._log(f"CUDA fallback to CPU: {exc}")
+                results = self._solve_many_cpu(matrix, right_hand_sides)
+                for result in results:
+                    result.metadata.fallback_reason = str(exc)
+                return results
+        return self._solve_many_cpu(matrix, right_hand_sides)
+
+    def _solve_many_cpu(self, matrix, right_hand_sides):
+        """One splu factorisation applied to every right-hand side."""
+        threads = self._cpu_threads()
+        context = threadpool_limits(limits=threads) if threadpool_limits else nullcontext()
+        started = time.perf_counter()
+        with context:
+            factorized = scipy.sparse.linalg.splu(matrix.tocsc())
+            solutions = [factorized.solve(rhs) for rhs in right_hand_sides]
+        elapsed = time.perf_counter() - started
+        share = elapsed / len(solutions)
+
+        results = []
+        for values, rhs in zip(solutions, right_hand_sides):
+            values = np.asarray(values, dtype=matrix.dtype)
+            if not np.all(np.isfinite(values)):
+                raise RuntimeError("CPU sparse solution contains non-finite values.")
+            relative_residual = self._residual(matrix, values, rhs)
+            residual_limit = max(5.0 * float(self.settings.solver_rtol), 1.0e-12)
+            if not np.isfinite(relative_residual) or relative_residual > residual_limit:
+                raise RuntimeError(
+                    f"CPU sparse solver residual {relative_residual:.3g} exceeds "
+                    f"{residual_limit:.3g}."
+                )
+            results.append(ComputeSolution(values, ComputeMetadata(
+                backend="CPU_SCIPY",
+                solve_seconds=share,
+                relative_residual=relative_residual,
+                cpu_threads=threads,
+                solver_method="DIRECT",
+            )))
+        return results
+
+    def _solve_many_cuda(self, matrix, right_hand_sides, system_kind, cache_key):
+        """Upload and precondition once, then iterate per right-hand side.
+
+        The first RHS goes in with ``matrix_values_static=False`` so the
+        workspace takes this matrix's values and builds its preconditioner;
+        the rest declare the values static so both are reused verbatim.
+
+        The stored previous solution is cleared between right-hand sides. It
+        is a warm start meant for a *slightly* changed RHS during coupled
+        iteration; one port's solution is a poor and possibly divergent guess
+        for the next port, whose injection is somewhere else entirely.
+        """
+        workspace_key = None if cache_key is None else (
+            self.settings.cuda_device, cache_key, matrix.shape,
+            matrix.dtype.str, str(system_kind).upper(),
+        )
+        results = []
+        for index, rhs in enumerate(right_hand_sides):
+            workspace = self._cuda_workspaces.get(workspace_key) if workspace_key else None
+            if workspace is not None:
+                workspace["last_solution"] = None
+            results.append(self._solve_cuda(
+                matrix, rhs, system_kind, cache_key=cache_key,
+                matrix_values_static=index > 0,
+            ))
+        return results
+
+    def _solve_cpu_iterative(self, matrix, rhs, system_kind):
+        """Preconditioned iterative solve, for systems a direct one cannot hold.
+
+        A direct factorisation needs memory for its fill-in, which grows far
+        faster than the matrix and has no relation to the per-node mesh
+        estimate the node budget uses. A 12.3 M-node thermal mesh exhausted
+        Pardiso (error -2, out of memory) and failed the whole analysis, even
+        though the system is a symmetric positive-definite Laplacian that CG
+        handles comfortably at that size. Losing the run to the choice of
+        solver, rather than to anything about the board, is the wrong outcome.
+        """
+        diagonal = matrix.diagonal()
+        diagonal = np.where(np.abs(diagonal) > 0, diagonal, 1.0)
+        preconditioner = scipy.sparse.linalg.LinearOperator(
+            matrix.shape, lambda vector: vector / diagonal, dtype=matrix.dtype,
+        )
+        # Fill-in-free, so the iteration count is what must scale with size.
+        max_iterations = max(
+            int(self.settings.solver_max_iterations), 10 * int(np.sqrt(matrix.shape[0])),
+        )
+        solver = (
+            scipy.sparse.linalg.cg if str(system_kind).upper() == "SPD"
+            else scipy.sparse.linalg.bicgstab
+        )
+        started = time.perf_counter()
+        values, status = solver(
+            matrix, rhs, M=preconditioner, rtol=self.settings.solver_rtol,
+            atol=0.0, maxiter=max_iterations,
+        )
+        elapsed = time.perf_counter() - started
+        if status != 0:
+            raise RuntimeError(
+                f"CPU iterative solver did not converge (status={status}) after "
+                f"{max_iterations} iterations."
+            )
+        return values, elapsed, (
+            "CPU_SCIPY_CG" if str(system_kind).upper() == "SPD" else "CPU_SCIPY_BICGSTAB"
+        )
+
+    # Above this, a sparse direct solve is not attempted at all. Fill-in for a
+    # 3-D-like Laplacian grows far faster than the matrix, and the factorisation
+    # is not bounded by any budget we set: a 12.3 M-node thermal mesh drove the
+    # process past 44 GB without finishing or failing, and had to be killed.
+    # Catching the failure afterwards is too late -- the damage is the attempt.
+    DIRECT_SOLVE_MAX_NODES = 2000000
+
+    def _solve_cpu(self, matrix, rhs, system_kind="SPD"):
         matrix = scipy.sparse.csr_matrix(matrix, dtype=matrix.dtype)
         matrix.sort_indices()
         threads = self._cpu_threads()
         context = threadpool_limits(limits=threads) if threadpool_limits else nullcontext()
         started = time.perf_counter()
-        with context:
-            if pypardiso is not None and not np.iscomplexobj(matrix.data):
-                values = pypardiso.spsolve(matrix, rhs)
-                backend_name = "CPU_PARDISO"
-                effective_threads = threads
-            else:
-                values = scipy.sparse.linalg.spsolve(matrix, rhs)
-                backend_name = "CPU_SCIPY"
-                effective_threads = 1
-        elapsed = time.perf_counter() - started
+        solver_method = "DIRECT"
+        if matrix.shape[0] > self.DIRECT_SOLVE_MAX_NODES:
+            self._log(
+                f"{matrix.shape[0]:,} unknowns exceeds the {self.DIRECT_SOLVE_MAX_NODES:,} "
+                "direct-solve limit; solving iteratively, which needs no "
+                "factorisation memory."
+            )
+            values, elapsed, backend_name = self._solve_cpu_iterative(
+                matrix, rhs, system_kind,
+            )
+            return self._finish_cpu(
+                matrix, rhs, values, elapsed, backend_name, threads, "ITERATIVE",
+            )
+        try:
+            with context:
+                if pypardiso is not None and not np.iscomplexobj(matrix.data):
+                    values = pypardiso.spsolve(matrix, rhs)
+                    backend_name = "CPU_PARDISO"
+                    effective_threads = threads
+                else:
+                    values = scipy.sparse.linalg.spsolve(matrix, rhs)
+                    backend_name = "CPU_SCIPY"
+                    effective_threads = 1
+            elapsed = time.perf_counter() - started
+        except (MemoryError, RuntimeError, ValueError) as exc:
+            # Pardiso reports out-of-memory as error -2 and raises; scipy's
+            # SuperLU raises MemoryError. Either way the system is too large to
+            # factorise on this machine, which an iterative solve does not care
+            # about. Report the method that actually ran.
+            self._log(
+                f"Direct CPU solve failed ({exc}); retrying iteratively, which "
+                "needs no factorisation memory."
+            )
+            values, elapsed, backend_name = self._solve_cpu_iterative(
+                matrix, rhs, system_kind,
+            )
+            effective_threads = threads
+            solver_method = "ITERATIVE"
+        return self._finish_cpu(
+            matrix, rhs, values, elapsed, backend_name, effective_threads,
+            solver_method,
+        )
+
+    def _finish_cpu(self, matrix, rhs, values, elapsed, backend_name,
+                    threads, solver_method):
+        """Validate a CPU solution and wrap it, whichever method produced it.
+
+        The residual gate applies to the iterative path exactly as to the
+        direct one, so a fallback cannot pass off a worse answer as an equal
+        one.
+        """
         values = np.asarray(values, dtype=matrix.dtype)
         if not np.all(np.isfinite(values)):
             raise RuntimeError("CPU sparse solution contains non-finite values.")
@@ -190,8 +381,8 @@ class SparseComputeBackend:
             backend=backend_name,
             solve_seconds=elapsed,
             relative_residual=relative_residual,
-            cpu_threads=effective_threads,
-            solver_method="DIRECT",
+            cpu_threads=threads,
+            solver_method=solver_method,
         ))
 
     def _solve_cuda(
@@ -310,7 +501,17 @@ class SparseComputeBackend:
             # symmetrically and submits an SPD matrix, which takes the CG path
             # without this cap.
             dc_trial = str(system_kind).upper() == "DC"
-            max_iterations = min(self.settings.solver_max_iterations, 750) if dc_trial else self.settings.solver_max_iterations
+            if dc_trial:
+                max_iterations = min(self.settings.solver_max_iterations, 750)
+            else:
+                # A flat cap is a size-independent answer to a size-dependent
+                # question: Jacobi-preconditioned CG needs iterations growing
+                # with sqrt(N), so 5,000 that suffices at 125 k unknowns simply
+                # runs out at 12.3 M and reports a false non-convergence.
+                max_iterations = max(
+                    int(self.settings.solver_max_iterations),
+                    10 * int(np.sqrt(matrix.shape[0])),
+                )
             kwargs = {
                 "rtol": self.settings.solver_rtol,
                 "atol": 0.0,

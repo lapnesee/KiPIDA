@@ -31,8 +31,10 @@ except ImportError:
 
 try:
     from .models import ThermalAnalysisSettings
+    from . import surface_convection
 except (ImportError, ValueError):
     from models import ThermalAnalysisSettings
+    import surface_convection
 
 
 @dataclass
@@ -199,6 +201,32 @@ class PackedThermalBoundaries:
             np.frombuffer(self.conductance, dtype=np.float64),
         )
 
+    def kind_mask(self, kind):
+        """Boolean mask selecting the boundaries of one kind."""
+        code = self._KIND_CODES.get(str(kind))
+        if code is None:
+            return np.zeros(len(self), dtype=bool)
+        return np.frombuffer(bytes(self.kind), dtype=np.uint8) == code
+
+    def scale_kind(self, kind, factor):
+        """Multiply the conductances of one boundary kind in place.
+
+        Surface conductance is h times area, and only h changes when the
+        coefficient is refined against a solved temperature.  Scaling avoids
+        rebuilding a multi-million-boundary mesh for what is a single factor
+        per face.
+        """
+        factor = float(factor)
+        if not len(self) or factor == 1.0 or factor <= 0.0:
+            return
+        mask = self.kind_mask(kind)
+        if not mask.any():
+            return
+        values = np.frombuffer(self.conductance, dtype=np.float64).copy()
+        values[mask] *= factor
+        self.conductance = array("d")
+        self.conductance.frombytes(values.tobytes())
+
 
 @dataclass
 class ThermalMesh:
@@ -220,6 +248,16 @@ class ThermalMesh:
     convection_coefficient_w_m2k: float = 0.0
     requested_grid_size_mm: float = 1.0
     adaptive_grid: bool = False
+    # Surface exchange as it was actually applied, so the solver can refine it
+    # against the solved temperature and the report can state what was used.
+    # ``surface_h_w_m2k`` maps a boundary kind ("top"/"bottom"/"edge") to the
+    # coefficient baked into its conductances; ``surface_area_m2`` maps the
+    # same kinds to their exposed area, which is what lets the solver rescale
+    # a boundary without rebuilding the mesh.
+    surface_h_w_m2k: Dict[str, float] = field(default_factory=dict)
+    surface_area_m2: Dict[str, float] = field(default_factory=dict)
+    characteristic_length_m: float = 0.0
+    convection_basis: str = ""
 
     def add_heat(self, node_id, power_w):
         self.heat_sources_w[node_id] = self.heat_sources_w.get(node_id, 0.0) + float(power_w)
@@ -317,6 +355,10 @@ class ThermalMesher:
     CUDA_NODE_LIMIT = 1250000
     HARD_CPU_NODE_LIMIT = 2000000
     HARD_CUDA_NODE_LIMIT = 4000000
+    # Surface rise assumed when first building boundaries, before any solution
+    # exists to measure one from.  ThermalSolver refines it; this only has to
+    # be close enough to start the iteration in the right basin.
+    NOMINAL_SURFACE_RISE_K = 30.0
     HOST_PEAK_BYTES_PER_NODE = 1280
 
     def __init__(self, debug=False, log_callback=None, compute_settings=None):
@@ -349,6 +391,18 @@ class ThermalMesher:
         if configured_gib <= 0.0:
             return base_limit, cuda_requested
         memory_nodes = int(configured_gib * (1024 ** 3) // self.HOST_PEAK_BYTES_PER_NODE)
+        # The ceiling is reinstated, and it was not the conservative figure it
+        # looked like. Letting a declared 16 GiB budget reach 12.3 M nodes drove
+        # the process past 44 GB -- roughly 3,600 bytes per node against the
+        # 1,280 assumed here -- without finishing, and it had to be killed.
+        #
+        # HOST_PEAK_BYTES_PER_NODE covers the mesh containers, packed branches,
+        # assembled matrix and iterative vectors, and it is about right for
+        # those. What it cannot cover is the working set of everything the mesh
+        # then feeds, which is not proportional to node count and not ours to
+        # predict. The ceiling is the backstop for that gap, so an explicit
+        # budget lowers the limit but never raises it past what the machine was
+        # shown to survive.
         return max(10000, min(hard_limit, memory_nodes)), cuda_requested
 
     @staticmethod
@@ -411,6 +465,13 @@ class ThermalMesher:
 
     @staticmethod
     def convection_coefficient(settings: ThermalAnalysisSettings):
+        """Legacy scalar coefficient, retained for callers that predate orientation.
+
+        Kept so existing behaviour and tests still have a single number to ask
+        for.  New code should use :meth:`surface_coefficient`, which knows
+        whether the face points up or down and how hot it is -- a distinction
+        worth a factor of two on the top face.
+        """
         airflow = settings.airflow
         mode = str(airflow.mode or "NATURAL").upper()
         if mode == "CUSTOM":
@@ -418,6 +479,45 @@ class ThermalMesher:
         if mode == "FORCED":
             return max(5.0, 5.7 + 3.8 * max(0.0, float(airflow.velocity_m_s)))
         return 5.0
+
+    @staticmethod
+    def surface_coefficient(settings: ThermalAnalysisSettings, kind, delta_t_k,
+                            length_m, air_velocity_m_s=None):
+        """Convective coefficient for one exposed face, W/m^2K.
+
+        Replaces the flat 5.0 with the horizontal-plate Rayleigh correlation,
+        which depends on how far the face sits above ambient, how large the
+        board is, and -- by a factor of two -- whether the face points up or
+        down.  ``kind`` is a boundary kind: "top", "bottom" or "edge".
+
+        A CUSTOM airflow setting is the user overriding the physics, so it wins
+        unchanged.  FORCED blends the natural branch with the flat-plate forced
+        correlation rather than replacing it, so a slow fan cannot report less
+        cooling than still air.
+
+        ``air_velocity_m_s`` overrides the configured velocity; the CFD
+        coupling uses it to pass the speed it actually resolved over the board.
+        """
+        airflow = settings.airflow
+        mode = str(airflow.mode or "NATURAL").upper()
+        if mode == "CUSTOM":
+            return max(0.1, float(airflow.custom_h_w_m2k))
+
+        facing = "up" if str(kind) == "top" else "down"
+        natural = surface_convection.natural_convection_h(
+            delta_t_k, length_m, facing=facing, ambient_c=float(settings.ambient_c),
+        )
+        velocity = (
+            float(airflow.velocity_m_s) if air_velocity_m_s is None
+            else float(air_velocity_m_s)
+        )
+        if mode != "FORCED" and air_velocity_m_s is None:
+            return natural
+        forced = surface_convection.forced_convection_h(
+            velocity, length_m, ambient_c=float(settings.ambient_c),
+            delta_t_k=delta_t_k,
+        )
+        return surface_convection.combined_h(natural, forced)
 
     def _layer_specs(self, stackup):
         copper = stackup.get("copper", {})
@@ -461,7 +561,8 @@ class ThermalMesher:
     def _harmonic(k_a, k_b):
         return 2.0 * k_a * k_b / max(k_a + k_b, 1e-30)
 
-    def generate_mesh(self, model, settings: ThermalAnalysisSettings, progress_callback=None):
+    def generate_mesh(self, model, settings: ThermalAnalysisSettings, progress_callback=None,
+                      air_velocity_m_s=None):
         if Point is None or prep is None:
             raise ImportError("Shapely is required for thermal meshing.")
         requested_grid = max(0.01, float(settings.grid_size_mm))
@@ -672,16 +773,71 @@ class ThermalMesher:
             conductance = self.COPPER_K * area_mm2 * 1e-6 / board_thickness_m
             mesh.add_branch(bottom, top, conductance, "via")
 
-        convective_h = self.convection_coefficient(settings)
-        radiative_h = 0.0
-        if settings.include_radiation:
-            ambient_k = float(settings.ambient_c) + 273.15
-            radiative_h = (
-                4.0 * max(0.0, min(1.0, float(settings.emissivity))) *
-                self.SIGMA * ambient_k ** 3
+        # The plate correlations need a length scale and a temperature rise.
+        # The rise is not known before solving, so the mesh is built with a
+        # nominal one and ThermalSolver refines it against the solution --
+        # see ThermalSolver._refine_surface_exchange.
+        board_area_mm2 = max(1.0e-9, (max_x - min_x) * (max_y - min_y))
+        board_perimeter_mm = max(
+            1.0e-9, 2.0 * ((max_x - min_x) + (max_y - min_y)),
+        )
+        characteristic_length = surface_convection.characteristic_length_m(
+            board_area_mm2, board_perimeter_mm,
+        )
+        mesh.characteristic_length_m = characteristic_length
+        nominal_rise_k = self.NOMINAL_SURFACE_RISE_K
+
+        mode = str(settings.airflow.mode or "NATURAL").upper()
+        # A CFD-resolved free-stream speed, when one was handed over, stands in
+        # for the configured airflow. Kept on the mesh so the solver's surface
+        # refinement sees the same number without threading it through every
+        # signature in between.
+        mesh.air_velocity_m_s = (
+            None if air_velocity_m_s is None else max(0.0, float(air_velocity_m_s))
+        )
+        if mesh.air_velocity_m_s is not None and mesh.air_velocity_m_s <= 0.0:
+            mesh.air_velocity_m_s = None
+        if mode == "CUSTOM":
+            mesh.convection_basis = "custom (user-specified h)"
+        elif mesh.air_velocity_m_s is not None:
+            mesh.convection_basis = (
+                "Rayleigh plate correlation blended with laminar flat-plate forced "
+                f"convection at the CFD free-stream speed ({mesh.air_velocity_m_s:.4g} m/s)"
             )
-        h = convective_h + radiative_h
+        elif mode == "FORCED":
+            mesh.convection_basis = (
+                "Rayleigh plate correlation blended with laminar flat-plate forced convection"
+            )
+        else:
+            mesh.convection_basis = "Rayleigh horizontal-plate correlation (Nu = 0.54/0.27 Ra^0.25)"
+
+        def surface_h(kind):
+            convective = self.surface_coefficient(
+                settings, kind, nominal_rise_k, characteristic_length,
+                air_velocity_m_s=mesh.air_velocity_m_s,
+            )
+            radiative = 0.0
+            if settings.include_radiation:
+                radiative = surface_convection.radiation_h(
+                    settings.emissivity,
+                    float(settings.ambient_c) + nominal_rise_k,
+                    float(settings.ambient_c),
+                )
+            return convective + radiative
+
+        top_h = surface_h("top")
+        bottom_h = surface_h("bottom")
+        edge_h = surface_h("edge")
+        mesh.surface_h_w_m2k = {"top": top_h, "bottom": bottom_h, "edge": edge_h}
+        # Reported coefficient is the top face, which dominates the exchange
+        # and is the one a reader will compare against a handbook figure.
+        convective_h = self.surface_coefficient(
+            settings, "top", nominal_rise_k, characteristic_length,
+            air_velocity_m_s=mesh.air_velocity_m_s,
+        )
+        h = top_h
         mesh.convection_coefficient_w_m2k = h
+        radiative_h = top_h - convective_h
         area_xy = dx * dy
         angle_rad = math.radians(float(settings.airflow.direction_deg))
         flow_x, flow_y = math.cos(angle_rad), math.sin(angle_rad)
@@ -692,37 +848,44 @@ class ThermalMesher:
         flow_min, flow_max = min(projected_corners), max(projected_corners)
         flow_span = max(flow_max - flow_min, 1e-12)
 
-        if str(settings.airflow.mode or "").upper() == "FORCED":
+        def face_conductance(face_h):
+            """Conductance map for one face, with the forced-flow profile applied."""
+            if str(settings.airflow.mode or "").upper() != "FORCED":
+                return face_h * area_xy
             x_values = min_x + (np.arange(nx, dtype=np.float64) + 0.5) * grid
             y_values = min_y + (np.arange(ny, dtype=np.float64) + 0.5) * grid
             stream_fraction = np.clip(
                 ((x_values[None, :] * flow_x + y_values[:, None] * flow_y) - flow_min) / flow_span,
                 0.0, 1.0,
             )
-            surface_conductance = (
-                convective_h * (1.25 - 0.5 * stream_fraction) + radiative_h
-            ) * area_xy
-        else:
-            surface_conductance = h * area_xy
+            # The leading edge sees a thinner boundary layer and so a higher
+            # coefficient.  The 1.25 -> 0.75 ramp is a shape factor, not a
+            # correlation; it preserves the face average while biasing the
+            # exchange upstream.
+            return face_h * (1.25 - 0.5 * stream_fraction) * area_xy
 
         # ``layer_order`` is physically F.Cu -> B.Cu.  Thus the first thermal
         # slice is the PCB Top and the final slice is the PCB Bottom.
         if settings.airflow.expose_top:
             top_nodes = layer_grids[0][0]
             valid = top_nodes >= 0
+            conductance = face_conductance(top_h)
             mesh.add_boundary_batch(
                 top_nodes[valid],
-                surface_conductance[valid] if isinstance(surface_conductance, np.ndarray) else surface_conductance,
+                conductance[valid] if isinstance(conductance, np.ndarray) else conductance,
                 "top",
             )
+            mesh.surface_area_m2["top"] = float(np.count_nonzero(valid)) * area_xy
         if settings.airflow.expose_bottom:
             bottom_nodes = layer_grids[-1][0]
             valid = bottom_nodes >= 0
+            conductance = face_conductance(bottom_h)
             mesh.add_boundary_batch(
                 bottom_nodes[valid],
-                surface_conductance[valid] if isinstance(surface_conductance, np.ndarray) else surface_conductance,
+                conductance[valid] if isinstance(conductance, np.ndarray) else conductance,
                 "bottom",
             )
+            mesh.surface_area_m2["bottom"] = float(np.count_nonzero(valid)) * area_xy
         if settings.airflow.expose_edges:
             for node_grid, _, _, thickness_mm in layer_grids:
                 valid = node_grid >= 0
@@ -742,7 +905,13 @@ class ThermalMesher:
                     (valid & bottom_missing, edge_area_y),
                     (valid & top_missing, edge_area_y),
                 ):
-                    mesh.add_boundary_batch(node_grid[edge_mask], h * edge_area, "edge")
+                    mesh.add_boundary_batch(
+                        node_grid[edge_mask], edge_h * edge_area, "edge",
+                    )
+                    mesh.surface_area_m2["edge"] = (
+                        mesh.surface_area_m2.get("edge", 0.0)
+                        + float(np.count_nonzero(edge_mask)) * edge_area
+                    )
         self._log(
             f"Built {len(mesh.branches):,} branches and {len(mesh.boundaries):,} boundaries "
             f"in {time.perf_counter() - connectivity_started:.3f} s using vectorized arrays."

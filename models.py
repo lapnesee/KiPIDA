@@ -183,7 +183,18 @@ class ACAnalysisSettings:
     frequency_stop_hz: float = 1.0e8
     frequency_points: int = 121
     mesh_resolution_mm: float = 0.5
-    target_impedance_ohm: float = 0.05
+    # Zero means "derive from the rail" (see ac_model.resolve_target_impedance).
+    # The former 0.05 default decided pass/fail on every board without anyone
+    # choosing it, which is the arbitrary-default problem the audit records: a
+    # target only means something once a rail voltage and a load current exist
+    # to compute it from.
+    target_impedance_ohm: float = 0.0
+    # Inputs to that derivation, both design decisions rather than board facts.
+    ripple_fraction: float = 0.02
+    transient_fraction: float = 0.5
+    # Filled in once the target is resolved, so the report can state where the
+    # number came from instead of presenting a derived value as a chosen one.
+    target_impedance_provenance: str = ""
     source: ACSourceModel = field(default_factory=ACSourceModel)
     measurement_port: ACMeasurementPort = field(default_factory=ACMeasurementPort)
     capacitors: List[CapacitorModel] = field(default_factory=list)
@@ -729,6 +740,33 @@ class ImpedanceSweepResult:
     mesh_node_count: int = 0
     requested_grid_size_mm: float = 0.0
     effective_grid_size_mm: float = 0.0
+    # Populated by a multi-port sweep: one sweep per observation point, keyed
+    # by reference designator, plus which one produced this worst case. Left
+    # empty by a single-port solve, so existing consumers are unaffected.
+    per_port_results: Dict[str, "ImpedanceSweepResult"] = field(default_factory=dict)
+    worst_port_ref_des: str = ""
+    # Observation points dropped before solving, each {"ref_des", "reason"}.
+    # An impedance computed on copper that never reaches the source is
+    # meaningless, so such a port is removed rather than reported -- but
+    # removing it silently would hide a degraded analysis, so it is carried
+    # here and surfaced as a limitation.
+    excluded_ports: List[Dict[str, str]] = field(default_factory=list)
+    # Frequency above which the lumped quasi-static model stops being
+    # trustworthy, and how many swept points fall beyond it. Zero means no
+    # bound could be established. Points past it are still solved and
+    # reported -- the user may legitimately want to look -- but the report
+    # must say the confidence there is lower.
+    quasi_static_limit_hz: float = 0.0
+    points_beyond_quasi_static: int = 0
+    # True when the worst case landed on the last swept point, so the real
+    # maximum may lie outside the window rather than at its edge.
+    worst_at_sweep_edge: bool = False
+    # Outcome of the GPU-against-CPU audit run on the first swept point. Empty
+    # when the sweep never touched a GPU or the check was switched off. It
+    # records the agreement measured, or the disagreement that sent the rest
+    # of the sweep back to the CPU, so a reader can tell which arithmetic
+    # produced the impedances above.
+    gpu_accuracy_check: str = ""
 
 
 @dataclass
@@ -866,6 +904,13 @@ class ThermalResult:
     total_boundary_power_w: float = 0.0
     energy_balance_error_pct: float = 0.0
     convection_coefficient_w_m2k: float = 0.0
+    # The surface exchange as actually applied, per exposed face, plus the
+    # correlation it came from. A hotspot is only as good as the coefficient
+    # that produced it, so the report must be able to state both rather than
+    # leaving a first-order assumption invisible.
+    surface_h_w_m2k: Dict[str, float] = field(default_factory=dict)
+    convection_basis: str = ""
+    characteristic_length_m: float = 0.0
     iterations: int = 1
     converged: bool = True
     compute_backend: str = "CPU"
@@ -878,6 +923,15 @@ class ThermalResult:
     compute_fallback_reason: str = ""
     compute_matrix_assembly: str = "CPU_CSR"
     compute_warm_start_used: bool = False
+    # The mesher silently coarsens the grid when the requested one would
+    # exceed the node budget. Carried here so the report can say the requested
+    # resolution was not honoured: someone who asks for 0.05 mm and receives
+    # 0.089 mm is otherwise told nothing outside the log, and reads the result
+    # as though it were the resolution they chose.
+    requested_grid_size_mm: float = 0.0
+    effective_grid_size_mm: float = 0.0
+    adaptive_grid: bool = False
+    mesh_node_count: int = 0
 
 
 @dataclass
@@ -930,11 +984,32 @@ class EnclosureGeometrySettings:
 class CFDSolverSettings:
     """Numerical controls for steady incompressible enclosure flow."""
     cell_size_mm: float = 5.0
-    max_iterations: int = 250
+    # A safety cap, not a target. Until the continuity residual stopped
+    # averaging in prescribed boundary cells, `converged` could never become
+    # True, so this bound was always reached and doubling it doubled every run.
+    # Now the loop breaks as soon as the solve settles: the validation duct
+    # converges at 845 iterations, the forced smoke case at 250, and neither
+    # pays for the headroom it does not use.
+    #
+    # Raised 250 -> 1000 because 250 silently truncated the duct at a third of
+    # what it needed. Cases that settle sooner are unaffected; only a genuinely
+    # unconverged run pays, and that run now says so honestly.
+    max_iterations: int = 1000
     tolerance: float = 1.0e-4
     relaxation: float = 0.45
     pseudo_time_step_s: float = 0.02
-    pressure_iterations: int = 60
+    # UNUSED since the pressure Poisson system moved to SparseComputeBackend.
+    #
+    # It set the number of Jacobi sweeps the projection used to clean
+    # divergence. Jacobi bought accuracy linearly and never reached it: 30/60/
+    # 240/960 sweeps gave -8.2/-5.2/-1.6/-0.6% mass error on the validation
+    # duct. The sparse solve reaches 0.08% on the same case and does not have a
+    # sweep count to tune.
+    #
+    # Kept so saved projects and their persisted settings still load. It is
+    # deliberately not removed and not silently repurposed -- a control that
+    # looks live but does nothing is worse than one documented as inert.
+    pressure_iterations: int = 240
     include_buoyancy: bool = True
     gravity_x_m_s2: float = 0.0
     gravity_y_m_s2: float = 0.0
@@ -974,8 +1049,20 @@ class EnclosureCFDResult:
     iterations: int = 0
     converged: bool = False
     mass_balance_error_pct: float = 0.0
+    # False for a sealed enclosure, where no flow crosses a boundary and the
+    # figure above is meaningless rather than good. Reporting 0% there would
+    # read as a conservation check that passed.
+    mass_balance_applicable: bool = True
     energy_balance_error_pct: float = 0.0
     maximum_velocity_m_s: float = 0.0
+    # Free-stream air speed approaching the board, for the flat-plate forced
+    # correlation. Deliberately not the wall-adjacent speed: Nu = 0.664 Re^0.5
+    # Pr^(1/3) models the boundary layer analytically and expects the
+    # free-stream value, which is also the quantity a coarse enclosure mesh
+    # resolves best. Zero when no board cells were found. See
+    # docs/validation-cfd.md.
+    board_free_stream_velocity_m_s: float = 0.0
+    board_free_stream_cells: int = 0
     maximum_air_temperature_c: float = 0.0
     maximum_solid_temperature_c: float = 0.0
     total_heat_w: float = 0.0

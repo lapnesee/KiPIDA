@@ -7,9 +7,9 @@ import wx
 from i18n import _
 
 try:
-    from models import CFDBoundaryPatch, EnclosureCFDSettings
+    from models import CFDBoundaryPatch, CFDSolverSettings, EnclosureCFDSettings
 except (ImportError, ValueError):
-    from models import CFDBoundaryPatch, EnclosureCFDSettings
+    from models import CFDBoundaryPatch, CFDSolverSettings, EnclosureCFDSettings
 
 
 class CFDBoundaryDialog(wx.Dialog):
@@ -104,13 +104,24 @@ class CFDAnalysisPanel(wx.Panel):
         solver_grid = wx.FlexGridSizer(cols=6, hgap=6, vgap=6)
         for column in (1, 3, 5):
             solver_grid.AddGrowableCol(column, 1)
-        self.ambient = wx.TextCtrl(solver_parent, value="25")
-        self.cell = wx.TextCtrl(solver_parent, value="5")
-        self.iterations = wx.TextCtrl(solver_parent, value="250")
-        self.tolerance = wx.TextCtrl(solver_parent, value="1e-4")
-        self.relaxation = wx.TextCtrl(solver_parent, value="0.45")
-        self.time_step = wx.TextCtrl(solver_parent, value="0.02")
-        self.pressure_iterations = wx.TextCtrl(solver_parent, value="60")
+        # Widget values come from the dataclass, never typed here.
+        #
+        # These literals were a third source of truth for the solver defaults,
+        # after models.py and config_manager. Raising max_iterations to 1000
+        # changed nothing visible because get_settings() reads the widgets, and
+        # this box still said 250 -- which read exactly like a stale
+        # deployment and was investigated as one across several runs.
+        _solver = CFDSolverSettings()
+        _enclosure = EnclosureCFDSettings()
+        self.ambient = wx.TextCtrl(solver_parent, value=f"{_enclosure.ambient_c:g}")
+        self.cell = wx.TextCtrl(solver_parent, value=f"{_solver.cell_size_mm:g}")
+        self.iterations = wx.TextCtrl(solver_parent, value=str(_solver.max_iterations))
+        self.tolerance = wx.TextCtrl(solver_parent, value=f"{_solver.tolerance:g}")
+        self.relaxation = wx.TextCtrl(solver_parent, value=f"{_solver.relaxation:g}")
+        self.time_step = wx.TextCtrl(solver_parent, value=f"{_solver.pseudo_time_step_s:g}")
+        self.pressure_iterations = wx.TextCtrl(
+            solver_parent, value=str(_solver.pressure_iterations),
+        )
         self.buoyancy = wx.CheckBox(solver_parent, label="Boussinesq buoyancy")
         self.buoyancy.SetValue(True)
         self.phase3_heat = wx.CheckBox(solver_parent, label="Use Phase 3 heat sources")

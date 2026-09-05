@@ -1,6 +1,8 @@
 """Build frequency-domain PDN models from the existing Ki-PIDA mesh pipeline."""
 
+from collections import defaultdict
 from dataclasses import dataclass, field
+import math
 import re
 from typing import Dict, List, Optional, Tuple
 
@@ -12,6 +14,164 @@ except (ImportError, ValueError):
     from extractor import GeometryExtractor
     from mesh import Mesher
     from models import ACAnalysisSettings, CapacitorModel, MeshBranch, PowerRail
+
+
+# kiapi.common.types.ElectricalPinType, as carried by Pad.symbol_pin.type on a
+# live board.  A pin declared a power output is factually where energy enters a
+# net; a power input is factually a load.  Using them replaces guessing from a
+# reference designator prefix, which only works on boards named the way this
+# plugin happens to expect.
+EPT_UNKNOWN = 0
+EPT_POWER_INPUT = 8
+EPT_POWER_OUTPUT = 9
+
+# Defaults for the derived PDN target impedance.  A rail's ripple allowance is
+# a design decision rather than a property of the board, so 2 % is a starting
+# point and not a truth; the transient fraction expresses how much of the
+# configured DC draw is assumed to step at once, for which half is the usual
+# working figure.
+RIPPLE_FRACTION_DEFAULT = 0.02
+TRANSIENT_FRACTION_DEFAULT = 0.5
+
+
+def derive_target_impedance(
+    rail, *, ripple_fraction=RIPPLE_FRACTION_DEFAULT,
+    transient_fraction=TRANSIENT_FRACTION_DEFAULT,
+):
+    """Z_target = (V_rail * ripple) / I_transient, from the rail's own data.
+
+    A PDN target is not a universal constant: it follows from how much ripple
+    the rail tolerates and how much current steps at once.  Both are already
+    implied by the power tree -- the rail carries its nominal voltage and its
+    configured loads -- so the target can be computed instead of typed, which
+    is what stops an arbitrary default from silently deciding whether a board
+    passes.
+
+    Returns ``(value_ohm, provenance)`` on success, or ``(None, reason)`` when
+    the rail has no nominal voltage or no configured load.  In that case the
+    caller must not invent a target: an impedance budget without a current is
+    meaningless, and stating one would be worse than stating none.
+    """
+    try:
+        voltage = float(getattr(rail, "nominal_voltage", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        voltage = 0.0
+    if voltage <= 0.0:
+        return None, "the rail has no nominal voltage"
+
+    total_current = 0.0
+    for load in getattr(rail, "loads", ()) or ():
+        try:
+            total_current += float(getattr(load, "total_current", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+    if total_current <= 0.0:
+        return None, "the rail has no configured load current"
+
+    try:
+        ripple = float(ripple_fraction)
+        transient = float(transient_fraction)
+    except (TypeError, ValueError):
+        return None, "the ripple and transient fractions must be numbers"
+    if ripple <= 0.0 or transient <= 0.0:
+        return None, "the ripple and transient fractions must both be positive"
+
+    transient_current = total_current * transient
+    value = (voltage * ripple) / transient_current
+    provenance = (
+        f"derived from {voltage:.2f} V x {ripple * 100.0:.1f} % ripple / "
+        f"{transient_current:.3g} A transient "
+        f"({transient * 100.0:.0f} % of {total_current:.3g} A configured load)"
+    )
+    return value, provenance
+
+
+LIGHT_SPEED_M_S = 299792458.0
+
+
+def quasi_static_limit_hz(span_mm, epsilon_r=4.4):
+    """Rough upper frequency for which a lumped PDN mesh still means something.
+
+    The AC network is quasi-static: lumped resistances and inductances per
+    branch, lumped RLC capacitors, no plane-cavity modes and no distributed
+    propagation.  That holds while the structure is electrically small.  The
+    usual working threshold is a tenth of a wavelength in the dielectric,
+
+        f = c / (10 * L_max * sqrt(eps_r))
+
+    which for an 80 mm board in FR4 lands near 180 MHz.  This is an
+    order-of-magnitude indicator, not a hard cliff: accuracy degrades
+    gradually either side of it, and the plane resonances the model omits
+    start well before the geometry stops being electrically small.  Its
+    purpose is to stop a swept number being read with the same confidence
+    at 1 GHz as at 1 MHz.
+
+    Returns 0.0 when the span is unusable, meaning "no bound available"
+    rather than "no bound applies".
+    """
+    try:
+        span_m = float(span_mm) / 1000.0
+        epsilon = float(epsilon_r)
+    except (TypeError, ValueError):
+        return 0.0
+    if span_m <= 0.0 or epsilon < 1.0:
+        return 0.0
+    return LIGHT_SPEED_M_S / (10.0 * span_m * math.sqrt(epsilon))
+
+
+def network_span_mm(node_coords):
+    """Largest planar extent of the meshed copper, in mm."""
+    if not node_coords:
+        return 0.0
+    xs = [coord[0] for coord in node_coords.values()]
+    ys = [coord[1] for coord in node_coords.values()]
+    if not xs or not ys:
+        return 0.0
+    return max(max(xs) - min(xs), max(ys) - min(ys))
+
+
+def resolve_target_impedance(rail, settings):
+    """Return ``(target_ohm, provenance)`` for *settings* applied to *rail*.
+
+    An explicitly configured target always wins: the user's number is a
+    decision, not an estimate, and must not be silently overridden.  Only a
+    zero or absent target triggers derivation.
+    """
+    try:
+        configured = float(getattr(settings, "target_impedance_ohm", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        configured = 0.0
+    if configured > 0.0:
+        return configured, f"{configured:.6g} ohm as configured"
+    value, detail = derive_target_impedance(
+        rail,
+        ripple_fraction=getattr(settings, "ripple_fraction", RIPPLE_FRACTION_DEFAULT),
+        transient_fraction=getattr(settings, "transient_fraction", TRANSIENT_FRACTION_DEFAULT),
+    )
+    if value is None:
+        return 0.0, f"not determinable: {detail}"
+    return value, f"{value:.6g} ohm {detail}"
+
+
+def pad_electrical_type(pad):
+    """The pad's schematic pin type, or None when the board does not carry one.
+
+    KiCad exposes it through ``Pad.proto.symbol_pin.type``.  Older files,
+    footprints with no schematic association, and the synthetic pads used in
+    tests have no such field, and an unset protobuf enum reads as
+    ``EPT_UNKNOWN`` rather than being absent -- both mean "no information",
+    so both return None and let the caller fall through to the next rule.
+    """
+    try:
+        symbol_pin = pad.proto.symbol_pin
+    except Exception:
+        return None
+    value = getattr(symbol_pin, "type", None)
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return None
+    return None if value == EPT_UNKNOWN else value
 
 
 @dataclass
@@ -30,6 +190,15 @@ class ACNetwork:
     node_coords: Dict[int, Tuple[float, float, int]] = field(default_factory=dict)
     requested_grid_size_mm: float = 0.0
     effective_grid_size_mm: float = 0.0
+    # Every candidate observation point, keyed by reference designator.
+    # ``measurement`` remains one of these and stays the single-port contract
+    # the existing UI and result adapter consume.
+    ports: Dict[str, ACNodeConnection] = field(default_factory=dict)
+    source_ref_des: str = ""
+    source_resolution: str = ""
+    # Above this frequency the lumped quasi-static model stops being trustworthy
+    # (see quasi_static_limit_hz). Zero means no bound could be established.
+    quasi_static_limit_hz: float = 0.0
 
 
 def parse_capacitance(value) -> Optional[float]:
@@ -68,6 +237,106 @@ def format_capacitance(value_f: float) -> str:
         if value_f >= scale:
             return f"{value_f / scale:g}{suffix}"
     return f"{value_f:g}F"
+
+
+class _PlanarNodeIndex:
+    """Bucketed (x, y) index over mesh nodes for nearest-neighbour lookups.
+
+    A ground plane mesh routinely holds tens of thousands of nodes, so the
+    naive scan a port would otherwise do per rail node is O(N*M) and dominates
+    model build time. Bucketing by a cell close to the grid pitch keeps roughly
+    one node per bucket, so a lookup touches a handful of cells.
+    """
+
+    def __init__(self, node_coords: Dict[int, Tuple[float, float, int]], cell_mm: float = 0.0):
+        self._buckets = defaultdict(list)
+        cell = float(cell_mm or 0.0)
+        if cell <= 0.0:
+            cell = self._auto_cell(node_coords)
+        self._cell = cell
+        for node_id, coord in node_coords.items():
+            x, y = float(coord[0]), float(coord[1])
+            self._buckets[(int(math.floor(x / cell)), int(math.floor(y / cell)))].append(
+                (x, y, int(node_id))
+            )
+
+    @staticmethod
+    def _auto_cell(node_coords) -> float:
+        """Pick a cell size giving roughly one node per bucket."""
+        if not node_coords:
+            return 1.0
+        xs = [float(coord[0]) for coord in node_coords.values()]
+        ys = [float(coord[1]) for coord in node_coords.values()]
+        span = max(max(xs) - min(xs), max(ys) - min(ys))
+        if span <= 0.0:
+            return 1.0
+        return max(span / max(math.sqrt(len(node_coords)), 1.0), 1e-6)
+
+    def nearest(self, x: float, y: float, count: int = 1, max_distance_mm=None):
+        """Return up to *count* node ids closest to (x, y), nearest first."""
+        if not self._buckets or count <= 0:
+            return []
+        cell = self._cell
+        cx, cy = int(math.floor(x / cell)), int(math.floor(y / cell))
+        found = []
+        ring = 0
+        # Expand ring by ring. A node in ring r+1 can still beat a corner hit
+        # in ring r, so once enough candidates exist keep going until the ring's
+        # guaranteed minimum distance exceeds the worst kept candidate.
+        max_rings = max(len(self._buckets), 1)
+        while ring <= max_rings:
+            for bx in range(cx - ring, cx + ring + 1):
+                for by in range(cy - ring, cy + ring + 1):
+                    if ring and abs(bx - cx) != ring and abs(by - cy) != ring:
+                        continue
+                    for px, py, node_id in self._buckets.get((bx, by), ()):
+                        distance = math.hypot(px - x, py - y)
+                        if max_distance_mm is not None and distance > max_distance_mm:
+                            continue
+                        found.append((distance, node_id))
+            if len(found) >= count:
+                found.sort()
+                # Anything beyond this ring is at least ring*cell away.
+                if found[min(count, len(found)) - 1][0] <= ring * cell:
+                    break
+            ring += 1
+        found.sort()
+        return [node_id for _distance, node_id in found[:count]]
+
+
+def nearest_ground_nodes(
+    ground_mesh, rail_mesh, rail_nodes, *, max_distance_mm=None, per_rail_node=1,
+):
+    """Ground-side nodes for a port whose component carries no return pads.
+
+    A switching regulator reaches its rail through an output inductor with no
+    ground pad, so requiring the return on the same component makes every such
+    rail unanalysable. The physical return is the plane under the injection
+    point, so pick the ground node(s) closest in (x, y) to each rail node,
+    across all layers.
+
+    Returns ground-mesh node ids (NOT yet offset into the combined network).
+    """
+    ground_coords = getattr(ground_mesh, "node_coords", None) or {}
+    rail_coords = getattr(rail_mesh, "node_coords", None) or {}
+    if not ground_coords or not rail_nodes:
+        return []
+
+    index = _PlanarNodeIndex(ground_coords, getattr(ground_mesh, "grid_step", 0.0) or 0.0)
+    resolved = []
+    seen = set()
+    for rail_node in rail_nodes:
+        coord = rail_coords.get(int(rail_node))
+        if coord is None:
+            continue
+        for node_id in index.nearest(
+            float(coord[0]), float(coord[1]),
+            count=max(1, int(per_rail_node)), max_distance_mm=max_distance_mm,
+        ):
+            if node_id not in seen:
+                seen.add(node_id)
+                resolved.append(node_id)
+    return sorted(resolved)
 
 
 class ACModelBuilder:
@@ -266,6 +535,183 @@ class ACModelBuilder:
 
         return sorted(set(found))
 
+    def components_on_net(self, net_name):
+        """Every (ref_des, pad_numbers) pair touching *net_name*, board order."""
+        found = []
+        for footprint in self._get_board_items("footprints"):
+            reference = self._get_footprint_reference(footprint)
+            if not reference:
+                continue
+            pads = [self._pad_number(pad) for pad in self._get_pads(footprint)
+                    if self._pad_net_name(pad) == net_name]
+            if pads:
+                found.append((reference, pads))
+        return found
+
+    def pads_on_net_by_type(self, net_name, electrical_type):
+        """(ref_des, pad_numbers) for pads on *net_name* declaring *electrical_type*.
+
+        Board order, and only pads whose schematic pin type is actually known
+        -- a board without pin metadata yields nothing here rather than a
+        misleading empty-versus-absent distinction.
+        """
+        found = []
+        for footprint in self._get_board_items("footprints"):
+            reference = self._get_footprint_reference(footprint)
+            if not reference:
+                continue
+            pads = [
+                self._pad_number(pad) for pad in self._get_pads(footprint)
+                if self._pad_net_name(pad) == net_name
+                and pad_electrical_type(pad) == electrical_type
+            ]
+            if pads:
+                found.append((reference, pads))
+        return found
+
+    @staticmethod
+    def _source_preference(ref_des):
+        """Rank a fallback source candidate. Lower sorts first.
+
+        An explicit heuristic, not a measurement: a rail is normally reached
+        through its regulator's output inductor or ferrite, so L/FB references
+        are the best guess for where energy enters the rail, then active parts,
+        then anything else. Recorded here so the ordering is reviewable rather
+        than buried in a sort key.
+        """
+        name = str(ref_des).upper()
+        if name.startswith("FB") or name.startswith("L"):
+            return 0
+        if name.startswith("U"):
+            return 1
+        return 2
+
+    def resolve_source(self, rail, settings, all_rails=None):
+        """Pick the component injecting energy into the rail.
+
+        Order: the explicit setting, a declared UnifiedSource, the output of a
+        regulator feeding this rail, then a heuristic pick among components on
+        the rail. Returns (ref_des, rail_pad_names, how) where *how* records
+        which rule fired, for logging and for the failure message.
+        """
+        if settings.source.ref_des:
+            return settings.source.ref_des, list(settings.source.rail_pad_names), "explicit"
+        if rail is not None and rail.sources:
+            source = rail.sources[0]
+            return source.component_ref.ref_des, list(source.pad_names), "power-tree source"
+
+        # PowerRail.child_regulators lists regulators this rail *feeds*, so the
+        # one that produces this rail lives on some other rail's list.
+        for candidate_rail in (all_rails or ([rail] if rail is not None else [])):
+            for regulator in getattr(candidate_rail, "child_regulators", ()) or ():
+                if getattr(regulator, "output_rail_name", "") == settings.rail_name:
+                    return (
+                        regulator.output_ref_des,
+                        list(regulator.output_pad_names or []),
+                        f"regulator '{getattr(regulator, 'name', '')}' output",
+                    )
+
+        # A pin the schematic declares a power output is where energy enters
+        # this net.  That is a fact off the board, not an inference from a
+        # reference designator, so it outranks the naming heuristic below.
+        power_outputs = self.pads_on_net_by_type(settings.rail_name, EPT_POWER_OUTPUT)
+        if power_outputs:
+            reference, pads = power_outputs[0]
+            return reference, list(pads), "pin-type:power_output"
+
+        candidates = self.components_on_net(settings.rail_name)
+        # A power input is a load by definition and can never be the source.
+        # Dropping those leaves the naming heuristic a smaller, saner pool.
+        power_inputs = {
+            reference for reference, _pads
+            in self.pads_on_net_by_type(settings.rail_name, EPT_POWER_INPUT)
+        }
+        remaining = [item for item in candidates if item[0] not in power_inputs]
+        if remaining:
+            reference, pads = min(
+                remaining, key=lambda item: (self._source_preference(item[0]), item[0]),
+            )
+            rule = "heuristic pick among rail components"
+            if power_inputs:
+                rule += f" (excluded {len(power_inputs)} power-input load(s))"
+            return reference, list(pads), rule
+        if candidates:
+            # Everything on the rail is a declared load.  Naming it explicitly
+            # beats silently returning a load as if it were a supply.
+            return "", [], "unresolved: every component on the rail is a power input"
+        return "", [], "unresolved"
+
+    def resolve_ports(self, rail, settings):
+        """Every candidate measurement port, as (ref_des, rail_pad_names).
+
+        An explicit port wins. Otherwise every declared load is a port: the
+        PDN is qualified by its worst observation point, and which point that
+        is cannot be known before solving.
+        """
+        if settings.measurement_port.ref_des:
+            return [(
+                settings.measurement_port.ref_des,
+                list(settings.measurement_port.rail_pad_names),
+            )]
+        ports = []
+        for load in (getattr(rail, "loads", ()) or ()):
+            ports.append((load.component_ref.ref_des, list(load.pad_names)))
+        return ports
+
+    def _connection(
+        self, rail_mesh, ground_mesh, offset, ref_des,
+        rail_pad_names, ground_pad_names, settings, label="port",
+    ):
+        """Map one port to rail and return nodes, falling back to the plane.
+
+        Ground resolution order: the pads named on the component, then the
+        nearest ground-mesh nodes under the rail pads. The second path is what
+        makes a regulator output inductor -- which has no ground pad at all --
+        usable as a port.
+        """
+        rail_nodes = self.find_pad_nodes(
+            rail_mesh, ref_des, rail_pad_names, settings.rail_name,
+        )
+        ground_nodes = self.find_pad_nodes(
+            ground_mesh, ref_des, ground_pad_names, settings.ground_net_name,
+        )
+        if not ground_nodes and rail_nodes:
+            ground_nodes = nearest_ground_nodes(ground_mesh, rail_mesh, rail_nodes)
+            if ground_nodes:
+                self._log(
+                    f"{label} '{ref_des}' has no {settings.ground_net_name} pad; "
+                    f"using the {len(ground_nodes)} nearest return-plane node(s) "
+                    "under its rail pads as the AC return."
+                )
+        return ACNodeConnection(
+            rail_nodes=rail_nodes,
+            ground_nodes=[node + offset for node in ground_nodes],
+        )
+
+    def _unmapped_message(self, label, ref_des, settings):
+        """Explain a failed port mapping in terms the user can act on."""
+        if not ref_des:
+            return (
+                f"No {label} could be resolved automatically for rail "
+                f"'{settings.rail_name}'. Declare a source or a load on the rail in "
+                "the Power Tree, or pick a component explicitly in the AC Impedance tab."
+            )
+        available = self.pad_names_for_net(ref_des, settings.rail_name)
+        if not self._find_footprint(ref_des):
+            return (
+                f"The {label} component '{ref_des}' was not found on the board."
+            )
+        if not available:
+            return (
+                f"The {label} component '{ref_des}' has no pad on rail "
+                f"'{settings.rail_name}'. Pick a component that connects to the rail."
+            )
+        return (
+            f"The {label} pads of '{ref_des}' on '{settings.rail_name}' "
+            f"(pads {', '.join(available)}) could not be matched to the rail mesh. "
+            "Try a finer AC mesh resolution."
+        )
+
     def _translate_mesh(self, mesh, offset):
         branches = [MeshBranch(
             node_a=branch.node_a + offset,
@@ -279,7 +725,8 @@ class ACModelBuilder:
         coords = {node_id + offset: coord for node_id, coord in mesh.node_coords.items()}
         return branches, coords
 
-    def build(self, rail: PowerRail, settings: ACAnalysisSettings, grid_size_mm=0.5):
+    def build(self, rail: PowerRail, settings: ACAnalysisSettings, grid_size_mm=0.5,
+              all_rails=None):
         extractor = GeometryExtractor(self.board, debug=self.debug, log_callback=self.log_callback)
         stackup = extractor.get_board_stackup()
         rail_geometry = extractor.get_net_geometry(settings.rail_name)
@@ -299,40 +746,43 @@ class ACModelBuilder:
         rail_branches, rail_coords = self._translate_mesh(rail_mesh, 0)
         ground_branches, ground_coords = self._translate_mesh(ground_mesh, offset)
 
-        source_ref = settings.source.ref_des
-        source_rail_pads = settings.source.rail_pad_names
-        if not source_ref and rail.sources:
-            source_ref = rail.sources[0].component_ref.ref_des
-            source_rail_pads = rail.sources[0].pad_names
+        source_ref, source_rail_pads, source_rule = self.resolve_source(
+            rail, settings, all_rails=all_rails,
+        )
+        if source_rule != "explicit":
+            self._log(f"AC source resolved to '{source_ref or '(none)'}' via {source_rule}.")
         source_ground_pads = settings.source.ground_pad_names or self.pad_names_for_net(
             source_ref, settings.ground_net_name
         )
 
-        port_ref = settings.measurement_port.ref_des
-        port_rail_pads = settings.measurement_port.rail_pad_names
-        if not port_ref and rail.loads:
-            port_ref = rail.loads[0].component_ref.ref_des
-            port_rail_pads = rail.loads[0].pad_names
+        candidate_ports = self.resolve_ports(rail, settings)
+        port_ref, port_rail_pads = candidate_ports[0] if candidate_ports else ("", [])
         port_ground_pads = settings.measurement_port.ground_pad_names or self.pad_names_for_net(
             port_ref, settings.ground_net_name
         )
 
-        source = ACNodeConnection(
-            rail_nodes=self.find_pad_nodes(rail_mesh, source_ref, source_rail_pads, settings.rail_name),
-            ground_nodes=[node + offset for node in self.find_pad_nodes(
-                ground_mesh, source_ref, source_ground_pads, settings.ground_net_name
-            )],
+        source = self._connection(
+            rail_mesh, ground_mesh, offset, source_ref,
+            source_rail_pads, source_ground_pads, settings, label="AC source",
         )
-        measurement = ACNodeConnection(
-            rail_nodes=self.find_pad_nodes(rail_mesh, port_ref, port_rail_pads, settings.rail_name),
-            ground_nodes=[node + offset for node in self.find_pad_nodes(
-                ground_mesh, port_ref, port_ground_pads, settings.ground_net_name
-            )],
+        measurement = self._connection(
+            rail_mesh, ground_mesh, offset, port_ref,
+            port_rail_pads, port_ground_pads, settings, label="measurement port",
         )
-        if not source.rail_nodes or not source.ground_nodes:
-            raise ValueError("The AC source must map to pads on both the rail and the return net.")
-        if not measurement.rail_nodes or not measurement.ground_nodes:
-            raise ValueError("The measurement port must map to pads on both the rail and the return net.")
+        if not source.rail_nodes:
+            raise ValueError(self._unmapped_message("AC source", source_ref, settings))
+        if not source.ground_nodes:
+            raise ValueError(
+                f"No return-net copper was found beneath the AC source pads on "
+                f"'{settings.ground_net_name}'."
+            )
+        if not measurement.rail_nodes:
+            raise ValueError(self._unmapped_message("measurement port", port_ref, settings))
+        if not measurement.ground_nodes:
+            raise ValueError(
+                f"No return-net copper was found beneath the measurement port pads on "
+                f"'{settings.ground_net_name}'."
+            )
 
         capacitor_nodes = {}
         for capacitor in settings.capacitors:
@@ -347,15 +797,52 @@ class ACModelBuilder:
             else:
                 self._log(f"Skipping {capacitor.ref_des}: pads could not be mapped to both meshes.")
 
+        # Map every remaining candidate port so the solver can sweep them all.
+        # The first is already mapped as `measurement`, which stays the
+        # single-port contract the existing UI and adapter consume.
+        ports = {}
+        for candidate_ref, candidate_pads in candidate_ports:
+            if candidate_ref in ports:
+                continue
+            connection = (
+                measurement if candidate_ref == port_ref
+                else self._connection(
+                    rail_mesh, ground_mesh, offset, candidate_ref, candidate_pads,
+                    self.pad_names_for_net(candidate_ref, settings.ground_net_name),
+                    settings, label=f"port '{candidate_ref}'",
+                )
+            )
+            if connection.rail_nodes and connection.ground_nodes:
+                ports[candidate_ref] = connection
+            else:
+                self._log(
+                    f"Skipping port '{candidate_ref}': pads could not be mapped to both meshes."
+                )
+
+        combined_coords = {**rail_coords, **ground_coords}
+        substrates = (stackup or {}).get("substrate") or ()
+        epsilon_values = [
+            float(entry.get("epsilon_r", 4.4)) for entry in substrates
+            if isinstance(entry, dict)
+        ]
+        # The largest permittivity gives the shortest wavelength and so the
+        # most conservative bound of the stack.
+        epsilon = max(epsilon_values) if epsilon_values else 4.4
+        limit_hz = quasi_static_limit_hz(network_span_mm(combined_coords), epsilon)
+
         return ACNetwork(
             node_count=len(rail_mesh.nodes) + len(ground_mesh.nodes),
             branches=rail_branches + ground_branches,
             source=source,
             measurement=measurement,
             capacitor_nodes=capacitor_nodes,
-            node_coords={**rail_coords, **ground_coords},
+            node_coords=combined_coords,
             requested_grid_size_mm=float(grid_size_mm),
             effective_grid_size_mm=max(
                 float(rail_mesh.grid_step), float(ground_mesh.grid_step),
             ),
+            ports=ports,
+            source_ref_des=source_ref,
+            source_resolution=source_rule,
+            quasi_static_limit_hz=limit_hz,
         )

@@ -38,6 +38,134 @@ class ThermalSolver:
         if self.log_callback:
             self.log_callback(f"[THERMAL SOLVER] {message}")
 
+    # Surface refinement stops when every face's coefficient moves less than
+    # this fraction between passes.  2% is far below the uncertainty of the
+    # correlations themselves, so tightening it would buy precision the
+    # physics cannot support.
+    SURFACE_H_TOLERANCE = 0.02
+    SURFACE_REFINEMENT_PASSES = 3
+
+    def solve_with_surface_refinement(self, mesh, settings, progress_callback=None,
+                                      materialize_temperatures=True):
+        """Solve, then correct the surface coefficients against the solution.
+
+        Natural convection and radiation both depend on how hot the surface
+        ends up, which is not known when the mesh is built.  The mesh starts
+        from a nominal rise; this re-evaluates each face's coefficient from the
+        temperature actually obtained, rescales that face's boundaries, and
+        re-solves, until the coefficients stop moving.
+
+        Falls back to a single plain solve when the mesh carries no surface
+        bookkeeping -- a mesh built by an older path, or one whose airflow mode
+        is CUSTOM, where the user has fixed h and refining it would override
+        them.
+        """
+        result = self.solve(
+            mesh, ambient_c=settings.ambient_c,
+            progress_callback=progress_callback,
+            materialize_temperatures=materialize_temperatures,
+        )
+        base = dict(getattr(mesh, "surface_h_w_m2k", {}) or {})
+        if not base or str(settings.airflow.mode or "").upper() == "CUSTOM":
+            return result
+
+        for iteration in range(1, self.SURFACE_REFINEMENT_PASSES + 1):
+            updated, worst_change = self._refine_surface_exchange(mesh, settings, result)
+            if not updated:
+                break
+            self._log(
+                f"Surface exchange pass {iteration}: coefficients moved "
+                f"{worst_change * 100.0:.1f}% -- re-solving."
+            )
+            result = self.solve(
+                mesh, ambient_c=settings.ambient_c,
+                progress_callback=None,
+                materialize_temperatures=materialize_temperatures,
+            )
+            if worst_change <= self.SURFACE_H_TOLERANCE:
+                break
+        applied = ", ".join(
+            f"{kind} {value:.1f}" for kind, value in sorted(mesh.surface_h_w_m2k.items())
+        )
+        self._log(
+            f"Surface exchange settled at W/m2K: {applied} "
+            f"({getattr(mesh, 'convection_basis', 'unspecified basis')})."
+        )
+        return result
+
+    def _refine_surface_exchange(self, mesh, settings, result):
+        """Recompute each face's coefficient from the solved temperatures.
+
+        Returns ``(updated, worst_relative_change)``.  ``updated`` is False
+        when every face already agrees with its solution to within tolerance,
+        which is the signal to stop iterating.
+        """
+        try:
+            from .thermal_mesh import ThermalMesher
+            from . import surface_convection
+        except (ImportError, ValueError):
+            from thermal_mesh import ThermalMesher
+            import surface_convection
+
+        temperatures = getattr(result, "temperature_vector_c", None)
+        if temperatures is None:
+            temperatures = np.fromiter(
+                (result.temperatures_c.get(node, settings.ambient_c) for node in mesh.nodes),
+                dtype=float, count=len(mesh.nodes),
+            )
+        temperatures = np.asarray(temperatures, dtype=float).reshape(-1)
+        node_index = {node: index for index, node in enumerate(mesh.nodes)}
+        boundary_nodes, _ = mesh.boundaries.arrays()
+        length_m = float(getattr(mesh, "characteristic_length_m", 0.0) or 0.0)
+        if length_m <= 0.0:
+            return False, 0.0
+
+        ambient = float(settings.ambient_c)
+        worst_change = 0.0
+        updated = False
+        for kind, current_h in list(mesh.surface_h_w_m2k.items()):
+            mask = mesh.boundaries.kind_mask(kind)
+            if not mask.any():
+                continue
+            indices = np.fromiter(
+                (node_index.get(int(node), -1) for node in boundary_nodes[mask]),
+                dtype=np.int64,
+            )
+            indices = indices[indices >= 0]
+            if not indices.size:
+                continue
+            face_mean_c = float(np.mean(temperatures[indices]))
+            delta_t = max(0.0, face_mean_c - ambient)
+            convective = ThermalMesher.surface_coefficient(
+                settings, kind, delta_t, length_m,
+                air_velocity_m_s=getattr(mesh, "air_velocity_m_s", None),
+            )
+            radiative = 0.0
+            if settings.include_radiation:
+                radiative = surface_convection.radiation_h(
+                    settings.emissivity, face_mean_c, ambient,
+                )
+            new_h = convective + radiative
+            if new_h <= 0.0 or current_h <= 0.0:
+                continue
+            change = abs(new_h - current_h) / current_h
+            worst_change = max(worst_change, change)
+            if change <= self.SURFACE_H_TOLERANCE:
+                continue
+            mesh.boundaries.scale_kind(kind, new_h / current_h)
+            mesh.surface_h_w_m2k[kind] = new_h
+            updated = True
+
+        if updated:
+            # Boundary conductances are baked into the assembled matrix, so a
+            # rescale invalidates it.  Dropping the cache is what makes the
+            # next solve see the new coefficients.
+            self._matrix_cache = {}
+            mesh.convection_coefficient_w_m2k = mesh.surface_h_w_m2k.get(
+                "top", mesh.convection_coefficient_w_m2k,
+            )
+        return updated, worst_change
+
     def solve(self, mesh, ambient_c=25.0, progress_callback=None,
               materialize_temperatures=True):
         if not mesh.nodes:
@@ -225,6 +353,11 @@ class ThermalSolver:
             total_boundary_power_w=float(boundary_power),
             energy_balance_error_pct=float(balance_error),
             convection_coefficient_w_m2k=float(mesh.convection_coefficient_w_m2k),
+            surface_h_w_m2k=dict(getattr(mesh, "surface_h_w_m2k", {}) or {}),
+            convection_basis=str(getattr(mesh, "convection_basis", "") or ""),
+            characteristic_length_m=float(
+                getattr(mesh, "characteristic_length_m", 0.0) or 0.0
+            ),
             compute_backend=compute.metadata.backend,
             compute_device=compute.metadata.device,
             compute_solve_seconds=compute.metadata.solve_seconds,
@@ -235,4 +368,8 @@ class ThermalSolver:
             compute_fallback_reason=compute.metadata.fallback_reason,
             compute_matrix_assembly=compute.metadata.matrix_assembly,
             compute_warm_start_used=compute.metadata.warm_start_used,
+            requested_grid_size_mm=float(getattr(mesh, "requested_grid_size_mm", 0.0) or 0.0),
+            effective_grid_size_mm=float(getattr(mesh, "grid_size_mm", 0.0) or 0.0),
+            adaptive_grid=bool(getattr(mesh, "adaptive_grid", False)),
+            mesh_node_count=len(getattr(mesh, "nodes", ()) or ()),
         )

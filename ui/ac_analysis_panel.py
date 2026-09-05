@@ -89,7 +89,10 @@ class ACAnalysisPanel(wx.Panel):
         self.txt_f_stop = wx.TextCtrl(settings_parent, value="1e8")
         self.txt_points = wx.TextCtrl(settings_parent, value="121")
         self.txt_mesh_resolution = wx.TextCtrl(settings_parent, value="0.5")
-        self.txt_target_mohm = wx.TextCtrl(settings_parent, value="50")
+        # Blank means "derive from the rail voltage, ripple and load current".
+        # A pre-filled number here decided pass/fail on every board without
+        # anyone choosing it.
+        self.txt_target_mohm = wx.TextCtrl(settings_parent, value="")
         self.txt_source_r_mohm = wx.TextCtrl(settings_parent, value="10")
         self.txt_source_l_nh = wx.TextCtrl(settings_parent, value="1")
         self.txt_max_additions = wx.TextCtrl(settings_parent, value="8")
@@ -100,7 +103,7 @@ class ACAnalysisPanel(wx.Panel):
             ("Analysis preset:", self.choice_preset, "", wx.StaticText(settings_parent, label="")),
             ("Start frequency (Hz):", self.txt_f_start, "Stop frequency (Hz):", self.txt_f_stop),
             ("Frequency points:", self.txt_points, "AC mesh resolution (mm):", self.txt_mesh_resolution),
-            ("Target |Z| (mOhm):", self.txt_target_mohm, "Max capacitor additions:", self.txt_max_additions),
+            ("Target |Z| (mOhm, blank = auto):", self.txt_target_mohm, "Max capacitor additions:", self.txt_max_additions),
             ("Source R (mOhm):", self.txt_source_r_mohm, "Source L (nH):", self.txt_source_l_nh),
         ]
         for left_label, left_ctrl, right_label, right_ctrl in rows:
@@ -288,7 +291,10 @@ class ACAnalysisPanel(wx.Panel):
                 profile.frequency_points, profile.mesh_resolution_mm,
             ))
             self._update_cost_hint()
-            self.txt_target_mohm.SetValue(f"{profile.target_impedance_ohm * 1e3:g}")
+            self.txt_target_mohm.SetValue(
+                f"{profile.target_impedance_ohm * 1e3:g}"
+                if profile.target_impedance_ohm > 0.0 else ""
+            )
             self.txt_source_r_mohm.SetValue(f"{profile.source.resistance_ohm * 1e3:g}")
             self.txt_source_l_nh.SetValue(f"{profile.source.inductance_h * 1e9:g}")
             self.txt_max_additions.SetValue(str(profile.optimizer_max_additions))
@@ -376,7 +382,11 @@ class ACAnalysisPanel(wx.Panel):
             raise ValueError("Frequency points must be between 11 and 401.")
         if not 0.2 <= profile.mesh_resolution_mm <= 2.0:
             raise ValueError("AC mesh resolution must be between 0.2 and 2.0 mm.")
-        profile.target_impedance_ohm = float(self.txt_target_mohm.GetValue()) / 1e3
+        # Blank or zero leaves the target to be derived from the rail.
+        target_text = self.txt_target_mohm.GetValue().strip()
+        profile.target_impedance_ohm = (
+            float(target_text) / 1e3 if target_text else 0.0
+        )
         profile.optimizer_max_additions = int(self.txt_max_additions.GetValue())
 
         source_ref = self._selected_text(self.choice_source)

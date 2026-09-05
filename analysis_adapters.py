@@ -120,7 +120,22 @@ def adapt_emc_result(settings: Any, domain_result: Any) -> AnalysisResult:
     return result.finish()
 
 
-def _finding(rule_id, index, category, severity, title, description, recommendation=""):
+def _finding(rule_id, index, category, severity, title, description, recommendation="",
+             confidence=EvidenceConfidence.ESTIMATED):
+    """Build a finding, stating what its confidence actually rests on.
+
+    This hardcoded DETERMINISTIC for every caller, so a report could print
+    "J2_ESD_D: Estimate" carrying a DETERMINISTIC badge -- the deliverable
+    contradicting itself on the project's central rule, that an estimate is
+    never presented as a measurement.
+
+    The default is now ESTIMATED, because most findings here are the verdict
+    of a numerical model: a solved voltage drop, a swept impedance, a meshed
+    temperature. DETERMINISTIC is passed explicitly by the callers whose
+    finding is a fact about the run rather than a model output -- a solver
+    that did not converge, or an island with no source, are observed, not
+    estimated.
+    """
     return AnalysisFinding(
         rule_id=rule_id,
         finding_id=f"{rule_id}:{index}",
@@ -129,7 +144,7 @@ def _finding(rule_id, index, category, severity, title, description, recommendat
         title=title,
         description=description,
         recommendation=recommendation,
-        confidence=EvidenceConfidence.DETERMINISTIC,
+        confidence=confidence,
     )
 
 
@@ -166,6 +181,43 @@ def _ac_sweep_snapshot(final: Any):
     return points
 
 
+def _ac_validity_limitations(final: Any) -> list:
+    """Say where the swept numbers stop deserving equal confidence.
+
+    Two distinct caveats, both invisible in the metrics alone: a worst case
+    pinned to the last swept point is a lower bound rather than a maximum,
+    and points above the quasi-static limit come from a lumped model that no
+    longer represents the structure. Neither invalidates the sweep; both
+    change how it should be read.
+    """
+    notes = []
+    if bool(getattr(final, "worst_at_sweep_edge", False)):
+        stop_hz = 0.0
+        frequencies = getattr(final, "frequencies_hz", ()) or ()
+        if frequencies:
+            stop_hz = float(frequencies[-1])
+        notes.append(
+            f"The worst impedance falls on the last swept point ({stop_hz:.4g} Hz): "
+            "the impedance was still rising when the window closed, so this is a "
+            "lower bound on the maximum. Extend the stop frequency to locate it."
+        )
+    accuracy = str(getattr(final, "gpu_accuracy_check", "") or "")
+    if accuracy.startswith("failed"):
+        # The sweep still produced trustworthy numbers -- it moved to the CPU
+        # reference -- but the reader should know the GPU was rejected here.
+        notes.append(f"GPU accuracy check {accuracy}.")
+    limit_hz = float(getattr(final, "quasi_static_limit_hz", 0.0) or 0.0)
+    beyond = int(getattr(final, "points_beyond_quasi_static", 0) or 0)
+    if limit_hz > 0.0 and beyond > 0:
+        notes.append(
+            f"{beyond} swept point(s) lie above the quasi-static validity limit of "
+            f"{limit_hz / 1e6:.1f} MHz, where the lumped mesh omits plane-cavity "
+            "resonances and distributed propagation. Treat those points as "
+            "indicative only."
+        )
+    return notes
+
+
 def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any = None) -> AnalysisResult:
     final = getattr(optimization, "optimized", None) or domain_result
     target = float(getattr(final, "target_impedance_ohm", 0.0) or 0.0)
@@ -180,8 +232,28 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
         item["reference"] for item in capacitors
         if "estimat" in item["model_source"].lower()
     ]
+    target_provenance = str(getattr(settings, "target_impedance_provenance", "") or "")
+    target_is_derived = "derived from" in target_provenance
     findings = []
-    if not bool(getattr(final, "meets_target", False)):
+    if target <= 0.0:
+        # Nothing to fail against. A rail with no configured load is not a
+        # defective rail, so this stays INFO and out of the verdict rather
+        # than inventing a budget to judge it by.
+        rail_name = str(getattr(settings, "rail_name", ""))
+        reason = target_provenance or "no rail voltage or load current is configured"
+        finding = _finding(
+            "AC-002", 1, "TARGET_IMPEDANCE", FindingSeverity.INFO,
+            "Target impedance could not be determined",
+            f"The sweep ran but no impedance target applies: {reason}. "
+            f"Worst impedance is {worst:.6g} ohm at "
+            f"{getattr(final, 'worst_frequency_hz', 0.0):.6g} Hz.",
+            "Configure the rail's load current, or set an explicit target, to "
+            "qualify this sweep.",
+        )
+        finding.confidence = EvidenceConfidence.DETERMINISTIC
+        finding.nets = [item for item in (rail_name,) if item]
+        findings.append(finding)
+    elif not bool(getattr(final, "meets_target", False)):
         rail_name = str(getattr(settings, "rail_name", ""))
         ground_name = str(getattr(settings, "ground_net_name", ""))
         band = (
@@ -195,16 +267,22 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
             if at_upper_edge else
             "Review the rail model, anti-resonance peaks, and decoupling placement."
         )
+        # Where the target came from decides what the verdict is worth, so it
+        # is stated with the number rather than left for the reader to assume.
+        origin = f" Target {target_provenance}." if target_provenance else ""
         finding = _finding(
             "AC-001", 1, "TARGET_IMPEDANCE", FindingSeverity.HIGH,
             "Target impedance is not met",
             f"Worst impedance is {worst:.6g} ohm at "
             f"{getattr(final, 'worst_frequency_hz', 0.0):.6g} Hz "
-            f"({exceedance_ratio:.3g}x the {target:.6g} ohm target).{band}",
+            f"({exceedance_ratio:.3g}x the {target:.6g} ohm target).{band}{origin}",
             recommendation,
         )
+        # A derived target rests on an assumed ripple and transient fraction,
+        # so the finding is an estimate however exact the sweep itself was.
         finding.confidence = (
-            EvidenceConfidence.ESTIMATED if estimated_components
+            EvidenceConfidence.ESTIMATED
+            if (estimated_components or target_is_derived)
             else EvidenceConfidence.DETERMINISTIC
         )
         finding.nets = [item for item in (rail_name, ground_name) if item]
@@ -228,6 +306,7 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
             "frequency_points": int(getattr(settings, "frequency_points", len(sweep)) or len(sweep)),
             "mesh_resolution_mm": float(getattr(settings, "mesh_resolution_mm", 0.0) or 0.0),
             "target_impedance_ohm": target,
+            "target_impedance_provenance": target_provenance,
             "source": {
                 "reference": str(getattr(getattr(settings, "source", None), "ref_des", "")),
                 "resistance_ohm": float(getattr(getattr(settings, "source", None), "resistance_ohm", 0.0) or 0.0),
@@ -281,7 +360,13 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
         limitations=[
             "The AC result is an engineering PDN model; package, connector, and measurement-fixture parasitics require explicit models or measurement.",
             "The AC mesh is intentionally independent from the finer DC voltage-drop mesh; refine it only after validating runtime and convergence.",
-        ],
+        ] + [
+            # A dropped observation point narrows what the sweep actually
+            # qualifies, so it belongs in the report rather than only in a log.
+            f"Observation point {item.get('ref_des') or '(unnamed)'} was excluded "
+            f"from the sweep: it {item.get('reason', 'could not be measured')}."
+            for item in (getattr(final, "excluded_ports", None) or ())
+        ] + _ac_validity_limitations(final),
         compute_metadata={
             "backend": getattr(final, "compute_backend", ""),
             "device": getattr(final, "compute_device", ""),
@@ -290,6 +375,9 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
             "mesh_node_count": getattr(final, "mesh_node_count", 0),
             "requested_grid_size_mm": getattr(final, "requested_grid_size_mm", 0.0),
             "effective_grid_size_mm": getattr(final, "effective_grid_size_mm", 0.0),
+            # Which arithmetic produced these impedances, and whether it was
+            # audited against a direct factorisation. Empty when no GPU ran.
+            "gpu_accuracy_check": getattr(final, "gpu_accuracy_check", ""),
         },
     )
     return result.finish()
@@ -343,6 +431,224 @@ def adapt_differential_result(results: Any, stackup: Any, tolerance_pct: float) 
     ).finish()
 
 
+def attach_dc_remediations(result: Any, board_path: Any, rails: Any,
+                           maximum_drop_pct: float, *, verify: bool = False,
+                           log_callback=None) -> int:
+    """Give each voltage-drop finding a sized, quantified fix.
+
+    The DC advisor ranks branches by R*I^2, sizes the widening the dominant
+    segments need, and can re-simulate to check the prediction. It was written
+    and tested and then never called, so every action in the consolidated
+    report read "No structured remediation was computed". This is the missing
+    call.
+
+    ``verify=False`` by default: verification re-meshes and re-solves the net,
+    which is worth seconds per rail and belongs to a deliberate request rather
+    than to every DC run. Unverified remediations are marked as first-order
+    estimates by the advisor itself.
+
+    Returns the number of findings given a remediation. Never raises -- an
+    advisor failure must not cost the user their DC result.
+    """
+    if not board_path or not rails:
+        return 0
+    try:
+        from pathlib import Path
+
+        from advisor.dc_advisor import build_dc_remediations, build_net_mesh
+        from advisor.rail_sources import (
+            map_pads_to_nodes, resolve_rail_source, solver_loads,
+            unreachable_nodes,
+        )
+        from ingest.board_reader import read_board
+    except ImportError:
+        return 0
+
+    def _log(message: str) -> None:
+        if log_callback is not None:
+            log_callback(f"[remediation] {message}")
+
+    try:
+        board = read_board(Path(board_path))
+    except Exception as exc:
+        _log(f"Board could not be read for remediation sizing: {exc}")
+        return 0
+
+    # The advisor re-meshes internally with these same parameters, and node ids
+    # are stable for a given (board, net, grid) per dc_advisor's docstring, so
+    # ids resolved here address the mesh it will solve.
+    #
+    # The rail is meshed alone. merge_meshes exists for a rail+return loop, but
+    # build_dc_remediations takes flat source/load lists that carry no pairing
+    # between a rail node and its return, so adding the ground net would attach
+    # a floating island rather than a return path -- slower and noisier for no
+    # gain in accuracy.
+    grid_step_mm = 0.1
+    rails_by_net = {str(getattr(rail, "net_name", "")): rail for rail in rails}
+    attached = 0
+    for finding in getattr(result, "findings", ()):
+        if finding.rule_id != "DC-003":
+            continue
+        rail = next(
+            (rails_by_net[net] for net in finding.nets if net in rails_by_net), None,
+        )
+        if rail is None:
+            continue
+        nominal = float(getattr(rail, "nominal_voltage", 0.0) or 0.0)
+        if nominal <= 0.0:
+            _log(
+                f"{rail.net_name} has no nominal voltage, so there is no drop "
+                "target to size against; skipped."
+            )
+            continue
+        source_ref, source_pads, rule = resolve_rail_source(board, rail, rails)
+        if source_ref is None:
+            _log(f"{rail.net_name} skipped: {rule}.")
+            continue
+
+        try:
+            mesh = build_net_mesh(board, rail.net_name, "", grid_step_mm=grid_step_mm)
+        except Exception as exc:
+            _log(f"{rail.net_name} could not be meshed for sizing: {exc}")
+            continue
+        if not mesh.nodes:
+            _log(f"{rail.net_name} has no meshable copper; skipped.")
+            continue
+
+        source_nodes, unlocated = map_pads_to_nodes(
+            mesh, board, source_ref, source_pads,
+            net_name=rail.net_name, grid_step_mm=grid_step_mm,
+        )
+        if not source_nodes:
+            _log(
+                f"{rail.net_name} skipped: source {source_ref} ({rule}) has no "
+                "pad on the meshed copper"
+                + (f"; unlocated pad(s) {', '.join(unlocated)}" if unlocated else "")
+                + "."
+            )
+            continue
+        _log(
+            f"{rail.net_name} source resolved to {source_ref} via {rule} "
+            f"({len(source_nodes)} node(s))."
+        )
+
+        loads = solver_loads(
+            mesh, board, rail, grid_step_mm=grid_step_mm, log_callback=_log,
+        )
+        if not loads:
+            _log(
+                f"{rail.net_name} skipped: no load current could be placed on "
+                "the mesh, so there is no drop to size against."
+            )
+            continue
+
+        stranded = unreachable_nodes(
+            mesh, source_nodes, [item["node_id"] for item in loads],
+        )
+        if stranded:
+            # Without this the solver drops the unreachable loads, load_drop_v
+            # finds no load voltage and returns 0.0 V, and the advisor reports
+            # the rail as already within target -- a pass that never happened.
+            _log(
+                f"{rail.net_name} skipped: {len(stranded)} of {len(loads)} load "
+                f"node(s) are not connected to source {source_ref} in the meshed "
+                "copper, so any drop computed would be fictitious."
+            )
+            continue
+
+        try:
+            remediations = build_dc_remediations(
+                board, rail.net_name, "",
+                sources=[
+                    {"node_id": node_id, "voltage": nominal}
+                    for node_id in source_nodes
+                ],
+                loads=loads,
+                target_drop_v=nominal * float(maximum_drop_pct) / 100.0,
+                grid_step_mm=grid_step_mm,
+                verify=verify, log_callback=log_callback,
+            )
+        except Exception as exc:
+            _log(f"Remediation sizing failed for {rail.net_name}: {exc}")
+            continue
+        if remediations:
+            finding.remediations.extend(remediations)
+            attached += 1
+        # Deliberately silent when the advisor declines. It logs its own reason
+        # through this same callback -- "the dominant loss is not on track
+        # segments", for instance -- and the generic line that used to follow
+        # offered three alternatives, every one of them wrong in that case,
+        # burying a precise answer under guesses.
+    return attached
+
+
+def _thermal_surface_metrics(domain_result: Any) -> list:
+    """Publish the surface coefficients that produced the temperatures.
+
+    A hotspot is only as trustworthy as the exchange coefficient behind it, and
+    that coefficient was previously computed, stored and never shown. Reporting
+    it lets a reader sanity-check the result against a handbook figure instead
+    of taking the temperature on faith.
+    """
+    surfaces = dict(getattr(domain_result, "surface_h_w_m2k", {}) or {})
+    if not surfaces:
+        return []
+    labels = {"top": "Top", "bottom": "Bottom", "edge": "Edge"}
+    return [
+        AnalysisMetric(
+            f"surface_h_{kind}", f"{labels.get(kind, kind.title())} surface exchange",
+            float(value), "W/m²K", "INFO",
+        )
+        for kind, value in sorted(surfaces.items())
+    ]
+
+
+def _thermal_surface_detail(domain_result: Any) -> str:
+    """One line naming the coefficients used and where they came from."""
+    surfaces = dict(getattr(domain_result, "surface_h_w_m2k", {}) or {})
+    basis = str(getattr(domain_result, "convection_basis", "") or "unspecified correlation")
+    length_m = float(getattr(domain_result, "characteristic_length_m", 0.0) or 0.0)
+    if not surfaces:
+        return (
+            f"Surface exchange follows {basis}; per-face coefficients were not recorded."
+        )
+    applied = ", ".join(
+        f"{kind} {value:.1f} W/m²K" for kind, value in sorted(surfaces.items())
+    )
+    length_note = (
+        f" Characteristic length A/P = {length_m * 1000.0:.1f} mm."
+        if length_m > 0.0 else ""
+    )
+    return (
+        f"Convection and radiation combined, refined against the solved surface "
+        f"temperature: {applied}. Basis: {basis}.{length_note}"
+    )
+
+
+def _thermal_grid_limitations(domain_result: Any) -> list:
+    """Say so when the mesh was coarsened below the requested resolution.
+
+    The mesher silently rescales the grid to fit its node budget. Until now
+    that appeared only in the run log, so a report read later showed a hotspot
+    computed at 0.089 mm to someone who had asked for 0.05 mm, with nothing
+    marking the difference. Mesh resolution moved this board's hotspot by
+    7.4 C between 0.5 and 0.1 mm, so it is not a detail.
+    """
+    if not bool(getattr(domain_result, "adaptive_grid", False)):
+        return []
+    requested = float(getattr(domain_result, "requested_grid_size_mm", 0.0) or 0.0)
+    effective = float(getattr(domain_result, "effective_grid_size_mm", 0.0) or 0.0)
+    if requested <= 0.0 or effective <= 0.0 or effective <= requested:
+        return []
+    nodes = int(getattr(domain_result, "mesh_node_count", 0) or 0)
+    return [
+        f"The thermal mesh was coarsened from the requested {requested:g} mm to "
+        f"{effective:g} mm ({nodes:,} nodes) to fit the node budget. Temperatures "
+        "are those of the coarser mesh; raise the memory ceiling in Runtime "
+        "settings to honour the requested resolution."
+    ]
+
+
 def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seconds: float = 0.0) -> AnalysisResult:
     findings = []
     components = list(getattr(domain_result, "component_results", ()) or ())
@@ -360,6 +666,7 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
             "TH-002", 1, "NUMERICS", FindingSeverity.HIGH,
             "Thermal solver did not converge", "The iteration limit was reached.",
             "Review mesh resolution and convergence settings.",
+            confidence=EvidenceConfidence.DETERMINISTIC,
         ))
     balance = float(getattr(domain_result, "energy_balance_error_pct", 0.0))
     if abs(balance) > 5.0:
@@ -388,14 +695,23 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
             ),
             AnalysisMetric(
                 "energy_balance", "Energy balance error", balance, "%",
-                "PASS" if abs(balance) <= 5.0 else "WARN",
+                # Renamed from a bare "PASS": this measures only that the
+                # linear solve converged, and would look just as good with a
+                # coefficient wrong by a factor of ten. Calling it PASS invited
+                # it to be read as physical accuracy.
+                "NUMERICS_OK" if abs(balance) <= 5.0 else "WARN",
             ),
-        ],
+        ] + _thermal_surface_metrics(domain_result),
         provenance=[
             AnalysisEvidence(
                 "PCB_GEOMETRY",
                 "The thermal mesh uses a detached snapshot of board copper, stackup, outline, and component geometry.",
                 reference="KiCad IPC snapshot",
+            ),
+            AnalysisEvidence(
+                "SURFACE_EXCHANGE",
+                _thermal_surface_detail(domain_result),
+                reference=str(getattr(domain_result, "convection_basis", "") or "surface correlation"),
             ),
             AnalysisEvidence(
                 "POWER_MODEL",
@@ -408,19 +724,103 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
             "device": getattr(domain_result, "compute_device", ""),
             "relative_residual": getattr(domain_result, "compute_relative_residual", 0.0),
         },
-        limitations=["Compact thermal models require datasheet and measurement validation."],
+        limitations=[
+            "Compact thermal models require datasheet and measurement validation.",
+        ] + _thermal_grid_limitations(domain_result),
     ).finish()
 
 
 def adapt_cfd_result(mesh: Any, domain_result: Any) -> AnalysisResult:
     findings = []
     if not bool(getattr(domain_result, "converged", False)):
+        # Report which residual fell short and by how much. A bare "did not
+        # converge" was useless here: continuity is floored around 1e-2 by the
+        # inlet-cell discontinuity documented in docs/validation-cfd.md, so on a
+        # run whose momentum and energy have both reached 1e-12 the flag says
+        # nothing about solution quality. Grading by distance from tolerance
+        # keeps HIGH meaningful for runs that genuinely stalled.
+        history = getattr(domain_result, "residuals", None)
+        tail = {
+            name: float(getattr(history, name)[-1])
+            for name in ("continuity", "momentum", "energy")
+            if history is not None and getattr(history, name, None)
+        }
+        worst_name, worst = ("", 0.0)
+        if tail:
+            worst_name, worst = max(tail.items(), key=lambda item: item[1])
+        detail = (
+            "The iteration limit was reached. Final residuals: "
+            + ", ".join(f"{name}={value:.3g}" for name, value in tail.items())
+            if tail else "The iteration limit was reached."
+        )
         findings.append(_finding(
-            "CFD-001", 1, "NUMERICS", FindingSeverity.HIGH,
-            "CFD solver did not converge", "The iteration limit was reached.",
-            "Review the mesh, relaxation, and boundary conditions.",
+            "CFD-001", 1, "NUMERICS",
+            FindingSeverity.HIGH if worst > 0.1 else FindingSeverity.MEDIUM,
+            f"CFD solver did not converge ({worst_name or 'residual'} limiting)"
+            if worst_name else "CFD solver did not converge",
+            detail,
+            "Raise max_iterations, refine the mesh, or lower relaxation. "
+            "Check the mass balance alongside this: a solve can miss the "
+            "tolerance while still conserving mass to a fraction of a percent, "
+            "which usually means the flow had not finished developing rather "
+            "than that the solution is wrong.",
+            confidence=EvidenceConfidence.DETERMINISTIC,
         ))
+    # Resolution is the dominant error term and the user controls it directly,
+    # so it gets said out loud rather than buried in a limitation. The
+    # benchmark found the momentum discretisation accurate to 0.4% at 20 cells
+    # across a channel, 7% at 10, and at 6 cells it produced no boundary layer
+    # at all -- a plug profile with u_max/u_mean = 1.000.
+    # The threshold follows the measured error curve, not a round number:
+    # 20 cells -> 0.4%, 14 -> 3.5%, 10 -> 7.1%, 6 -> no boundary layer at all.
+    # An earlier version warned only below 10, which let the reference board
+    # through silently at exactly 10 cells -- the 7% case. Warning has to start
+    # where the error does.
+    across = min(getattr(mesh, "shape", ()) or (0,))
+    if across and across < 14:
+        findings.append(_finding(
+            "CFD-003", 1, "RESOLUTION",
+            FindingSeverity.HIGH if across < 10 else FindingSeverity.MEDIUM,
+            "Enclosure mesh is too coarse for the velocity field to be trusted",
+            f"The narrowest enclosure direction spans {across} cells. Measured "
+            "profile error against laminar duct theory: 0.4% at 20 cells, 3.5% "
+            "at 14, 7.1% at 10, and at 6 cells no boundary layer formed at all.",
+            "Reduce the CFD cell size until the smallest dimension spans at "
+            "least 14 cells, or read the velocity as indicative only.",
+            confidence=EvidenceConfidence.DETERMINISTIC,
+        ))
+        # Solid temperature deserves its own warning, because it is the number
+        # a reader acts on and it fails harder than the velocity does.
+        #
+        # This solver moves heat out of a component only by cell-to-cell
+        # conduction and advection; it has no surface film coefficient, so the
+        # convective boundary layer has to be resolved by the mesh. It cannot
+        # be at millimetre cells. On the reference board that put the hottest
+        # solid at 339 C against 72.6 C from the 3D thermal analysis of the same
+        # board at the same power -- a factor of 6.6 in rise -- and the two
+        # numbers appeared in the same report with nothing saying they
+        # disagreed.
+        solid_c = float(getattr(domain_result, "maximum_solid_temperature_c", 0.0))
+        air_c = float(getattr(domain_result, "maximum_air_temperature_c", 0.0))
+        if solid_c > air_c > 0.0:
+            findings.append(_finding(
+                "CFD-004", 1, "THERMAL", FindingSeverity.HIGH,
+                "Enclosure CFD solid temperatures are not usable at this mesh size",
+                f"The hottest solid reads {solid_c:.1f} C against {air_c:.1f} C for the "
+                "air. This solver carries heat off a solid by cell-to-cell "
+                "conduction and advection only, with no surface film "
+                "coefficient, so the boundary layer must be resolved by the "
+                "mesh -- which millimetre cells cannot do. The figure reflects "
+                "the cell size, not the design.",
+                "Take component temperatures from the 3D thermal analysis, "
+                "which applies a convective correlation and radiation at every "
+                "exposed face. Use this run for the flow field.",
+                confidence=EvidenceConfidence.DETERMINISTIC,
+            ))
+    mass_applicable = bool(getattr(domain_result, "mass_balance_applicable", True))
     for index, (key, label) in enumerate((("mass_balance_error_pct", "Mass"), ("energy_balance_error_pct", "Energy")), start=1):
+        if key == "mass_balance_error_pct" and not mass_applicable:
+            continue
         value = float(getattr(domain_result, key, 0.0))
         if abs(value) > 5.0:
             findings.append(_finding(
@@ -436,6 +836,7 @@ def adapt_cfd_result(mesh: Any, domain_result: Any) -> AnalysisResult:
         findings=findings,
         metrics=[
             AnalysisMetric("maximum_velocity", "Maximum velocity", float(getattr(domain_result, "maximum_velocity_m_s", 0.0)), "m/s", overall_status.value),
+            AnalysisMetric("board_free_stream_velocity", "Free-stream velocity over the board", float(getattr(domain_result, "board_free_stream_velocity_m_s", 0.0)), "m/s", overall_status.value),
             AnalysisMetric("maximum_air_temperature", "Maximum air temperature", float(getattr(domain_result, "maximum_air_temperature_c", 0.0)), "°C", overall_status.value),
             AnalysisMetric("maximum_solid_temperature", "Maximum solid temperature", float(getattr(domain_result, "maximum_solid_temperature_c", 0.0)), "°C", overall_status.value),
         ],
@@ -452,8 +853,61 @@ def adapt_cfd_result(mesh: Any, domain_result: Any) -> AnalysisResult:
             ),
         ],
         compute_metadata={"backend": getattr(domain_result, "compute_backend", ""), "device": getattr(domain_result, "compute_device", "")},
-        limitations=["Laminar steady-state model; turbulence, fan blades, radiation, and transients are excluded."],
+        limitations=[
+            "Laminar steady-state model; turbulence, fan blades, radiation, and transients are excluded.",
+            "Momentum discretisation validated against laminar duct flow to 0.4% at 20 cells "
+            "across the channel; at 6 cells it produced no boundary layer at all. "
+            "See docs/validation-cfd.md.",
+            "Solid temperatures assume the convective boundary layer is resolved by the "
+            "mesh: there is no surface film coefficient, so heat leaves a component only "
+            "by conduction and advection between cells. The 3D thermal analysis applies a "
+            "Rayleigh correlation and radiation at each exposed face and is the source to "
+            "use for component temperatures.",
+            "Sealed enclosure: no flow crosses a boundary, so mass balance is "
+            "not applicable rather than perfect."
+            if not mass_applicable else
+            f"Mass balance is measured before the outlet fix-up: "
+            f"{float(getattr(domain_result, 'mass_balance_error_pct', 0.0)):.3g}% of the inflow "
+            "did not reach the outlet.",
+        ],
     ).finish()
+
+
+def adapt_dc_run(system_results: Any, maximum_drop_pct: float, *,
+                 board_path: Any = None, rails: Any = None,
+                 log_callback=None) -> AnalysisResult:
+    """Turn one DC solve into the AnalysisResult everything downstream reads.
+
+    ``adapt_dc_result`` builds the findings and ``attach_dc_remediations``
+    sizes the fixes; a DC result that has had only the first done is missing
+    every remediation, and the report says "No structured remediation was
+    computed" for each action.  Two callers doing those two steps separately
+    is how they come to disagree, so this is the one call both make: the
+    dialog when it publishes a result tab, and CampaignEngine's DC adapter.
+
+    Sizing does nothing without a board path and rails, and an advisor that
+    cannot run costs the estimates rather than the result: a failure is caught
+    here and recorded as a limitation, so the report says the fixes are
+    missing instead of the campaign losing its DC section over them.
+    """
+    result = adapt_dc_result(system_results, maximum_drop_pct)
+    try:
+        attached = attach_dc_remediations(
+            result, board_path, rails, maximum_drop_pct, log_callback=log_callback,
+        )
+    except Exception as exc:
+        message = (
+            f"Corrective actions were not sized: the DC advisor failed with "
+            f"{type(exc).__name__}: {exc}. The findings below stand; the fixes "
+            "they would carry do not."
+        )
+        result.limitations.append(message)
+        if log_callback is not None:
+            log_callback(message)
+        return result
+    if attached and log_callback is not None:
+        log_callback(f"Sized a copper fix for {attached} voltage-drop finding(s).")
+    return result
 
 
 def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisResult:
@@ -518,12 +972,14 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
                 f"{rail} contains source-free loads",
                 f"{getattr(detailed, 'excluded_load_node_count', 0)} load node(s) were excluded.",
                 "Repair copper connectivity before using this rail result.",
+                confidence=EvidenceConfidence.DETERMINISTIC,
             ))
         if compute is not None and not getattr(compute, "converged", True):
             findings.append(_finding(
                 "DC-002", index, "NUMERICS", FindingSeverity.HIGH,
                 f"{rail} solve did not converge", "The DC linear solve did not converge.",
                 "Review connectivity, mesh resolution, and solver diagnostics.",
+                confidence=EvidenceConfidence.DETERMINISTIC,
             ))
         if drop_pct > float(maximum_drop_pct):
             findings.append(_finding(

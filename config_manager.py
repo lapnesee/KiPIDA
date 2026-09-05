@@ -25,6 +25,10 @@ except (ImportError, ValueError):
         UnifiedSource, VoltageRegulator,
     )
 
+# One instance, built once, so the loader's fallbacks are the dataclass's
+# defaults rather than a copy of them that can drift.
+_CFD_SOLVER_DEFAULTS = CFDSolverSettings()
+
 CONFIG_VERSION = "2.0"
 SUPPORTED_CONFIG_VERSIONS = {
     "1.0", "1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "1.9",
@@ -249,6 +253,8 @@ def _ac_settings_to_dict(settings: ACAnalysisSettings) -> dict:
         "frequency_points": settings.frequency_points,
         "mesh_resolution_mm": settings.mesh_resolution_mm,
         "target_impedance_ohm": settings.target_impedance_ohm,
+        "ripple_fraction": settings.ripple_fraction,
+        "transient_fraction": settings.transient_fraction,
         "source": {
             "ref_des": settings.source.ref_des,
             "rail_pad_names": settings.source.rail_pad_names,
@@ -287,7 +293,11 @@ def _dict_to_ac_settings(data: dict) -> ACAnalysisSettings:
         frequency_stop_hz=float(data.get("frequency_stop_hz", 1e8)),
         frequency_points=int(data.get("frequency_points", 121)),
         mesh_resolution_mm=max(0.1, float(data.get("mesh_resolution_mm", 0.5))),
-        target_impedance_ohm=float(data.get("target_impedance_ohm", 0.05)),
+        # Absent means "derive from the rail", matching the dataclass default.
+        # A file that stored a target keeps it: a saved number is a decision.
+        target_impedance_ohm=float(data.get("target_impedance_ohm", 0.0)),
+        ripple_fraction=float(data.get("ripple_fraction", 0.02)),
+        transient_fraction=float(data.get("transient_fraction", 0.5)),
         source=ACSourceModel(
             ref_des=source_data.get("ref_des", ""),
             rail_pad_names=source_data.get("rail_pad_names", []),
@@ -900,18 +910,32 @@ def _dict_to_cfd_settings(data: dict) -> EnclosureCFDSettings:
             conductivity_w_mk=float(fluid.get("conductivity_w_mk", 0.0262)),
             thermal_expansion_per_k=float(fluid.get("thermal_expansion_per_k", 0.00335)),
         ),
+        # Fallbacks come from the dataclass, never restated here.
+        #
+        # They used to be literals, which made this a second source of truth
+        # for every solver default. Raising max_iterations from 250 to 1000 in
+        # models.py therefore changed nothing: this loader kept substituting
+        # its own 250 for any project without a saved CFD section -- which is
+        # every project that has not opened the CFD panel. The behaviour looked
+        # exactly like a stale deployment, and was chased as one.
         solver=CFDSolverSettings(
-            cell_size_mm=float(solver.get("cell_size_mm", 5.0)),
-            max_iterations=int(solver.get("max_iterations", 250)),
-            tolerance=float(solver.get("tolerance", 1e-4)),
-            relaxation=float(solver.get("relaxation", 0.45)),
-            pseudo_time_step_s=float(solver.get("pseudo_time_step_s", 0.02)),
-            pressure_iterations=int(solver.get("pressure_iterations", 60)),
-            include_buoyancy=bool(solver.get("include_buoyancy", True)),
-            gravity_x_m_s2=float(solver.get("gravity_x_m_s2", 0.0)),
-            gravity_y_m_s2=float(solver.get("gravity_y_m_s2", 0.0)),
-            gravity_z_m_s2=float(solver.get("gravity_z_m_s2", -9.81)),
-            max_cells=int(solver.get("max_cells", 250000)),
+            cell_size_mm=float(solver.get("cell_size_mm", _CFD_SOLVER_DEFAULTS.cell_size_mm)),
+            max_iterations=int(solver.get("max_iterations", _CFD_SOLVER_DEFAULTS.max_iterations)),
+            tolerance=float(solver.get("tolerance", _CFD_SOLVER_DEFAULTS.tolerance)),
+            relaxation=float(solver.get("relaxation", _CFD_SOLVER_DEFAULTS.relaxation)),
+            pseudo_time_step_s=float(solver.get(
+                "pseudo_time_step_s", _CFD_SOLVER_DEFAULTS.pseudo_time_step_s,
+            )),
+            pressure_iterations=int(solver.get(
+                "pressure_iterations", _CFD_SOLVER_DEFAULTS.pressure_iterations,
+            )),
+            include_buoyancy=bool(solver.get(
+                "include_buoyancy", _CFD_SOLVER_DEFAULTS.include_buoyancy,
+            )),
+            gravity_x_m_s2=float(solver.get("gravity_x_m_s2", _CFD_SOLVER_DEFAULTS.gravity_x_m_s2)),
+            gravity_y_m_s2=float(solver.get("gravity_y_m_s2", _CFD_SOLVER_DEFAULTS.gravity_y_m_s2)),
+            gravity_z_m_s2=float(solver.get("gravity_z_m_s2", _CFD_SOLVER_DEFAULTS.gravity_z_m_s2)),
+            max_cells=int(solver.get("max_cells", _CFD_SOLVER_DEFAULTS.max_cells)),
         ),
         patches=[CFDBoundaryPatch(
             name=patch.get("name", "Patch"),

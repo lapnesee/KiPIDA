@@ -19,9 +19,14 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install test dependencies
+        # wxPython is required, not optional: test_i18n shells out to a
+        # subprocess that imports wx and asserts on its exit code, so without
+        # it that test fails rather than skips. Installing it also lets the
+        # UI-boundary tests actually run instead of skipping, which is the
+        # point of having them.
         run: >-
           python -m pip install
-          numpy scipy shapely matplotlib threadpoolctl kicad-python
+          numpy scipy shapely matplotlib threadpoolctl kicad-python wxPython
       - name: Compile Python sources
         run: python -m compileall -q -x '[\\/](\.runtime|\.venv)[\\/]' .
       - name: Run test suite

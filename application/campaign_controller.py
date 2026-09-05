@@ -1,0 +1,667 @@
+"""Run every applicable analysis and aggregate them into one CampaignResult.
+
+The per-domain controllers each solve one problem and hand back one
+AnalysisResult.  Nothing so far turns "run all of them" into a single verdict
+with a single report -- that is this module.  It owns sequencing, cancellation,
+per-domain failure isolation, and aggregation; it owns no wx objects, exactly
+like :class:`~application.background_controller.BackgroundAnalysisController`.
+
+Failure isolation is the load-bearing property here.  A campaign exists so the
+user can press one button and read one report; a thermal engine that raises
+must cost them the thermal section, not the five domains that worked.
+"""
+
+from dataclasses import dataclass, field, replace
+import time
+from typing import Any, Callable, Dict, List, Optional
+
+from analysis_contract import AnalysisResult, AnalysisStatus
+from analysis_registry import DEFAULT_ANALYSES
+from campaign import CampaignResult
+from application.background_controller import BackgroundAnalysisController
+
+import analysis_adapters
+
+
+class CampaignCancelled(RuntimeError):
+    pass
+
+
+@dataclass
+class CampaignRunRequest:
+    """What to run and with what per-domain inputs.
+
+    ``domain_requests`` maps an analysis_id ("DC", "EMC", ...) to the request
+    object that domain's engine expects.  A domain absent from this mapping is
+    not run -- that is how the caller expresses "I only have a board, no
+    enclosure, so skip CFD".
+    """
+
+    project_name: str = ""
+    board_fingerprint: str = ""
+    domain_requests: Dict[str, Any] = field(default_factory=dict)
+    stop_on_error: bool = False
+
+
+@dataclass
+class DomainOutcome:
+    """Per-domain bookkeeping, including the ways a domain can not produce."""
+
+    analysis_id: str
+    result: Optional[AnalysisResult] = None
+    error: Optional[str] = None
+    skipped_reason: str = ""
+    elapsed_seconds: float = 0.0
+    from_cache: bool = False
+
+    @property
+    def ran(self) -> bool:
+        return self.result is not None and not self.skipped_reason
+
+
+@dataclass
+class CampaignCallbacks:
+    on_log: Callable[[str], None] = lambda message: None
+    on_progress: Callable[..., None] = lambda *args: None
+    on_domain_complete: Callable[[DomainOutcome], None] = lambda outcome: None
+    # The domain engine's own outcome, before adaptation. It is what fills a
+    # per-domain result tab -- report text and plots that the AnalysisResult
+    # does not carry -- and it is not retained past this call.
+    on_domain_result: Callable[[str, Any], None] = lambda analysis_id, result: None
+    on_complete: Callable[[CampaignResult], None] = lambda campaign: None
+    on_error: Callable[[Exception], None] = lambda exc: None
+
+
+# ---------------------------------------------------------------------------
+# Default adapters
+# ---------------------------------------------------------------------------
+#
+# Every domain engine returns its own outcome type -- a bare dict of system
+# results for DC, a ``(result, optimization)`` pair for AC, a frozen
+# ``*RunOutcome`` dataclass for the rest -- and the adapters in
+# analysis_adapters each take that outcome unpacked into the two or three
+# pieces they actually read.  These wrappers are the only place that knows how
+# to go from one to the other, normalised to ``callable(domain_result,
+# request) -> AnalysisResult``.
+#
+# Where each piece comes from matters, and the rule is: the outcome first, the
+# request only for what the outcome cannot carry.  The differential tolerance
+# and the CFD mesh are properties of the run that happened, not of the run that
+# was asked for, and reading them off the request would report the intent
+# instead of the result.
+#
+# One value has no home in either: ``maximum_drop_pct``, the DC pass/fail
+# threshold.  It now travels on DCRunRequest, but it is optional there because
+# the DC solve itself does not need it, so it can still arrive as None.  It is
+# demanded rather than defaulted, because substituting 0.0 turns
+# ``if drop_pct > maximum_drop_pct`` into "every rail with any drop at all": a
+# clean board would report one HIGH "exceeds the voltage-drop target" finding
+# per rail, each citing a 0.000% budget nobody set.  A campaign full of
+# confident, fabricated failures is worse than one that says it was not
+# configured.  ``CampaignEngine`` isolates per-domain failures, so a missing
+# value surfaces as one honest DomainOutcome error naming exactly what to
+# supply, while the other domains still run.
+#
+# Override any entry via ``CampaignEngine(adapters=...)`` when the real value
+# lives somewhere other than the request.
+
+
+def _require(request, attribute: str, analysis_id: str):
+    """Pull required adapter context off *request* or fail with a usable message."""
+    value = getattr(request, attribute, None)
+    if value is None:
+        raise ValueError(
+            f"{analysis_id} result cannot be adapted: the run request carries no "
+            f"'{attribute}'. Supply it on the request, or override the {analysis_id} "
+            f"entry via CampaignEngine(adapters=...). Refusing to substitute a "
+            f"default, which would report fabricated pass/fail verdicts."
+        )
+    return value
+
+
+def _adapt_dc(domain_result, request) -> AnalysisResult:
+    # DCSolverEngine returns the system_results mapping itself.  adapt_dc_run,
+    # not adapt_dc_result: the sized copper fixes are part of the DC result
+    # everywhere else, and a campaign report missing them would say "No
+    # structured remediation was computed" on every voltage-drop action.
+    return analysis_adapters.adapt_dc_run(
+        domain_result, _require(request, "maximum_drop_pct", "DC"),
+        board_path=getattr(request, "board_path", None),
+        rails=getattr(request, "rails", None),
+    )
+
+
+def _adapt_ac(domain_result, request) -> AnalysisResult:
+    # ACSolverEngine returns (sweep_result, optimization); the optimization is
+    # None unless the request asked for one.
+    result, optimization = domain_result
+    return analysis_adapters.adapt_ac_result(
+        result, optimization, getattr(request, "settings", None),
+    )
+
+
+def _adapt_differential(domain_result, request) -> AnalysisResult:
+    # The tolerance is resolved during the solve, so it is read off the
+    # outcome: the request carries the settings, not the resolved number.
+    return analysis_adapters.adapt_differential_result(
+        domain_result.results,
+        domain_result.stackup,
+        domain_result.target_tolerance_pct,
+    )
+
+
+def _adapt_emc(domain_result, request) -> AnalysisResult:
+    # The engine may amend the settings it was given (Phase 10 can be turned
+    # off mid-run), so the outcome's copy is the one that describes the run.
+    return analysis_adapters.adapt_emc_result(
+        domain_result.settings, domain_result.result,
+    )
+
+
+def _adapt_thermal(domain_result, request) -> AnalysisResult:
+    return analysis_adapters.adapt_thermal_result(
+        domain_result.result,
+        domain_result.coupled_result is not None,
+        domain_result.elapsed_seconds,
+    )
+
+
+def _adapt_cfd(domain_result, request) -> AnalysisResult:
+    return analysis_adapters.adapt_cfd_result(
+        domain_result.mesh, domain_result.result,
+    )
+
+
+DEFAULT_ADAPTERS: Dict[str, Callable[[Any, Any], AnalysisResult]] = {
+    "DC": _adapt_dc,
+    "AC": _adapt_ac,
+    "DIFFERENTIAL": _adapt_differential,
+    "EMC": _adapt_emc,
+    "THERMAL": _adapt_thermal,
+    "CFD": _adapt_cfd,
+}
+
+
+def default_domain_engines() -> Dict[str, Any]:
+    """One engine per runnable analysis, built with the production defaults.
+
+    ``CampaignEngine`` takes its engines by injection, which is right for
+    testing and was also, for as long as nothing built the production set, the
+    reason the campaign never ran anything.  This is that set, in one place, so
+    "run every domain" is a call rather than six imports at the call site.
+    """
+    from application.ac_controller import ACSolverEngine
+    from application.cfd_controller import CFDSolverEngine
+    from application.dc_controller import DCSolverEngine
+    from application.differential_controller import DifferentialSolverEngine
+    from application.emc_controller import EMCSolverEngine
+    from application.thermal_controller import ThermalSolverEngine
+
+    return {
+        "DC": DCSolverEngine(),
+        "AC": ACSolverEngine(),
+        "DIFFERENTIAL": DifferentialSolverEngine(),
+        "EMC": EMCSolverEngine(),
+        "THERMAL": ThermalSolverEngine(),
+        "CFD": CFDSolverEngine(),
+    }
+
+
+class CampaignEngine:
+    """Sequence domain engines and aggregate their results.
+
+    Conforms to the same engine protocol as the per-domain engines:
+    ``solve(request, emit_log, emit_progress, cancelled)``.
+    """
+
+    def __init__(
+        self,
+        domain_engines: Dict[str, Any],
+        adapters: Optional[Dict[str, Callable[[Any, Any], AnalysisResult]]] = None,
+        registry=None,
+        cache=None,
+    ):
+        self._engines = dict(domain_engines or {})
+        self._adapters = dict(DEFAULT_ADAPTERS)
+        if adapters:
+            self._adapters.update(adapters)
+        self._registry = registry or DEFAULT_ANALYSES
+        self._cache = cache
+        self._domain_listener: Optional[Callable[[DomainOutcome], None]] = None
+        self._raw_listener: Optional[Callable[[str, Any], None]] = None
+
+    def set_domain_listener(self, listener: Optional[Callable[[DomainOutcome], None]]) -> None:
+        """Receive each DomainOutcome as it completes.
+
+        The base controller only forwards ``on_log``/``on_progress`` to an
+        engine, so per-domain completion is wired here rather than through the
+        callback bundle.
+        """
+        self._domain_listener = listener
+
+    def set_raw_result_listener(self, listener: Optional[Callable[[str, Any], None]]) -> None:
+        """Receive each domain engine's own outcome, before it is adapted.
+
+        A DomainOutcome deliberately carries only the adapted AnalysisResult:
+        a CFDRunOutcome holds a mesh and six rendered figures, and keeping one
+        per domain alive until the report is built would hold the whole
+        campaign's fields in memory at once.  A UI still needs those raw
+        outcomes -- they are what fills the per-domain result tabs with plots
+        and a report -- so they are handed over as they arrive and not
+        retained here.  The listener is called on the campaign thread; a
+        caller that owns widgets is responsible for marshalling.
+        """
+        self._raw_listener = listener
+
+    def runnable_descriptors(self) -> List[Any]:
+        """Registry order, executable analyses only.
+
+        DEBUG advertises ``inspect`` rather than ``run``; filtering on the
+        capability keeps it out without naming it.
+        """
+        return [
+            descriptor for descriptor in self._registry.all()
+            if "run" in descriptor.capabilities
+        ]
+
+    @staticmethod
+    def _forced_flow_patches(cfd_request) -> bool:
+        """True when the enclosure is driven by a fan or inlet rather than heat."""
+        settings = getattr(cfd_request, "settings", None)
+        patches = getattr(settings, "patches", None) or ()
+        return any(
+            str(getattr(patch, "kind", "")).upper() in {"INLET", "FAN"}
+            and float(getattr(patch, "velocity_m_s", 0.0) or 0.0) > 0.0
+            for patch in patches
+        )
+
+    def _run_order(self, request, emit_log):
+        """The order the domains actually run in.
+
+        The registry's order is a catalogue order -- it groups the analyses the
+        way the workspace lists them.  Two couplings need more than that, and
+        both are applied here so one place answers "why did CFD run third?".
+        """
+        descriptors = self._order_for_cfd_coupling(request, emit_log)
+        return self._order_for_emc_inputs(descriptors, request, emit_log)
+
+    def _order_for_emc_inputs(self, descriptors, request, emit_log):
+        """Move EMC after every domain whose results it reads.
+
+        The EMI/EMC rules consume the AC sweep, the differential results and
+        the thermal field rather than recomputing them, so EMC running before
+        them would grade the board against inputs this campaign has not
+        produced yet.  In the registry EMC sits at 40 and thermal at 50, which
+        is the right order to *list* them and the wrong one to run them.
+        """
+        ids = [descriptor.analysis_id for descriptor in descriptors]
+        if "EMC" not in ids:
+            return descriptors
+        inputs = [
+            analysis_id for analysis_id in self._EMC_INPUT_DOMAINS
+            if analysis_id in ids and analysis_id in request.domain_requests
+        ]
+        if "EMC" not in request.domain_requests or not inputs:
+            return descriptors
+        last_input = max(ids.index(analysis_id) for analysis_id in inputs)
+        if ids.index("EMC") > last_input:
+            return descriptors
+        emc = descriptors[ids.index("EMC")]
+        reordered = [d for d in descriptors if d.analysis_id != "EMC"]
+        position = max(
+            [d.analysis_id for d in reordered].index(analysis_id)
+            for analysis_id in inputs
+        ) + 1
+        reordered.insert(position, emc)
+        emit_log(
+            "EMC runs after " + ", ".join(inputs)
+            + ": it reads their results rather than recomputing them."
+        )
+        return reordered
+
+    def _order_for_cfd_coupling(self, request, emit_log):
+        """Registry order, with CFD hoisted ahead of THERMAL when it can feed it.
+
+        The thermal surface coefficients can use a CFD-resolved free-stream
+        speed, but only in forced flow. Under pure buoyancy the velocity is
+        *caused* by the temperature field the thermal solve produces, so running
+        CFD first against a cold board would hand thermal a velocity derived
+        from the answer it has not computed yet. One-way coupling in that
+        direction is only sound when a fan sets the flow independently of the
+        board temperature.
+        """
+        descriptors = self.runnable_descriptors()
+        ids = [descriptor.analysis_id for descriptor in descriptors]
+        if "CFD" not in ids or "THERMAL" not in ids:
+            return descriptors
+        if ids.index("CFD") < ids.index("THERMAL"):
+            return descriptors
+        requests = request.domain_requests
+        if "CFD" not in requests or "THERMAL" not in requests:
+            return descriptors
+        if not self._forced_flow_patches(requests["CFD"]):
+            emit_log(
+                "Enclosure flow is buoyancy-driven, so CFD keeps its usual place "
+                "after THERMAL: its velocity depends on the temperature field "
+                "rather than setting it."
+            )
+            return descriptors
+        cfd = descriptors[ids.index("CFD")]
+        reordered = [d for d in descriptors if d.analysis_id != "CFD"]
+        reordered.insert(
+            [d.analysis_id for d in reordered].index("THERMAL"), cfd,
+        )
+        emit_log("Forced enclosure flow: running CFD before THERMAL so its "
+                 "free-stream velocity can drive the surface coefficients.")
+        return reordered
+
+    def _couple_cfd_into_thermal(self, request, domain_result, emit_log) -> None:
+        """Hand the CFD free-stream speed to the pending thermal request."""
+        thermal = request.domain_requests.get("THERMAL")
+        if thermal is None or getattr(thermal, "air_velocity_m_s", None) is not None:
+            return
+        result = getattr(domain_result, "result", domain_result)
+        velocity = float(getattr(result, "board_free_stream_velocity_m_s", 0.0) or 0.0)
+        cells = int(getattr(result, "board_free_stream_cells", 0) or 0)
+        if velocity <= 0.0 or cells <= 0:
+            emit_log(
+                "CFD produced no usable free-stream sample over the board "
+                "(mesh too coarse to offer cells clear of every solid); "
+                "thermal keeps its configured airflow."
+            )
+            return
+        request.domain_requests["THERMAL"] = replace(
+            thermal, air_velocity_m_s=velocity,
+        )
+        emit_log(
+            f"THERMAL will use the CFD free-stream speed of {velocity:.4g} m/s "
+            f"sampled over {cells} cell(s) -- estimated, not measured."
+        )
+
+    # Which domains feed the EMI/EMC rules, and how their raw outcome is
+    # reduced to the field EMCRunRequest expects.  EMC reads the other
+    # domains' answers rather than recomputing them, so in a campaign it must
+    # read the ones this campaign just produced.
+    _EMC_INPUT_DOMAINS = ("AC", "DIFFERENTIAL", "THERMAL")
+
+    @staticmethod
+    def _emc_ac_results(domain_result, ac_request):
+        """(rail, impedance result) pairs, taking the optimized sweep if there is one."""
+        result, optimization = domain_result
+        final = optimization.optimized if optimization is not None else result
+        if final is None:
+            return ()
+        rail = str(getattr(getattr(ac_request, "settings", None), "rail_name", "") or "")
+        return ((rail or "Analysed rail", final),)
+
+    @staticmethod
+    def _emc_differential_results(domain_result, _request):
+        """Per-pair results keyed by pair signature, as the EMC analyzer looks them up."""
+        return {
+            item.pair.signature: item
+            for item in (domain_result.results or ())
+            if getattr(item, "pair", None) is not None
+        }
+
+    @staticmethod
+    def _emc_thermal_result(domain_result, _request):
+        return domain_result.result
+
+    def _couple_results_into_emc(self, request, produced, emit_log) -> None:
+        """Fold this campaign's AC/differential/thermal outcomes into EMC's request.
+
+        Standalone, EMC reads whatever the session last computed, which may be
+        a different board revision or nothing at all.  Inside a campaign every
+        domain describes the same board at the same moment, so the campaign's
+        own outcomes are the ones EMC must see -- otherwise pressing "run
+        everything" would grade the return paths against yesterday's sweep.
+
+        A domain that did not run in this campaign leaves whatever the caller
+        supplied alone: absent is absent, not empty.
+        """
+        emc = request.domain_requests.get("EMC")
+        if emc is None:
+            return
+        reducers = {
+            "AC": ("ac_results", self._emc_ac_results),
+            "DIFFERENTIAL": ("differential_results", self._emc_differential_results),
+            "THERMAL": ("thermal_result", self._emc_thermal_result),
+        }
+        updates = {}
+        for analysis_id in self._EMC_INPUT_DOMAINS:
+            if analysis_id not in produced:
+                continue
+            field_name, reduce = reducers[analysis_id]
+            try:
+                updates[field_name] = reduce(
+                    produced[analysis_id], request.domain_requests.get(analysis_id),
+                )
+            except Exception as exc:
+                # One unreadable outcome must not cost EMC the other two, nor
+                # the run.  Say which, so the gap is visible in the report's
+                # provenance rather than silently absent.
+                emit_log(
+                    f"EMC will not see the campaign's {analysis_id} outcome "
+                    f"({type(exc).__name__}: {exc}); it keeps whatever the "
+                    "request carried for it."
+                )
+        if not updates:
+            return
+        request.domain_requests["EMC"] = replace(emc, **updates)
+        applied = sorted(
+            analysis_id for analysis_id, (field_name, _reduce) in reducers.items()
+            if field_name in updates
+        )
+        emit_log(
+            "EMC will use this campaign's own " + ", ".join(applied)
+            + " results rather than the session's previous ones."
+        )
+
+    def solve(self, request, emit_log, emit_progress, cancelled) -> CampaignResult:
+        descriptors = self._run_order(request, emit_log)
+        total = len(descriptors)
+        outcomes: List[DomainOutcome] = []
+        results: List[AnalysisResult] = []
+        # Raw domain outcomes, kept only until the domain that consumes them
+        # has run.  Scalars and cross-domain inputs are lifted off them here
+        # rather than stored on a DomainOutcome: a CFDRunOutcome holds a mesh
+        # and rendered plots, and retaining one per domain for the whole
+        # campaign would keep every field alive until the report is built.
+        produced: Dict[str, Any] = {}
+        was_cancelled = False
+        done = 0
+
+        for descriptor in descriptors:
+            if cancelled():
+                was_cancelled = True
+                emit_log("Campaign cancelled; keeping completed domains.")
+                break
+
+            analysis_id = descriptor.analysis_id
+            if analysis_id == "EMC":
+                self._couple_results_into_emc(request, produced, emit_log)
+                # EMC is the only consumer, so nothing needs these outcomes
+                # after this point -- and one of them is a thermal mesh.
+                produced.clear()
+            emit_progress(done, total, analysis_id)
+            outcome = self._run_domain(
+                analysis_id, request, emit_log, emit_progress, cancelled,
+                on_domain_result=(
+                    lambda domain_result, analysis_id=analysis_id: self._handover(
+                        analysis_id, request, domain_result, produced, emit_log,
+                    )
+                ),
+            )
+            done += 1
+            outcomes.append(outcome)
+            if outcome.result is not None:
+                results.append(outcome.result)
+            self._notify(outcome)
+
+            if outcome.error and request.stop_on_error:
+                emit_log(f"Stopping campaign after {analysis_id} failed (stop_on_error).")
+                break
+
+        if cancelled():
+            was_cancelled = True
+
+        produced.clear()
+        campaign = CampaignResult.from_results(
+            results,
+            project_name=request.project_name,
+            board_fingerprint=request.board_fingerprint,
+        )
+        if was_cancelled:
+            # recompute() derives the verdict from the domain scores, so the
+            # cancelled state has to be stamped after aggregation or it is
+            # overwritten by a PASS/WARN computed from a partial run.
+            campaign.overall_status = AnalysisStatus.CANCELLED
+        self.last_outcomes = outcomes
+        emit_progress(done, total, "campaign complete")
+        emit_log(
+            f"Campaign finished: {len(results)} domain result(s), "
+            f"verdict {campaign.overall_status.value}."
+        )
+        return campaign
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    def _handover(self, analysis_id, request, domain_result, produced, emit_log) -> None:
+        """Everything that has to happen with a raw outcome before it is dropped."""
+        if analysis_id == "CFD":
+            self._couple_cfd_into_thermal(request, domain_result, emit_log)
+        if analysis_id in self._EMC_INPUT_DOMAINS and "EMC" in request.domain_requests:
+            produced[analysis_id] = domain_result
+        self._notify_raw(analysis_id, domain_result)
+
+    def _notify(self, outcome: DomainOutcome) -> None:
+        if self._domain_listener is None:
+            return
+        try:
+            self._domain_listener(outcome)
+        except Exception:
+            # A listener raising must not abort the campaign it is observing.
+            pass
+
+    def _notify_raw(self, analysis_id: str, domain_result: Any) -> None:
+        if self._raw_listener is None:
+            return
+        try:
+            self._raw_listener(analysis_id, domain_result)
+        except Exception:
+            # Same rule as _notify: an observer must not abort the campaign.
+            # It runs before the adapter, so letting it raise here would also
+            # turn a successful solve into a failed domain.
+            pass
+
+    def _run_domain(self, analysis_id, request, emit_log, emit_progress, cancelled,
+                    on_domain_result=None) -> DomainOutcome:
+        domain_request = request.domain_requests.get(analysis_id)
+        if domain_request is None:
+            emit_log(f"{analysis_id}: skipped (no request provided).")
+            return DomainOutcome(analysis_id, None, skipped_reason="no request provided")
+
+        engine = self._engines.get(analysis_id)
+        if engine is None:
+            emit_log(f"{analysis_id}: skipped (no engine registered).")
+            return DomainOutcome(analysis_id, None, skipped_reason="no engine registered")
+
+        digest = ""
+        if self._cache is not None:
+            from application.campaign_cache import configuration_digest
+
+            digest = configuration_digest(domain_request)
+            cached = self._cache.get(request.board_fingerprint, analysis_id, digest)
+            if cached is not None:
+                emit_log(f"{analysis_id}: reused cached result (inputs unchanged).")
+                return DomainOutcome(analysis_id, cached, from_cache=True)
+
+        started = time.perf_counter()
+        try:
+            domain_result = engine.solve(
+                domain_request,
+                lambda message: emit_log(f"{analysis_id}: {message}"),
+                emit_progress,
+                cancelled,
+            )
+            if on_domain_result is not None:
+                on_domain_result(domain_result)
+            adapter = self._adapters.get(analysis_id)
+            if adapter is None:
+                raise KeyError(f"No adapter registered for analysis {analysis_id}")
+            result = adapter(domain_result, domain_request)
+        except Exception as exc:
+            elapsed = time.perf_counter() - started
+            emit_log(f"{analysis_id}: FAILED after {elapsed:.2f}s -- {exc}")
+            return DomainOutcome(
+                analysis_id, None, error=f"{type(exc).__name__}: {exc}",
+                elapsed_seconds=elapsed,
+            )
+
+        elapsed = time.perf_counter() - started
+        self._stamp(result, request, elapsed)
+        if self._cache is not None:
+            self._cache.put(request.board_fingerprint, analysis_id, digest, result)
+        emit_log(f"{analysis_id}: completed in {elapsed:.2f}s ({result.status.value}).")
+        return DomainOutcome(analysis_id, result, elapsed_seconds=elapsed)
+
+    @staticmethod
+    def _stamp(result: AnalysisResult, request, elapsed: float) -> None:
+        """Fill campaign-level provenance the domain adapter could not know."""
+        if not result.board_fingerprint and request.board_fingerprint:
+            result.board_fingerprint = request.board_fingerprint
+        if not result.elapsed_seconds:
+            result.elapsed_seconds = elapsed
+        if not result.completed_at:
+            result.finish()
+
+
+class CampaignController(BackgroundAnalysisController):
+    """Own one cancellable background campaign and marshal its callbacks."""
+
+    def __init__(self, dispatch=lambda callback, *args: callback(*args), engine=None):
+        super().__init__(
+            engine if engine is not None else CampaignEngine({}),
+            thread_name="KiPIDA-Campaign",
+            busy_message="A campaign is already running.",
+            cancelled_error_factory=lambda: CampaignCancelled("Campaign cancelled."),
+            dispatch=dispatch,
+        )
+
+    def start(self, request, callbacks) -> None:
+        listener = getattr(callbacks, "on_domain_complete", None)
+        setter = getattr(self._engine, "set_domain_listener", None)
+        if listener is not None and callable(setter):
+            setter(lambda outcome: self._emit(listener, outcome))
+        raw_listener = getattr(callbacks, "on_domain_result", None)
+        raw_setter = getattr(self._engine, "set_raw_result_listener", None)
+        if raw_listener is not None and callable(raw_setter):
+            raw_setter(
+                lambda analysis_id, domain_result:
+                    self._emit(raw_listener, analysis_id, domain_result)
+            )
+        super().start(request, callbacks)
+
+    def _run(self, request, callbacks) -> None:
+        """Deliver a cancelled campaign instead of discarding it.
+
+        The base controller treats cancellation as an error, which is right
+        for a single analysis: half a thermal solve is not a temperature
+        field.  A campaign is the opposite -- it exists to isolate domains
+        from one another, and CampaignEngine already stamps the partial result
+        CANCELLED and logs "keeping completed domains".  Raising here threw
+        those completed domains away, so cancelling after five of six
+        analyses lost all five.
+        """
+        try:
+            campaign = self._engine.solve(
+                request,
+                lambda message: self._emit(callbacks.on_log, message),
+                lambda *args: self._emit(callbacks.on_progress, *args),
+                self._cancel_event.is_set,
+            )
+            self._emit(callbacks.on_complete, campaign)
+        except Exception as exc:
+            self._emit(callbacks.on_error, exc)

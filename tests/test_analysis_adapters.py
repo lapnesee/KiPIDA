@@ -95,8 +95,13 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertEqual(result.status, AnalysisStatus.FAIL)
         self.assertEqual(result.findings[0].severity, FindingSeverity.CRITICAL)
         self.assertEqual(result.metrics[0].status, "FAIL")
-        self.assertEqual(result.metrics[2].status, "PASS")
-        self.assertEqual(len(result.provenance), 2)
+        # Was "PASS". The energy balance only shows the linear solve converged
+        # -- it would read just as well with a surface coefficient wrong by a
+        # factor of ten -- so labelling it PASS invited it to be read as
+        # physical accuracy. NUMERICS_OK says what it actually measures.
+        self.assertEqual(result.metrics[2].status, "NUMERICS_OK")
+        # Surface exchange is now stated alongside geometry and power.
+        self.assertEqual(len(result.provenance), 3)
 
     def test_cfd_adapter_reports_convergence_and_balance(self):
         mesh = SimpleNamespace(cell_count=1000)

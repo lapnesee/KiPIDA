@@ -124,6 +124,29 @@ def main():
             early_log("Board has no document attribute")
         
         if board:
+            # Say which copy of the plugin is running, and which build.
+            #
+            # Without this, "is the code I just deployed the code that ran?"
+            # can only be answered by inferring from behaviour. That inference
+            # cost several rounds here, and got the answer wrong once: a
+            # hardcoded default in config_manager produced exactly the symptom
+            # of a stale deployment.
+            #
+            # The path matters as much as the hash. KiCad loads the plugin from
+            # wherever it was registered, which need not be the directory that
+            # was updated -- and the hash alone cannot reveal that.
+            try:
+                import os as _os
+
+                from runtime_environment import plugin_version, source_fingerprint
+
+                _root = _os.path.dirname(_os.path.abspath(__file__))
+                early_log(
+                    f"[INIT] Ki-PIDA {plugin_version(_root)} "
+                    f"(build {source_fingerprint(_root) or 'unknown'}) loaded from {_root}"
+                )
+            except Exception as exc:  # pragma: no cover - never block startup
+                early_log(f"[INIT] Could not determine the plugin build: {exc}")
             early_log("Ki-PIDA connected successfully.")
         else:
             early_log("ERROR: client.get_board() returned None.")

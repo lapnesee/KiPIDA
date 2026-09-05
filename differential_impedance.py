@@ -13,7 +13,8 @@ try:
     from .differential_length import assess_length_symmetry
     from .differential_geometry import (
         COPLANAR_GEOMETRIES, GEOMETRY_MICROSTRIP, GEOMETRY_STRIPLINE,
-        GroundedCoplanarDifferentialSolver, normalize_geometry,
+        EdgeCoupledDifferentialSolver, GroundedCoplanarDifferentialSolver,
+        normalize_geometry,
     )
     from .models import DifferentialPairResult, DifferentialSectionResult
     from .reference_plane_analyzer import ReferencePlaneAnalyzer
@@ -22,7 +23,8 @@ except (ImportError, ValueError):
     from differential_length import assess_length_symmetry
     from differential_geometry import (
         COPLANAR_GEOMETRIES, GEOMETRY_MICROSTRIP, GEOMETRY_STRIPLINE,
-        GroundedCoplanarDifferentialSolver, normalize_geometry,
+        EdgeCoupledDifferentialSolver, GroundedCoplanarDifferentialSolver,
+        normalize_geometry,
     )
     from models import DifferentialPairResult, DifferentialSectionResult
     from reference_plane_analyzer import ReferencePlaneAnalyzer
@@ -390,7 +392,22 @@ class DifferentialImpedanceSolver:
                 if context.topology == "MICROSTRIP":
                     epsilon = self._mask_adjusted_epsilon(epsilon, height)
                 reference_epsilon = epsilon
-                z0, zdiff = self._microstrip(width, gap_mm, thickness, height, epsilon)
+                try:
+                    solved = EdgeCoupledDifferentialSolver.solve_microstrip(
+                        width, gap_mm, thickness, height, epsilon,
+                        include_solder_mask=self.settings.include_solder_mask,
+                        solder_mask_thickness_mm=self.settings.solder_mask_thickness_mm,
+                        solder_mask_epsilon_r=self.settings.solder_mask_epsilon_r,
+                    )
+                    z0 = solved.odd_mode_impedance_ohm
+                    zdiff = solved.differential_impedance_ohm
+                    effective_epsilon = solved.effective_epsilon_r
+                except ValueError:
+                    z0, zdiff = self._microstrip(width, gap_mm, thickness, height, epsilon)
+                    warnings.append(
+                        "2-D field solve failed for this geometry; falling back to the "
+                        "IPC-D-317A closed-form approximation (±10-25% typical error)."
+                    )
             elif context.topology in {"STRIPLINE", "ASYMMETRIC_STRIPLINE"}:
                 total = context.distance_above_mm + context.distance_below_mm
                 epsilon = (
@@ -399,10 +416,24 @@ class DifferentialImpedanceSolver:
                 ) / max(total, 1e-12)
                 reference_distance = min(context.distance_above_mm, context.distance_below_mm)
                 reference_epsilon = epsilon
-                z0, zdiff = self._stripline(
-                    width, gap_mm, thickness,
-                    context.distance_above_mm, context.distance_below_mm, epsilon,
-                )
+                try:
+                    solved = EdgeCoupledDifferentialSolver.solve_stripline(
+                        width, gap_mm, thickness,
+                        context.distance_above_mm, context.epsilon_r_above,
+                        context.distance_below_mm, context.epsilon_r_below,
+                    )
+                    z0 = solved.odd_mode_impedance_ohm
+                    zdiff = solved.differential_impedance_ohm
+                    effective_epsilon = solved.effective_epsilon_r
+                except ValueError:
+                    z0, zdiff = self._stripline(
+                        width, gap_mm, thickness,
+                        context.distance_above_mm, context.distance_below_mm, epsilon,
+                    )
+                    warnings.append(
+                        "2-D field solve failed for this geometry; falling back to the "
+                        "IPC-D-317A closed-form approximation (±10-25% typical error)."
+                    )
             else:
                 warnings.append("Impedance was not calculated without a reference plane.")
         except ValueError as exc:

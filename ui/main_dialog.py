@@ -14,7 +14,7 @@ if plugin_dir not in sys.path:
     sys.path.insert(0, plugin_dir)
 
 from extractor import GeometryExtractor
-from ac_model import ACModelBuilder
+from ac_model import ACModelBuilder, resolve_target_impedance
 from differential_impedance import DifferentialGeometrySnapshot
 from emc_analyzer import EMCGeometrySnapshot
 from thermal_model import ThermalModelBuilder
@@ -27,7 +27,7 @@ from ui.dialog_action_bar import DialogActionBar
 from ui.log_stream import DialogStreamCapture
 from plotter import Plotter
 from analysis_adapters import (
-    adapt_ac_result, adapt_cfd_result, adapt_dc_result, adapt_differential_result,
+    adapt_ac_result, adapt_cfd_result, adapt_dc_run, adapt_differential_result,
     adapt_emc_result, adapt_thermal_result,
 )
 from application.ac_controller import (
@@ -53,6 +53,10 @@ from application.cfd_controller import (
     CFDAnalysisCancelled, CFDAnalysisController, CFDControllerCallbacks,
     CFDRunRequest,
 )
+from application.campaign_controller import (
+    CampaignCallbacks, CampaignController, CampaignEngine, CampaignRunRequest,
+    default_domain_engines,
+)
 from application.report_presenters import (
     format_ac_report, format_cfd_report, format_dc_report,
     format_differential_report, format_emc_report, format_thermal_report,
@@ -73,6 +77,7 @@ class KiPIDA_MainDialog(wx.Dialog):
     AC_MAX_NETWORK_NODES = 100000
 
     ANALYSIS_CONTROLLERS = (
+        ("Analysis batch", "campaign_controller"),
         ("DC analysis", "dc_controller"),
         ("AC analysis", "ac_controller"),
         ("Differential analysis", "differential_controller"),
@@ -114,11 +119,23 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.emc_controller = EMCAnalysisController(
             dispatch=lambda callback, *args: wx.CallAfter(callback, *args),
         )
+        # The batch runs through the campaign orchestrator rather than chaining
+        # the per-domain buttons: one cancellable run, per-domain failure
+        # isolation, and one aggregated CampaignResult at the end instead of
+        # six results the user then has to consolidate by hand.
+        self.campaign_controller = CampaignController(
+            dispatch=lambda callback, *args: wx.CallAfter(callback, *args),
+            engine=CampaignEngine(default_domain_engines()),
+        )
         self._thermal_plot_thread = None
         self._dc_plot_thread = None
         self._result_generation = 0
         self._thermal_result_generation = 0
         self._closing = False
+        # Per-domain requests of the campaign in flight, keyed by analysis id.
+        # Empty means no batch is running; they are kept because a completion
+        # handler needs the settings the request was built from.
+        self._campaign_requests = {}
         self._plot_lock = threading.Lock()
         # Kept only for the dialog lifetime.  Mesh and CSR reuse is guarded by
         # a live-board fingerprint, so unsaved edits in PCB Editor invalidate
@@ -135,6 +152,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self._stream_capture.install()
         
         self.log("Ki-PIDA UI Initialized.")
+        self._log_module_provenance()
         if not self.board:
              self.log("ERROR: No board object connected. Plugin will not function properly.")
         else:
@@ -202,6 +220,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.PAGE_EMC: ("emc", "cancel_emc"),
             self.PAGE_THERMAL: ("thermal", "coupled"),
             self.PAGE_CFD: ("cfd",),
+            self.PAGE_RESULTS: ("batch", "campaign"),
         }
         handlers = {
             "dc": self.on_run, "ac": self.on_run_ac,
@@ -209,7 +228,9 @@ class KiPIDA_MainDialog(wx.Dialog):
             "differential": self.on_run_differential,
             "emc": self.on_run_emc, "cancel_emc": self.on_cancel_emc,
             "thermal": self.on_run_thermal, "coupled": self.on_run_coupled_thermal,
-            "cfd": self.on_run_cfd, "close": self.on_close,
+            "cfd": self.on_run_cfd, "campaign": self.on_build_campaign_report,
+            "batch": self.on_run_batch,
+            "close": self.on_close,
         }
         self.action_bar = DialogActionBar(self, handlers, actions_by_page)
         self.lbl_interaction_status = self.action_bar.status
@@ -419,6 +440,339 @@ class KiPIDA_MainDialog(wx.Dialog):
         return page
 
 
+    def _campaign_output_directory(self):
+        """Where the consolidated report is written: beside the board."""
+        history = self._results_history_directory()
+        return history if history is not None else Path.cwd() / "KiPIDA-results"
+
+    @staticmethod
+    def _board_fingerprint(board_path):
+        """SHA-256 of the .kicad_pcb, used to tell campaigns apart.
+
+        The per-domain adapters do not currently stamp board_fingerprint, so
+        without this the field is empty and comparing a before/after campaign
+        cannot tell whether the board changed. Hashing the file is the same
+        thing the DesignModel does, and is cheap enough at report time.
+        """
+        if not board_path:
+            return ""
+        try:
+            import hashlib
+
+            digest = hashlib.sha256()
+            with open(board_path, "rb") as handle:
+                for block in iter(lambda: handle.read(131072), b""):
+                    digest.update(block)
+            return digest.hexdigest()
+        except OSError:
+            return ""
+
+    # What the batch can run, and the request builder for each. The label is
+    # what the selection dialog shows; the analysis_id is the registry's, and
+    # it is the registry -- not this tuple -- that decides the running order.
+    BATCH_ANALYSES = (
+        ("DC", "DC power"),
+        ("AC", "AC impedance"),
+        ("DIFFERENTIAL", "Differential pairs"),
+        ("THERMAL", "3D thermal (coupled)"),
+        ("EMC", "EMI / EMC"),
+        ("CFD", "Enclosure CFD"),
+    )
+
+    def _batch_request_builders(self, selected):
+        """One request builder per selected analysis, keyed by analysis id."""
+        return {
+            "DC": self._build_dc_request,
+            "AC": lambda: self._build_ac_request(optimize=False),
+            "DIFFERENTIAL": self._build_differential_request,
+            "THERMAL": lambda: self._build_thermal_request(
+                coupled=True,
+                # CFD in the same batch means CampaignEngine owns the
+                # free-stream handover, using this run's CFD rather than the
+                # session's previous one.
+                resolve_air_velocity="CFD" not in selected,
+            ),
+            "EMC": self._build_emc_request,
+            "CFD": self._build_cfd_request,
+        }
+
+    def on_run_batch(self, _event):
+        """Run a chosen set of analyses as one campaign, then consolidate them.
+
+        The batch used to chain the six per-domain buttons and poll every
+        controller for idleness. It now runs through CampaignEngine, which was
+        built for exactly this and, until this call existed, was reached only
+        by its own tests. What that buys over the chain: one cancellable
+        background run instead of six, a domain that raises costing only its
+        own section, the CFD-to-thermal and cross-domain-to-EMC handovers
+        applied from *this* run's outcomes, and one aggregated CampaignResult
+        at the end rather than six results the user then consolidates by hand.
+        """
+        if self.campaign_controller.is_running:
+            self._cancel_batch()
+            return
+        if not self._ensure_analysis_slot():
+            return
+        labels = [label for _key, label in self.BATCH_ANALYSES]
+        dialog = wx.MultiChoiceDialog(
+            self, "Select the analyses to run:", "Run Analysis Batch",
+            labels,
+        )
+        # Everything preselected: the common case is "run the lot", and the
+        # dialog exists to let the user drop the slow ones, not to make them
+        # tick six boxes every time.
+        dialog.SetSelections(list(range(len(labels))))
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            chosen = list(dialog.GetSelections())
+        finally:
+            dialog.Destroy()
+        if not chosen:
+            self.log("Batch cancelled: no analysis selected.")
+            return
+
+        selected = [self.BATCH_ANALYSES[index][0] for index in chosen]
+        self._select_workspace(self.PAGE_LOG)
+        self.log(
+            f"--- Starting analysis batch: {len(selected)} analysis(es) --- "
+            + ", ".join(label for key, label in self.BATCH_ANALYSES if key in selected)
+        )
+        domain_requests = self._build_batch_requests(selected)
+        if not domain_requests:
+            self.log("--- Analysis batch abandoned: no analysis could be prepared ---")
+            self._set_interaction_status("Batch · nothing to run")
+            return
+
+        self._campaign_requests = domain_requests
+        board_path = self._board_file_path()
+        request = CampaignRunRequest(
+            project_name=Path(board_path).stem if board_path else "KiPIDA",
+            board_fingerprint=self._board_fingerprint(board_path),
+            domain_requests=dict(domain_requests),
+        )
+        callbacks = CampaignCallbacks(
+            on_log=self._batch_worker_log,
+            on_progress=self._batch_progress,
+            on_domain_result=self._batch_domain_result,
+            on_domain_complete=self._batch_domain_complete,
+            on_complete=self._finish_batch,
+            on_error=self._fail_batch,
+        )
+        self._set_batch_running(True)
+        self.campaign_controller.start(request, callbacks)
+
+    def _build_batch_requests(self, selected):
+        """Capture every selected domain's live-board inputs, on the GUI thread.
+
+        Preparation must happen here -- it reads wx panels and KiCad's IPC
+        board -- while the campaign itself runs on a worker thread. A domain
+        that cannot be prepared is dropped with its reason logged rather than
+        cancelling the batch: the same isolation the engine gives a domain
+        that fails while solving.
+        """
+        builders = self._batch_request_builders(selected)
+        labels = dict(self.BATCH_ANALYSES)
+        requests = {}
+        # Every capture happens here, before the first solve, so the window is
+        # unresponsive for the sum of them rather than between analyses. Say
+        # which one is running or a slow geometry capture reads as a freeze.
+        self.log(
+            f"Batch: capturing live board data for {len(selected)} analysis(es) "
+            "before the run starts."
+        )
+        for analysis_id in selected:
+            self.log(f"Batch: preparing {labels[analysis_id]}.")
+            try:
+                requests[analysis_id] = builders[analysis_id]()
+            except Exception as exc:
+                self.log(
+                    f"Batch: {labels[analysis_id]} was not prepared and will be "
+                    f"skipped -- {exc}"
+                )
+        return requests
+
+    def _cancel_batch(self):
+        if not self.campaign_controller.cancel():
+            return
+        self.action_bar.buttons["batch"].Disable()
+        self._set_interaction_status("Batch · cancelling")
+        self.log(
+            "Cancellation requested for the analysis batch; the domains that "
+            "already finished are kept."
+        )
+
+    def _set_batch_running(self, running):
+        """Reflect a running batch in the action bar, and only there."""
+        button = self.action_bar.buttons["batch"]
+        button.Enable()
+        button.SetLabel("Cancel Analysis Batch" if running else "Run Analysis Batch...")
+        for key in ("dc", "ac", "optimize", "differential", "emc", "thermal",
+                    "coupled", "cfd"):
+            self.action_bar.buttons[key].Enable(not running)
+
+    def _batch_worker_log(self, message):
+        if not self._closing:
+            self.log(message)
+
+    def _batch_progress(self, completed, total, detail):
+        if self._closing:
+            return
+        self._set_interaction_status(f"Batch · {completed}/{total} · {detail}")
+
+    def _batch_domain_result(self, analysis_id, domain_result):
+        """Fill the per-domain result tab from the raw outcome, as before.
+
+        A CampaignResult carries findings, not report text or figures, so the
+        existing per-domain completion handlers still run: without them a
+        batch would populate the consolidated report and leave every analysis
+        tab empty.
+        """
+        if self._closing:
+            return
+        handlers = {
+            "DC": lambda outcome: self._finish_dc_job(outcome),
+            "AC": lambda outcome: self._finish_ac_job(*outcome),
+            "DIFFERENTIAL": self._finish_differential_job,
+            "EMC": self._finish_emc_job,
+            "THERMAL": lambda outcome: self._finish_thermal_job(
+                outcome, self._campaign_requests["THERMAL"].settings,
+            ),
+            "CFD": self._finish_cfd_job,
+        }
+        handler = handlers.get(analysis_id)
+        if handler is None:
+            return
+        try:
+            handler(domain_result)
+        except Exception as exc:
+            # Publishing a result must not be able to fail the batch that
+            # produced it; the finding is already in the campaign either way.
+            self.log(f"Batch: {analysis_id} results could not be displayed -- {exc}")
+        finally:
+            # The per-domain handlers re-enable their own run button on the
+            # way out, which would hand the user a second analysis to start
+            # while the batch is still going.
+            self._set_batch_running(self.campaign_controller.is_running)
+
+    def _batch_domain_complete(self, outcome):
+        if self._closing:
+            return
+        if outcome.error:
+            self.log(f"Batch: {outcome.analysis_id} failed -- {outcome.error}")
+        elif outcome.skipped_reason:
+            self.log(f"Batch: {outcome.analysis_id} skipped ({outcome.skipped_reason}).")
+
+    def _finish_batch(self, campaign):
+        if self._closing:
+            return
+        self._campaign_requests = {}
+        self._set_batch_running(False)
+        ran = [score.domain for score in campaign.domain_scores]
+        self.log(
+            f"--- Analysis batch finished: {len(ran)} analysis(es) ran "
+            f"[{', '.join(ran) or 'none'}], verdict {campaign.overall_status.value}, "
+            f"{len(campaign.actions)} ranked action(s) ---"
+        )
+        self._set_interaction_status(
+            f"Batch · {campaign.overall_status.value} · {len(campaign.actions)} action(s)"
+        )
+        if not campaign.results:
+            return
+        # The reason to run a batch is the consolidated verdict, so build it
+        # rather than leaving the user to press a second button for it.
+        self._write_campaign_report(campaign, open_browser=True)
+
+    def _fail_batch(self, exc):
+        if self._closing:
+            return
+        self._campaign_requests = {}
+        self._set_batch_running(False)
+        self.log(f"Analysis batch failed: {exc}")
+        self._set_interaction_status("Batch · failed")
+        wx.MessageBox(str(exc), "Analysis Batch Error", wx.OK | wx.ICON_ERROR)
+
+    def on_build_campaign_report(self, _event):
+        """Aggregate this session's analyses into one report and open it.
+
+        This consolidates rather than re-runs.  Each per-domain button already
+        produces an AnalysisResult; this merges them, deduplicates findings
+        that describe the same physical defect across domains, ranks the
+        resulting actions by gain over effort, and writes a standalone HTML
+        report plus CSV exports.  Domains never run are absent, which the
+        campaign scores as NO_DATA -- never as passing.
+        """
+        from campaign import CampaignResult
+
+        results = self.results_workspace.session_results()
+        if not results:
+            wx.MessageBox(
+                "No analysis has produced a result yet in this session.\n\n"
+                "Run at least one analysis (DC, AC, Differential, EMI/EMC, "
+                "Thermal or CFD), then build the consolidated report.",
+                "Nothing to consolidate", wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+
+        board_path = self._board_file_path()
+        self._set_interaction_status("Consolidated report · building")
+        try:
+            campaign = CampaignResult(
+                project_name=Path(board_path).stem if board_path else "KiPIDA",
+                board_fingerprint=next(
+                    (r.board_fingerprint for r in results if r.board_fingerprint),
+                    self._board_fingerprint(board_path),
+                ),
+                results=list(results),
+            ).recompute()
+        except Exception as exc:
+            self.log(f"Consolidated report failed while aggregating: {exc}")
+            self._set_interaction_status("Consolidated report · failed")
+            wx.MessageBox(str(exc), "Consolidated Report Error", wx.OK | wx.ICON_ERROR)
+            return
+        self._write_campaign_report(campaign, open_browser=True)
+
+    def _write_campaign_report(self, campaign, open_browser=False):
+        """Write one campaign's HTML report and CSV exports beside the board.
+
+        Shared by the batch, which produces its CampaignResult by running the
+        analyses, and by the consolidate button, which builds one from results
+        already published. Both end in the same three files.
+        """
+        from report.html_report import write_campaign_html
+        from report.csv_export import write_actions_csv, write_findings_csv
+
+        try:
+            directory = self._campaign_output_directory()
+            directory.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            html_path = directory / f"campaign-{stamp}.html"
+            # Plots live in per-analysis subdirectories of the history folder,
+            # and are recorded by bare file name, so the renderer needs a root
+            # to search or every figure reports itself unavailable.
+            write_campaign_html(campaign, html_path, artifact_roots=(directory,))
+            write_findings_csv(campaign, directory / f"findings-{stamp}.csv")
+            write_actions_csv(campaign, directory / f"actions-{stamp}.csv")
+
+            domains = ", ".join(score.domain for score in campaign.domain_scores)
+            self.log(
+                f"Consolidated report: {campaign.overall_status} across [{domains}], "
+                f"{len(campaign.actions)} action(s) from "
+                f"{len(campaign.results)} analysis result(s)."
+            )
+            self.log(f"Report written to {html_path}")
+            self._set_interaction_status(
+                f"Consolidated report · {campaign.overall_status} · {len(campaign.actions)} action(s)"
+            )
+            if open_browser:
+                wx.LaunchDefaultBrowser(html_path.as_uri())
+            return html_path
+        except Exception as exc:
+            self.log(f"Consolidated report failed: {exc}")
+            self._set_interaction_status("Consolidated report · failed")
+            wx.MessageBox(str(exc), "Consolidated Report Error", wx.OK | wx.ICON_ERROR)
+            return None
+
     def _init_log_tab(self, parent):
         sizer = wx.BoxSizer(wx.VERTICAL)
         self.log_ctrl = wx.TextCtrl(parent, style=wx.TE_MULTILINE | wx.TE_READONLY)
@@ -462,25 +816,43 @@ class KiPIDA_MainDialog(wx.Dialog):
         except Exception:
             return {}
 
+    def _dc_drop_target_pct(self):
+        """The configured voltage-drop budget, read in exactly one place.
+
+        It reaches both the run request and the report adapter from here.  It
+        used to be read off the widget again when the results arrived, which
+        is the shape of defect B1 is about: two readings of one setting that
+        can disagree once the user edits the field mid-solve.
+        """
+        try:
+            return min(100.0, max(0.0, float(self.txt_drop_pct.GetValue())))
+        except (TypeError, ValueError):
+            return 5.0
+
+    def _build_dc_request(self):
+        """Capture every live-board dependency for a DC solve."""
+        self._refresh_live_board_state()
+        system_rails = self.power_tree.rails
+        if not system_rails:
+            raise ValueError("No power rails defined.")
+        grid_size = max(0.01, float(self.txt_grid_size.GetValue()))
+        return prepare_dc_request(
+            self.board,
+            system_rails,
+            grid_size,
+            self.runtime_panel.get_settings(persist=True),
+            self.chk_debug.GetValue(),
+            log_callback=self.log,
+            board_path=self._board_file_path(),
+            maximum_drop_pct=self._dc_drop_target_pct(),
+        )
+
     def on_run(self, event, update_results=True):
         if not self._ensure_analysis_slot():
             return
         self._select_workspace(self.PAGE_LOG)
         try:
-            self._refresh_live_board_state()
-            system_rails = self.power_tree.rails
-            if not system_rails:
-                raise ValueError("No power rails defined.")
-            grid_size = max(0.01, float(self.txt_grid_size.GetValue()))
-            request = prepare_dc_request(
-                self.board,
-                system_rails,
-                grid_size,
-                self.runtime_panel.get_settings(persist=True),
-                self.chk_debug.GetValue(),
-                log_callback=self.log,
-                board_path=self._board_file_path(),
-            )
+            request = self._build_dc_request()
             callbacks = DCControllerCallbacks(
                 on_progress=self._dc_progress,
                 on_complete=lambda result: self._finish_dc_job(result, update_results),
@@ -539,15 +911,25 @@ class KiPIDA_MainDialog(wx.Dialog):
         rail = next((item for item in self.power_tree.rails if item.net_name == settings.rail_name), None)
         if rail is None:
             raise ValueError(f"Power rail '{settings.rail_name}' is not available.")
-        if not settings.source.ref_des:
-            raise ValueError("Select a source component in the AC Impedance tab.")
-        if not settings.measurement_port.ref_des:
-            raise ValueError("Select a measurement component in the AC Impedance tab.")
-
+        # Source and port are resolved automatically when left unset. A rail
+        # fed by a regulator has no UnifiedSource to select, so demanding one
+        # here made every such rail unanalysable whatever the user picked.
+        #
+        # The impedance target is resolved the same way: left blank it follows
+        # from the rail's own voltage and configured load, so a board is never
+        # judged against a number nobody chose.
+        target_ohm, target_provenance = resolve_target_impedance(rail, settings)
+        settings = replace(
+            settings,
+            target_impedance_ohm=target_ohm,
+            target_impedance_provenance=target_provenance,
+        )
+        self.log(f"AC target impedance: {target_provenance}.")
         debug_mode = self.chk_debug.GetValue()
         builder = ACModelBuilder(self.board, debug=debug_mode, log_callback=self.log)
         network = builder.build(
             rail, settings, grid_size_mm=max(0.1, float(settings.mesh_resolution_mm)),
+            all_rails=self.power_tree.rails,
         )
         self.log(
             f"AC network: {network.node_count:,} nodes, requested grid "
@@ -586,6 +968,57 @@ class KiPIDA_MainDialog(wx.Dialog):
             return
         self._start_ac_job(optimize=True)
 
+    def _build_ac_request(self, optimize=False):
+        """Capture the AC network and settings for one sweep."""
+        settings, network = self._prepare_ac_analysis()
+        compute_settings = self.runtime_panel.get_settings(persist=True)
+        self._log_ac_backend_decision(network, compute_settings)
+        # The report needs the settings the sweep actually ran with, and the
+        # panel is free to change under the user's hands while it runs.
+        self._active_ac_settings = deepcopy(settings)
+        return ACRunRequest(
+            settings=settings,
+            network=network,
+            compute_settings=compute_settings,
+            debug=self.chk_debug.GetValue(),
+            optimize=bool(optimize),
+        )
+
+    def _log_ac_backend_decision(self, network, compute_settings):
+        """Say which backend the sweep will really use, not which was asked for."""
+        if compute_settings.backend == "AUTO":
+            # AUTO used to be rewritten to CPU here, before the solver had
+            # any say. The backend already handles a complex non-Hermitian
+            # matrix with BiCGSTAB, and the sweep already falls back to CPU
+            # on non-convergence, so let it choose -- guarded by the
+            # first-point accuracy audit.
+            #
+            # Report the decision the backend will actually make rather
+            # than an intention: AUTO only reaches CUDA once the network
+            # clears the threshold, and announcing an attempt that the
+            # node count rules out is how a log starts lying.
+            #
+            # A sweep is judged by cuda_min_nodes_sweep, not the
+            # single-solve cuda_min_nodes, so quote the bar that applies.
+            nodes = int(getattr(network, "node_count", 0) or 0)
+            threshold = int(
+                getattr(compute_settings, "cuda_min_nodes_sweep", None)
+                or getattr(compute_settings, "cuda_min_nodes", 0) or 0
+            )
+            if nodes >= threshold:
+                self.log(
+                    f"AC backend AUTO: {nodes:,} nodes reaches the {threshold:,}-node "
+                    "CUDA threshold; the first frequency point will be verified "
+                    "against a CPU direct solve, falling back to CPU if they "
+                    "disagree or if CUDA fails to converge."
+                )
+            else:
+                self.log(
+                    f"AC backend AUTO: {nodes:,} nodes is below the {threshold:,}-node "
+                    "CUDA threshold, so this sweep runs on CPU. Force CUDA in Runtime "
+                    "settings to use the GPU and its accuracy audit anyway."
+                )
+
     def _start_ac_job(self, optimize=False):
         if not self._ensure_analysis_slot():
             return
@@ -593,22 +1026,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         label = "Decoupling Optimization" if optimize else "AC Impedance Analysis"
         self.log(f"--- Starting {label} ---")
         try:
-            settings, network = self._prepare_ac_analysis()
-            compute_settings = self.runtime_panel.get_settings(persist=True)
-            if compute_settings.backend == "AUTO":
-                compute_settings = replace(compute_settings, backend="CPU")
-                self.log(
-                    "AC backend AUTO: selected CPU direct sparse solve for the general "
-                    "complex frequency-domain matrix. Force CUDA in Runtime settings to override."
-                )
-            request = ACRunRequest(
-                settings=settings,
-                network=network,
-                compute_settings=compute_settings,
-                debug=self.chk_debug.GetValue(),
-                optimize=bool(optimize),
-            )
-            self._active_ac_settings = deepcopy(settings)
+            request = self._build_ac_request(optimize=optimize)
             callbacks = ACControllerCallbacks(
                 on_progress=self._ac_progress,
                 on_complete=self._finish_ac_job,
@@ -736,6 +1154,18 @@ class KiPIDA_MainDialog(wx.Dialog):
             f"Differential analysis · {completed}/{total} · {detail}"
         )
 
+    def _build_differential_request(self):
+        """Capture the pairs, stackup and copper geometry for one Z solve."""
+        settings, pairs, stackup, snapshot = self._prepare_differential_analysis()
+        return DifferentialRunRequest(
+            settings=settings,
+            pairs=tuple(pairs),
+            stackup=stackup,
+            snapshot=snapshot,
+            debug=self.chk_debug.GetValue(),
+            plot_lock=self._plot_lock,
+        )
+
     def on_run_differential(self, event):
         if self.differential_controller.is_running:
             return
@@ -744,21 +1174,13 @@ class KiPIDA_MainDialog(wx.Dialog):
         self._select_workspace(self.PAGE_LOG)
         self.log("--- Starting Differential Pair Impedance Analysis ---")
         try:
-            settings, pairs, stackup, snapshot = self._prepare_differential_analysis()
+            request = self._build_differential_request()
         except Exception as exc:
             self.log(f"Differential Setup Error: {exc}")
             wx.MessageBox(str(exc), "Differential Setup Error", wx.OK | wx.ICON_ERROR)
             return
         self.btn_run_differential.Disable()
         self._set_interaction_status("Differential analysis · running")
-        request = DifferentialRunRequest(
-            settings=settings,
-            pairs=tuple(pairs),
-            stackup=stackup,
-            snapshot=snapshot,
-            debug=self.chk_debug.GetValue(),
-            plot_lock=self._plot_lock,
-        )
         callbacks = DifferentialControllerCallbacks(
             on_progress=self._differential_progress,
             on_complete=self._finish_differential_job,
@@ -837,52 +1259,22 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.log(f"EMI/EMC progress: {completed}/{total} ({detail})")
         self._set_interaction_status(f"EMI/EMC · {completed}/{total} · {detail}")
 
-    def on_run_emc(self, _event):
-        if self.emc_controller.is_running:
-            return
-        if not self._ensure_analysis_slot():
-            return
-        self._select_workspace(self.PAGE_LOG)
-        self.log("--- Starting EMI / EMC Pre-compliance Analysis ---")
-        try:
-            (
-                settings, pairs, snapshot, ac_results, differential_results,
-                thermal_result, board_file_path,
-            ) = self._prepare_emc_analysis()
-        except Exception as exc:
-            self.log(f"EMI/EMC Setup Error: {exc}")
-            wx.MessageBox(str(exc), "EMI/EMC Setup Error", wx.OK | wx.ICON_ERROR)
-            return
-        if settings.phase10.enabled and settings.phase10.auto_run_full_wave:
-            backend = str(settings.phase10.full_wave_backend).upper()
-            if backend == "PALACE_REMOTE":
-                execution_detail = (
-                    "Ki-PIDA will transfer the selected Palace project directory to "
-                    f"{settings.phase10.palace_remote_host} and run Palace with "
-                    f"{settings.phase10.palace_remote_mpi_processes} MPI process(es). "
-                    f"The total timeout is {settings.phase10.solver_timeout_s:g} seconds. "
-                )
-                title = "Confirm Palace LAN execution"
-                duration_detail = "Continue?"
-            else:
-                execution_detail = "Phase 10 will run targeted local openEMS simulations. "
-                title = "Confirm openEMS execution"
-                duration_detail = (
-                    f"This can take up to {settings.phase10.solver_timeout_s:g} seconds per "
-                    f"region for {settings.phase10.maximum_regions} region(s). Continue?"
-                )
-            answer = wx.MessageBox(
-                execution_detail + duration_detail,
-                title,
-                wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
-            )
-            if answer != wx.YES:
-                settings.phase10.auto_run_full_wave = False
-                self.log("[PHASE 10] Full-wave execution declined; exporting regions only.")
-        self.btn_run_emc.Disable()
-        self.btn_cancel_emc.Enable()
-        self._set_interaction_status("EMI/EMC · running")
-        request = EMCRunRequest(
+    def _build_emc_request(self):
+        """Capture geometry, sources and the other domains' latest results.
+
+        Inside a campaign the cross-domain inputs collected here are replaced
+        by the ones that campaign produces: CampaignEngine folds its own AC,
+        differential and thermal outcomes into this request before EMC runs,
+        so the return-path rules are graded against the same board state as
+        everything else in the run rather than against whatever the session
+        happened to hold.
+        """
+        (
+            settings, pairs, snapshot, ac_results, differential_results,
+            thermal_result, board_file_path,
+        ) = self._prepare_emc_analysis()
+        self._confirm_phase10_full_wave(settings)
+        return EMCRunRequest(
             settings=settings,
             pairs=tuple(pairs),
             snapshot=snapshot,
@@ -893,6 +1285,56 @@ class KiPIDA_MainDialog(wx.Dialog):
             board_file_path=board_file_path,
             plot_lock=self._plot_lock,
         )
+
+    def _confirm_phase10_full_wave(self, settings):
+        if settings.phase10.enabled and settings.phase10.auto_run_full_wave:
+            backend = str(settings.phase10.full_wave_backend).upper()
+            if backend == "PALACE_REMOTE":
+                # No per-run prompt. The remote host, its MPI process count and
+                # the timeout are configured deliberately on the Phase 10
+                # panel, so confirming the same LAN machine on every EMC run is
+                # noise rather than a safeguard.
+                #
+                # The transfer is still announced, because it leaves this
+                # machine. Not asking is the user's call; not telling would not
+                # be.
+                self.log(
+                    "[PHASE 10] Transferring the Palace project directory to "
+                    f"{settings.phase10.palace_remote_host} and running Palace with "
+                    f"{settings.phase10.palace_remote_mpi_processes} MPI process(es); "
+                    f"timeout {settings.phase10.solver_timeout_s:g} s. Turn off "
+                    "'auto-run full wave' on the EMI/EMC panel to stop this."
+                )
+            else:
+                # openEMS runs locally, so this prompt is about how long the
+                # machine will be busy, not about data leaving it. It stays.
+                answer = wx.MessageBox(
+                    "Phase 10 will run targeted local openEMS simulations. "
+                    f"This can take up to {settings.phase10.solver_timeout_s:g} seconds per "
+                    f"region for {settings.phase10.maximum_regions} region(s). Continue?",
+                    "Confirm openEMS execution",
+                    wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
+                )
+                if answer != wx.YES:
+                    settings.phase10.auto_run_full_wave = False
+                    self.log("[PHASE 10] Full-wave execution declined; exporting regions only.")
+
+    def on_run_emc(self, _event):
+        if self.emc_controller.is_running:
+            return
+        if not self._ensure_analysis_slot():
+            return
+        self._select_workspace(self.PAGE_LOG)
+        self.log("--- Starting EMI / EMC Pre-compliance Analysis ---")
+        try:
+            request = self._build_emc_request()
+        except Exception as exc:
+            self.log(f"EMI/EMC Setup Error: {exc}")
+            wx.MessageBox(str(exc), "EMI/EMC Setup Error", wx.OK | wx.ICON_ERROR)
+            return
+        self.btn_run_emc.Disable()
+        self.btn_cancel_emc.Enable()
+        self._set_interaction_status("EMI/EMC · running")
         callbacks = EMCControllerCallbacks(
             on_progress=self._emc_progress,
             on_complete=self._finish_emc_job,
@@ -996,8 +1438,88 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.log(f"Coupled Thermal Analysis Error: {exc}")
             wx.MessageBox(str(exc), "Coupled Thermal Analysis Error", wx.OK | wx.ICON_ERROR)
 
-    def _start_thermal_pipeline(self, coupled):
-        """Capture wx settings, then prepare and solve entirely off the GUI thread."""
+    # Solver modules whose identity decides what the results mean. If one of
+    # these is supplied by another directory on sys.path, every number below
+    # comes from code nobody deployed.
+    PROVENANCE_MODULES = (
+        "cfd_solver", "mesh_hybrid", "thermal_solver", "solver",
+        "config_manager", "analysis_adapters", "compute_backend",
+    )
+
+    def _log_module_provenance(self):
+        """Name any solver imported from outside this plugin directory.
+
+        The startup line reports where the entry point lives, which is all it
+        can know. The plugin imports flat top-level names, so a second copy
+        earlier on sys.path silently supplies modules while the path and the
+        fingerprint both look right -- new UI, old solver, and no way to see it.
+
+        Silent when everything comes from here, which is the normal case.
+        """
+        try:
+            import os
+
+            from runtime_environment import imported_module_origins
+
+            root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            strangers = imported_module_origins(self.PROVENANCE_MODULES, root)
+        except Exception as exc:  # pragma: no cover - never block startup
+            self.log(f"[INIT] Could not check module provenance: {exc}")
+            return
+        for entry in strangers:
+            self.log(
+                f"[INIT] WARNING: {entry} -- this module is NOT from the plugin "
+                "directory. Its results come from a different copy."
+            )
+
+    def _cfd_free_stream_for_thermal(self):
+        """CFD free-stream speed to drive the surface coefficients, or None.
+
+        The campaign engine grew this handover first, but nothing in this
+        dialog reaches CampaignEngine -- on_build_campaign_report consolidates
+        finished results rather than running the engine -- so the coupling was
+        unreachable code. This is the same rule on the path the user actually
+        takes: run the enclosure CFD, then run thermal.
+
+        Forced flow only. Under buoyancy the velocity is *caused* by the
+        temperature field thermal is about to compute, so handing it a speed
+        resolved against a cold board would feed the answer back into its own
+        question.
+        """
+        result = getattr(self, "cfd_result", None)
+        if result is None:
+            return None
+        if not getattr(self, "_cfd_forced_flow", False):
+            self.log(
+                "Enclosure CFD was buoyancy-driven, so its velocity is not used "
+                "for the thermal surface coefficients: it depends on the "
+                "temperature field rather than setting it."
+            )
+            return None
+        velocity = float(getattr(result, "board_free_stream_velocity_m_s", 0.0) or 0.0)
+        cells = int(getattr(result, "board_free_stream_cells", 0) or 0)
+        if velocity <= 0.0 or cells <= 0:
+            self.log(
+                "Enclosure CFD produced no usable free-stream sample over the "
+                "board (mesh too coarse to offer cells clear of every solid); "
+                "thermal keeps its configured airflow."
+            )
+            return None
+        self.log(
+            f"Thermal will use the CFD free-stream speed of {velocity:.4g} m/s "
+            f"sampled over {cells} cell(s) -- estimated, not measured."
+        )
+        return velocity
+
+    def _build_thermal_request(self, coupled, resolve_air_velocity=True):
+        """Capture wx settings so the solve can run entirely off the GUI thread.
+
+        ``resolve_air_velocity`` is False inside a campaign that also runs the
+        enclosure CFD: there the handover belongs to CampaignEngine, which has
+        the CFD outcome of *this* run.  Resolving it here would pin the
+        session's previous CFD result and, because the engine only fills a
+        velocity that is still None, would win over the fresh one.
+        """
         self._refresh_live_board_state()
         if not self.thermal_panel.settings.components:
             self.thermal_panel.refresh_components(preserve_user=True)
@@ -1027,7 +1549,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             log_callback=self.log,
             board_file_path=board_file_path,
         ).build(settings, rails=rails, copper_losses=[])
-        request = ThermalRunRequest(
+        return ThermalRunRequest(
             settings=settings,
             board_model=board_model,
             rails=tuple(rails),
@@ -1037,10 +1559,16 @@ class KiPIDA_MainDialog(wx.Dialog):
             dc_request=dc_request,
             board_signature=self._thermal_board_signature,
             cached_entries=dict(self._thermal_session_cache),
+            air_velocity_m_s=(
+                self._cfd_free_stream_for_thermal() if resolve_air_velocity else None
+            ),
         )
+
+    def _start_thermal_pipeline(self, coupled):
+        request = self._build_thermal_request(coupled)
         callbacks = ThermalControllerCallbacks(
             on_progress=self._thermal_worker_progress,
-            on_complete=lambda outcome: self._finish_thermal_job(outcome, settings),
+            on_complete=lambda outcome: self._finish_thermal_job(outcome, request.settings),
             on_error=lambda exc: self._fail_thermal_worker(coupled, exc),
             on_log=self._thermal_worker_log,
         )
@@ -1218,6 +1746,14 @@ class KiPIDA_MainDialog(wx.Dialog):
         """Extract all KiCad-dependent data before starting the worker thread."""
         self._refresh_live_board_state()
         settings = self.cfd_panel.get_settings()
+        # Captured now, not when the result arrives: the user is free to edit
+        # the patch list while the solve runs, and the coupling rule must
+        # describe the run that actually happened.
+        self._cfd_forced_flow = any(
+            str(getattr(patch, "kind", "")).upper() in {"INLET", "FAN"}
+            and float(getattr(patch, "velocity_m_s", 0.0) or 0.0) > 0.0
+            for patch in (settings.patches or ())
+        )
         if not self.thermal_panel.settings.components:
             self.thermal_panel.refresh_components(preserve_user=True)
         thermal_settings = self.thermal_panel.get_settings()
@@ -1260,6 +1796,18 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.log(f"CFD progress: {completed}/{total} ({detail})")
         self._set_interaction_status(f"Enclosure CFD · {completed}/{total} · {detail}")
 
+    def _build_cfd_request(self):
+        """Capture the enclosure model and settings for one CFD solve."""
+        settings, board_model, dc_request = self._prepare_cfd_analysis()
+        return CFDRunRequest(
+            board_model=board_model,
+            settings=settings,
+            compute_settings=self.runtime_panel.get_settings(persist=True),
+            debug=self.chk_debug.GetValue(),
+            dc_request=dc_request,
+            plot_lock=self._plot_lock,
+        )
+
     def on_run_cfd(self, event):
         if self.cfd_controller.is_running:
             self.cfd_controller.cancel()
@@ -1274,23 +1822,13 @@ class KiPIDA_MainDialog(wx.Dialog):
         self._select_workspace(self.PAGE_LOG)
         self.log("--- Starting Phase 4 Enclosure CFD Analysis ---")
         try:
-            settings, board_model, dc_request = self._prepare_cfd_analysis()
+            request = self._build_cfd_request()
         except Exception as exc:
             self.log(f"Enclosure CFD setup error: {exc}")
             wx.MessageBox(str(exc), "Enclosure CFD Setup Error", wx.OK | wx.ICON_ERROR)
             return
 
         self.btn_run_cfd.SetLabel("Cancel Enclosure CFD")
-        debug_mode = self.chk_debug.GetValue()
-        compute_settings = self.runtime_panel.get_settings(persist=True)
-        request = CFDRunRequest(
-            board_model=board_model,
-            settings=settings,
-            compute_settings=compute_settings,
-            debug=debug_mode,
-            dc_request=dc_request,
-            plot_lock=self._plot_lock,
-        )
         callbacks = CFDControllerCallbacks(
             on_progress=self._cfd_worker_progress,
             on_complete=self._finish_cfd_job,
@@ -1375,13 +1913,18 @@ class KiPIDA_MainDialog(wx.Dialog):
 
     def _update_results_ui(self):
         self._result_generation += 1
-        try:
-            drop_pct_ui = min(100.0, max(0.0, float(self.txt_drop_pct.GetValue())))
-        except (TypeError, ValueError):
-            drop_pct_ui = 5.0
+        drop_pct_ui = self._dc_drop_target_pct()
+        # adapt_dc_run, not adapt_dc_result: sizing the copper fix belongs to
+        # the same step, and the campaign's DC adapter calls the same function
+        # so a batch's report and this tab cannot end up disagreeing.
+        dc_result = adapt_dc_run(
+            self.system_results, drop_pct_ui,
+            board_path=self._board_file_path(), rails=self.power_tree.rails,
+            log_callback=self.log,
+        )
         page = self._publish_results(
             "DC", format_dc_report(self.system_results), [],
-            structured_result=adapt_dc_result(self.system_results, drop_pct_ui),
+            structured_result=dc_result,
         )
         if not self.system_results:
             return
@@ -1441,6 +1984,10 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.log(f"DC plot rendering error: {exc}")
 
     def on_close(self, event):
+        if self.campaign_controller.is_running:
+            self._cancel_batch()
+            self.log("Close requested; cancelling the analysis batch first.")
+            return
         if self.dc_controller.is_running:
             self.dc_controller.cancel()
             self._set_interaction_status("DC analysis · cancelling")
