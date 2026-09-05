@@ -10,7 +10,14 @@ This drives the same code path with the target supplied on the command line,
 so the action can be exercised on real copper instead of only on synthetic
 BranchLoss objects.
 
-    python validation/advisor_on_board.py <board.kicad_pcb> <net> <target_v>
+    python validation/advisor_on_board.py <board.kicad_pcb> <net> <target_v> [--fast]
+
+It runs with ``verify=True``, which is the whole point now that the stitching-via
+and copper-weight actions have a re-simulable form: every action it prints
+should come back ``verified=True`` with a re-simulated drop. ``--fast`` takes
+the unverified first-order path instead, which is what the UI's quick pass
+does, and is the way to see how far the estimate is from the re-solved answer
+on real copper.
 
 Nothing is written; the board is opened read-only.
 """
@@ -34,6 +41,7 @@ def main(argv):
     if len(argv) < 4:
         raise SystemExit(__doc__)
     board_path, net_name, target = argv[1], argv[2], float(argv[3])
+    verify = "--fast" not in argv[4:]
 
     board = read_board(board_path)
     sidecar = os.path.splitext(board_path)[0] + ".kipida.json"
@@ -72,7 +80,7 @@ def main(argv):
     remediations = build_dc_remediations(
         board, net_name, "", sources, loads,
         target_drop_v=target, grid_step_mm=GRID_STEP_MM,
-        verify=False, log_callback=lambda message: print(f"  [advisor] {message}"),
+        verify=verify, log_callback=lambda message: print(f"  [advisor] {message}"),
     )
     print()
     print(f"{len(remediations)} remediation(s):")

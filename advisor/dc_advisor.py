@@ -22,6 +22,13 @@ ids and branch ordering are stable across a what-if width change. That is what
 makes it valid to reuse a caller's ``sources``/``loads`` node ids after
 re-meshing, and to zip old and new branch lists together for the first-order
 prediction. :func:`find_node_at` is provided so callers need not guess ids.
+
+The same holds for the other two what-ifs, for the same reason and not by luck.
+Changing a layer's copper *weight* changes thicknesses only. Duplicating a via
+at the coordinate it already occupies adds branches between nodes that already
+exist, so it mints none. Node ids survive both; branch *ordering* does not
+survive the via case, which is why its prediction is graded differently (see
+:func:`_resimulate_board_change`).
 """
 
 from __future__ import annotations
@@ -37,13 +44,13 @@ except (ImportError, ValueError):
     from analysis_contract import Remediation, RemediationEffort
 
 try:
-    from ..ingest.board_reader import ParsedBoard, Segment
+    from ..ingest.board_reader import ParsedBoard, Segment, Stackup
     from ..ingest.track_resistance import RHO_COPPER
     from ..mesh import Mesh
     from ..mesh_hybrid import HybridMesher
     from ..solver import Solver
 except (ImportError, ValueError):
-    from ingest.board_reader import ParsedBoard, Segment
+    from ingest.board_reader import ParsedBoard, Segment, Stackup
     from ingest.track_resistance import RHO_COPPER
     from mesh import Mesh
     from mesh_hybrid import HybridMesher
@@ -370,6 +377,168 @@ def simulate_width_change(
     )
 
 
+def _resimulate_board_change(
+    parsed_board: ParsedBoard, modified_board: ParsedBoard,
+    net_name: str, ground_net_name: str, sources: list, loads: list,
+    *, predicted_drop_v: float, grid_step_mm: float = 0.1, solver=None,
+    log_callback: Optional[Callable[[str], None]] = None,
+) -> WhatIfOutcome:
+    """Re-mesh and re-solve a modified board, and grade a prediction against it.
+
+    :func:`simulate_width_change` predicts by holding baseline currents and
+    crediting the resistance saved on each branch, which requires the two
+    meshes to have the same branches in the same order. Adding vias does not
+    satisfy that. So what is graded here is the caller's own sizing target --
+    the number the action already prints in ``predicted_gain`` and asks a
+    reader to trust -- against what the network actually does. That comparison
+    is the point of the exercise: a first-order estimate is not wrong for being
+    first order, it is unverified until something re-solves it.
+    """
+    solver = solver or Solver()
+
+    baseline_mesh = build_net_mesh(
+        parsed_board, net_name, ground_net_name,
+        grid_step_mm=grid_step_mm, log_callback=log_callback,
+    )
+    baseline_v = solver.solve(baseline_mesh, sources, loads)
+    if not baseline_v:
+        return WhatIfOutcome(0.0, 0.0, 0.0, 0.0, converged=False)
+    baseline_drop = load_drop_v(baseline_v, sources, loads)
+
+    modified_mesh = build_net_mesh(
+        modified_board, net_name, ground_net_name,
+        grid_step_mm=grid_step_mm, log_callback=log_callback,
+    )
+    resimulated_v = solver.solve(modified_mesh, sources, loads)
+    if not resimulated_v:
+        return WhatIfOutcome(baseline_drop, predicted_drop_v, 0.0, 0.0, converged=False)
+    resimulated_drop = load_drop_v(resimulated_v, sources, loads)
+
+    error_pct = (
+        abs(predicted_drop_v - resimulated_drop) / resimulated_drop * 100.0
+        if resimulated_drop > 0.0 else 0.0
+    )
+    return WhatIfOutcome(
+        baseline_drop_v=baseline_drop,
+        predicted_drop_v=predicted_drop_v,
+        resimulated_drop_v=resimulated_drop,
+        prediction_error_pct=error_pct,
+        converged=True,
+    )
+
+
+def _board_with_extra_vias(
+    parsed_board: ParsedBoard, net_name: str, layer_pair: str, extra_vias: int,
+) -> ParsedBoard:
+    """A copy of the board with *extra_vias* more vias in this net's via field.
+
+    Each addition is a duplicate of an existing via of *net_name* spanning
+    *layer_pair*, at the coordinate that via already occupies, dealt round-robin
+    so the field grows evenly rather than piling onto whichever via comes first.
+
+    Placing them there is the answer to the objection that kept this action
+    unverified -- "there is no equivalent for 'add a via near this one' that
+    does not require inventing a position". The position that invents nothing is
+    the one already on the board. The mesher joins a duplicate to the same pair
+    of nodes, the solver sums the parallel conductances, and N barrels in
+    parallel carry R/N, which is the claim the sizing makes.
+
+    It reads the proposal conservatively rather than flatteringly. Real
+    stitching vias are spread over the pour and give the current several entry
+    points into it; a duplicate at an existing coordinate relieves the barrel
+    resistance and leaves the pour's spreading resistance entirely alone. The
+    re-simulated gain is therefore a lower bound on what spread-out vias
+    achieve, and an exact account of the barrels the sizing is about.
+
+    What it does not resolve is *which* vias get the company: the sizing counts
+    the branches on the dominant path, and the field it grows is every via of
+    the net on that layer pair. The two coincide when the dominant path is the
+    via field, which is the case the action fires on.
+    """
+    if extra_vias <= 0:
+        return parsed_board
+    matching = [
+        via for via in parsed_board.vias
+        if via.net_name == net_name and len(via.layers) >= 2
+        and f"{via.layers[0]}-{via.layers[-1]}" == layer_pair
+    ]
+    if not matching:
+        return parsed_board
+    extra = [copy.copy(matching[i % len(matching)]) for i in range(extra_vias)]
+    modified = copy.copy(parsed_board)
+    modified.vias = list(parsed_board.vias) + extra
+    return modified
+
+
+def _board_with_copper_weight(
+    parsed_board: ParsedBoard, layer_name: str, new_thickness_mm: float,
+) -> ParsedBoard:
+    """A copy of the board with one copper layer re-thicknessed.
+
+    The stackup is rebuilt rather than mutated: the caller's ``ParsedBoard``
+    and its ``Stackup`` are both untouched afterwards.
+
+    ``total_thickness_mm`` is left alone on purpose. A fabricator absorbs a
+    copper-weight change in the dielectric to hold the finished board height,
+    and it is that height the via barrel model uses -- moving it here would
+    quietly re-price every via in the mesh as a side effect of a question about
+    a pour.
+    """
+    layers = [
+        replace(layer, thickness_mm=new_thickness_mm)
+        if layer.name == layer_name else layer
+        for layer in parsed_board.stackup.layers
+    ]
+    modified = copy.copy(parsed_board)
+    modified.stackup = Stackup(
+        layers=layers,
+        total_thickness_mm=parsed_board.stackup.total_thickness_mm,
+        copper_layer_count=parsed_board.stackup.copper_layer_count,
+    )
+    return modified
+
+
+def simulate_via_addition(
+    parsed_board: ParsedBoard, net_name: str, ground_net_name: str,
+    sources: list, loads: list, layer_pair: str, extra_vias: int,
+    *, predicted_drop_v: float, grid_step_mm: float = 0.1, solver=None,
+    log_callback: Optional[Callable[[str], None]] = None,
+) -> WhatIfOutcome:
+    """Re-mesh and re-solve with *extra_vias* added to this net's via field."""
+    return _resimulate_board_change(
+        parsed_board,
+        _board_with_extra_vias(parsed_board, net_name, layer_pair, extra_vias),
+        net_name, ground_net_name, sources, loads,
+        predicted_drop_v=predicted_drop_v, grid_step_mm=grid_step_mm,
+        solver=solver, log_callback=log_callback,
+    )
+
+
+def simulate_copper_weight_change(
+    parsed_board: ParsedBoard, net_name: str, ground_net_name: str,
+    sources: list, loads: list, layer_name: str, new_thickness_mm: float,
+    *, predicted_drop_v: float, grid_step_mm: float = 0.1, solver=None,
+    log_callback: Optional[Callable[[str], None]] = None,
+) -> WhatIfOutcome:
+    """Re-mesh and re-solve with one layer's copper weight changed.
+
+    The mesher reads layer thickness for pours *and* for the tracks on the same
+    layer, so both move together -- which is what a fabricator does. What it
+    does not model is etch compensation: heavier copper is etched with more
+    undercut, so a track drawn at a given width finishes narrower than it does
+    in thin copper. The re-simulation is therefore exact for the sheet
+    resistance it is asked about and optimistic by that unmodelled amount for
+    any track on the same layer. Callers must keep saying so.
+    """
+    return _resimulate_board_change(
+        parsed_board,
+        _board_with_copper_weight(parsed_board, layer_name, new_thickness_mm),
+        net_name, ground_net_name, sources, loads,
+        predicted_drop_v=predicted_drop_v, grid_step_mm=grid_step_mm,
+        solver=solver, log_callback=log_callback,
+    )
+
+
 # ---------------------------------------------------------------------------
 # End-to-end remediation building
 # ---------------------------------------------------------------------------
@@ -400,7 +569,7 @@ def _via_pair_of(geometry_source: str) -> str:
 
 def _stitching_via_actions(
     net_name: str, dominant, baseline_drop: float, target_drop_v: float,
-    log,
+    log, *, resimulate=None,
 ) -> list["Remediation"]:
     """Propose parallel vias when the dominant loss sits in via barrels.
 
@@ -415,11 +584,15 @@ def _stitching_via_actions(
     same layer pair, and split the current evenly -- true enough for stitching
     a pour, and wrong if a single via is a bottleneck feeding a long spur.
 
-    Deliberately NOT re-simulated. simulate_width_change rebuilds the board with
-    modified segment widths; there is no equivalent for "add a via near this
-    one" that does not require inventing a position. Reporting verified=False is
-    honest; inventing coordinates so a re-simulation could run would dress a
-    guess up as a measurement.
+    Re-simulated when *resimulate* is supplied -- a callable taking
+    ``(layer_pair, extra_vias, predicted_drop_v)`` and returning a
+    :class:`WhatIfOutcome`. This used to be declared impossible: "there is no
+    equivalent for 'add a via near this one' that does not require inventing a
+    position". The position that invents nothing is the one the via already
+    occupies, and a duplicate there is the conservative reading of the proposal
+    rather than a flattering one -- see :func:`_board_with_extra_vias`. Without
+    *resimulate* the wording and ``verified=False`` are exactly as before: the
+    estimate is not presented as a measurement.
     """
     power_by_pair: dict[str, float] = {}
     for loss in dominant:
@@ -452,18 +625,36 @@ def _stitching_via_actions(
         factor = via_drop / (via_drop - excess)
         count = len([loss for loss in dominant if _via_pair_of(loss.geometry_source) == pair])
         proposed = max(count + 1, int(math.ceil(count * factor)))
+        gain = (
+            f"drop {baseline_drop:.3f} V -> ~{target_drop_v:.3f} V "
+            "(first-order, parallel-resistance estimate, not re-simulated)"
+        )
+        verified = False
+        if resimulate is not None:
+            outcome = resimulate(pair, proposed - count, target_drop_v)
+            if outcome is not None and outcome.converged:
+                gain = (
+                    f"drop {outcome.baseline_drop_v:.3f} V -> "
+                    f"{outcome.resimulated_drop_v:.3f} V (re-simulated with the "
+                    f"added vias beside the existing ones, so the pour's "
+                    f"spreading resistance is unrelieved and this is a lower "
+                    f"bound on the gain)"
+                )
+                verified = True
+            else:
+                log(
+                    f"What-if re-simulation for vias {pair} did not converge; "
+                    "falling back to an unverified first-order estimate."
+                )
         remediations.append(Remediation(
             action="ADD_STITCHING_VIAS",
             target=f"{net_name} / {pair} / {count} via(s) on the dominant path",
             current_value=float(count),
             proposed_value=float(proposed),
             unit="vias",
-            predicted_gain=(
-                f"drop {baseline_drop:.3f} V -> ~{target_drop_v:.3f} V "
-                "(first-order, parallel-resistance estimate, not re-simulated)"
-            ),
+            predicted_gain=gain,
             effort="LOW" if proposed <= 2 * count else "MEDIUM",
-            verified=False,
+            verified=verified,
             layer=pair,
             alternatives=[
                 "Increase the finished via diameter instead of the count",
@@ -500,7 +691,7 @@ OUNCE_MM = 0.0348
 
 def _plane_copper_actions(
     parsed_board: ParsedBoard, net_name: str, dominant,
-    baseline_drop: float, target_drop_v: float, log,
+    baseline_drop: float, target_drop_v: float, log, *, resimulate=None,
 ) -> list["Remediation"]:
     """Propose heavier copper when the dominant loss is spread through a pour.
 
@@ -519,12 +710,18 @@ def _plane_copper_actions(
     Beyond that the honest answer is that copper weight is the wrong lever and
     the plane needs re-planning, not thickening.
 
-    Not re-simulated. simulate_width_change re-meshes with modified segment
-    widths; there is no equivalent for "the same pour, thicker", and the
-    stackup change also alters etch compensation and trace geometry the mesher
-    does not model. Reporting an unverified first-order estimate is honest;
-    re-simulating only the resistance change would look like verification while
-    ignoring what else moves.
+    Re-simulated when *resimulate* is supplied -- a callable taking
+    ``(layer_name, new_thickness_mm, predicted_drop_v)`` and returning a
+    :class:`WhatIfOutcome`. The equivalent of "the same pour, thicker" is a
+    stackup with one layer re-thicknessed, which the mesher already reads for
+    pours and for the tracks on the same layer.
+
+    The other half of the old objection stands and is not dissolved by
+    re-simulating: heavier copper etches with more undercut, so a track drawn
+    at a given width finishes narrower, and the mesher does not model that. So
+    the re-simulated number is exact for the sheet resistance it is asked about
+    and optimistic by the unmodelled undercut for any track sharing the layer,
+    and the finding says so rather than claiming a clean measurement.
     """
     power_by_layer: dict[str, float] = {}
     for loss in dominant:
@@ -572,18 +769,35 @@ def _plane_copper_actions(
                 "rather than thickening."
             )
             continue
+        gain = (
+            f"drop {baseline_drop:.4f} V -> ~{target_drop_v:.4f} V "
+            "(first-order, sheet-resistance estimate, not re-simulated)"
+        )
+        verified = False
+        if resimulate is not None:
+            outcome = resimulate(layer, quotable * OUNCE_MM, target_drop_v)
+            if outcome is not None and outcome.converged:
+                gain = (
+                    f"drop {outcome.baseline_drop_v:.4f} V -> "
+                    f"{outcome.resimulated_drop_v:.4f} V (re-simulated; excludes "
+                    f"the etch undercut heavier copper adds to tracks on {layer})"
+                )
+                verified = True
+            else:
+                log(
+                    f"What-if re-simulation for the {layer} pour did not "
+                    "converge; falling back to an unverified first-order "
+                    "estimate."
+                )
         remediations.append(Remediation(
             action="INCREASE_COPPER_WEIGHT",
             target=f"{net_name} / {layer} pour",
             current_value=round(current_oz, 3),
             proposed_value=quotable,
             unit="oz",
-            predicted_gain=(
-                f"drop {baseline_drop:.4f} V -> ~{target_drop_v:.4f} V "
-                "(first-order, sheet-resistance estimate, not re-simulated)"
-            ),
+            predicted_gain=gain,
             effort="MEDIUM" if quotable <= 2.0 else "HIGH",
-            verified=False,
+            verified=verified,
             layer=layer,
             alternatives=[
                 "Move the load closer to the regulator",
@@ -654,13 +868,35 @@ def build_dc_remediations(
         if layer:
             power_by_layer[layer] = power_by_layer.get(layer, 0.0) + loss.power_w
     if not power_by_layer:
+        # These two used to be first-order only, on the grounds that neither
+        # had a re-simulable form. Both now do, and `verify` gates them exactly
+        # as it gates the track-width what-if -- so the fast path is still fast
+        # and still labels its numbers as estimates.
+        def _resimulate_vias(pair, extra_vias, predicted):
+            return simulate_via_addition(
+                parsed_board, net_name, ground_net_name, sources, loads,
+                pair, extra_vias, predicted_drop_v=predicted,
+                grid_step_mm=grid_step_mm, solver=solver,
+                log_callback=log_callback,
+            )
+
+        def _resimulate_copper(layer, thickness_mm, predicted):
+            return simulate_copper_weight_change(
+                parsed_board, net_name, ground_net_name, sources, loads,
+                layer, thickness_mm, predicted_drop_v=predicted,
+                grid_step_mm=grid_step_mm, solver=solver,
+                log_callback=log_callback,
+            )
+
         via_actions = _stitching_via_actions(
             net_name, dominant, baseline_drop, target_drop_v, _log,
+            resimulate=_resimulate_vias if verify else None,
         )
         if via_actions:
             return via_actions[:max_actions]
         zone_actions = _plane_copper_actions(
             parsed_board, net_name, dominant, baseline_drop, target_drop_v, _log,
+            resimulate=_resimulate_copper if verify else None,
         )
         if zone_actions:
             return zone_actions[:max_actions]

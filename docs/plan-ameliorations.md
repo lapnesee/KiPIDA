@@ -88,12 +88,59 @@ the cap is too low for buoyant cases or the energy residual needs its own
 normalisation. Measure which before changing either -- the last three
 iteration-count changes were all invisible for a different reason each time.
 
-**A3. Advisor actions are unverified except for track width.**
-`simulate_width_change` re-meshes and re-solves. `ADD_STITCHING_VIAS` and
-`INCREASE_COPPER_WEIGHT` are first-order and say so, but "says so" is weaker
-than "was checked". A via-count what-if needs a defensible position for the
-added vias; a copper-weight what-if needs the stackup change fed back through
-the mesher. Both are feasible; neither is trivial.
+**A3. Advisor actions are unverified except for track width. Done -- both now
+re-simulate, and the check disagreed with the estimate.**
+Each action had an objection recorded against it, and each objection had an
+answer.
+
+* *"There is no equivalent for 'add a via near this one' that does not require
+  inventing a position."* The position that invents nothing is the one the via
+  already occupies. A duplicate there is joined to the same pair of nodes, and
+  the solver sums the parallel conductances -- which is the R/N the sizing
+  claims. It is also the conservative reading: real stitching vias are spread
+  over the pour and give the current several entry points into it, while a
+  stacked duplicate relieves the barrel and leaves the pour's spreading
+  resistance untouched. The re-simulated gain is a lower bound.
+* *"There is no equivalent for 'the same pour, thicker'."* There is: a stackup
+  with one layer re-thicknessed, which the mesher already reads for pours and
+  for the tracks sharing the layer. `total_thickness_mm` is deliberately left
+  alone, because a fabricator absorbs copper weight in the dielectric and that
+  height is what the via barrel model uses -- moving it would re-price every
+  via as a side effect of a question about a pour.
+* The *second* half of the copper-weight objection survives and is not
+  dissolved by re-simulating: heavier copper etches with more undercut, so a
+  track drawn at a width finishes narrower, and the mesher does not model it.
+  The finding still says so. Re-simulation made the number checkable, not
+  complete.
+
+What the check found, which is why this was worth more than a label. Both
+sizings attribute the drop in proportion to dissipated power and scale that
+share down, which assumes the rest of the network holds still. It does not.
+Measured on a two-pour board, source and load on opposite corners:
+
+| ask | first-order promise | re-simulated | error |
+| --- | --- | --- | --- |
+| 2 -> 4 vias | 4.00 mV | 4.06 mV | 1.4 % |
+| 2 -> 6 vias | 3.00 mV | 3.36 mV | 10.6 % |
+| 2 -> 10 vias | 2.00 mV | 2.80 mV | 28.4 % |
+| 2 -> 18 vias | 1.50 mV | 2.42 mV | 38.0 % |
+| F.Cu 1 -> 2 oz | 6.00 mV | 5.63 mV | 6.7 % |
+| F.Cu 1 -> 3 oz | 5.00 mV | 4.97 mV | 0.6 % |
+| F.Cu 1 -> 4 oz | 4.00 mV | 4.64 mV | 13.8 % |
+
+The estimate is good for a modest ask and over-promises for an aggressive one,
+by up to a third, because the drop it cannot reach -- the pour's spreading
+resistance for vias, the barrels for copper weight -- is exactly the part it
+assumed away. Both actions still help; they just do not arrive where they said.
+`verify=False` keeps the old wording and `verified=False`, so the fast path
+never presents an estimate as a measurement.
+
+Not yet run on the reference board: `validation/advisor_on_board.py` now
+defaults to `verify=True` and takes `--fast` for the old path, so the two can
+be compared on real copper by running it twice. The number to look for is the
+same one the table shows: how far the re-simulated drop lands above the
+promise on a 108,000-node plane, where the spreading resistance the estimate
+ignores is far larger than on any synthetic board.
 
 **A4. 900 single-node components in the advisor's mesh. Done -- the lattice
 now follows the copper.**
