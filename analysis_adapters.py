@@ -789,6 +789,34 @@ def adapt_cfd_result(mesh: Any, domain_result: Any) -> AnalysisResult:
             "least 14 cells, or read the velocity as indicative only.",
             confidence=EvidenceConfidence.DETERMINISTIC,
         ))
+        # Solid temperature deserves its own warning, because it is the number
+        # a reader acts on and it fails harder than the velocity does.
+        #
+        # This solver moves heat out of a component only by cell-to-cell
+        # conduction and advection; it has no surface film coefficient, so the
+        # convective boundary layer has to be resolved by the mesh. It cannot
+        # be at millimetre cells. On the reference board that put the hottest
+        # solid at 339 C against 72.6 C from the 3D thermal analysis of the same
+        # board at the same power -- a factor of 6.6 in rise -- and the two
+        # numbers appeared in the same report with nothing saying they
+        # disagreed.
+        solid_c = float(getattr(domain_result, "maximum_solid_temperature_c", 0.0))
+        air_c = float(getattr(domain_result, "maximum_air_temperature_c", 0.0))
+        if solid_c > air_c > 0.0:
+            findings.append(_finding(
+                "CFD-004", 1, "THERMAL", FindingSeverity.HIGH,
+                "Enclosure CFD solid temperatures are not usable at this mesh size",
+                f"The hottest solid reads {solid_c:.1f} C against {air_c:.1f} C for the "
+                "air. This solver carries heat off a solid by cell-to-cell "
+                "conduction and advection only, with no surface film "
+                "coefficient, so the boundary layer must be resolved by the "
+                "mesh -- which millimetre cells cannot do. The figure reflects "
+                "the cell size, not the design.",
+                "Take component temperatures from the 3D thermal analysis, "
+                "which applies a convective correlation and radiation at every "
+                "exposed face. Use this run for the flow field.",
+                confidence=EvidenceConfidence.DETERMINISTIC,
+            ))
     mass_applicable = bool(getattr(domain_result, "mass_balance_applicable", True))
     for index, (key, label) in enumerate((("mass_balance_error_pct", "Mass"), ("energy_balance_error_pct", "Energy")), start=1):
         if key == "mass_balance_error_pct" and not mass_applicable:
@@ -830,6 +858,11 @@ def adapt_cfd_result(mesh: Any, domain_result: Any) -> AnalysisResult:
             "Momentum discretisation validated against laminar duct flow to 0.4% at 20 cells "
             "across the channel; at 6 cells it produced no boundary layer at all. "
             "See docs/validation-cfd.md.",
+            "Solid temperatures assume the convective boundary layer is resolved by the "
+            "mesh: there is no surface film coefficient, so heat leaves a component only "
+            "by conduction and advection between cells. The 3D thermal analysis applies a "
+            "Rayleigh correlation and radiation at each exposed face and is the source to "
+            "use for component temperatures.",
             "Sealed enclosure: no flow crosses a boundary, so mass balance is "
             "not applicable rather than perfect."
             if not mass_applicable else

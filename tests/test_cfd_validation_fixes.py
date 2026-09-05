@@ -234,7 +234,13 @@ class UnderResolvedMeshesAreReported(unittest.TestCase):
         mesh = type("Mesh", (), {
             "shape": (40, cells_across, 40), "cell_count": 40 * cells_across * 40,
         })()
-        return adapt_cfd_result(mesh, EnclosureCFDResult(converged=True))
+        # The reference board's own figures, so the assertions below are about
+        # a case that actually occurred rather than an invented one.
+        return adapt_cfd_result(mesh, EnclosureCFDResult(
+            converged=True,
+            maximum_solid_temperature_c=339.177,
+            maximum_air_temperature_c=186.994,
+        ))
 
     def test_a_coarse_enclosure_raises_a_resolution_finding(self):
         findings = [f for f in self._adapt(6).findings if f.rule_id == "CFD-003"]
@@ -243,6 +249,17 @@ class UnderResolvedMeshesAreReported(unittest.TestCase):
     def test_a_resolved_enclosure_does_not(self):
         findings = [f for f in self._adapt(20).findings if f.rule_id == "CFD-003"]
         self.assertEqual(findings, [])
+
+    def test_a_hot_solid_is_flagged_as_a_mesh_artefact(self):
+        # On the reference board this read 339 C against 72.6 C from the 3D
+        # thermal analysis of the same board at the same power. Both numbers
+        # reached the same report with nothing saying they disagreed.
+        from analysis_contract import FindingSeverity
+
+        adapted = self._adapt(10)
+        findings = [f for f in adapted.findings if f.rule_id == "CFD-004"]
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].severity, FindingSeverity.HIGH)
 
     def test_the_reference_board_resolution_is_flagged(self):
         # p02_alimentation meshes to 24 x 20 x 10. An earlier threshold warned
