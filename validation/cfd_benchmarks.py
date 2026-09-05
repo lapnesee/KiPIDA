@@ -298,8 +298,63 @@ def case_pressure_sweeps():
               f"{result.residuals.continuity[-1]:.4g}")
 
 
+def case_residual_source():
+    """Where does the continuity residual actually live?
+
+    The floor near 1e-2 survived the inlet fix (0.0169 -> 0.0174), so the
+    explanation that blamed the inlet discontinuity was wrong. The standing
+    hypothesis is that _pressure_projection calls _apply_velocity_boundaries
+    *after* correcting the velocity, re-zeroing wall cells the projection had
+    just cleaned and re-introducing divergence in every cell adjacent to a wall.
+
+    If that is right, the divergence must be concentrated in the one-cell shell
+    against the walls and near-zero in the deep interior. If it is spread
+    evenly, the hypothesis is dead and the cause is the scheme itself.
+    """
+    mesh = duct_mesh(30, 10, 8)
+    settings = duct_settings()
+    attach_patches(mesh, settings)
+    result, (u, v, w) = run(mesh, settings)
+
+    dx, dy, dz = mesh.spacing_m
+    divergence = np.zeros(mesh.shape)
+    divergence[1:-1, 1:-1, 1:-1] = (
+        (u[2:, 1:-1, 1:-1] - u[:-2, 1:-1, 1:-1]) / (2 * dx)
+        + (v[1:-1, 2:, 1:-1] - v[1:-1, :-2, 1:-1]) / (2 * dy)
+        + (w[1:-1, 1:-1, 2:] - w[1:-1, 1:-1, :-2]) / (2 * dz)
+    )
+    magnitude = np.abs(divergence)
+
+    # Shell = cells one step from any domain face; core = everything deeper.
+    shell = np.zeros(mesh.shape, dtype=bool)
+    shell[1, :, :] = shell[-2, :, :] = True
+    shell[:, 1, :] = shell[:, -2, :] = True
+    shell[:, :, 1] = shell[:, :, -2] = True
+    core = np.zeros(mesh.shape, dtype=bool)
+    core[2:-2, 2:-2, 2:-2] = True
+
+    print(f"reported continuity residual = {result.residuals.continuity[-1]:.4g}")
+    print(f"  wall-adjacent shell: mean |div| = {magnitude[shell].mean():.4g} 1/s "
+          f"over {int(shell.sum())} cells")
+    print(f"  deep interior core : mean |div| = {magnitude[core].mean():.4g} 1/s "
+          f"over {int(core.sum())} cells")
+    ratio = magnitude[shell].mean() / max(magnitude[core].mean(), 1e-30)
+    print(f"  shell / core = {ratio:.1f}x")
+    print()
+    print("  hypothesis holds if the shell dominates by a wide margin;")
+    print("  it is refuted if the two are comparable.")
+
+    # Also report the share of total squared divergence sitting in the shell,
+    # since that is what an RMS residual actually sums.
+    total = float((magnitude ** 2).sum())
+    if total > 0:
+        print(f"  shell carries {float((magnitude[shell] ** 2).sum()) / total * 100:.1f}% "
+              "of the total squared divergence")
+
+
 CASES = {
     "profile": case_profile,
+    "residual": case_residual_source,
     "flux": case_flux,
     "divergence": case_divergence,
     "convergence": case_mesh_convergence,

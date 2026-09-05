@@ -988,13 +988,17 @@ class CFDSolverSettings:
     tolerance: float = 1.0e-4
     relaxation: float = 0.45
     pseudo_time_step_s: float = 0.02
-    # Jacobi sweeps for the pressure Poisson solve. Jacobi damps low-frequency
-    # error slowly, and it is exactly that long-wavelength component which
-    # enforces global mass balance, so too few sweeps leak mass. Measured on the
-    # validation duct (docs/validation-cfd.md): 30 sweeps -> -8.2%, 60 -> -5.2%,
-    # 240 -> -1.6%, 960 -> -0.6%. 240 buys most of the accuracy at a quarter of
-    # the cost of 960. The principled fix is to solve the Poisson system with
-    # SparseComputeBackend instead of hand-rolled Jacobi.
+    # UNUSED since the pressure Poisson system moved to SparseComputeBackend.
+    #
+    # It set the number of Jacobi sweeps the projection used to clean
+    # divergence. Jacobi bought accuracy linearly and never reached it: 30/60/
+    # 240/960 sweeps gave -8.2/-5.2/-1.6/-0.6% mass error on the validation
+    # duct. The sparse solve reaches 0.08% on the same case and does not have a
+    # sweep count to tune.
+    #
+    # Kept so saved projects and their persisted settings still load. It is
+    # deliberately not removed and not silently repurposed -- a control that
+    # looks live but does nothing is worse than one documented as inert.
     pressure_iterations: int = 240
     include_buoyancy: bool = True
     gravity_x_m_s2: float = 0.0

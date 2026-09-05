@@ -391,8 +391,15 @@ class ResidualsAreDimensionless(unittest.TestCase):
 
         # The threshold has to sit well above float noise, or the test would
         # still pass against the old tautology: that reported 4e-14 %, which is
-        # dutifully greater than zero. This case actually reports about 10 %.
-        self.assertGreater(result.mass_balance_error_pct, 1.0)
+        # dutifully greater than zero.
+        #
+        # It used to assert > 1.0 because this case reported about 10%. Solving
+        # the pressure Poisson system with the sparse backend instead of Jacobi
+        # sweeps took that to ~0.13%, so the old threshold now fails on an
+        # improvement. What the test is for is unchanged -- the figure must be
+        # measured rather than imposed -- so the bound moves to what separates a
+        # real measurement from 1e-14, not to what the solver happens to score.
+        self.assertGreater(result.mass_balance_error_pct, 1.0e-6)
 
     def test_residuals_fall_towards_the_tolerance(self):
         # Dimensionless residuals must decrease. Before normalisation the
@@ -419,9 +426,13 @@ class ResidualsAreDimensionless(unittest.TestCase):
 
         result = EnclosureCFDSolver().solve(mesh, settings)
 
+        # Measured against the start, not the midpoint. Twelve iterations is
+        # too few for the flow to have settled, and the residual genuinely
+        # rises again mid-run as the velocity field grows before it plateaus
+        # (0.0667 -> 0.00087 -> 0.0016 here, flat at 0.0014 by 60 iterations).
+        # Asserting monotonicity would be asserting something untrue.
         continuity = result.residuals.continuity
-        self.assertLess(continuity[-1], continuity[len(continuity) // 2])
-        self.assertLess(continuity[-1], 1.0)
+        self.assertLess(continuity[-1], 0.1 * continuity[0])
 
     def test_a_near_converged_run_is_not_reported_as_a_high_failure(self):
         # The validation duct ends at continuity=1.7e-2 with momentum and
@@ -463,9 +474,32 @@ class ResidualsAreDimensionless(unittest.TestCase):
         stalled = [f for f in adapted.findings if f.rule_id == "CFD-001"]
         self.assertEqual(stalled[0].severity, FindingSeverity.HIGH)
 
-    def test_pressure_sweeps_default_to_the_validated_value(self):
-        # 60 leaked 5.2 % of the mass; 240 leaks 1.6 %. See docs/validation-cfd.md.
-        self.assertGreaterEqual(EnclosureCFDSettings().solver.pressure_iterations, 240)
+    def test_the_projection_no_longer_depends_on_a_sweep_count(self):
+        # pressure_iterations tuned the Jacobi projection, which the sparse
+        # backend replaced. Two wildly different values must now give the same
+        # answer; if they diverge, something still reads the setting and the
+        # comment calling it inert is wrong.
+        from cfd_mesh import CFDMeshGenerator
+        from cfd_model import EnclosureModel
+        from models import CFDBoundaryPatch
+
+        def run(sweeps):
+            settings = EnclosureCFDSettings()
+            settings.geometry.width_mm = 30.0
+            settings.geometry.depth_mm = 30.0
+            settings.geometry.height_mm = 30.0
+            settings.solver.cell_size_mm = 6.0
+            settings.solver.max_iterations = 10
+            settings.solver.pressure_iterations = sweeps
+            settings.solver.include_buoyancy = False
+            model = EnclosureModel((30.0, 30.0, 30.0), patches=[
+                CFDBoundaryPatch("Fan", "FAN", "XMIN", 0.5, 0.5, 0.5, 0.5, 0.8, 25.0),
+                CFDBoundaryPatch("Outlet", "OUTLET", "XMAX", 0.5, 0.5, 0.5, 0.5),
+            ])
+            mesh = CFDMeshGenerator().generate_mesh(model, settings)
+            return EnclosureCFDSolver().solve(mesh, settings).maximum_velocity_m_s
+
+        self.assertAlmostEqual(run(1), run(960), places=9)
 
 
 if __name__ == "__main__":

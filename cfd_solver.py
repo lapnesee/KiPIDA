@@ -190,6 +190,76 @@ class EnclosureCFDSolver:
                     for component in velocity:
                         component[cell] = 0.0
 
+    def _pressure_system(self, mesh, outlet_cells, reference):
+        """Assemble the pressure Poisson operator once for the whole solve.
+
+        The projection previously cleaned divergence with hand-rolled Jacobi
+        sweeps. Jacobi damps low-frequency error at a rate that scales with the
+        square of the grid size, and it is precisely that long-wavelength
+        component which enforces global mass balance, so the sweep count bought
+        accuracy linearly and never reached it: 30/60/240/960 sweeps gave
+        -8.2/-5.2/-1.6/-0.6% mass error on the validation duct.
+
+        The operator depends only on geometry -- the fluid mask and the cell
+        spacing -- while the right-hand side changes every iteration with the
+        divergence and the pseudo time step. So it is assembled once and handed
+        to SparseComputeBackend, which the project already owns and which keeps
+        its CUDA workspace resident across solves with a stable cache key.
+
+        Rows are made identity for three kinds of cell: solid cells, which carry
+        no pressure; outlet cells, which are Dirichlet at the patch pressure;
+        and, when there is no outlet at all, one reference cell to pin the
+        otherwise-singular pure-Neumann system.
+
+        That row surgery breaks symmetry -- the row is cleared but the
+        corresponding column is not -- so the system is solved as GENERAL rather
+        than SPD, the same choice _solve_energy makes for the same reason.
+        """
+        shape = mesh.shape
+        fluid = np.asarray(mesh.fluid_mask, dtype=bool)
+        count = mesh.cell_count
+        index = np.arange(count).reshape(shape)
+
+        fixed = ~fluid
+        for cell, _value in outlet_cells:
+            fixed[cell] = True
+        if not outlet_cells and reference is not None:
+            fixed[reference] = True
+
+        rows, columns, values = [], [], []
+        diagonal = np.zeros(shape, dtype=float)
+        movable = fluid & ~fixed
+        for axis, spacing in enumerate(mesh.spacing_m):
+            coefficient = 1.0 / (spacing * spacing)
+            for amount in (-1, 1):
+                neighbour_fluid = self._shift(fluid, axis, amount, False)
+                neighbour_index = self._shift(index, axis, amount, 0)
+                # A neighbour outside the domain is not fluid, so _shift's
+                # False fill already excludes it: the operator gets a natural
+                # zero-gradient wall without a special case.
+                connected = movable & neighbour_fluid
+                diagonal += coefficient * connected
+                rows.append(index[connected])
+                columns.append(neighbour_index[connected])
+                values.append(np.full(int(connected.sum()), -coefficient))
+
+        # An isolated fluid cell has no neighbour to balance against; giving it
+        # a unit row keeps the matrix non-singular instead of dividing by zero.
+        isolated = movable & (diagonal <= 0.0)
+        diagonal[isolated] = 1.0
+        diagonal[fixed] = 1.0
+        rows.append(index.reshape(-1))
+        columns.append(index.reshape(-1))
+        values.append(diagonal.reshape(-1))
+
+        matrix = scipy.sparse.csr_matrix(
+            (np.concatenate(values),
+             (np.concatenate(rows), np.concatenate(columns))),
+            shape=(count, count), dtype=float,
+        )
+        matrix.sort_indices()
+        return matrix, fixed, isolated
+
     def _pressure_projection(self, mesh, velocity, pressure, density, dt, iterations):
         fluid = mesh.fluid_mask
         shape = mesh.shape
@@ -243,25 +313,28 @@ class EnclosureCFDSolver:
         for mapped in mesh.patch_cells:
             if str(mapped.patch.kind).upper() in {"OUTLET", "VENT"}:
                 outlet_cells.extend((cell, mapped.patch.pressure_pa) for cell in mapped.cells)
-        for _ in range(max(1, int(iterations))):
-            total = np.zeros_like(pressure)
-            denominator = np.zeros_like(pressure)
-            for axis, coefficient in enumerate(coefficients):
-                plus = self._shift(pressure, axis, -1)
-                minus = self._shift(pressure, axis, 1)
-                plus_fluid = self._shift(fluid, axis, -1, False)
-                minus_fluid = self._shift(fluid, axis, 1, False)
-                total += coefficient * np.where(plus_fluid, plus, 0.0)
-                total += coefficient * np.where(minus_fluid, minus, 0.0)
-                denominator += coefficient * plus_fluid
-                denominator += coefficient * minus_fluid
-            candidate = (total - rhs) / np.maximum(denominator, 1e-30)
-            pressure[fluid] = candidate[fluid]
-            pressure[~fluid] = 0.0
-            if not outlet_cells:
-                pressure[reference] = 0.0
-            for cell, value in outlet_cells:
-                pressure[cell] = value
+        cached = getattr(self, "_poisson", None)
+        if cached is None:
+            cached = self._poisson = self._pressure_system(mesh, outlet_cells, reference)
+        matrix, fixed, isolated = cached
+
+        # Only the right-hand side moves between iterations: the operator is
+        # geometry, the load is the divergence to be cleaned.
+        load = -rhs.copy()
+        load[fixed] = 0.0
+        load[isolated] = 0.0
+        for cell, value in outlet_cells:
+            load[cell] = value
+        solution = self.compute_backend.solve(
+            matrix, load.reshape(-1), system_kind="GENERAL",
+            cache_key=self._poisson_cache_key, matrix_values_static=True,
+        )
+        pressure[:] = solution.values.reshape(mesh.shape)
+        pressure[~fluid] = 0.0
+        if not outlet_cells and reference is not None:
+            pressure[reference] = 0.0
+        for cell, value in outlet_cells:
+            pressure[cell] = value
 
         for axis in range(3):
             lower = [slice(None)] * 3
@@ -564,6 +637,12 @@ class EnclosureCFDSolver:
         viscosity = max(float(props.dynamic_viscosity_pa_s), 1e-12) / density
         controls = settings.solver
         relaxation = max(0.01, min(1.0, float(controls.relaxation)))
+        # The Poisson operator is geometry, so it is built on first use and
+        # reused for every iteration of this solve. Dropping it here rather than
+        # in __init__ keeps a reused solver instance from carrying a stale
+        # operator onto a different mesh.
+        self._poisson = None
+        self._poisson_cache_key = f"cfd-poisson-{id(mesh)}-{mesh.shape}"
         residuals = CFDResidualHistory()
         converged = False
         max_iterations = max(1, int(controls.max_iterations))
