@@ -353,8 +353,16 @@ correctness bug rather than a stale-cache annoyance.
 ## Still open
 
 The velocity is plumbed from the CFD result to the thermal surface
-coefficients, but nothing yet *decides* to run the enclosure CFD before the
-thermal analysis. The campaign runs each domain in isolation with its own
-request, by design, so making thermal consume a CFD velocity is a sequencing
-decision about the product, not a missing wire — and it is left to be chosen
-deliberately rather than introduced silently.
+coefficients, and the sequencing decision this section was waiting on has since
+been made deliberately, in `CampaignEngine._order_for_cfd_coupling`: in a
+batch, CFD is hoisted ahead of thermal **only** under forced flow — a fan or
+inlet patch with a non-zero velocity. Under pure buoyancy it keeps its place
+after thermal, and says why in the log, because the velocity is then *caused*
+by the temperature field thermal has not computed yet; handing it a speed
+resolved against a cold board would feed the answer back into its own question.
+The single-analysis path applies the same rule in
+`KiPIDA_MainDialog._cfd_free_stream_for_thermal`.
+
+What remains open here is A1 in `docs/plan-ameliorations.md`, and its first
+step is a measurement this document should have held and does not: the
+enclosure-wall reproduction case is not committed anywhere. See A1.

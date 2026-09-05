@@ -31,9 +31,19 @@ Working constraints for this project:
   read-only project. Never modify, move or copy it into the repository.
 * Tests stay lean: cover functions that are actually exercised, plus regression
   tests with a real link to a defect. No exhaustive edge-case matrices.
-* `validation/` holds re-runnable harnesses that need the real board:
-  `cfd_benchmarks.py`, `advisor_on_board.py`, `mesh_connectivity.py`. They open
-  the board read-only.
+* `validation/` holds re-runnable harnesses. They split in two, and the
+  difference decides where a given item can be worked at all:
+  * `cfd_benchmarks.py` needs **no** board. It builds its own ducts and
+    enclosures from `CFDMesh` directly, so every CFD item -- A1 and A2 -- can
+    be worked anywhere Python and numpy run.
+  * `advisor_on_board.py` and `mesh_connectivity.py` need the real board and
+    take its path as an argument. They open it read-only and write nothing.
+    A3 and A4 cannot be measured without them.
+* The reference board lives on the author's Windows machine, at
+  `C:\Users\jbc66\Documents\DAW CONTROLEUR\schema\DAW-Controlleur\boards\p02_alimentation`.
+  Nothing in that directory may be modified, created or deleted, and it is not
+  reachable from a cloud session -- so A3 and A4 are local-session work, and
+  everything else is not.
 
 The reflex this session most needed, learned the hard way: when a fix produces
 no visible change, look for a second copy of the value before doubting the
@@ -59,6 +69,17 @@ exchange term calibrated against the 3D thermal solver's answer for the same
 board. The second is a model, not a resolution, and must be labelled as one.
 Until this closes, CFD-004 stands and component temperatures come from the
 thermal analysis.
+
+*Step one is not either candidate.* Those three temperatures are recorded in
+this file and nowhere else: no case in `validation/cfd_benchmarks.py` produces
+them, `docs/validation-cfd.md` does not mention them, and nothing in the
+repository reproduces them. The reproduction case was never committed. So
+neither candidate can currently be shown to have changed anything, which is the
+condition under which the last three iteration-count changes were each
+invisible for a different reason. Commit the case as a benchmark first --
+`cfd_benchmarks.py` builds its own enclosures and needs no board, so this is
+ordinary work, not a measurement campaign -- then compare the two candidates
+against it.
 
 **A2. `converged` is unreachable on a sealed enclosure.**
 Continuity now sits at machine zero, but the energy residual is still falling
