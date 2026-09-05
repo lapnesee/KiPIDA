@@ -120,6 +120,10 @@ class KiPIDA_MainDialog(wx.Dialog):
         self._result_generation = 0
         self._thermal_result_generation = 0
         self._closing = False
+        # Analyses still queued by the batch runner; empty means no batch.
+        self._batch_queue = []
+        self._batch_total = 0
+        self._batch_done = 0
         self._plot_lock = threading.Lock()
         # Kept only for the dialog lifetime.  Mesh and CSR reuse is guarded by
         # a live-board fingerprint, so unsaved edits in PCB Editor invalidate
@@ -203,7 +207,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.PAGE_EMC: ("emc", "cancel_emc"),
             self.PAGE_THERMAL: ("thermal", "coupled"),
             self.PAGE_CFD: ("cfd",),
-            self.PAGE_RESULTS: ("campaign",),
+            self.PAGE_RESULTS: ("batch", "campaign"),
         }
         handlers = {
             "dc": self.on_run, "ac": self.on_run_ac,
@@ -212,6 +216,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             "emc": self.on_run_emc, "cancel_emc": self.on_cancel_emc,
             "thermal": self.on_run_thermal, "coupled": self.on_run_coupled_thermal,
             "cfd": self.on_run_cfd, "campaign": self.on_build_campaign_report,
+            "batch": self.on_run_batch,
             "close": self.on_close,
         }
         self.action_bar = DialogActionBar(self, handlers, actions_by_page)
@@ -448,6 +453,119 @@ class KiPIDA_MainDialog(wx.Dialog):
             return digest.hexdigest()
         except OSError:
             return ""
+
+    # Order matters: it is the order the analyses feed each other. DC first
+    # because thermal and CFD consume its copper losses, EMC after AC and
+    # differential because it reads their results, CFD last so a preceding
+    # enclosure run can hand its free-stream velocity to thermal.
+    BATCH_ANALYSES = (
+        ("dc", "DC power"),
+        ("ac", "AC impedance"),
+        ("differential", "Differential pairs"),
+        ("thermal", "3D thermal (coupled)"),
+        ("emc", "EMI / EMC"),
+        ("cfd", "Enclosure CFD"),
+    )
+
+    # How often the batch checks whether the running analysis has finished.
+    # Each one runs on its own background thread and reports through its own
+    # callbacks, so rather than couple the batch into six completion paths it
+    # waits for every controller to go idle. Polling is the honest cost of not
+    # threading a batch flag through code that has no other reason to know it.
+    BATCH_POLL_MS = 500
+
+    def on_run_batch(self, _event):
+        """Run a chosen set of analyses back to back, in dependency order."""
+        if getattr(self, "_batch_queue", None):
+            wx.MessageBox(
+                "A batch is already running.", "Batch in progress",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+        labels = [label for _key, label in self.BATCH_ANALYSES]
+        dialog = wx.MultiChoiceDialog(
+            self, "Select the analyses to run, in order:", "Run Analysis Batch",
+            labels,
+        )
+        # Everything preselected: the common case is "run the lot", and the
+        # dialog exists to let the user drop the slow ones, not to make them
+        # tick six boxes every time.
+        dialog.SetSelections(list(range(len(labels))))
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            chosen = list(dialog.GetSelections())
+        finally:
+            dialog.Destroy()
+        if not chosen:
+            self.log("Batch cancelled: no analysis selected.")
+            return
+
+        self._batch_queue = [self.BATCH_ANALYSES[index][0] for index in chosen]
+        self._batch_total = len(self._batch_queue)
+        self._batch_done = 0
+        self._select_workspace(self.PAGE_LOG)
+        self.log(
+            f"--- Starting analysis batch: {self._batch_total} analysis(es) --- "
+            + ", ".join(
+                label for key, label in self.BATCH_ANALYSES
+                if key in self._batch_queue
+            )
+        )
+        self._batch_step()
+
+    def _batch_controllers(self):
+        return (
+            self.dc_controller, self.ac_controller, self.differential_controller,
+            self.thermal_controller, self.emc_controller, self.cfd_controller,
+        )
+
+    def _batch_busy(self):
+        return any(
+            controller.is_running for controller in self._batch_controllers()
+        )
+
+    def _batch_step(self):
+        if self._closing:
+            self._batch_queue = []
+            return
+        if not self._batch_queue:
+            self.log(
+                f"--- Analysis batch finished: {self._batch_done}/{self._batch_total} "
+                "analysis(es) ran ---"
+            )
+            self._set_interaction_status("Batch - complete")
+            return
+        key = self._batch_queue.pop(0)
+        label = dict(self.BATCH_ANALYSES)[key]
+        self._batch_done += 1
+        self._set_interaction_status(
+            f"Batch {self._batch_done}/{self._batch_total} - {label}"
+        )
+        handler = {
+            "dc": self.on_run,
+            "ac": self.on_run_ac,
+            "differential": self.on_run_differential,
+            "thermal": self.on_run_coupled_thermal,
+            "emc": self.on_run_emc,
+            "cfd": self.on_run_cfd,
+        }[key]
+        try:
+            handler(None)
+        except Exception as exc:
+            # One analysis failing must cost its own result, not the rest of
+            # the batch -- the same isolation the campaign engine gives.
+            self.log(f"Batch: {label} failed to start -- {exc}")
+        wx.CallLater(self.BATCH_POLL_MS, self._batch_wait)
+
+    def _batch_wait(self):
+        if self._closing:
+            self._batch_queue = []
+            return
+        if self._batch_busy():
+            wx.CallLater(self.BATCH_POLL_MS, self._batch_wait)
+            return
+        self._batch_step()
 
     def on_build_campaign_report(self, _event):
         """Aggregate this session's analyses into one report and open it.
@@ -984,29 +1102,34 @@ class KiPIDA_MainDialog(wx.Dialog):
         if settings.phase10.enabled and settings.phase10.auto_run_full_wave:
             backend = str(settings.phase10.full_wave_backend).upper()
             if backend == "PALACE_REMOTE":
-                execution_detail = (
-                    "Ki-PIDA will transfer the selected Palace project directory to "
-                    f"{settings.phase10.palace_remote_host} and run Palace with "
-                    f"{settings.phase10.palace_remote_mpi_processes} MPI process(es). "
-                    f"The total timeout is {settings.phase10.solver_timeout_s:g} seconds. "
+                # No per-run prompt. The remote host, its MPI process count and
+                # the timeout are configured deliberately on the Phase 10
+                # panel, so confirming the same LAN machine on every EMC run is
+                # noise rather than a safeguard.
+                #
+                # The transfer is still announced, because it leaves this
+                # machine. Not asking is the user's call; not telling would not
+                # be.
+                self.log(
+                    "[PHASE 10] Transferring the Palace project directory to "
+                    f"{settings.phase10.palace_remote_host} and running Palace with "
+                    f"{settings.phase10.palace_remote_mpi_processes} MPI process(es); "
+                    f"timeout {settings.phase10.solver_timeout_s:g} s. Turn off "
+                    "'auto-run full wave' on the EMI/EMC panel to stop this."
                 )
-                title = "Confirm Palace LAN execution"
-                duration_detail = "Continue?"
             else:
-                execution_detail = "Phase 10 will run targeted local openEMS simulations. "
-                title = "Confirm openEMS execution"
-                duration_detail = (
+                # openEMS runs locally, so this prompt is about how long the
+                # machine will be busy, not about data leaving it. It stays.
+                answer = wx.MessageBox(
+                    "Phase 10 will run targeted local openEMS simulations. "
                     f"This can take up to {settings.phase10.solver_timeout_s:g} seconds per "
-                    f"region for {settings.phase10.maximum_regions} region(s). Continue?"
+                    f"region for {settings.phase10.maximum_regions} region(s). Continue?",
+                    "Confirm openEMS execution",
+                    wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
                 )
-            answer = wx.MessageBox(
-                execution_detail + duration_detail,
-                title,
-                wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
-            )
-            if answer != wx.YES:
-                settings.phase10.auto_run_full_wave = False
-                self.log("[PHASE 10] Full-wave execution declined; exporting regions only.")
+                if answer != wx.YES:
+                    settings.phase10.auto_run_full_wave = False
+                    self.log("[PHASE 10] Full-wave execution declined; exporting regions only.")
         self.btn_run_emc.Disable()
         self.btn_cancel_emc.Enable()
         self._set_interaction_status("EMI/EMC · running")
