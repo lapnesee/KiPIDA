@@ -503,7 +503,22 @@ class HybridMesher:
 
         thickness_mm = _thickness_for_layer(board, zone.layer)
         layer_id = _layer_id_for_name(board, zone.layer)
-        sigma = 1.0 / self._rho / 1e6  # S/mm (convert Ω·m → Ω·mm, then invert)
+        # Conductivity in S/mm.
+        #
+        # rho is in ohm-metres, and 1 ohm-m is 1e3 ohm-mm, so the conversion is
+        # a factor of 1e3 -- not the 1e6 this used, which is the factor for an
+        # area. Every pour was therefore modelled a thousand times more
+        # resistive than copper.
+        #
+        # Checkable against the handbook figure: one ounce of copper is 35 um
+        # and has a sheet resistance of rho/t = 1.72e-8 / 35e-6 = 0.491 mohm per
+        # square, so a square cell must conduct 2035 S. sigma * 0.035 gives
+        # 2035 S here and gave 2.03 S before.
+        #
+        # It cost the advisor every number it produced: +5V_RAIL came out at
+        # 6.2244 V of drop against the 0.0077 V the production mesher computes
+        # for the same copper -- a drop larger than the rail's own supply.
+        sigma = 1.0 / (self._rho * 1e3)
 
         # Grid over zone bounding box
         xmin, ymin, xmax, ymax = poly.bounds

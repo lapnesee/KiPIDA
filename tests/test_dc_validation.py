@@ -484,11 +484,23 @@ class TestHybridMesherZoneCutCell(unittest.TestCase):
         pts = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]
         board = self._board_with_zone(pts, net="GND", thickness=0.035)
         mesh = HybridMesher(board, grid_step_mm=1.0).build_mesh("GND")
-        # σ in S/mm = 1/(ρ_Cu Ω·m) converted to per-mm: σ_mm = 1/(ρ * 1e6)
-        sigma_mm = 1.0 / (RHO_COPPER * 1e6)
-        g_expected = sigma_mm * 0.035  # one S/mm square → G = σ·t
+        # Derived from sheet resistance in SI, not by restating the mesher's
+        # own conversion.
+        #
+        # This assertion used sigma_mm = 1/(RHO_COPPER * 1e6) -- the same
+        # mistaken factor as the implementation, since 1 ohm-m is 1e3 ohm-mm
+        # and not 1e6. The test therefore checked the code against a copy of
+        # its own error and passed while every pour was modelled a thousand
+        # times too resistive, which put a 6.2 V drop on a 5 V rail in the
+        # advisor. Anchoring on rho/t gives the number a source outside the
+        # code it is checking.
+        sheet_resistance_ohm = RHO_COPPER / (0.035 * 1.0e-3)  # ~0.491 mohm/square
+        g_expected = 1.0 / sheet_resistance_ohm
         # At least some branches should match (full-copper interior edges)
-        full_edges = [b for b in mesh.branches if abs(b.resistance_ohm - 1/g_expected) < 1e-6]
+        full_edges = [
+            b for b in mesh.branches
+            if abs(b.resistance_ohm - 1 / g_expected) < 1e-9
+        ]
         self.assertGreater(len(full_edges), 0,
                            msg="No full-copper edge found — check cut-cell formula")
 
