@@ -13,12 +13,45 @@ if plugin_dir not in sys.path:
 # Let's simple-mock wx to ensure logic runs even if system python doesn't have wx (though user python likely does)
 import types
 from types import SimpleNamespace
-if 'wx' not in sys.modules:
+# Stub wx only when it is genuinely absent, never merely because this module
+# imported first.
+#
+# The guard was `if 'wx' not in sys.modules`, which under unittest discovery is
+# a race: every test module is imported before any test runs, so whichever got
+# there first decided whether the whole suite saw real wx. On a machine with
+# wxPython installed this module usually won, and every test needing a real
+# wx.App skipped itself -- silently, and increasingly as more such tests were
+# written. Nineteen skips at the last count, and rising with each one added.
+#
+# Importing the real wx first settles it by capability rather than by order.
+try:  # pragma: no cover - depends on the environment, not on a branch
+    import wx  # noqa: F401
+except ImportError:
     wx_mock = types.ModuleType('wx')
     wx_mock.Bitmap = lambda *args: "BITMAP_OBJECT"
     wx_mock.Image = lambda *args: "IMAGE_OBJECT"
     wx_mock.BITMAP_TYPE_PNG = 1
     sys.modules['wx'] = wx_mock
+
+_WX_APP = None
+
+
+def setUpModule():
+    """Give the real wx the App its bitmap calls require.
+
+    With the stub, Plotter's wx.Bitmap/wx.Image calls were lambdas and needed
+    nothing. Now that the real module is used whenever it is installed, those
+    calls raise "the wx.App object must be created first" -- so the App that
+    was never needed becomes part of the fixture. Without it these tests still
+    pass, but against the error path rather than the one they were written for.
+    """
+    global _WX_APP
+    if hasattr(wx, "App") and not isinstance(getattr(wx, "App", None), type(lambda: 0)):
+        try:
+            _WX_APP = wx.App(False)
+        except Exception:  # pragma: no cover - headless without a display
+            _WX_APP = None
+
 
 from plotter import Plotter
 from mesh import Mesh
