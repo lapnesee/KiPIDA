@@ -211,7 +211,7 @@ class TestPcbSchematicConsistency(unittest.TestCase):
         return ParsedSchematic(root_sch_path=None, symbol_defs={}, instances=instances, global_nets=[])
 
     def test_missing_symbol_flagged(self):
-        component = ComponentInfo("U9", "", "", "", {}, (0, 0), {}, {})
+        component = ComponentInfo("U9", "", "", "", {}, (0, 0), {}, {}, schematic_link="symbol_missing")
         ctx = SchematicRuleContext(
             netlist=_netlist("b1", [component], []),
             schematic=self._schematic(["U1"]),
@@ -219,6 +219,16 @@ class TestPcbSchematicConsistency(unittest.TestCase):
         findings = _check_pcb_schematic_consistency(ctx)
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0].components, ["U9"])
+
+    def test_a_board_only_footprint_is_one_note_not_a_mismatch(self):
+        logos = [ComponentInfo(ref, "", "", "", {}, (0, 0), {}, {}, schematic_link="pcb_only")
+                 for ref in ("G1", "MH1")]
+        ctx = SchematicRuleContext(netlist=_netlist("b1", logos, []), schematic=self._schematic(["U1"]))
+        self.assertEqual(_check_pcb_schematic_consistency(ctx), [])
+
+        from rules.schematic_rules import _report_board_only_footprints
+        self.assertEqual([(f.rule_id, f.components) for f in _report_board_only_footprints(ctx)],
+                         [("SCH-006", ["G1", "MH1"])])
 
     def test_no_schematic_no_findings(self):
         component = ComponentInfo("U9", "", "", "", {}, (0, 0), {}, {})

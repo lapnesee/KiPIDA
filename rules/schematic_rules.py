@@ -354,28 +354,71 @@ def _check_cross_board_links(context: SchematicRuleContext) -> list:
 
 @rule(
     "SCH-005", "SCHEMATIC",
-    "PCB/schematic reference mismatch",
-    "A PCB footprint reference has no matching symbol in the schematic.",
+    "Footprint whose symbol is gone",
+    "A PCB footprint records a schematic path that names no symbol of the schematic.",
     default_severity="MEDIUM",
     reference="",
-    remediation_template="Confirm {ref} is DNP-consistent between PCB and schematic.",
+    remediation_template="Update the PCB from the schematic, or delete {ref} if it is no longer wanted.",
 )
 def _check_pcb_schematic_consistency(context: SchematicRuleContext) -> list:
+    """Footprints that came from a symbol the schematic no longer holds.
+
+    It compared references and reported every footprint whose reference the
+    schematic lacked: 159 on tiny_tapeout and 28 on cm5_minima, all footprints
+    placed on the board without ever having a symbol (logos, stitching vias,
+    mounting holes), plus every copy of a multi-instance sheet the reader used
+    to miss. Only a footprint with a path can have lost its symbol.
+    """
     if context.schematic is None:
         return []
-    schematic_refs = {inst.reference for inst in context.schematic.instances if inst.reference}
-
     findings = []
     for component in context.netlist.components:
-        if component.reference and component.reference not in schematic_refs:
-            findings.append(AnalysisFinding(
-                rule_id="SCH-005",
-                category="SCHEMATIC",
-                severity=FindingSeverity.MEDIUM,
-                title="PCB/schematic reference mismatch",
-                description=f"Footprint {component.reference} on the PCB has no matching schematic symbol.",
-                recommendation=f"Confirm {component.reference} is DNP-consistent between PCB and schematic.",
-                confidence=EvidenceConfidence.DETERMINISTIC,
-                components=[component.reference],
-            ))
+        if component.schematic_link != "symbol_missing":
+            continue
+        findings.append(AnalysisFinding(
+            rule_id="SCH-005",
+            category="SCHEMATIC",
+            severity=FindingSeverity.MEDIUM,
+            title="Footprint whose symbol is gone",
+            description=(
+                f"Footprint {component.reference} was placed from a schematic symbol that the "
+                "schematic no longer contains: the board has not been updated since it was deleted."
+            ),
+            recommendation=(
+                f"Update the PCB from the schematic, or delete {component.reference} if it is no longer wanted."
+            ),
+            confidence=EvidenceConfidence.DETERMINISTIC,
+            components=[component.reference],
+        ))
     return findings
+
+
+@rule(
+    "SCH-006", "SCHEMATIC",
+    "Footprints placed on the board only",
+    "Footprints with no schematic path: placed on the PCB directly, never from a symbol.",
+    default_severity="INFO",
+    reference="",
+    remediation_template="Nothing to do if {ref} are mechanical or graphical parts.",
+)
+def _report_board_only_footprints(context: SchematicRuleContext) -> list:
+    """One note for the project: such footprints are normal, and rules that read the schematic skip them."""
+    if context.schematic is None:
+        return []
+    references = [c.reference for c in context.netlist.components if c.schematic_link == "pcb_only"]
+    if not references:
+        return []
+    shown = ", ".join(references[:10]) + (", ..." if len(references) > 10 else "")
+    return [AnalysisFinding(
+        rule_id="SCH-006",
+        category="SCHEMATIC",
+        severity=FindingSeverity.INFO,
+        title="Footprints placed on the board only",
+        description=(
+            f"{len(references)} footprint(s) have no schematic symbol and were placed on the board "
+            f"directly: {shown}. Rules that read pin types from the schematic do not cover them."
+        ),
+        recommendation="Nothing to do if these are mechanical or graphical parts.",
+        confidence=EvidenceConfidence.DETERMINISTIC,
+        components=references,
+    )]
