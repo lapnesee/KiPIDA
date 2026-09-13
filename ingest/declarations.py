@@ -7,18 +7,67 @@ heuristics, with their source. Net names are the last resort.
 from __future__ import annotations
 
 import re
+import threading
+from pathlib import Path
 
 from .board_reader import read_board
 from .netlist_builder import build_netlist
 from .project_resolver import BoardProject
 from .schematic_reader import read_schematic
 
+# The largest saved board read without being asked. Declarations are read by
+# the panels on the GUI thread; measured on the KiCad 10 demos, the 68 MB
+# vme-wren board takes 16 s and its schematic 9 s more, the 85 MB Jetson board
+# 22 s. The reference board main, about 20 MB, takes 4 s.
+AUTOMATIC_READ_LIMIT_MB = 50.0
 
-def design_netlist(project: BoardProject):
-    """The saved board fused with its schematic. Reading errors propagate."""
-    board = read_board(project.pcb_path)
-    schematic = read_schematic(project.sch_root_path) if project.sch_root_path.is_file() else None
-    return build_netlist(board, schematic, board_uuid=project.sub_project_uuid or project.pro_path.stem)
+
+class DesignReadDeclined(ValueError):
+    """A saved board too large to read without the user asking for it."""
+
+
+_cache: dict = {}
+_cache_lock = threading.Lock()
+
+
+def _stamp(path: Path):
+    try:
+        stat = Path(path).stat()
+    except OSError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
+def design_netlist(project: BoardProject, *, size_limit_mb=AUTOMATIC_READ_LIMIT_MB):
+    """The saved board fused with its schematic. Reading errors propagate.
+
+    One project is read once while its files stay as they are: the result is
+    kept with the size and modification time of every file read -- the board
+    and each sheet -- and read again when any of them changes. A board over
+    *size_limit_mb* raises DesignReadDeclined instead (None reads any size).
+    """
+    pcb_path = Path(project.pcb_path)
+    key = (str(pcb_path.resolve()), str(Path(project.sch_root_path).resolve()), project.sub_project_uuid)
+    with _cache_lock:
+        cached = _cache.get(key)
+    if cached is not None and all(_stamp(path) == stamp for path, stamp in cached[0]):
+        return cached[1]
+
+    size_mb = pcb_path.stat().st_size / 1e6
+    if size_limit_mb is not None and size_mb > size_limit_mb:
+        raise DesignReadDeclined(
+            f"{pcb_path.name} is {size_mb:.0f} MB, over the {size_limit_mb:.0f} MB read "
+            "automatically (a board that size takes tens of seconds); its declarations are "
+            "not used and names stand in"
+        )
+    board = read_board(pcb_path)
+    schematic = read_schematic(project.sch_root_path) if Path(project.sch_root_path).is_file() else None
+    netlist = build_netlist(board, schematic, board_uuid=project.sub_project_uuid or project.pro_path.stem)
+    files = [pcb_path] + (list(schematic.files) if schematic is not None else [])
+    with _cache_lock:
+        _cache.clear()  # one project per session: keep the last design only
+        _cache[key] = ([(path, _stamp(path)) for path in files], netlist)
+    return netlist
 
 
 CAPACITOR = "capacitor"
