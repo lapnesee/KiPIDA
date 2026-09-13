@@ -726,6 +726,74 @@ def saved_board_differences(board, net_name, request, layer_mapping):
     return differences
 
 
+# Pads closer than this are the same pad: the file stores millimetres and the
+# live board nanometres, and the offline reader rotates pad offsets in floating
+# point, so exact equality would call an untouched rotated footprint moved.
+FOOTPRINT_POSITION_TOLERANCE_MM = 0.01
+
+
+def saved_footprint_differences(snapshot, board):
+    """How the open board's footprints differ from the saved file's.
+
+    For analyses that read the files rather than the live board: a footprint
+    added, deleted or moved since the last save is a board the result does not
+    describe. Footprints are paired by reference and compared by their pads'
+    numbers and positions, which a move, a rotation or a flip all change. A
+    snapshot that captured no footprint says nothing and yields nothing.
+    """
+    from collections import defaultdict
+
+    live_footprints = tuple(getattr(snapshot, "footprints", ()) or ())
+    if not live_footprints:
+        return []
+    live, saved = defaultdict(list), defaultdict(list)
+    for footprint in live_footprints:
+        live[footprint.reference].append(sorted(
+            (str(pad.number), _snapshot_mm(pad.position.x), _snapshot_mm(pad.position.y))
+            for pad in footprint.pads
+        ))
+    for footprint in board.footprints:
+        saved[footprint.reference].append(sorted(
+            (str(pad.number), float(pad.position[0]), float(pad.position[1])) for pad in footprint.pads
+        ))
+
+    only_live = sorted(ref for ref in live if len(live[ref]) > len(saved.get(ref, ())))
+    only_saved = sorted(ref for ref in saved if len(saved[ref]) > len(live.get(ref, ())))
+    moved = sorted(
+        ref for ref in live
+        if len(live[ref]) == len(saved.get(ref, ())) and not _same_placements(live[ref], saved[ref])
+    )
+    differences = []
+    for references, text in (
+        (only_live, "only on the open board"),
+        (only_saved, "only in the saved file"),
+        (moved, "placed differently"),
+    ):
+        if references:
+            shown = ", ".join(references[:5]) + (", ..." if len(references) > 5 else "")
+            differences.append(f"{len(references)} footprint(s) {text} ({shown})")
+    return differences
+
+
+def _same_placements(live_placements, saved_placements):
+    remaining = list(saved_placements)
+    for pads in live_placements:
+        match = next((index for index, other in enumerate(remaining) if _same_pads(pads, other)), None)
+        if match is None:
+            return False
+        remaining.pop(match)
+    return True
+
+
+def _same_pads(first, second):
+    return len(first) == len(second) and all(
+        a[0] == b[0]
+        and abs(a[1] - b[1]) <= FOOTPRINT_POSITION_TOLERANCE_MM
+        and abs(a[2] - b[2]) <= FOOTPRINT_POSITION_TOLERANCE_MM
+        for a, b in zip(first, second)
+    )
+
+
 class BoardFileUnreadable(RuntimeError):
     """The saved board file could not be read; the hybrid engine cannot run."""
 

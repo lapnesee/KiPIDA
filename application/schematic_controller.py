@@ -32,6 +32,10 @@ class SchematicRunRequest:
     """Where the project lives. Everything else is read from it."""
     project_path: str = ""
     board_path: str = ""
+    # The open board as captured for the run (a DCBoardSnapshot or anything with
+    # footprints and their pads). The rules read the saved files; with it, a
+    # board edited since the last save is said to be one.
+    board_snapshot: Any = None
 
 
 @dataclass
@@ -66,6 +70,18 @@ class SchematicRuleEngine:
         emit_progress(1, 4, "board")
         emit_log(f"Reading board geometry from {board_path.name}.")
         board = read_board(board_path)
+        if request.board_snapshot is not None:
+            from application.dc_controller import saved_footprint_differences
+
+            differences = saved_footprint_differences(request.board_snapshot, board)
+            if differences:
+                message = (
+                    f"Unsaved changes: the open board differs from {board_path.name} -- "
+                    + "; ".join(differences)
+                    + ". The rules read the saved files, so they describe the board as last saved."
+                )
+                emit_log(message)
+                result.limitations.append(message)
 
         # The schematic sits beside the PCB and shares its stem. A project
         # whose schematic is missing still yields the PCB-only rules rather
