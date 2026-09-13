@@ -5,14 +5,43 @@ try:
 except (ImportError, ValueError):
     from models import PowerRail, UnifiedSource, UnifiedLoad, ComponentRef
 
+DISCOVERY_LABELS = {
+    "power_symbol": "declared by a power symbol",
+    "power_pin": "inferred from power pins",
+    "name": "guessed from its name",
+}
+_DISCOVERY_RANK = {"power_symbol": 0, "power_pin": 1, "name": 2}
+
+
+def rail_label(rail):
+    """How a rail is listed: its net, its voltage, and how the scan found it if it did."""
+    label = rail.net_name
+    if rail.nominal_voltage:
+        # A scanned rail's voltage is read off its name whatever found the rail.
+        label += f" ({rail.nominal_voltage}V{', from its name' if rail.discovery else ''})"
+    if rail.discovery in DISCOVERY_LABELS:
+        label += f" [{DISCOVERY_LABELS[rail.discovery]}]"
+    return label
+
+
 class NetDiscoverer:
     """
     Scans the board to identify likely power rails and their properties.
     Uses generic attribute access compatible with KiCad Protobuf API (kipy).
+
+    Rails come first from what the project's saved files declare -- nets a
+    power symbol names, then nets with power pins -- through
+    ``declared_rails``, a callable returning ``{net: source}``. Net-name
+    patterns are the last resort: listed after every declared rail, and every
+    rail they propose says it was guessed. They are not dropped when the files
+    declare some rails: the reference board p02_alimentation names only GND
+    with a power symbol and carries +3V3_MAIN, +5V_RAIL and its other rails on
+    labels, which no declaration reaches.
     """
-    def __init__(self, board, log_callback=None):
+    def __init__(self, board, log_callback=None, declared_rails=None):
         self.board = board
         self.log_callback = log_callback
+        self.declared_rails = declared_rails
         
         # Regex for voltage parsing
         # Matches: +3V3, 3V3, +5V, 12V, VCC_3V3
@@ -162,36 +191,51 @@ class NetDiscoverer:
                 found_nets[synth_id] = name
                 synth_id += 1
 
-        # self.log(f"[DEBUG] Total unique nets identified from items: {len(found_nets)}")
-        
+        declared = {}
+        if self.declared_rails is not None:
+            try:
+                declared = dict(self.declared_rails() or {})
+            except Exception as exc:
+                self.log(
+                    f"The project's saved files could not be read for declared rails "
+                    f"({type(exc).__name__}: {exc}); rails are guessed from net names."
+                )
+
         for nc, s_name in found_nets.items():
             if not s_name: continue
-            
+
             # Filter logic
             # Use name-based sets
             has_pads = s_name in nets_with_pads
             has_copper = s_name in nets_with_copper
-            
+
             if not (has_pads and has_copper):
-                # self.log(f"[DEBUG] Skipping net '{s_name}' (code {nc}) - pads:{has_pads}, copper:{has_copper}")
                 continue
-                
-            # 2. Check if name looks like power
-            is_power_name = any(re.search(p, s_name) for p in self.power_name_patterns)
-            
+
             est_voltage = self._estimate_voltage(s_name)
-            
-            # If it has a voltage in name, or is explicitly VCC/GND-like, add it.
-            if est_voltage is not None or is_power_name:
-                rail = PowerRail(net_name=s_name)
-                if est_voltage:
-                    rail.nominal_voltage = est_voltage
-                candidates.append(rail)
-                # self.log(f"[DEBUG] Added power rail: {s_name} ({est_voltage}V)")
-                
-        # Sort candidates: Voltage found first, then name
-        candidates.sort(key=lambda r: (r.nominal_voltage if r.nominal_voltage else -1, r.net_name), reverse=True)
-        # self.log(f"[DEBUG] Returning {len(candidates)} power rail candidates")
+            source = declared.get(s_name)
+            if source is None:
+                # Last resort: the name looks like power, or carries a voltage.
+                is_power_name = any(re.search(p, s_name) for p in self.power_name_patterns)
+                source = "name" if (est_voltage is not None or is_power_name) else None
+            if source is None:
+                continue
+            rail = PowerRail(net_name=s_name, discovery=source)
+            if est_voltage:
+                rail.nominal_voltage = est_voltage
+            candidates.append(rail)
+
+        # Declared rails first, then inferred, then guessed; within each, by voltage and name.
+        candidates.sort(key=lambda r: (
+            _DISCOVERY_RANK.get(r.discovery, 3),
+            -(r.nominal_voltage or -1),
+            r.net_name,
+        ))
+        counts = {source: sum(1 for r in candidates if r.discovery == source) for source in DISCOVERY_LABELS}
+        self.log(
+            "Rail scan: " + ", ".join(f"{count} {DISCOVERY_LABELS[source]}" for source, count in counts.items())
+            + "."
+        )
         return candidates
 
     def _estimate_voltage(self, name):

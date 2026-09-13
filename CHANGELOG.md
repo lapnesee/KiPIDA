@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Changed the power tree's board scan, used when a project has no saved
+  configuration, to propose first the rails the project's files declare --
+  nets a power symbol names, then nets with power pins -- and net-name guesses
+  last. Each scanned rail is listed with how it was found, and a voltage read
+  off a name says so. A DC result states which of its rails came from the scan
+  rather than the configuration, and lists those only guessed from a name.
 - Added the schematic rules to the analysis batch, as the first domain of the
   campaign. They read the saved files of the project the host named and say
   when the open board's footprints differ from them. SCH-001 recognises

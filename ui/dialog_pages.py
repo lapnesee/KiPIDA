@@ -16,7 +16,7 @@ class DialogPages:
 
     def __init__(
         self, notebook, *, board, project, log_callback,
-        init_results, init_log, thermal_callbacks,
+        init_results, init_log, thermal_callbacks, project_context=None,
     ):
         self.notebook = notebook
         self.board = board
@@ -26,6 +26,7 @@ class DialogPages:
         self.tab_config = wx.Panel(notebook)
         self.power_tree = PowerTreePanel(
             self.tab_config, board, project=project, log_callback=log_callback,
+            project_context=project_context,
         )
         config_sizer = wx.BoxSizer(wx.VERTICAL)
         config_sizer.Add(self.power_tree, 1, wx.EXPAND | wx.ALL, 5)

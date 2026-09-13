@@ -1075,6 +1075,7 @@ def adapt_dc_run(system_results: Any, maximum_drop_pct: float, *,
     missing instead of the campaign losing its DC section over them.
     """
     result = adapt_dc_result(system_results, maximum_drop_pct)
+    _state_rail_discovery(result, rails)
     try:
         attached = attach_dc_remediations(
             result, board_path, rails, maximum_drop_pct, log_callback=log_callback,
@@ -1093,6 +1094,35 @@ def adapt_dc_run(system_results: Any, maximum_drop_pct: float, *,
     if attached and log_callback is not None:
         log_callback(f"Sized a copper fix for {attached} voltage-drop finding(s).")
     return result
+
+
+def _state_rail_discovery(result: AnalysisResult, rails: Any) -> None:
+    """Name the rails the run took from the board scan rather than from the project configuration.
+
+    A configured rail is the designer's entry. A scanned one was declared by a
+    power symbol, inferred from power pins, or guessed from its name -- and a
+    scanned rail's voltage is always read off its name. The result says which
+    (docs/plan-universalite.md, phase 5).
+    """
+    try:
+        from discovery import DISCOVERY_LABELS
+    except ImportError:  # pragma: no cover - package-relative import in the plugin
+        from .discovery import DISCOVERY_LABELS
+    scanned = [rail for rail in (rails or ()) if getattr(rail, "discovery", "") in DISCOVERY_LABELS]
+    if not scanned:
+        return
+    result.provenance.append(AnalysisEvidence(
+        "RAIL_DISCOVERY",
+        "Rails from the board scan, not from the saved project configuration: "
+        + "; ".join(f"{rail.net_name} ({DISCOVERY_LABELS[rail.discovery]})" for rail in scanned)
+        + ". Their nominal voltages come from their names.",
+    ))
+    guessed = [rail.net_name for rail in scanned if rail.discovery == "name"]
+    if guessed:
+        result.limitations.append(
+            "No saved file declares these nets as rails; they were guessed from their names: "
+            + ", ".join(guessed) + "."
+        )
 
 
 def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisResult:

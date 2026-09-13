@@ -175,7 +175,9 @@ def build_netlist(
                 net_name=pad.net_name,
                 electrical_type=etype,
             ))
-            if etype in _POWER_TYPES and not net.is_power_rail:
+            # A net KiCad synthesised for one unconnected pad is no rail,
+            # whatever that pin's type.
+            if etype in _POWER_TYPES and not net.is_power_rail and not pad.net_name.startswith("unconnected-"):
                 net.is_power_rail = True
                 net.rail_source, net.rail_confidence = RAIL_POWER_PIN, "inferred"
             if etype in _SOURCE_TYPES:

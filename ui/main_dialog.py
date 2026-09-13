@@ -185,6 +185,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         
         self.pages = DialogPages(
             self.notebook, board=self.board, project=self.project,
+            project_context=getattr(self, "project_context", None),
             log_callback=self.log, init_results=self._init_results_tab,
             init_log=self._init_log_tab,
             thermal_callbacks={

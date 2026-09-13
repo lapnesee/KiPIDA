@@ -124,6 +124,11 @@ class PowerRail:
     loads: List[UnifiedLoad] = field(default_factory=list)
     # Regulators where this rail is the INPUT
     child_regulators: List[VoltageRegulator] = field(default_factory=list)
+    # How the board scan proposed the rail: "power_symbol" (declared by the
+    # designer), "power_pin" (inferred from a pin type) or "name" (guessed from
+    # the net name, its voltage too). Empty for a rail the project
+    # configuration holds, which is the designer's own entry; not saved.
+    discovery: str = ""
     
     def add_source(self, source: UnifiedSource):
         self.sources.append(source)

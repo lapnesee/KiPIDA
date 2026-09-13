@@ -5,15 +5,29 @@ try:
     from models import PowerRail, UnifiedSource, UnifiedLoad, ComponentRef, VoltageRegulator
     from ui.component_selector import ComponentSelectorDialog
     from ui.regulator_dialog import RegulatorDialog
-    from discovery import NetDiscoverer
+    from discovery import NetDiscoverer, rail_label
     from config_manager import get_project_config_path, load_project_config, save_config
 except (ImportError, ValueError):
     # Fallback or just re-raise if absolute fails (shouldn't happen with sys.path set)
     from models import PowerRail, UnifiedSource, UnifiedLoad, ComponentRef, VoltageRegulator
     from ui.component_selector import ComponentSelectorDialog
     from ui.regulator_dialog import RegulatorDialog
-    from discovery import NetDiscoverer
+    from discovery import NetDiscoverer, rail_label
     from config_manager import get_project_config_path, load_project_config, save_config
+
+def _declared_rails_provider(project_context):
+    """The rails the project's saved files declare, read when the scan asks; None without a project."""
+    project = getattr(project_context, "project", None)
+    if project is None:
+        return None
+
+    def read():
+        from ingest.declarations import rail_declarations
+
+        return rail_declarations(project)
+
+    return read
+
 
 class NetSelectionDialog(wx.Dialog):
     def __init__(self, parent, nets):
@@ -35,12 +49,14 @@ class NetSelectionDialog(wx.Dialog):
         return self.lb.GetString(sel)
 
 class PowerTreePanel(wx.Panel):
-    def __init__(self, parent, board, project=None, log_callback=None):
+    def __init__(self, parent, board, project=None, log_callback=None, project_context=None):
         super().__init__(parent)
         self.board = board
         self.project = project
         self.log_callback = log_callback
-        self.discoverer = NetDiscoverer(board, log_callback=log_callback)
+        self.discoverer = NetDiscoverer(
+            board, log_callback=log_callback, declared_rails=_declared_rails_provider(project_context),
+        )
         
         # Data
         self.rails = [] # List of PowerRail objects
@@ -184,10 +200,7 @@ class PowerTreePanel(wx.Panel):
         
         self.rail_list.Clear()
         for r in self.rails:
-            lbl = f"{r.net_name}"
-            if r.nominal_voltage:
-                lbl += f" ({r.nominal_voltage}V)"
-            self.rail_list.Append(lbl)
+            self.rail_list.Append(rail_label(r))
             
         if self.rails:
             self.rail_list.SetSelection(0)
@@ -211,10 +224,7 @@ class PowerTreePanel(wx.Panel):
                 if v: rail.nominal_voltage = v
                 
                 self.rails.append(rail)
-                lbl = f"{rail.net_name}"
-                if rail.nominal_voltage:
-                    lbl += f" ({rail.nominal_voltage}V)"
-                self.rail_list.Append(lbl)
+                self.rail_list.Append(rail_label(rail))
                 self.rail_list.SetSelection(self.rail_list.GetCount() - 1)
                 self.on_rail_select(None)
         dlg.Destroy()
@@ -718,10 +728,7 @@ class PowerTreePanel(wx.Panel):
             # Refresh UI
             self.rail_list.Clear()
             for r in self.rails:
-                lbl = f"{r.net_name}"
-                if r.nominal_voltage:
-                    lbl += f" ({r.nominal_voltage}V)"
-                self.rail_list.Append(lbl)
+                self.rail_list.Append(rail_label(r))
             
             if self.rails:
                 self.rail_list.SetSelection(0)
