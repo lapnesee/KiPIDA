@@ -169,6 +169,34 @@ class TestRailEvidence(unittest.TestCase):
         self.assertEqual(nets["VCC"], (True, "power_pin", "inferred"))
 
 
+class TestGroundEvidence(unittest.TestCase):
+    """Ground as the designer declared it; the name is a hint."""
+
+    def test_a_ground_symbol_names_the_ground_whatever_it_is_called(self):
+        from ingest.declarations import ground_nets, with_declared_grounds
+        from rules.schematic_rules import SchematicRuleContext, _check_undecoupled_power_pins
+
+        footprints = [
+            Footprint(reference="U1", value="MCU", lib_id="Package:QFN", position=(0, 0), rotation=0,
+                      layer="F.Cu", sch_path="/u1", sch_sheet_file="",
+                      pads=[Pad("1", "+3V3", "power_in", (0, 0)), Pad("2", "0V", "power_in", (1, 0))]),
+            Footprint(reference="C1", value="100n", lib_id="Capacitor_SMD:C_0402", position=(1, 1), rotation=0,
+                      layer="F.Cu", sch_path="/c1", sch_sheet_file="",
+                      pads=[Pad("1", "+3V3", "passive", (1, 1)), Pad("2", "0V", "passive", (2, 1))]),
+            Footprint(reference="R1", value="10k", lib_id="Resistor_SMD:R_0402", position=(3, 1), rotation=0,
+                      layer="F.Cu", sch_path="/r1", sch_sheet_file="",
+                      pads=[Pad("1", "AGND", "passive", (3, 1))]),
+        ]
+        # The designer's ground is named 0V, through KiCad's GND symbol.
+        ground = SymbolInstance(lib_id="power:GND", uuid="g", reference="#PWR01", value="0V", footprint="",
+                                datasheet="", extra_fields={}, sheet_path="/r", pins=[], power="global")
+        netlist = build_netlist(_make_board(footprints=footprints), _make_schematic([ground]), "b")
+        self.assertEqual(ground_nets(netlist), ["0V", "AGND"])
+        self.assertEqual(with_declared_grounds(["GND", "AGND"], netlist), ["GND", "AGND", "0V"])
+        # C1 decouples +3V3 to that ground; a name test alone did not see it.
+        self.assertEqual(_check_undecoupled_power_pins(SchematicRuleContext(netlist=netlist)), [])
+
+
 class TestSchematicLink(unittest.TestCase):
     """A footprint meets its symbol by path; a reference is never a join key."""
 

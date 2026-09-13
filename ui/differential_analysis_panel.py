@@ -79,11 +79,12 @@ class DifferentialPairDialog(wx.Dialog):
 class DifferentialAnalysisPanel(wx.Panel):
     """Separate detected-pair and stackup configuration surface."""
 
-    def __init__(self, parent, board, project=None, log_callback=None):
+    def __init__(self, parent, board, project=None, log_callback=None, design_provider=None):
         super().__init__(parent)
         self.board = board
         self.project = project
         self.log_callback = log_callback
+        self.design_provider = design_provider
         self.settings = DifferentialAnalysisSettings()
         project_path = getattr(project, "path", None)
         self.discoverer = DifferentialPairDiscoverer(
@@ -286,6 +287,22 @@ class DifferentialAnalysisPanel(wx.Panel):
             ), start=1):
                 self.stackup_list.SetItem(row, column, value)
 
+    def _add_declared_grounds(self):
+        """Reference nets gain the grounds the project's ground symbols declare; none is removed."""
+        if self.design_provider is None:
+            return
+        try:
+            from ingest.declarations import with_declared_grounds
+
+            grounds = with_declared_grounds(self.settings.reference_net_names, self.design_provider())
+        except Exception as exc:
+            self.log(f"Differential: the project's ground symbols could not be read ({exc}).")
+            return
+        added = [name for name in grounds if name not in self.settings.reference_net_names]
+        if added:
+            self.settings.reference_net_names = grounds
+            self.log(f"Differential: reference nets declared by ground symbols added: {', '.join(added)}.")
+
     def refresh(self, force_scan=False):
         if self.stackup is None:
             self.stackup = self.settings.stackup_override or self.extractor.get_stackup_profile()
@@ -297,6 +314,7 @@ class DifferentialAnalysisPanel(wx.Panel):
             )
             self.results = {}
             self.recommendations = {}
+            self._add_declared_grounds()
         self._update_pair_list()
         self._update_recommendation_list()
 

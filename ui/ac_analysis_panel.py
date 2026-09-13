@@ -56,11 +56,14 @@ class ACAnalysisPanel(wx.Panel):
         ("Custom", "CUSTOM", None, None),
     )
 
-    def __init__(self, parent, board, rails_provider, log_callback=None):
+    def __init__(self, parent, board, rails_provider, log_callback=None, design_provider=None):
         super().__init__(parent)
         self.board = board
         self.rails_provider = rails_provider
         self.log_callback = log_callback
+        # The project's saved board and schematic as one netlist, read on demand.
+        self.design_provider = design_provider
+        self._declared_grounds_cache = None
         self.profiles = {}
         self.capacitors = []
         self._updating = False
@@ -249,6 +252,22 @@ class ACAnalysisPanel(wx.Panel):
                     options.setdefault(regulator.output_ref_des, list(regulator.output_pad_names))
         return options
 
+    def _declared_grounds(self):
+        """Nets a ground symbol names in the project's saved files, read once per discovery."""
+        if self._declared_grounds_cache is None:
+            self._declared_grounds_cache = []
+            if self.design_provider is not None:
+                try:
+                    design = self.design_provider()
+                    self._declared_grounds_cache = sorted(
+                        net.name for net in design.nets if net.ground_source == "power_symbol"
+                    )
+                except Exception as exc:
+                    if self.log_callback:
+                        self.log_callback(f"AC: the project's ground symbols could not be read ({exc}); "
+                                          "ground nets are found by name.")
+        return self._declared_grounds_cache
+
     def refresh(self, force_discovery=False):
         if self._updating:
             return
@@ -259,10 +278,16 @@ class ACAnalysisPanel(wx.Panel):
             self.choice_rail.Set(rail_names)
             self._select_text(self.choice_rail, previous_rail)
 
-            ground_names = self.builder.discover_ground_nets()
+            if force_discovery:
+                self._declared_grounds_cache = None
+            declared_grounds = self._declared_grounds()
+            ground_names = declared_grounds + [
+                name for name in self.builder.discover_ground_nets() if name not in declared_grounds
+            ]
+            default_ground = declared_grounds[0] if declared_grounds else "GND"
             previous_ground = self._selected_text(self.choice_ground)
             self.choice_ground.Set(ground_names)
-            self._select_text(self.choice_ground, previous_ground or "GND")
+            self._select_text(self.choice_ground, previous_ground or default_ground)
 
             rail = self._active_rail()
             if rail is None:
@@ -275,7 +300,12 @@ class ACAnalysisPanel(wx.Panel):
                 profile = ACAnalysisSettings(rail_name=rail.net_name)
                 self.profiles[rail.net_name] = profile
 
-            self._select_text(self.choice_ground, profile.ground_net_name or "GND")
+            # A profile never set keeps the dataclass's "GND"; on a board whose
+            # ground symbol names another net, that net is the default.
+            ground = profile.ground_net_name
+            if not ground or (ground not in ground_names and declared_grounds):
+                ground = default_ground
+            self._select_text(self.choice_ground, ground)
             source_refs = sorted(self._source_options(rail))
             load_refs = sorted({load.component_ref.ref_des for load in rail.loads})
             self.choice_source.Set(source_refs)

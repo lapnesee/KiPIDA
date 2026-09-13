@@ -551,6 +551,14 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
                 net_frequencies, part_frequencies = declared_frequencies(
                     design.components, {net.name for net in design.nets if net.is_power_rail},
                 )
+                from ingest.declarations import with_declared_grounds
+
+                grounds = with_declared_grounds(self.settings.reference_net_names, design)
+                if grounds != list(self.settings.reference_net_names):
+                    added = [name for name in grounds if name not in self.settings.reference_net_names]
+                    self.settings.reference_net_names = grounds
+                    self.ground_nets.SetValue(", ".join(grounds))
+                    self.log(f"EMI/EMC: ground nets declared by ground symbols added: {', '.join(added)}.")
             except Exception as exc:
                 self.log(
                     "EMI/EMC sources take no frequency from the project's parts: its saved "

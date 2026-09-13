@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Changed ground detection to start from the project's ground symbols: a net
+  KiCad's GND, GNDA, Earth or VSS symbol names is a ground whatever it is
+  called, and a net name is only a hint. SCH-001 counts a capacitor to such a
+  ground as decoupling; the AC tab lists declared grounds first and selects one
+  when the profile has none of its own; the EMI/EMC and differential scans add
+  declared grounds to their reference nets without removing any.
 - Changed the differential-pair scan to pair nets as KiCad's own router does
   -- past trailing digits and underscores, "+"/"-" or "P"/"N" -- and to read
   the project's netclasses: a pair whose nets share a netclass other than

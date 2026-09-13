@@ -62,6 +62,7 @@ class DialogPages:
         self.tab_ac, self.ac_panel = self._panel_page(
             "AC Impedance", ACAnalysisPanel,
             board, rails_provider=lambda: self.power_tree.rails, log_callback=log_callback,
+            design_provider=_design_provider(project_context),
         )
         self.power_tree.ac_profiles_provider = self.ac_panel.get_profiles
         self.power_tree.ac_profiles_consumer = self.ac_panel.set_profiles
@@ -69,6 +70,7 @@ class DialogPages:
         self.tab_differential, self.differential_panel = self._panel_page(
             "Differential Pairs", DifferentialAnalysisPanel,
             board, project=project, log_callback=log_callback,
+            design_provider=_design_provider(project_context),
         )
         self.power_tree.differential_profile_provider = self.differential_panel.get_settings
         self.power_tree.differential_profile_consumer = self.differential_panel.set_settings

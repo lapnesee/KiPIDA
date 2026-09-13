@@ -117,6 +117,12 @@ def _has_power_field(component: ComponentInfo) -> bool:
 def _check_undecoupled_power_pins(context: SchematicRuleContext) -> list:
     netlist = context.netlist
     components_by_ref = {c.reference: c for c in netlist.components}
+    # Grounds as the netlist classified them -- a ground symbol first, the
+    # name as a hint -- and by name for a net the netlist does not list.
+    grounds = {net.name for net in netlist.nets if getattr(net, "ground_source", "")}
+
+    def _is_ground(net_name):
+        return net_name in grounds or _is_gnd_net(net_name)
 
     # net_name -> set of component references with a pad on that net
     net_to_refs: dict[str, set] = {}
@@ -135,7 +141,7 @@ def _check_undecoupled_power_pins(context: SchematicRuleContext) -> list:
                 # A power input left unconnected has no net to decouple;
                 # whether it should be connected is another question.
                 continue
-            if _is_gnd_net(net_name):
+            if _is_ground(net_name):
                 # A power_in pin tied directly to ground (e.g. a GND pin
                 # itself) has nothing to be decoupled against.
                 continue
@@ -149,7 +155,7 @@ def _check_undecoupled_power_pins(context: SchematicRuleContext) -> list:
                 other = components_by_ref.get(other_ref)
                 if other is None or not _is_capacitor(other):
                     continue
-                if any(_is_gnd_net(n) for n in other.nets_by_pad.values()):
+                if any(_is_ground(n) for n in other.nets_by_pad.values()):
                     decoupled = True
                     break
 

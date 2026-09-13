@@ -45,10 +45,22 @@ class NetInfo:
     # "inferred"); empty when it is not a rail.
     rail_source: str = ""
     rail_confidence: str = ""
+    # Why the net is a ground: GROUND_POWER_SYMBOL (a ground symbol names it)
+    # or GROUND_NAME (only its name suggests one); empty otherwise.
+    ground_source: str = ""
 
 
 RAIL_POWER_SYMBOL = "power_symbol"
 RAIL_POWER_PIN = "power_pin"
+GROUND_POWER_SYMBOL = "power_symbol"
+GROUND_NAME = "name"
+
+# KiCad's ground symbols, by library symbol name (power:GND, power:GNDA,
+# power:Earth, power:VSS...): the symbol a designer placed, whatever the net
+# it names is called.
+_GROUND_SYMBOL_RE = re.compile(r"^(GND\w*|Earth\w*|Chassis\w*|VSS\w*|0V)$", re.IGNORECASE)
+# The last resort, a net's own name.
+_GROUND_NAME_RE = re.compile(r"(?i)(^|[/_+\-])(gnd|vss|ground)(\d*|$)|^(A|D|P)?GND$")
 
 
 # How a footprint relates to the schematic. Absence is a state, not a gap.
@@ -239,6 +251,14 @@ def build_netlist(
             if net is not None:
                 net.is_power_rail = True
                 net.rail_source, net.rail_confidence = RAIL_POWER_SYMBOL, "declared"
+        for inst in schematic.instances:
+            net = nets_map.get(inst.value) if inst.power == "global" else None
+            if net is not None and _GROUND_SYMBOL_RE.match(inst.lib_id.split(":")[-1]):
+                net.ground_source = GROUND_POWER_SYMBOL
+    for net in nets_map.values():
+        # A synthesised "unconnected-(BUS1-GND-Pad10)" names a pin, not a ground.
+        if not net.ground_source and not net.name.startswith("unconnected-") and _GROUND_NAME_RE.search(net.name):
+            net.ground_source = GROUND_NAME
 
     # Each local net a link joins is aliased to the nets it joins on the other
     # boards, under their own names.
