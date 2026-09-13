@@ -4,8 +4,8 @@
 
 - Fixed the offline board reader dropping copper: a zone declared on several
   layers lost all its fills, and a zone split into islands kept only the largest.
-  On the reference board 24 of 40 filled zones were read; the DC advisor sized
-  every fix on that incomplete copper. Every island on every layer is read now.
+  On the reference board 16 filled islands were read where the file holds 40;
+  the DC advisor sized every fix on that incomplete copper. Every island on every layer is read now.
 - Changed the hybrid mesher to mesh a net's pours as one copper union per layer
   on a lattice aligned on the step, so overlapping zones no longer count shared
   copper twice and islands attach consistently, and to compute cell fractions

@@ -14,11 +14,10 @@ Key improvements over the legacy mesher
 * **Vias** — modelled by :func:`~ingest.track_resistance.via_resistance`, a
   thin-annulus barrel model, replacing the single-node snap used previously.
 * **No ``safety_buffer``** — exact geometry, no polygon inflation.
-* **Zone copper** — requires polygon geometry not yet stored in
-  :class:`~ingest.board_reader.Zone`.  A cut-cell implementation will be
-  added in a future phase once ``Zone`` carries its filled polygon.  Zones
-  are currently skipped with a warning; their copper contribution is absent
-  from the mesh.
+* **Zone copper** — cut-cell: each lattice edge conducts through the copper
+  fraction of the cell centred on it. A net's fills on a layer are meshed as
+  one union, on a lattice aligned on multiples of the step and shared by
+  every layer of the net.
 
 Node-coordinate convention
 ---------------------------
