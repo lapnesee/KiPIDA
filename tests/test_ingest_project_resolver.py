@@ -169,6 +169,34 @@ class TestResolveFromMbs(unittest.TestCase):
         self.assertIsInstance(result, MultiboardProject)
 
 
+class TestResolveIdentity(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.directory = Path(self.tmpdir)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_a_directory_with_two_projects_is_an_error_naming_both(self):
+        for name in ("amp.kicad_pro", "amp_v2.kicad_pro"):
+            (self.directory / name).write_text(json.dumps(MINIMAL_PRO), encoding="utf-8")
+        with self.assertRaises(ValueError) as raised:
+            resolve_project(self.directory)
+        self.assertIn("amp.kicad_pro", str(raised.exception))
+        self.assertIn("amp_v2.kicad_pro", str(raised.exception))
+
+    def test_a_standalone_zeo_project_is_not_part_of_a_multi_board_project(self):
+        # Zeo writes a multi_board block into every project it saves.
+        pro = dict(MINIMAL_PRO, multi_board={"container": False, "container_project_relative_path": ""})
+        pro_path = self.directory / "solo.kicad_pro"
+        pro_path.write_text(json.dumps(pro), encoding="utf-8")
+        (self.directory / "solo.kicad_sch").write_text("(kicad_sch)", encoding="utf-8")
+        result = resolve_project(pro_path)
+        self.assertFalse(result.is_part_of_multiboard)
+        self.assertEqual(result.status, "schematic_only")
+
+
 class TestResolveErrors(unittest.TestCase):
     def test_missing_path_raises(self):
         with self.assertRaises((FileNotFoundError, ValueError)):

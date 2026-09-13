@@ -1,9 +1,15 @@
 """Resolve KiCad project paths for single-board and Zeo multi-board projects.
 
 Supports three entry points:
-  - a .kicad_pro file
-  - a .kicad_mbs file
-  - a directory (searches for .kicad_mbs first, then .kicad_pro)
+  - a .kicad_pro file, resolved as that project and nothing else;
+  - a .kicad_mbs file;
+  - a directory, searched for one .kicad_mbs, then one .kicad_pro.
+
+Inside the plugin the project comes from the host (``Project.path``), never
+from a search (docs/plan-universalite.md, P1). A directory is for validation
+and tests, and a directory holding several candidates is an error naming them:
+the KiCad 10 demos ship ``ecc83`` with two projects, and picking the first one
+the filesystem listed analysed whichever that happened to be.
 """
 
 from __future__ import annotations
@@ -25,6 +31,22 @@ class BoardProject:
     sub_project_uuid: str
     notes: list[str] = field(default_factory=list)  # what could not be read or resolved, and why
 
+    @property
+    def status(self) -> str:
+        """Which design files exist: COMPLETE, SCHEMATIC_ONLY, PCB_ONLY or NO_DESIGN_FILES."""
+        has_pcb, has_sch = self.pcb_path.is_file(), self.sch_root_path.is_file()
+        if has_pcb and has_sch:
+            return COMPLETE
+        if has_sch:
+            return SCHEMATIC_ONLY
+        return PCB_ONLY if has_pcb else NO_DESIGN_FILES
+
+
+COMPLETE = "complete"
+SCHEMATIC_ONLY = "schematic_only"
+PCB_ONLY = "pcb_only"
+NO_DESIGN_FILES = "no_design_files"
+
 
 @dataclass
 class MultiboardProject:
@@ -44,12 +66,15 @@ def resolve_project(path: Path) -> MultiboardProject | BoardProject:
 
     if path.is_dir():
         # Prefer .kicad_mbs (Zeo multi-board container)
-        mbs_files = list(path.glob("*.kicad_mbs"))
-        if mbs_files:
-            return _resolve_mbs(mbs_files[0])
-        pro_files = list(path.glob("*.kicad_pro"))
-        if pro_files:
-            return _resolve_pro(pro_files[0])
+        for pattern, resolve in (("*.kicad_mbs", _resolve_mbs), ("*.kicad_pro", _resolve_pro)):
+            candidates = sorted(path.glob(pattern))
+            if len(candidates) > 1:
+                raise ValueError(
+                    f"{path} holds {len(candidates)} {pattern[1:]} files; name the project to "
+                    "analyse: " + ", ".join(candidate.name for candidate in candidates)
+                )
+            if candidates:
+                return resolve(candidates[0])
         raise FileNotFoundError(f"No .kicad_pro or .kicad_mbs found in {path}")
 
     if path.suffix == ".kicad_mbs":
@@ -79,7 +104,7 @@ def _load_pro(pro_path: Path, notes: list[str]) -> dict:
     return data
 
 
-def _resolve_pro(pro_path: Path) -> MultiboardProject | BoardProject:
+def _resolve_pro(pro_path: Path) -> BoardProject:
     notes: list[str] = []
     pro_data = _load_pro(pro_path, notes)
 
@@ -94,9 +119,14 @@ def _resolve_pro(pro_path: Path) -> MultiboardProject | BoardProject:
         if isinstance(entry, (list, tuple)) and len(entry) >= 2:
             sch_sheets.append((str(entry[0]), str(entry[1])))
 
-    # Is this part of a multi-board project?
+    # Whether the file says it belongs to a Zeo container. Descriptive only:
+    # Zeo writes a multi_board block into every project it saves, standalone
+    # ones included, so its presence means nothing; and whether the multi-board
+    # layer applies depends on the host, which the file cannot tell.
     multi_board_data = pro_data.get("multi_board", {})
-    is_multi = bool(multi_board_data)
+    is_multi = isinstance(multi_board_data, dict) and bool(
+        multi_board_data.get("container") or multi_board_data.get("container_project_relative_path")
+    )
 
     # sub_project_uuid — look in meta or multi_board
     sub_uuid = ""
@@ -106,7 +136,11 @@ def _resolve_pro(pro_path: Path) -> MultiboardProject | BoardProject:
     if not sub_uuid:
         sub_uuid = meta.get("uuid", "")
 
-    bp = BoardProject(
+    # The project is the one named. It used to be swapped for its container
+    # when multi_board held a "filename" key -- a key Zeo does not write, so it
+    # never happened, and it must not: in KiCad the container is not opened at
+    # all, and in Zeo the project context decides (plan section 3.1).
+    return BoardProject(
         pro_path=pro_path,
         pcb_path=pcb_path,
         sch_root_path=sch_path,
@@ -115,20 +149,6 @@ def _resolve_pro(pro_path: Path) -> MultiboardProject | BoardProject:
         sub_project_uuid=sub_uuid,
         notes=notes,
     )
-
-    # If it references a multi_board parent, try to resolve the full MBS
-    if is_multi and isinstance(multi_board_data, dict):
-        parent_rel = multi_board_data.get("filename", "")
-        if parent_rel:
-            parent_path = (pro_path.parent / parent_rel).resolve()
-            if parent_path.exists() and parent_path.suffix == ".kicad_mbs":
-                try:
-                    return _resolve_mbs(parent_path)
-                except (OSError, UnicodeDecodeError, ValueError) as exc:
-                    notes.append(f"The container {parent_path.name} could not be resolved "
-                                 f"({type(exc).__name__}: {exc}); the board is read on its own.")
-
-    return bp
 
 
 def _resolve_mbs(mbs_path: Path) -> MultiboardProject:
