@@ -38,6 +38,8 @@ I6  every net carried by a power symbol is classified a rail. A global power
     and is left out. Nets the board does not have are not counted.
 I7  resolving a directory that holds more than one project fails loudly
     instead of picking one.
+I8  no EMI/EMC source the scan discovers carries a frequency nothing in the
+    project states: each non-zero frequency names where it was read.
 """
 
 import argparse
@@ -178,9 +180,26 @@ def measure_project(pro, max_pcb_mb):
 
     if schematic is not None:
         _measure_no_connect_and_power_nets(row, schematic, netlist, findings)
+    _measure_source_frequencies(row, netlist)
 
     row["seconds"] = round(time.perf_counter() - started, 2)
     return row
+
+
+def _measure_source_frequencies(row, netlist):
+    from emc_analyzer import EMCSourceDiscoverer, declared_frequencies
+
+    by_net, by_part = declared_frequencies(netlist.components, {n.name for n in netlist.nets if n.is_power_rail})
+    sources = EMCSourceDiscoverer.discover(
+        {net.name for net in netlist.nets}, net_frequencies=by_net, part_frequencies=by_part,
+    )
+    stated = [s for s in sources if s.frequency_hz > 0]
+    unsourced = [s.name for s in stated if "Frequency from" not in s.parameter_notes
+                 and "fundamental of the" not in s.parameter_notes]
+    row["I8_source_frequencies"] = f"{len(stated)} stated, {len(sources) - len(stated)} unknown"
+    row["I8_ok"] = not unsourced
+    if unsourced:
+        row["I8_examples"] = unsourced[:5]
 
 
 def _measure_no_connect_and_power_nets(row, schematic, netlist, findings):
@@ -259,6 +278,7 @@ def main(argv):
         "I4_boards_failing": sum(1 for r in rows if r.get("I4_ok") is False),
         "I5_boards_failing": sum(1 for r in rows if r.get("I5_ok") is False),
         "I6_boards_failing": sum(1 for r in rows if r.get("I6_ok") is False),
+        "I8_boards_failing": sum(1 for r in rows if r.get("I8_ok") is False),
         "I7_silent_directory_picks": silent,
     }
     print(json.dumps({"summary": summary}, ensure_ascii=False, indent=1))
