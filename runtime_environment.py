@@ -52,7 +52,7 @@ def source_fingerprint(plugin_root=None, length=8):
     ``imported_module_origins``.
     """
     root = Path(plugin_root) if plugin_root else Path(__file__).resolve().parent
-    skip = {".runtime", ".claude", ".git", "__pycache__", "tests", "validation"}
+    skip = {".runtime", ".venv", ".claude", ".git", "__pycache__", "tests", "validation"}
     digest = hashlib.sha256()
     try:
         for path in sorted(root.rglob("*.py")):

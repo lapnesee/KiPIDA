@@ -119,6 +119,11 @@ class RuntimeConfigTests(unittest.TestCase):
             (root / "tests" / "test_thing.py").write_text("y = 2\n", encoding="utf-8")
             (root / ".runtime").mkdir()
             (root / ".runtime" / "vendored.py").write_text("z = 3\n", encoding="utf-8")
+            # A development checkout carries its own virtual environment. It
+            # was hashed, so the checkout never matched the deployed copy of
+            # the same commit (7d26aae6 against 5ab26f72, 113 identical files).
+            (root / ".venv" / "Lib").mkdir(parents=True)
+            (root / ".venv" / "Lib" / "site.py").write_text("w = 4\n", encoding="utf-8")
 
             self.assertEqual(source_fingerprint(root), baseline)
 
