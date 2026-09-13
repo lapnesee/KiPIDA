@@ -449,6 +449,10 @@ class DCSolverEngine:
     def _publish_mesh(self, mesh, context):
         """Bring the mesh to the live board's conventions before it is read."""
 
+    def _rail_extras(self, rail, request, context):
+        """Engine-specific fields added to the rail's result."""
+        return {}
+
     # -- shared solve loop ----------------------------------------------------
 
     def solve(self, request, emit, progress, cancelled):
@@ -518,6 +522,7 @@ class DCSolverEngine:
                     'grid_size_mm': mesh.grid_step,
                     'requested_grid_size_mm': mesh.requested_grid_step,
                     'adaptive_grid': mesh.adaptive_grid,
+                    **self._rail_extras(rail, request, context),
                 }
                 emit(
                     f"  Solved {rail.net_name}: worst load drop {worst_load_drop:.4f} V, "
@@ -604,6 +609,116 @@ def _relabel_layers(mesh, mapping):
     }
 
 
+def _snapshot_mm(value):
+    # Live snapshots carry nanometres; the same heuristic as _mesh_nodes.
+    value = float(value)
+    return value / 1e6 if abs(value) > 10000 else value
+
+
+def _position_key(x_mm, y_mm):
+    return (round(x_mm, 3), round(y_mm, 3))
+
+
+def _count_mismatch(live, saved, noun):
+    only_live = sum((live - saved).values())
+    only_saved = sum((saved - live).values())
+    if not (only_live or only_saved):
+        return None
+    return f"{only_live} {noun}(s) only on the open board and {only_saved} only in the saved file"
+
+
+# Copper that differs by less than this is taken as the same drawing, not an
+# edit: arcs are approximated by chords on both sides, and polygon unions of
+# the same shapes can differ in their last vertices.
+DIVERGENCE_AREA_FRACTION = 0.02
+DIVERGENCE_AREA_FLOOR_MM2 = 0.05
+
+
+def saved_board_differences(board, net_name, request, layer_mapping):
+    """How the open board's copper on *net_name* differs from the saved file.
+
+    The hybrid engine solves the file. A board edited since it was saved is a
+    different board, and a result that does not say so describes copper the
+    user is no longer looking at. Compared: the net's vias and pads by position
+    (from the live snapshot), and its track and pour copper per layer (from the
+    live classification geometry) by the area of their symmetric difference.
+    Whatever the request did not capture is not compared.
+    """
+    from collections import Counter
+
+    differences = []
+    snapshot = request.board
+    if snapshot.vias or snapshot.footprints:
+        live_vias = Counter(
+            _position_key(_snapshot_mm(via.position.x), _snapshot_mm(via.position.y))
+            for via in snapshot.vias if via.net.name == net_name
+        )
+        saved_vias = Counter(
+            _position_key(*via.position) for via in board.vias if via.net_name == net_name
+        )
+        live_pads = Counter(
+            (footprint.reference, str(pad.number), *_position_key(_snapshot_mm(pad.position.x), _snapshot_mm(pad.position.y)))
+            for footprint in snapshot.footprints for pad in footprint.pads if pad.net.name == net_name
+        )
+        saved_pads = Counter(
+            (footprint.reference, str(pad.number), *_position_key(*pad.position))
+            for footprint in board.footprints for pad in footprint.pads if pad.net_name == net_name
+        )
+        for message in (
+            _count_mismatch(live_vias, saved_vias, "via"),
+            # A snapshot without footprints captured none, which says nothing
+            # about the board's pads.
+            _count_mismatch(live_pads, saved_pads, "pad") if snapshot.footprints else None,
+        ):
+            if message:
+                differences.append(message)
+
+    captured = (request.classification_geometry_by_rail or {}).get(net_name)
+    if captured:
+        import shapely
+
+        file_to_live = {layer.name: layer_mapping.get(layer.layer_id) for layer in board.stackup.layers}
+        names = {live_id: name for name, live_id in file_to_live.items() if live_id is not None}
+        saved = {"track": {}, "zone": {}}
+        for seg in board.segments:
+            live_id = file_to_live.get(seg.layer)
+            if seg.net_name == net_name and live_id is not None:
+                width = seg.width_mm if seg.width_mm > 0 else 0.2
+                shape = (shapely.LineString([seg.start, seg.end]) if seg.start != seg.end
+                         else shapely.Point(seg.start)).buffer(width / 2.0)
+                saved["track"].setdefault(live_id, []).append(shape)
+        mesher = HybridMesher(board)
+        for zone in board.zones:
+            live_id = file_to_live.get(zone.layer)
+            if zone.net_name == net_name and live_id is not None and zone.filled_polygon:
+                polygon = mesher._zone_polygon(zone)
+                if polygon is not None:
+                    saved["zone"].setdefault(live_id, []).append(polygon)
+        for kind in ("track", "zone"):
+            live_layers = captured.get(kind) or {}
+            saved_layers = {layer: shapely.union_all(shapes) for layer, shapes in saved[kind].items()}
+            for layer_id in sorted(set(live_layers) | set(saved_layers), key=str):
+                live = live_layers.get(layer_id)
+                stored = saved_layers.get(layer_id)
+                live_area = 0.0 if live is None else float(live.area)
+                stored_area = 0.0 if stored is None else float(stored.area)
+                if live is None or stored is None:
+                    changed = max(live_area, stored_area)
+                else:
+                    changed = float(live.symmetric_difference(stored).area)
+                reference = max(live_area, stored_area)
+                if changed > max(DIVERGENCE_AREA_FRACTION * reference, DIVERGENCE_AREA_FLOOR_MM2):
+                    differences.append(
+                        f"{kind} copper on {names.get(layer_id, layer_id)} differs by "
+                        f"{changed:.2f} mm² ({changed / reference:.0%} of it)"
+                    )
+    return differences
+
+
+class BoardFileUnreadable(RuntimeError):
+    """The saved board file could not be read; the hybrid engine cannot run."""
+
+
 @dataclass(frozen=True)
 class _HybridRunContext:
     board: Any
@@ -634,7 +749,12 @@ class HybridDCSolverEngine(DCSolverEngine):
                 "does not know where the board was loaded from."
             )
         started = time.perf_counter()
-        board = self._board_reader(Path(request.board_path))
+        try:
+            board = self._board_reader(Path(request.board_path))
+        except (OSError, ValueError, UnicodeDecodeError) as exc:
+            raise BoardFileUnreadable(
+                f"{Path(request.board_path).name} could not be read: {exc}"
+            ) from exc
         mapping, positional, unmatched = live_layer_ids(board.stackup, request.stackup)
         emit(
             f"Read {Path(request.board_path).name} for the hybrid DC mesh in "
@@ -680,13 +800,58 @@ class HybridDCSolverEngine(DCSolverEngine):
     def _publish_mesh(self, mesh, context):
         _relabel_layers(mesh, context.layer_mapping)
 
+    def _rail_extras(self, rail, request, context):
+        return {
+            'board_path': str(request.board_path),
+            'saved_board_differences': saved_board_differences(
+                context.board, rail.net_name, request, context.layer_mapping,
+            ),
+        }
+
+
+RASTER_FALLBACK_NOTICE = (
+    "the DC analysis uses the raster mesh of the open board, whose track "
+    "resistance is off by x0.75 to x2.1 depending on width, angle and grid "
+    "alignment (validation/dc_raster_fidelity.py)."
+)
+
+
+class DefaultDCSolverEngine:
+    """The DC engine every analysis gets: one engine, one copper.
+
+    With the saved board file known and readable, the hybrid engine solves it,
+    and the DC tab, the campaign, the thermal and CFD copper losses and the
+    advisor's sizing all read the same mesh. Without one -- a board never
+    saved, or a file that cannot be parsed -- the raster engine solves the open
+    board, and the run log says which and why rather than leaving the reader
+    to assume the more accurate one ran.
+    """
+
+    def __init__(self, hybrid=None, raster=None):
+        self._hybrid = hybrid or HybridDCSolverEngine()
+        self._raster = raster or DCSolverEngine()
+
+    def solve(self, request, emit, progress, cancelled):
+        path = getattr(request, "board_path", None)
+        if not path or not Path(path).is_file():
+            emit(
+                ("No saved board file is known for this run: " if not path
+                 else f"{Path(path).name} does not exist: ") + RASTER_FALLBACK_NOTICE
+            )
+            return self._raster.solve(request, emit, progress, cancelled)
+        try:
+            return self._hybrid.solve(request, emit, progress, cancelled)
+        except BoardFileUnreadable as exc:
+            emit(f"{exc}; " + RASTER_FALLBACK_NOTICE)
+            return self._raster.solve(request, emit, progress, cancelled)
+
 
 class DCAnalysisController(BackgroundAnalysisController):
     """Own one cancellable background DC job and marshal its callbacks."""
 
     def __init__(self, dispatch=lambda callback, *args: callback(*args), engine=None):
         super().__init__(
-            engine or DCSolverEngine(),
+            engine or DefaultDCSolverEngine(),
             thread_name="KiPIDA-DC-Analysis",
             busy_message="A DC analysis is already running.",
             cancelled_error_factory=lambda: DCAnalysisCancelled("DC analysis cancelled."),

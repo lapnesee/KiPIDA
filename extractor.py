@@ -24,10 +24,12 @@ try:
     from .physical_constants import (
         COPPER_RESISTIVITY_OHM_MM, DEFAULT_BOARD_THICKNESS_MM, DEFAULT_COPPER_THICKNESS_MM,
     )
+    from .ingest.board_reader import arc_polyline
 except (ImportError, ValueError):
     from physical_constants import (
         COPPER_RESISTIVITY_OHM_MM, DEFAULT_BOARD_THICKNESS_MM, DEFAULT_COPPER_THICKNESS_MM,
     )
+    from ingest.board_reader import arc_polyline
 
 # Constants mapping (approximate)
 # Needs to be verified against kipy enums
@@ -581,16 +583,18 @@ class GeometryExtractor:
                 continue
             points = [
                 (to_mm(self._get_val(start, 'x', 0)), to_mm(self._get_val(start, 'y', 0))),
+                (to_mm(self._get_val(end, 'x', 0)), to_mm(self._get_val(end, 'y', 0))),
             ]
             mid = self._get_val(track, 'mid')
             if mid is not None:
-                points.append((
-                    to_mm(self._get_val(mid, 'x', 0)),
-                    to_mm(self._get_val(mid, 'y', 0)),
-                ))
-            points.append((
-                to_mm(self._get_val(end, 'x', 0)), to_mm(self._get_val(end, 'y', 0)),
-            ))
+                # The arc itself, as the offline reader draws it. Start, mid
+                # and end alone cut a quarter-turn's corner by 7.6 % of its
+                # radius, and this copper is compared with the saved file's.
+                points = arc_polyline(
+                    points[0],
+                    (to_mm(self._get_val(mid, 'x', 0)), to_mm(self._get_val(mid, 'y', 0))),
+                    points[1],
+                )
             if len(set(points)) == 1:
                 geometry = Point(points[0]).buffer(width_mm / 2.0)
             else:

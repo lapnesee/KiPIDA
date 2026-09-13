@@ -579,7 +579,7 @@ def _parse_segments(root: list, net_map: dict[str, str]) -> list[Segment]:
             width = 0.0
         layer = layer_node[1] if layer_node and len(layer_node) > 1 else ""
         net_name = _resolve_net(str(net_node[1]), net_map) if net_node and len(net_node) > 1 else ""
-        chain = _arc_polyline(*points)
+        chain = arc_polyline(*points)
         for start, end in zip(chain, chain[1:]):
             segments.append(Segment(net_name=net_name, width_mm=width, layer=layer, start=start, end=end))
     return segments
@@ -588,7 +588,7 @@ def _parse_segments(root: list, net_map: dict[str, str]) -> list[Segment]:
 ARC_MAX_STEP_DEG = 10.0
 
 
-def _arc_polyline(start, mid, end) -> list[tuple[float, float]]:
+def arc_polyline(start, mid, end) -> list[tuple[float, float]]:
     """Points along the circular arc from *start* through *mid* to *end*.
 
     Ends are the file's own coordinates, so tracks and pads meeting the arc

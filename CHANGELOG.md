@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- Changed every DC consumer -- the DC tab, the campaign, the thermal and CFD
+  copper losses -- to solve with the hybrid engine whenever the saved board
+  file is known and readable, so they and the advisor read one copper. Without
+  a file, or with one that cannot be parsed, the raster engine runs and the log
+  says so, with the raster error it carries. The DC result's provenance names
+  the engine and the file.
+- Added DC-004: the open board differs from the saved file the hybrid engine
+  solved. Vias and pads of each rail are compared by position, track and pour
+  copper by the area of their difference; the finding names what differs and
+  asks for a save and a rerun. Measured silent on the reference board's seven
+  rails, and at most 0.05 s per rail.
+- Fixed DC findings carrying no net. The advisor finds a voltage-drop
+  finding's rail by its nets, so no DC-003 the adapter produced was ever given
+  a sized fix, and the campaign could not group DC findings by net.
+- Changed the DC advisor to size a hybrid result's fix on that result's own
+  sources, loads and grid step -- every declared source, regulator output,
+  load and regulator input -- so the drop it sizes against is the one DC-003
+  reports (5.694 mV on the reference board's +5V_RAIL for both).
+- Fixed the live track geometry drawing an arc track through its start, mid
+  and end points only, which cut a quarter turn's corner by 7.6 % of its
+  radius; it now follows the same chords as the offline reader.
 - Changed how the DC advisor and the hybrid engine place a source or load on a
   pad: on every node inside the pad's outline, on its layers, instead of the
   single nearest node. Holding or loading one node forced the current through a

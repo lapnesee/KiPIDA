@@ -141,6 +141,19 @@ class TestGeometryExtractor(unittest.TestCase):
         expected_area = 10.0 * 0.5 + math.pi * 0.25 ** 2
         self.assertAlmostEqual(geometry[0].area, expected_area, delta=0.01)
 
+    def test_an_arc_track_is_classified_along_the_arc_itself(self):
+        # Start, mid and end alone cut a quarter turn's corner by 7.6 % of its
+        # radius; this copper is compared with the saved file's, which reads
+        # the arc as 10-degree chords.
+        radius, width = 5_000_000, 300_000
+        arc = MockTrack(1, 0, (radius, 0), (0, radius), width)
+        arc.mid = MockPoint(radius * math.cos(math.pi / 4), radius * math.sin(math.pi / 4))
+        self.board.tracks.append(arc)
+        geometry = self.extractor.get_track_geometry("TestNet")
+        exact = math.pi / 2 * 5.0 * 0.3 + math.pi * 0.15 ** 2
+        self.assertAlmostEqual(geometry[0].area, exact, delta=0.005 * exact)
+        self.assertTrue(geometry[0].contains(Point(5.0 * math.cos(math.pi / 8), 5.0 * math.sin(math.pi / 8))))
+
     def test_geometry_index_logging_does_not_depend_on_merge_scope(self):
         messages = []
         extractor = GeometryExtractor(self.board, log_callback=messages.append)

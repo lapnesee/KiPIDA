@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 import time
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from application.dc_controller import DCSolverEngine
+from application.dc_controller import DefaultDCSolverEngine
 from electrothermal import ElectroThermalSolver
 from thermal_mesh import ThermalMesher
 from thermal_model import CopperLossPoint
@@ -113,7 +113,7 @@ def dc_copper_loss_points(system_results):
 
 class ThermalSolverEngine:
     def __init__(
-        self, dc_engine_factory=DCSolverEngine, mesher_factory=ThermalMesher,
+        self, dc_engine_factory=DefaultDCSolverEngine, mesher_factory=ThermalMesher,
         solver_factory=ThermalSolver, coupled_solver_factory=ElectroThermalSolver,
     ):
         self._dc_engine_factory = dc_engine_factory

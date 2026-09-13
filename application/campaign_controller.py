@@ -192,13 +192,13 @@ def default_domain_engines() -> Dict[str, Any]:
     """
     from application.ac_controller import ACSolverEngine
     from application.cfd_controller import CFDSolverEngine
-    from application.dc_controller import DCSolverEngine
+    from application.dc_controller import DefaultDCSolverEngine
     from application.differential_controller import DifferentialSolverEngine
     from application.emc_controller import EMCSolverEngine
     from application.thermal_controller import ThermalSolverEngine
 
     return {
-        "DC": DCSolverEngine(),
+        "DC": DefaultDCSolverEngine(),
         "AC": ACSolverEngine(),
         "DIFFERENTIAL": DifferentialSolverEngine(),
         "EMC": EMCSolverEngine(),

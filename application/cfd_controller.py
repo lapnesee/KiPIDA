@@ -3,7 +3,7 @@
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Tuple
 
-from application.dc_controller import DCSolverEngine
+from application.dc_controller import DefaultDCSolverEngine
 from application.thermal_controller import dc_copper_loss_points
 from conjugate_heat_transfer import ConjugateHeatTransferSolver
 from application.background_controller import BackgroundAnalysisController
@@ -40,7 +40,7 @@ class CFDControllerCallbacks:
 
 
 class CFDSolverEngine:
-    def __init__(self, solver_factory=ConjugateHeatTransferSolver, dc_engine_factory=DCSolverEngine,
+    def __init__(self, solver_factory=ConjugateHeatTransferSolver, dc_engine_factory=DefaultDCSolverEngine,
                  plotter_factory=None):
         self._solver_factory = solver_factory
         self._dc_engine_factory = dc_engine_factory

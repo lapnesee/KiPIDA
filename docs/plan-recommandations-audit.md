@@ -211,6 +211,19 @@ enregistré, un finding `DC-004` (fait sur le calcul) le dit. Sans fichier, repl
 rasterisé explicite. Acceptation : DC-003 et la baseline du conseiller donnent la
 même chute sur une carte synthétique.
 
+**Fait.** `DefaultDCSolverEngine` est le moteur par défaut de l'onglet DC, de la
+campagne, du thermique et de la CFD. Le conseiller dimensionne un résultat
+hybride sur ses propres sources, charges et pas. L'acceptation est tenue sur la
+carte synthétique (test `test_dc_003_and_the_advisor_baseline_report_the_same_drop`)
+et vérifiée sur la carte de référence : 5,694 mV pour DC-003 comme pour la
+baseline du conseiller sur +5V_RAIL.
+
+En l'écrivant, un défaut plus ancien est apparu : les findings DC ne portaient
+aucun net, et le conseiller retrouve le rail d'un finding par ses nets. Aucun
+DC-003 produit par l'adaptateur n'avait donc jamais reçu de correctif
+dimensionné ; le test de câblage existant construisait ses findings à la main,
+nets compris, et ne pouvait pas le voir.
+
 ## Lot 6 — Dire l'erreur du rasterisé (R2)
 
 Pour l'AC, toujours rasterisé, et pour le DC en repli : pas effectif publié,

@@ -183,6 +183,139 @@ class HybridEngineOnARoute(unittest.TestCase):
             _solve(HybridDCSolverEngine(), _request(None, [_rail()]))
 
 
+@unittest.skipUnless(_DEPS, "numpy/scipy/shapely not available")
+class OneEngineForEveryAnalysis(unittest.TestCase):
+    """Plan step 5.5: the saved file, when known, is the copper every reader gets."""
+
+    def setUp(self):
+        self.path = _write_board(pad_mm=1, via_mm=0.6)
+
+    def tearDown(self):
+        self.path.unlink(missing_ok=True)
+
+    class _Recording:
+        def __init__(self, name):
+            self.name, self.calls = name, 0
+
+        def solve(self, request, emit, progress, cancelled):
+            self.calls += 1
+            return {"VCC": {"engine": self.name}}
+
+    def test_a_known_saved_file_is_solved_by_the_hybrid_engine(self):
+        from application.dc_controller import DefaultDCSolverEngine
+
+        hybrid, raster = self._Recording("hybrid"), self._Recording("raster")
+        results, _logs = _solve(DefaultDCSolverEngine(hybrid, raster), _request(self.path, [_rail()]))
+        self.assertEqual((hybrid.calls, raster.calls), (1, 0))
+        self.assertEqual(results["VCC"]["engine"], "hybrid")
+
+    def test_without_a_file_the_raster_engine_runs_and_the_log_says_why(self):
+        from application.dc_controller import DefaultDCSolverEngine
+
+        hybrid, raster = self._Recording("hybrid"), self._Recording("raster")
+        _results, logs = _solve(DefaultDCSolverEngine(hybrid, raster), _request(None, [_rail()]))
+        self.assertEqual((hybrid.calls, raster.calls), (0, 1))
+        self.assertTrue(any("No saved board file" in line and "raster" in line for line in logs))
+
+    def test_an_unreadable_file_falls_back_to_the_raster_engine(self):
+        from application.dc_controller import DefaultDCSolverEngine, HybridDCSolverEngine
+
+        def unreadable(_path):
+            raise ValueError("Cannot parse: no root node found")
+
+        raster = self._Recording("raster")
+        engine = DefaultDCSolverEngine(HybridDCSolverEngine(board_reader=unreadable), raster)
+        results, logs = _solve(engine, _request(self.path, [_rail()]))
+        self.assertEqual((raster.calls, results["VCC"]["engine"]), (1, "raster"))
+        self.assertTrue(any("could not be read" in line for line in logs))
+
+    def test_every_consumer_defaults_to_the_one_engine(self):
+        import inspect
+
+        from application.campaign_controller import default_domain_engines
+        from application.cfd_controller import CFDSolverEngine
+        from application.dc_controller import DCAnalysisController, DefaultDCSolverEngine
+        from application.thermal_controller import ThermalSolverEngine
+
+        self.assertIsInstance(default_domain_engines()["DC"], DefaultDCSolverEngine)
+        for consumer in (ThermalSolverEngine, CFDSolverEngine):
+            factory = inspect.signature(consumer.__init__).parameters["dc_engine_factory"].default
+            self.assertIs(factory, DefaultDCSolverEngine)
+        self.assertIsInstance(DCAnalysisController()._engine, DefaultDCSolverEngine)
+
+    def test_dc_003_and_the_advisor_baseline_report_the_same_drop(self):
+        # The plan's acceptance for the switch: the fix is sized against the
+        # very drop the finding reports.
+        from advisor.dc_advisor import baseline_solution
+        from application.dc_controller import HybridDCSolverEngine
+        from ingest.board_reader import read_board
+
+        results, _logs = _solve(HybridDCSolverEngine(), _request(self.path, [_rail(2.0)]))
+        data = results["VCC"]
+        _mesh, _voltages, advisor_drop = baseline_solution(
+            read_board(self.path), "VCC", "", data["sources"], data["loads"],
+            grid_step_mm=data["requested_grid_size_mm"],
+        )
+        self.assertAlmostEqual(advisor_drop, data["load_drop_v"], delta=1e-6 * data["load_drop_v"])
+
+    def test_the_advisor_sizes_on_the_results_own_sources_and_loads(self):
+        from unittest import mock
+
+        import analysis_adapters
+        from application.dc_controller import HybridDCSolverEngine
+
+        rail = _rail(2.0)
+        results, _logs = _solve(HybridDCSolverEngine(), _request(self.path, [rail]))
+        with mock.patch("advisor.dc_advisor.build_dc_remediations", return_value=[]) as sizing:
+            result = analysis_adapters.adapt_dc_run(
+                results, 0.1, board_path=str(self.path), rails=[rail],
+            )
+        self.assertIn("DC-003", {finding.rule_id for finding in result.findings})
+        kwargs = sizing.call_args.kwargs
+        self.assertEqual(kwargs["sources"], results["VCC"]["sources"])
+        self.assertEqual(kwargs["loads"], results["VCC"]["loads"])
+        self.assertEqual(kwargs["grid_step_mm"], results["VCC"]["requested_grid_size_mm"])
+
+    def test_an_edited_open_board_raises_dc_004(self):
+        from dataclasses import replace
+
+        import analysis_adapters
+        from application.dc_controller import HybridDCSolverEngine
+        from application.dc_controller import DCNetSnapshot, DCPointSnapshot, DCViaSnapshot
+
+        # The open board's via sits 0.5 mm from where the saved file has it.
+        moved = DCPointSnapshot(20.5e6, 10e6)
+        via = DCViaSnapshot(DCNetSnapshot("VCC"), moved, moved, 0.6e6, layers=(3, 34))
+        request = replace(_request(self.path, [_rail()]), board=replace(
+            _request(self.path, [_rail()]).board, vias=(via,),
+        ))
+        results, _logs = _solve(HybridDCSolverEngine(), request)
+        self.assertEqual(
+            results["VCC"]["saved_board_differences"],
+            ["1 via(s) only on the open board and 1 only in the saved file"],
+        )
+        finding = next(
+            item for item in analysis_adapters.adapt_dc_result(results, 50.0).findings
+            if item.rule_id == "DC-004"
+        )
+        self.assertEqual(str(finding.confidence.value if hasattr(finding.confidence, "value") else finding.confidence), "DETERMINISTIC")
+        self.assertIn("Save the board", finding.recommendation)
+
+    def test_an_unchanged_open_board_raises_nothing(self):
+        import analysis_adapters
+        from dataclasses import replace
+
+        from application.dc_controller import HybridDCSolverEngine
+        from application.dc_controller import DCNetSnapshot, DCPointSnapshot, DCViaSnapshot
+
+        same = DCPointSnapshot(20e6, 10e6)
+        via = DCViaSnapshot(DCNetSnapshot("VCC"), same, same, 0.6e6, layers=(3, 34))
+        base = _request(self.path, [_rail()])
+        results, _logs = _solve(HybridDCSolverEngine(), replace(base, board=replace(base.board, vias=(via,))))
+        self.assertEqual(results["VCC"]["saved_board_differences"], [])
+        self.assertNotIn("DC-004", {item.rule_id for item in analysis_adapters.adapt_dc_result(results, 50.0).findings})
+
+
 class LiveLayerPairing(unittest.TestCase):
     @staticmethod
     def _file_stackup(*names):

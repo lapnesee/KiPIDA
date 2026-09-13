@@ -1,6 +1,7 @@
 """Adapters from numerical-domain objects to the shared analysis contract."""
 
 import math
+from pathlib import Path
 from typing import Any
 
 from analysis_contract import (
@@ -435,9 +436,18 @@ def adapt_differential_result(results: Any, stackup: Any, tolerance_pct: float) 
     ).finish()
 
 
+def _same_file(first: Any, second: Any) -> bool:
+    if not first or not second:
+        return False
+    try:
+        return Path(str(first)).resolve() == Path(str(second)).resolve()
+    except (OSError, ValueError):
+        return False
+
+
 def attach_dc_remediations(result: Any, board_path: Any, rails: Any,
                            maximum_drop_pct: float, *, verify: bool = False,
-                           log_callback=None) -> int:
+                           log_callback=None, system_results: Any = None) -> int:
     """Give each voltage-drop finding a sized, quantified fix.
 
     The DC advisor ranks branches by R*I^2, sizes the widening the dominant
@@ -505,6 +515,48 @@ def attach_dc_remediations(result: Any, board_path: Any, rails: Any,
                 "target to size against; skipped."
             )
             continue
+
+        solved = (system_results or {}).get(rail.net_name) or {}
+        if solved.get("engine") == "hybrid" and _same_file(solved.get("board_path"), board_path):
+            # The DC result was solved on this very file with the hybrid mesh
+            # the advisor builds, so its node ids address the advisor's mesh.
+            # Sizing against the result's own sources, loads and step is what
+            # makes the fix answer the drop DC-003 reported: every declared
+            # source and regulator output, every load and regulator input,
+            # rather than one resolved source and the declared loads alone.
+            sources = list(solved.get("sources") or ())
+            loads = list(solved.get("loads") or ())
+            step = float(solved.get("requested_grid_size_mm") or solved.get("grid_size_mm") or grid_step_mm)
+            detailed = solved.get("detailed_result")
+            if not sources or not loads:
+                _log(f"{rail.net_name} skipped: the DC result holds no source or no load to size against.")
+                continue
+            if detailed is not None and not getattr(detailed, "valid", True):
+                _log(
+                    f"{rail.net_name} skipped: {getattr(detailed, 'excluded_load_node_count', 0)} "
+                    "load node(s) are not connected to a source in the solved copper, so any "
+                    "drop computed would be fictitious."
+                )
+                continue
+            reference_v = float(solved.get("source_voltage_v") or 0.0) or nominal
+            _log(
+                f"{rail.net_name} sized on the DC result's own mesh ({step:g} mm): "
+                f"{len(sources)} source node(s), {len(loads)} load node(s)."
+            )
+            try:
+                remediations = build_dc_remediations(
+                    board, rail.net_name, "", sources=sources, loads=loads,
+                    target_drop_v=reference_v * float(maximum_drop_pct) / 100.0,
+                    grid_step_mm=step, verify=verify, log_callback=log_callback,
+                )
+            except Exception as exc:
+                _log(f"Remediation sizing failed for {rail.net_name}: {exc}")
+                continue
+            if remediations:
+                finding.remediations.extend(remediations)
+                attached += 1
+            continue
+
         source_ref, source_pads, rule = resolve_rail_source(board, rail, rails)
         if source_ref is None:
             _log(f"{rail.net_name} skipped: {rule}.")
@@ -928,6 +980,7 @@ def adapt_dc_run(system_results: Any, maximum_drop_pct: float, *,
     try:
         attached = attach_dc_remediations(
             result, board_path, rails, maximum_drop_pct, log_callback=log_callback,
+            system_results=system_results,
         )
     except Exception as exc:
         message = (
@@ -949,6 +1002,7 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
     metrics = []
     density_hotspots = {}
     for index, (rail, data) in enumerate((system_results or {}).items(), start=1):
+        first_finding = len(findings)
         vmin, vmax, drop = data.get("stats", (0.0, 0.0, 0.0))
         spread_pct = (float(drop) / float(vmax) * 100.0) if vmax else 0.0
         source_voltage = float(data.get("source_voltage_v", 0.0) or 0.0)
@@ -1058,6 +1112,17 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
                 "Review connectivity, mesh resolution, and solver diagnostics.",
                 confidence=EvidenceConfidence.DETERMINISTIC,
             ))
+        differences = list(data.get("saved_board_differences") or ())
+        if differences:
+            findings.append(_finding(
+                "DC-004", index, "MODEL_INPUT", FindingSeverity.MEDIUM,
+                f"{rail} was solved on the saved board, which differs from the open one",
+                "The DC mesh was built from the saved board file, and the open board no longer "
+                "matches it: " + "; ".join(differences) + ". The figures above describe the "
+                "saved copper.",
+                "Save the board and rerun the DC analysis.",
+                confidence=EvidenceConfidence.DETERMINISTIC,
+            ))
         if drop_pct > float(maximum_drop_pct):
             findings.append(_finding(
                 "DC-003", index, "VOLTAGE_DROP", FindingSeverity.HIGH,
@@ -1065,6 +1130,27 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
                 f"{drop_text} versus {maximum_drop_pct:.3f}% allowed.",
                 "Increase copper cross-section or reduce path/load resistance.",
             ))
+        # Every DC finding is about its rail, and says so. The findings carried
+        # no net: attach_dc_remediations finds a finding's rail by its nets, so
+        # no voltage-drop finding the adapter produced was ever given a sized
+        # fix, and the campaign could not group DC findings by net either.
+        for finding in findings[first_finding:]:
+            finding.nets = [str(rail)]
+    hybrid_rails = [data for data in (system_results or {}).values() if data.get("engine") == "hybrid"]
+    if hybrid_rails:
+        geometry_evidence = AnalysisEvidence(
+            "PCB_GEOMETRY",
+            "The resistive mesh is built from the saved board file: analytic tracks, via and "
+            "plated-hole barrels, cut-cell pours and pad lands. Sources and loads are held on "
+            "every node inside their pads.",
+            reference=Path(str(hybrid_rails[0].get("board_path") or "saved board file")).name,
+        )
+    else:
+        geometry_evidence = AnalysisEvidence(
+            "PCB_GEOMETRY",
+            "The resistive mesh uses a detached snapshot of live-board copper, pads, vias, and zones.",
+            reference="KiCad IPC snapshot",
+        )
     return AnalysisResult(
         "DC", "DC Power",
         status=AnalysisStatus.NO_DATA if not system_results else (AnalysisStatus.WARN if findings else AnalysisStatus.PASS),
@@ -1072,14 +1158,13 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
             "rail_count": len(system_results or {}),
             "maximum_drop_pct": float(maximum_drop_pct),
             "current_density_hotspots": density_hotspots,
+            "engine": hybrid_rails[0].get("engine") if hybrid_rails else (
+                next(iter(system_results.values())).get("engine", "raster") if system_results else None
+            ),
         },
         findings=findings, metrics=metrics,
         provenance=[
-            AnalysisEvidence(
-                "PCB_GEOMETRY",
-                "The resistive mesh uses a detached snapshot of live-board copper, pads, vias, and zones.",
-                reference="KiCad IPC snapshot",
-            ),
+            geometry_evidence,
             AnalysisEvidence(
                 "LOAD_MODEL",
                 "Rail sources, loads, regulator relationships, and explicit parasitics come from the saved project configuration.",

@@ -163,6 +163,19 @@ class AnalysisAdapterTests(unittest.TestCase):
         finding = next(item for item in beyond.findings if item.rule_id == "DC-003")
         self.assertIn("250.0 mV", finding.description)
 
+    def test_every_dc_finding_names_its_rail(self):
+        # The advisor finds a voltage-drop finding's rail by its nets. Without
+        # them no finding from this adapter was ever given a sized fix.
+        detail = SimpleNamespace(valid=False, excluded_load_node_count=1)
+        result = adapt_dc_result({
+            "+5V": {"stats": (4.0, 5.0, 1.0), "detailed_result": detail},
+            "+3V3": {"stats": (3.0, 3.3, 0.3)},
+        }, 1.0)
+        self.assertEqual(
+            sorted((item.rule_id, tuple(item.nets)) for item in result.findings),
+            [("DC-001", ("+5V",)), ("DC-003", ("+3V3",)), ("DC-003", ("+5V",))],
+        )
+
     def test_a_hybrid_island_is_not_blamed_on_the_grid_step(self):
         detail = SimpleNamespace(valid=False, excluded_load_node_count=1)
         result = adapt_dc_result({"+5V": {

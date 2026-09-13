@@ -827,6 +827,29 @@ def _plane_copper_actions(
     return remediations
 
 
+def baseline_solution(
+    parsed_board: ParsedBoard, net_name: str, ground_net_name: str,
+    sources: list, loads: list, *, grid_step_mm: float = 0.1, solver=None,
+    log_callback: Optional[Callable[[str], None]] = None,
+):
+    """``(mesh, node_voltages, worst load drop)`` the advice is sized against.
+
+    Empty voltages and a 0.0 V drop when the net has no copper or the solve
+    fails. The DC result's DC-003 reports the same drop for the same file,
+    sources, loads and step; this is the function that holds the two equal.
+    """
+    mesh = build_net_mesh(
+        parsed_board, net_name, ground_net_name,
+        grid_step_mm=grid_step_mm, log_callback=log_callback,
+    )
+    if not mesh.nodes or not mesh.branches:
+        return mesh, {}, 0.0
+    node_voltages = (solver or Solver()).solve(mesh, sources, loads)
+    if not node_voltages:
+        return mesh, {}, 0.0
+    return mesh, node_voltages, load_drop_v(node_voltages, sources, loads)
+
+
 def build_dc_remediations(
     parsed_board: ParsedBoard, net_name: str, ground_net_name: str,
     sources: list, loads: list, *,
@@ -855,20 +878,16 @@ def build_dc_remediations(
         return []
 
     solver = Solver()
-    mesh = build_net_mesh(
-        parsed_board, net_name, ground_net_name,
-        grid_step_mm=grid_step_mm, log_callback=log_callback,
+    mesh, node_voltages, baseline_drop = baseline_solution(
+        parsed_board, net_name, ground_net_name, sources, loads,
+        grid_step_mm=grid_step_mm, solver=solver, log_callback=log_callback,
     )
     if not mesh.nodes or not mesh.branches:
         _log(f"Net '{net_name}' has no meshable copper; no advice produced.")
         return []
-
-    node_voltages = solver.solve(mesh, sources, loads)
     if not node_voltages:
         _log(f"Solver did not converge for net '{net_name}'; no advice produced.")
         return []
-
-    baseline_drop = load_drop_v(node_voltages, sources, loads)
     if baseline_drop <= target_drop_v:
         _log(
             f"Net '{net_name}' drop {_format_drop(baseline_drop)} already meets "
