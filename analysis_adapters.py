@@ -10,6 +10,7 @@ from analysis_contract import (
     normalize_evidence_confidence,
 )
 from physical_constants import COPPER_RESISTIVITY_OHM_M, COPPER_RESISTIVITY_REFERENCE_C
+from raster_fidelity import DISCLOSE_BELOW_STEPS, track_limitation, width_in_steps
 
 
 def _severity(value: Any) -> FindingSeverity:
@@ -186,6 +187,40 @@ def _ac_sweep_snapshot(final: Any):
     return points
 
 
+def _raster_track_metrics(key_prefix: str, label_prefix: str, summary: Any, step_mm: float) -> list:
+    """The narrowest track in grid steps and the oblique count, as metrics.
+
+    The raster mesh's track error follows those two numbers (see
+    raster_fidelity), so a result publishes them next to its step.
+    """
+    summary = dict(summary or {})
+    if not summary.get("track_count") or step_mm <= 0.0:
+        return []
+    finest = float(summary.get("finest_width_mm", 0.0) or 0.0)
+    return [
+        AnalysisMetric(
+            f"{key_prefix}narrowest_track_steps", f"{label_prefix} narrowest track in grid steps".strip(),
+            width_in_steps(finest, step_mm), "steps",
+            "WARN" if width_in_steps(finest, step_mm) < DISCLOSE_BELOW_STEPS else "INFO",
+        ),
+        AnalysisMetric(
+            f"{key_prefix}oblique_tracks", f"{label_prefix} oblique tracks".strip(),
+            int(summary.get("oblique_count", 0) or 0), status="INFO",
+        ),
+    ]
+
+
+def _raster_track_limitations(summary: Any, step_mm: float, mesh_name: str) -> list:
+    summary = dict(summary or {})
+    if not summary.get("track_count"):
+        return []
+    text = track_limitation(
+        float(summary.get("finest_width_mm", 0.0) or 0.0), step_mm,
+        int(summary.get("oblique_count", 0) or 0), mesh_name=mesh_name,
+    )
+    return [text] if text else []
+
+
 def _ac_validity_limitations(final: Any) -> list:
     """Say where the swept numbers stop deserving equal confidence.
 
@@ -355,7 +390,10 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
                 "mesh_resolution", "Effective AC mesh resolution",
                 float(getattr(final, "effective_grid_size_mm", 0.0)), "mm", "INFO",
             ),
-        ],
+        ] + _raster_track_metrics(
+            "", "AC", getattr(final, "track_summary", None),
+            float(getattr(final, "effective_grid_size_mm", 0.0) or 0.0),
+        ),
         provenance=[AnalysisEvidence(
             "PDN_MODEL",
             "The sweep uses the configured rail, source impedance, copper/via branches, and capacitor RLC models.",
@@ -371,7 +409,10 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
             f"Observation point {item.get('ref_des') or '(unnamed)'} was excluded "
             f"from the sweep: it {item.get('reason', 'could not be measured')}."
             for item in (getattr(final, "excluded_ports", None) or ())
-        ] + _ac_validity_limitations(final),
+        ] + _ac_validity_limitations(final) + _raster_track_limitations(
+            getattr(final, "track_summary", None),
+            float(getattr(final, "effective_grid_size_mm", 0.0) or 0.0), "AC mesh",
+        ),
         compute_metadata={
             "backend": getattr(final, "compute_backend", ""),
             "device": getattr(final, "compute_device", ""),
@@ -1000,6 +1041,7 @@ def adapt_dc_run(system_results: Any, maximum_drop_pct: float, *,
 def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisResult:
     findings = []
     metrics = []
+    raster_limitations = []
     density_hotspots = {}
     for index, (rail, data) in enumerate((system_results or {}).items(), start=1):
         first_finding = len(findings)
@@ -1029,6 +1071,15 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
                 "WARN" if drop_pct > float(maximum_drop_pct) else "PASS",
             ))
             drop_text = f"Calculated drop is {drop_pct:.3f}%"
+        if data.get("engine") != "hybrid":
+            metrics.extend(_raster_track_metrics(
+                f"rail_{index}_", str(rail), data.get("track_summary"),
+                float(data.get("grid_size_mm", 0.0) or 0.0),
+            ))
+            raster_limitations.extend(_raster_track_limitations(
+                data.get("track_summary"), float(data.get("grid_size_mm", 0.0) or 0.0),
+                f"{rail} raster DC mesh",
+            ))
         density = data.get("current_density")
         if density is not None:
             metrics.extend([
@@ -1182,5 +1233,5 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
             "which the coupled electro-thermal analysis does.",
             "Connector and contact resistances are included only when explicitly modeled.",
             "Current density is a DC mesh diagnostic, not an IPC ampacity certification; AC skin/proximity effects, contact details, and measured copper temperature are excluded.",
-        ],
+        ] + raster_limitations,
     ).finish()

@@ -745,6 +745,9 @@ class ImpedanceSweepResult:
     mesh_node_count: int = 0
     requested_grid_size_mm: float = 0.0
     effective_grid_size_mm: float = 0.0
+    # The meshed nets' tracks as the raster error depends on them:
+    # {"track_count", "finest_width_mm", "oblique_count"}.
+    track_summary: Dict[str, Any] = field(default_factory=dict)
     # Populated by a multi-port sweep: one sweep per observation point, keyed
     # by reference designator, plus which one produced this worst case. Left
     # empty by a single-port solve, so existing consumers are unaffected.

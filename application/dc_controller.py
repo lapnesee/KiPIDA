@@ -6,7 +6,7 @@ geometries, so it never calls the live KiCad board API.
 """
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import time
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -93,6 +93,9 @@ class DCRunRequest:
     # snapshot rather than the file, but sizing a copper fix needs the offline
     # board, and the run knows where it came from where a later reader does not.
     board_path: Optional[str] = None
+    # Per rail, the tracks as the raster error depends on them (count,
+    # narrowest width, oblique count), so a raster result can state its error.
+    track_summary_by_rail: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -260,6 +263,7 @@ def prepare_dc_request(
     stackup = deepcopy(extractor.get_board_stackup())
     geometry_by_rail = {}
     classification_geometry_by_rail = {}
+    track_summary_by_rail = {}
     for rail in rails:
         started = time.perf_counter()
         geometry_by_rail[rail.net_name] = extractor.get_net_geometry(
@@ -269,6 +273,7 @@ def prepare_dc_request(
             "track": extractor.get_track_geometry(rail.net_name),
             "zone": extractor.get_zone_geometry(rail.net_name),
         }
+        track_summary_by_rail[rail.net_name] = extractor.get_track_summary(rail.net_name)
         emit(
             f"Captured {rail.net_name} copper geometry on the UI thread in "
             f"{time.perf_counter() - started:.3f} s."
@@ -286,6 +291,7 @@ def prepare_dc_request(
             None if maximum_drop_pct is None else float(maximum_drop_pct)
         ),
         board_path=(None if board_path is None else str(board_path)),
+        track_summary_by_rail=track_summary_by_rail,
     )
 
 
@@ -450,8 +456,13 @@ class DCSolverEngine:
         """Bring the mesh to the live board's conventions before it is read."""
 
     def _rail_extras(self, rail, request, context):
-        """Engine-specific fields added to the rail's result."""
-        return {}
+        """Engine-specific fields added to the rail's result.
+
+        A raster result carries the rail's track summary, from which the
+        adapter states the error the raster mesh puts on its narrowest track.
+        """
+        summary = (getattr(request, "track_summary_by_rail", None) or {}).get(rail.net_name)
+        return {'track_summary': dict(summary)} if summary else {}
 
     # -- shared solve loop ----------------------------------------------------
 

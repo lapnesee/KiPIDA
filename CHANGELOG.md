@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added the raster mesh's track error to every result that uses it: the AC
+  sweep always, and a DC run that fell back to the raster engine. Each
+  publishes its narrowest track in grid steps and its oblique tracks (arcs
+  included), and below three steps -- or with oblique tracks below ten -- a
+  limitation quotes the measured resistance ratio, e.g. x0.75 to x1.50 for a
+  straight track 1.5 steps wide and x1.06 to x2.12 at 45 degrees. The bounds
+  live in `raster_fidelity.py`, and a test re-measures one row.
 - Changed every DC consumer -- the DC tab, the campaign, the thermal and CFD
   copper losses -- to solve with the hybrid engine whenever the saved board
   file is known and readable, so they and the advisor read one copper. Without

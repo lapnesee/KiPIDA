@@ -231,6 +231,14 @@ largeur de la piste la plus fine du réseau rapportée au pas, présence de pist
 obliques ; limitation chiffrée par la mesure de `dc_raster_fidelity.py` quand une
 piste fait moins de trois pas.
 
+**Fait.** Les bornes mesurées vivent dans `raster_fidelity.py` (source unique,
+une ligne re-mesurée par test). L'extracteur résume les pistes de chaque net
+(nombre, plus fine, obliques, arcs compris) ; la requête DC et le réseau AC le
+transportent. Métriques publiées : piste la plus fine en pas (WARN sous trois
+pas) et nombre de pistes obliques. Limitation chiffrée sous trois pas, ou sous dix
+pas en présence de pistes obliques, dont l'erreur reste mesurable (×1,18 à cinq
+pas, ×1,09 à dix). Sous un pas, rien n'a été mesuré et le texte le dit.
+
 ## Lot 7 — DC partagé et EMC sur les rails (R8)
 
 * Dans une campagne où le DC a tourné, thermique et CFD reprennent ses résultats

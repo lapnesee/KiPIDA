@@ -564,6 +564,32 @@ class GeometryExtractor:
             })
         return result
 
+    def get_track_summary(self, net_name):
+        """Count, narrowest width and oblique count of a net's tracks.
+
+        What a raster result needs to state its own error: the narrowest track
+        in grid steps, and whether any track -- an arc always -- runs off the
+        grid axes.
+        """
+        try:
+            from .raster_fidelity import is_oblique
+        except (ImportError, ValueError):
+            from raster_fidelity import is_oblique
+        count, finest, oblique = 0, 0.0, 0
+        for track in self._get_items_for_net('tracks', net_name):
+            start = self._get_val(track, 'start')
+            end = self._get_val(track, 'end')
+            width_mm = to_mm(self._get_val(track, 'width', 0.0))
+            if start is None or end is None or width_mm <= 0.0:
+                continue
+            count += 1
+            finest = width_mm if count == 1 else min(finest, width_mm)
+            p0 = (to_mm(self._get_val(start, 'x', 0)), to_mm(self._get_val(start, 'y', 0)))
+            p1 = (to_mm(self._get_val(end, 'x', 0)), to_mm(self._get_val(end, 'y', 0)))
+            if self._get_val(track, 'mid') is not None or is_oblique(p0, p1):
+                oblique += 1
+        return {"track_count": count, "finest_width_mm": finest, "oblique_count": oblique}
+
     def get_track_geometry(self, net_name):
         """Return physical routed-copper geometry grouped by layer.
 

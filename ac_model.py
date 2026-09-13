@@ -199,6 +199,9 @@ class ACNetwork:
     # Above this frequency the lumped quasi-static model stops being trustworthy
     # (see quasi_static_limit_hz). Zero means no bound could be established.
     quasi_static_limit_hz: float = 0.0
+    # Rail and return tracks as the raster error depends on them (see
+    # raster_fidelity.track_limitation).
+    track_summary: Dict[str, float] = field(default_factory=dict)
 
 
 def parse_capacitance(value) -> Optional[float]:
@@ -830,7 +833,19 @@ class ACModelBuilder:
         epsilon = max(epsilon_values) if epsilon_values else 4.4
         limit_hz = quasi_static_limit_hz(network_span_mm(combined_coords), epsilon)
 
+        summaries = [
+            extractor.get_track_summary(name)
+            for name in (settings.rail_name, settings.ground_net_name)
+        ]
+        widths = [item["finest_width_mm"] for item in summaries if item["track_count"]]
+        track_summary = {
+            "track_count": sum(item["track_count"] for item in summaries),
+            "finest_width_mm": min(widths) if widths else 0.0,
+            "oblique_count": sum(item["oblique_count"] for item in summaries),
+        }
+
         return ACNetwork(
+            track_summary=track_summary,
             node_count=len(rail_mesh.nodes) + len(ground_mesh.nodes),
             branches=rail_branches + ground_branches,
             source=source,
