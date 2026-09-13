@@ -227,6 +227,8 @@ class BatchOrdering(unittest.TestCase):
         # An offered analysis with no builder would be selectable and then
         # silently absent from the campaign.
         class _WithBuilders(_Stub):
+            def _build_schematic_request(self): return "schematic"
+
             def _build_dc_request(self): return "dc"
 
             def _build_ac_request(self, optimize=False): return "ac"

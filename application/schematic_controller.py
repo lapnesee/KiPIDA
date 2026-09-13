@@ -36,6 +36,9 @@ class SchematicRunRequest:
     # footprints and their pads). The rules read the saved files; with it, a
     # board edited since the last save is said to be one.
     board_snapshot: Any = None
+    # ingest.project_context.ProjectContext: which files are the project's,
+    # and whether the Zeo multi-board layer applies (SCH-004 needs it).
+    project_context: Any = None
 
 
 @dataclass
@@ -83,12 +86,17 @@ class SchematicRuleEngine:
                 emit_log(message)
                 result.limitations.append(message)
 
-        # The schematic sits beside the PCB and shares its stem. A project
-        # whose schematic is missing still yields the PCB-only rules rather
-        # than failing outright.
+        context = request.project_context
+        # The schematic is the project's root sheet, which the host named; a
+        # board run without a context falls back to the sheet beside it. A
+        # project whose schematic is missing still yields the PCB-only rules
+        # rather than failing outright.
         emit_progress(2, 4, "schematic")
         schematic = None
-        schematic_path = board_path.with_suffix(".kicad_sch")
+        schematic_path = (
+            Path(context.project.sch_root_path) if context is not None
+            else board_path.with_suffix(".kicad_sch")
+        )
         if schematic_path.is_file():
             try:
                 schematic = read_schematic(schematic_path)
@@ -96,22 +104,40 @@ class SchematicRuleEngine:
                     f"Read {len(schematic.instances)} symbol instance(s) from "
                     f"{schematic_path.name}."
                 )
-            except OSError as exc:
+            except (OSError, UnicodeDecodeError, ValueError) as exc:
                 emit_log(f"Schematic could not be read ({exc}); PCB-only rules will run.")
+                result.limitations.append(f"The schematic could not be read: {exc}")
         else:
             emit_log(
                 f"No schematic found at {schematic_path.name}; PCB-only rules will run."
             )
+        for issue in (schematic.issues if schematic is not None else ()):
+            result.limitations.append(f"Schematic sheet {issue.sheet_name or issue.sheet_file}: {issue.detail}")
+
+        # SCH-004 needs the container's links checked against every board,
+        # which reads their PCBs: done here, on the worker, and only when the
+        # project context put the project in a Zeo mode.
+        zeo = getattr(context, "zeo", None)
+        if zeo is not None:
+            from ingest.zeo_container import validate_links
+
+            emit_log(f"Checking {len(zeo.links)} cross-board link(s) of {Path(zeo.path).name} against the boards.")
+            zeo = validate_links(zeo)
+        if context is not None:
+            result.provenance.append(AnalysisEvidence("PROJECT_CONTEXT", context.summary))
 
         if cancelled():
             return result.finish(AnalysisStatus.CANCELLED)
 
         emit_progress(3, 4, "netlist")
-        netlist = build_netlist(board, schematic, board_uuid=board_path.stem)
+        board_uuid = getattr(getattr(context, "project", None), "sub_project_uuid", "") or board_path.stem
+        netlist = build_netlist(board, schematic, board_uuid=board_uuid)
+        for issue in netlist.link_issues:
+            result.limitations.append(issue.detail)
 
         emit_progress(4, 4, "rules")
         findings = DEFAULT_REGISTRY.evaluate_domain(
-            self.DOMAIN, SchematicRuleContext(netlist=netlist, schematic=schematic),
+            self.DOMAIN, SchematicRuleContext(netlist=netlist, schematic=schematic, zeo=zeo),
         )
         result.findings.extend(findings)
 

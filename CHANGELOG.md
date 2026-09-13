@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Added the schematic rules to the analysis batch, as the first domain of the
+  campaign. They read the saved files of the project the host named and say
+  when the open board's footprints differ from them. SCH-001 recognises
+  capacitors written without "F" ("100n", "4u7") and skips unconnected power
+  inputs; SCH-002 skips pins marked no-connect and pins their library types
+  no-connect; SCH-003 is one finding for the project; SCH-004 exists only in a
+  Zeo mode and reports cross-board links a board no longer honours and
+  differential pairs naming no link; SCH-005 reports only footprints whose
+  symbol was deleted, and the new SCH-006 notes footprints placed on the board
+  without a symbol. A net named by a power symbol is a rail, and open-collector
+  pins alone no longer make one.
 - Added the project context: at launch the plugin records which application
   launched it, with the evidence, and the mode that makes of the project it
   was given -- single-board, Zeo container or Zeo member -- and the campaign

@@ -74,5 +74,29 @@ class ZeoContainerTests(unittest.TestCase):
         self.assertEqual(zeo.raw, {"voltage_rules": {"+5V": 5.0}})
 
 
+class SchematicRulesInZeoModeTests(ZeoContainerTests):
+    def test_the_rules_report_out_of_date_links_only_in_a_zeo_mode(self):
+        try:
+            from application.schematic_controller import SchematicRuleEngine, SchematicRunRequest
+        except ImportError as exc:  # pragma: no cover - the plugin's dependencies
+            self.skipTest(str(exc))
+        from ingest.project_context import UNKNOWN
+
+        board = self.container.parent / "boards" / "a" / "a.kicad_pcb"
+
+        def run(host):
+            context = build_project_context(self.container, HostDetection(host))
+            request = SchematicRunRequest(board_path=str(board), project_context=context)
+            return SchematicRuleEngine().solve(request, lambda _m: None, lambda *_a: None, lambda: False)
+
+        zeo = run(ZEO)
+        self.assertEqual(sorted(f.title for f in zeo.findings if f.rule_id == "SCH-004"), [
+            "Cross-board differential pair names no link",
+            "Cross-board link out of date", "Cross-board link out of date",
+        ])
+        self.assertIn("Zeo container mode", zeo.provenance[0].detail)
+        self.assertEqual([f for f in run(UNKNOWN).findings if f.rule_id == "SCH-004"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

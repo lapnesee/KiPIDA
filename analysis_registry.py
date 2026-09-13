@@ -48,6 +48,7 @@ class AnalysisRegistry:
 
 
 DEFAULT_ANALYSES = AnalysisRegistry([
+    AnalysisDescriptor("SCHEMATIC", "Schematic Rules", "Design Rules", 5, ("board",), ("run",)),
     AnalysisDescriptor("DC", "DC Power", "Power Integrity", 10, ("board", "power_tree"), ("run",)),
     AnalysisDescriptor("AC", "AC Impedance", "Power Integrity", 20, ("board", "power_tree"), ("run", "optimize")),
     AnalysisDescriptor("DIFFERENTIAL", "Differential Pairs", "Signal Integrity", 30, ("board", "stackup"), ("run", "apply_rules")),

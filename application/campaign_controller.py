@@ -177,7 +177,13 @@ def _adapt_cfd(domain_result, request) -> AnalysisResult:
     )
 
 
+def _adapt_schematic(domain_result, request) -> AnalysisResult:
+    # SchematicRuleEngine builds its AnalysisResult itself: the rules are findings already.
+    return domain_result
+
+
 DEFAULT_ADAPTERS: Dict[str, Callable[[Any, Any], AnalysisResult]] = {
+    "SCHEMATIC": _adapt_schematic,
     "DC": _adapt_dc,
     "AC": _adapt_ac,
     "DIFFERENTIAL": _adapt_differential,
@@ -200,9 +206,11 @@ def default_domain_engines() -> Dict[str, Any]:
     from application.dc_controller import DefaultDCSolverEngine
     from application.differential_controller import DifferentialSolverEngine
     from application.emc_controller import EMCSolverEngine
+    from application.schematic_controller import SchematicRuleEngine
     from application.thermal_controller import ThermalSolverEngine
 
     return {
+        "SCHEMATIC": SchematicRuleEngine(),
         "DC": DefaultDCSolverEngine(),
         "AC": ACSolverEngine(),
         "DIFFERENTIAL": DifferentialSolverEngine(),

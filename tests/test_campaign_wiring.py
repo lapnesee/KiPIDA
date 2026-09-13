@@ -356,6 +356,16 @@ class OrchestratorIsReachable(unittest.TestCase):
     """
 
     MODULE = "application.campaign_controller"
+    # Shipped code the plan requires to be reached (plan-universalite.md 4.7):
+    # the schematic rules had been written and tested and reached by nothing,
+    # and so had the project resolver.
+    ALSO_REACHED = (
+        "application.schematic_controller",
+        "rules.schematic_rules",
+        "ingest.project_resolver",
+        "ingest.project_context",
+        "ingest.zeo_container",
+    )
 
     @staticmethod
     def _imports(path):
@@ -363,12 +373,19 @@ class OrchestratorIsReachable(unittest.TestCase):
         # and ast.parse does not.
         with open(path, encoding="utf-8-sig") as handle:
             tree = ast.parse(handle.read(), filename=path)
+        # A relative import names its module from the file's own package.
+        package = os.path.relpath(os.path.dirname(path), _root).replace(os.sep, ".").strip(".").split(".")
+        package = [part for part in package if part]
         names = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 names.update(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
-                names.add(node.module)
+                if node.level:
+                    base = package[: len(package) - (node.level - 1)] if node.level > 1 else package
+                    names.add(".".join(base + [node.module]))
+                else:
+                    names.add(node.module)
         return names
 
     def _production_modules(self):
@@ -388,18 +405,24 @@ class OrchestratorIsReachable(unittest.TestCase):
                 if name.endswith(".py"):
                     yield os.path.join(base, name)
 
-    def test_a_production_module_imports_the_campaign_orchestrator(self):
-        importers = [
+    def _importers(self, module):
+        return [
             os.path.relpath(path, _root)
             for path in self._production_modules()
-            if any(name == self.MODULE or name.startswith(self.MODULE + ".")
-                   for name in self._imports(path))
+            if os.path.relpath(path, _root) != module.replace(".", os.sep) + ".py"
+            and any(name == module or name.startswith(module + ".") for name in self._imports(path))
         ]
+
+    def test_a_production_module_imports_the_campaign_orchestrator(self):
         self.assertTrue(
-            importers,
+            self._importers(self.MODULE),
             f"{self.MODULE} is imported by no production module, so nothing "
             "the user can press reaches it.",
         )
+
+    def test_the_rules_and_the_project_resolution_are_reached(self):
+        unreached = [module for module in self.ALSO_REACHED if not self._importers(module)]
+        self.assertEqual(unreached, [], "imported by no production module")
 
 
 if __name__ == "__main__":

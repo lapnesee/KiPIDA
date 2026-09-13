@@ -473,6 +473,7 @@ class KiPIDA_MainDialog(wx.Dialog):
     # what the selection dialog shows; the analysis_id is the registry's, and
     # it is the registry -- not this tuple -- that decides the running order.
     BATCH_ANALYSES = (
+        ("SCHEMATIC", "Schematic rules"),
         ("DC", "DC power"),
         ("AC", "AC impedance"),
         ("DIFFERENTIAL", "Differential pairs"),
@@ -484,6 +485,7 @@ class KiPIDA_MainDialog(wx.Dialog):
     def _batch_request_builders(self, selected):
         """One request builder per selected analysis, keyed by analysis id."""
         return {
+            "SCHEMATIC": self._build_schematic_request,
             "DC": self._build_dc_request,
             "AC": lambda: self._build_ac_request(optimize=False),
             "DIFFERENTIAL": self._build_differential_request,
@@ -833,6 +835,22 @@ class KiPIDA_MainDialog(wx.Dialog):
             return min(100.0, max(0.0, float(self.txt_drop_pct.GetValue())))
         except (TypeError, ValueError):
             return 5.0
+
+    def _build_schematic_request(self):
+        """The saved files the rules read, and the open board to compare them with."""
+        from application.dc_controller import capture_dc_board
+        from application.schematic_controller import SchematicRunRequest
+
+        board_path = self._board_file_path()
+        if not board_path:
+            raise ValueError("The schematic rules read the saved board, and its file is not known.")
+        context = getattr(self, "project_context", None)
+        return SchematicRunRequest(
+            project_path=str(context.project.pro_path) if context else "",
+            board_path=board_path,
+            board_snapshot=capture_dc_board(self.board),
+            project_context=context,
+        )
 
     def _build_dc_request(self):
         """Capture every live-board dependency for a DC solve."""
