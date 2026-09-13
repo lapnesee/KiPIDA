@@ -74,11 +74,20 @@ class ZeoContainer:
     diff_pair_issues: list[str] = field(default_factory=list)              # after validate_links
 
 
+def project_relative(text) -> str:
+    """A path a Zeo project file records, with "/" separators whatever machine wrote it.
+
+    A backslash is a separator only on Windows; a container saved there and
+    opened on macOS or Linux would name boards no filesystem call can find.
+    """
+    return str(text or "").replace("\\", "/")
+
+
 def listed_boards(container_path: Path, settings: dict):
     """The boards a container lists in sub_projects, with their uuids, and notes on those that do not exist."""
     boards, notes = [], []
     for entry in settings.get("sub_projects") or ():
-        path = (Path(container_path).parent / str(entry.get("path") or "")).resolve()
+        path = (Path(container_path).parent / project_relative(entry.get("path"))).resolve()
         if not path.is_file():
             notes.append(f"board {entry.get('name') or entry.get('path')} listed by the container does not exist")
             continue
@@ -124,7 +133,7 @@ def read_zeo_container(container_path, boards: list[BoardProject]) -> ZeoContain
     diff_pairs = [(str(pair.get("a", "")), str(pair.get("b", ""))) for pair in settings.get("cross_board_diff_pairs") or ()]
 
     blocks: dict[str, list[MbsModuleBlock]] = {}
-    mbs_name = str(settings.get("mbs_file") or "")
+    mbs_name = project_relative(settings.get("mbs_file"))
     if mbs_name:
         mbs_path = container_path.parent / mbs_name
         try:

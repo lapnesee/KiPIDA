@@ -90,6 +90,15 @@ class ProjectContextTableTests(unittest.TestCase):
         self.assertEqual(context.mode, SINGLE_BOARD)
         self.assertEqual(context.notes, ["orphan board: its container system.kicad_pro does not list it"])
 
+    def test_container_paths_written_with_backslashes_resolve_on_any_system(self):
+        _write_pro(self.container, {
+            "container": True, "container_project_relative_path": "",
+            "sub_projects": [{"name": "power", "path": "boards\\power\\power.kicad_pro", "uuid": "uuid-power"}],
+        })
+        _write_pro(self.power, {"container": False, "container_project_relative_path": "..\\..\\system.kicad_pro"})
+        self.assertEqual([b.pro_path.name for b in self._context(self.container, ZEO).boards], ["power.kicad_pro"])
+        self.assertEqual(self._context(self.power, ZEO).mode, ZEO_MEMBER)
+
     def test_an_unknown_host_is_single_board_whatever_the_project(self):
         context = self._context(self.container, UNKNOWN)
         self.assertEqual((context.mode, [b.pro_path.name for b in context.boards]),

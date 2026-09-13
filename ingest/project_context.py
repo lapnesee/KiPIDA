@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .project_resolver import BoardProject, resolve_project
-from .zeo_container import ZeoContainer, listed_boards as _listed_boards, read_zeo_container
+from .zeo_container import ZeoContainer, listed_boards as _listed_boards, project_relative, read_zeo_container
 
 KICAD = "kicad"
 ZEO = "zeo"
@@ -74,6 +74,10 @@ def detect_host(client=None, environ=None, ancestry=None) -> HostDetection:
         directory = Path(str(cli)).parent
         beside = [name for name in _ZEO_EXECUTABLES if (directory / name).is_file()]
         evidence.append(f"host kicad-cli: {cli}; Zeo executable beside it: {', '.join(beside) or 'none'}")
+        # On macOS kicad-cli sits inside the application bundle (Zeo.app/Contents/MacOS).
+        bundle = next((part for part in Path(str(cli)).parts if part.lower().endswith(".app")), None)
+        if bundle:
+            evidence.append(f"host kicad-cli is inside the application bundle {bundle}")
     chain = process_ancestry() if ancestry is None else ancestry
     evidence.append("process ancestry: " + (" <- ".join(chain) if chain else "unavailable"))
     names = host_environment_variable_names(environ)
@@ -132,7 +136,7 @@ def build_project_context(project_path, detection: HostDetection) -> ProjectCont
     settings = _multi_board(project.pro_path)
     if settings.get("container"):
         return _container_context(detection, project, project.pro_path, settings)
-    relative = str(settings.get("container_project_relative_path") or "")
+    relative = project_relative(settings.get("container_project_relative_path"))
     if not relative:
         return single("Zeo, standalone project")
 
@@ -172,7 +176,7 @@ def _multi_board(pro_path: Path) -> dict:
 def _sub_project_entry(container_path: Path, settings: dict, pro_path: Path):
     wanted = os.path.normcase(str(Path(pro_path).resolve()))
     for entry in settings.get("sub_projects") or ():
-        candidate = (container_path.parent / str(entry.get("path") or "")).resolve()
+        candidate = (container_path.parent / project_relative(entry.get("path"))).resolve()
         if os.path.normcase(str(candidate)) == wanted:
             return entry
     return None
