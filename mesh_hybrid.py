@@ -61,6 +61,7 @@ except (ImportError, ValueError):
 
 try:
     import numpy as np
+    import shapely
     from shapely import Polygon as ShapelyPolygon
     from shapely import box as shapely_box, intersection as shapely_intersect, prepare as shapely_prepare
     _SHAPELY_OK = True
@@ -251,13 +252,7 @@ class HybridMesher:
         # Order matters here. Tracks can only adopt a plane node if the plane
         # nodes already exist, so meshing zones last left every track isolated.
         # ------------------------------------------------------------------
-        zone_count = 0
-        for zone in board.zones:
-            if zone.net_name != net_name:
-                continue
-            zone_count += self._mesh_zone_cutcell(
-                zone, board, mesh, get_or_create, zone_index,
-            )
+        zone_count = self._mesh_zones(net_name, board, mesh, get_or_create, zone_index)
         self._log(f"[HybridMesher] Net '{net_name}': {zone_count} zone edges")
 
         # ------------------------------------------------------------------
@@ -487,28 +482,75 @@ class HybridMesher:
         except Exception:
             return None
 
-    def _mesh_zone_cutcell(
-        self,
-        zone: Zone,
-        board: ParsedBoard,
-        mesh: Mesh,
-        get_or_create,
-        zone_index=None,
-    ) -> int:
-        """Add cut-cell edges for one zone. Returns edge count added."""
-        poly = self._zone_polygon(zone)
-        if poly is None:
-            self._log(
-                f"[HybridMesher] Zone '{zone.net_name}' on {zone.layer}: "
-                "no polygon geometry available — zone skipped."
-            )
-            return 0
+    def _mesh_zones(self, net_name, board, mesh, get_or_create, zone_index) -> int:
+        """Mesh every pour of *net_name*: one copper union per layer, one lattice.
 
+        Zones were meshed one at a time, each on a lattice anchored at its own
+        bounding box and coarsened against its own node budget. Once the reader
+        returned every island and every layer of a zone -- it used to drop them
+        -- that stopped being tenable: islands of one pour would sit on lattices
+        offset from each other, tracks attach through an index keyed on one step
+        and one origin, and two overlapping zones of the net would each conduct
+        through the copper they share, counting it twice.
+
+        So the net's copper on a layer is the union of its fills, the step is
+        chosen once for the net from the area actually filled, and the lattice
+        is aligned on multiples of that step for every layer.
+        """
         if not _SHAPELY_OK or np is None:
             return 0
+        polygons_by_layer: dict[str, list] = {}
+        for zone in board.zones:
+            if zone.net_name != net_name:
+                continue
+            poly = self._zone_polygon(zone)
+            if poly is None:
+                self._log(
+                    f"[HybridMesher] Zone '{zone.net_name}' on {zone.layer}: "
+                    "no polygon geometry available — zone skipped."
+                )
+                continue
+            polygons_by_layer.setdefault(zone.layer, []).append(poly)
+        if not polygons_by_layer:
+            return 0
 
-        thickness_mm = _thickness_for_layer(board, zone.layer)
-        layer_id = _layer_id_for_name(board, zone.layer)
+        copper_by_layer = {
+            layer: shapely.union_all(polygons) if len(polygons) > 1 else polygons[0]
+            for layer, polygons in polygons_by_layer.items()
+        }
+        h = self._grid_step
+        estimated_nodes = sum(geom.area for geom in copper_by_layer.values()) / (h * h)
+        if estimated_nodes > self.MAX_ZONE_NODES:
+            h = min(5.0, h * math.sqrt(estimated_nodes / self.MAX_ZONE_NODES) * 1.05)
+            self._log(
+                f"[HybridMesher] Net '{net_name}': zone grid degraded to {h:.3f} mm "
+                f"(estimated {estimated_nodes:,.0f} > {self.MAX_ZONE_NODES:,} budget)"
+            )
+        # Tracks attach against the step actually used, not the requested one.
+        self._effective_grid_step = h
+
+        edges = 0
+        for layer, geometry in copper_by_layer.items():
+            edges += self._mesh_copper_cutcell(
+                geometry, layer, board, mesh, get_or_create, zone_index, h,
+            )
+        return edges
+
+    def _mesh_copper_cutcell(
+        self, geometry, layer: str, board: ParsedBoard, mesh: Mesh,
+        get_or_create, zone_index, h: float,
+    ) -> int:
+        """Add cut-cell edges for one layer's copper. Returns the edge count.
+
+        Each lattice edge conducts through the copper fraction of the cell
+        centred on it. The fractions of a whole row are computed in one call on
+        arrays of cells -- prepared predicates first, an intersection only for
+        cells the copper crosses -- instead of one Shapely intersection per
+        edge from Python, which is what made meshing the pours the dominant
+        cost of a DC run.
+        """
+        thickness_mm = _thickness_for_layer(board, layer)
+        layer_id = _layer_id_for_name(board, layer)
         # Conductivity in S/mm.
         #
         # rho is in ohm-metres, and 1 ohm-m is 1e3 ohm-mm, so the conversion is
@@ -526,33 +568,30 @@ class HybridMesher:
         # for the same copper -- a drop larger than the rail's own supply.
         sigma = 1.0 / (self._rho * 1e3)
 
-        # Grid over zone bounding box
-        xmin, ymin, xmax, ymax = poly.bounds
-        h = self._grid_step
-
-        # Budget check — degrade grid if needed
-        nx_est = max(1, int((xmax - xmin) / h) + 1)
-        ny_est = max(1, int((ymax - ymin) / h) + 1)
-        estimated_nodes = nx_est * ny_est
-        if estimated_nodes > self.MAX_ZONE_NODES:
-            scale = math.sqrt(estimated_nodes / self.MAX_ZONE_NODES) * 1.05
-            h = min(5.0, h * scale)
-            self._log(
-                f"[HybridMesher] Zone '{zone.net_name}': grid degraded to {h:.3f} mm "
-                f"(estimated {estimated_nodes:,} > {self.MAX_ZONE_NODES:,} budget)"
-            )
-        # Tracks attach against the step actually used, not the requested one.
-        self._effective_grid_step = h
-
-        xs = np.arange(xmin, xmax + h * 0.5, h)
-        ys = np.arange(ymin, ymax + h * 0.5, h)
+        # A lattice aligned on multiples of h, shared by every layer of the net
+        # so that the index tracks attach through means the same cell anywhere.
+        xmin, ymin, xmax, ymax = geometry.bounds
+        xs = np.arange(math.floor(xmin / h), math.ceil(xmax / h) + 1) * h
+        ys = np.arange(math.floor(ymin / h), math.ceil(ymax / h) + 1) * h
         if len(xs) < 2 or len(ys) < 2:
             return 0
 
-        # Prepare geometry for fast intersection tests
-        shapely_prepare(poly)
+        shapely_prepare(geometry)
         h2 = h * h  # cell area
         edges_added = 0
+
+        def fractions(cells):
+            """Copper fraction of each cell: 0 outside, 1 inside, clipped between."""
+            fraction = np.zeros(len(cells))
+            touching = shapely.intersects(geometry, cells)
+            if not touching.any():
+                return fraction
+            inside = touching & shapely.contains(geometry, cells)
+            fraction[inside] = 1.0
+            crossing = touching & ~inside
+            if crossing.any():
+                fraction[crossing] = shapely.area(shapely_intersect(geometry, cells[crossing])) / h2
+            return fraction
 
         def node_at(x: float, y: float) -> int:
             """Lattice node at a point, minted only when copper attaches to it.
@@ -580,40 +619,34 @@ class HybridMesher:
             return nid
 
         for iy, y in enumerate(ys):
-            for ix, x in enumerate(xs):
-                # Horizontal edge → (x+h, y)
-                if ix + 1 < len(xs):
-                    xr = xs[ix + 1]
-                    cell_h = shapely_box(x, y - h / 2, xr, y + h / 2)
-                    overlap = shapely_intersect(poly, cell_h)
-                    frac = overlap.area / h2 if overlap and not overlap.is_empty else 0.0
-                    if frac > 1e-9:
-                        g = sigma * thickness_mm * frac
-                        u = node_at(x, y)
-                        v = node_at(xr, y)
-                        mesh.add_edge_direct(
-                            u, v, g, kind="lateral",
-                            cross_section_mm2=frac * h * thickness_mm,
-                            geometry_source=f"zone:{zone.layer}:h",
-                        )
-                        edges_added += 1
-
-                # Vertical edge → (x, y+h)
-                if iy + 1 < len(ys):
-                    yt = ys[iy + 1]
-                    cell_v = shapely_box(x - h / 2, y, x + h / 2, yt)
-                    overlap = shapely_intersect(poly, cell_v)
-                    frac = overlap.area / h2 if overlap and not overlap.is_empty else 0.0
-                    if frac > 1e-9:
-                        g = sigma * thickness_mm * frac
-                        u = node_at(x, y)
-                        v = node_at(x, yt)
-                        mesh.add_edge_direct(
-                            u, v, g, kind="lateral",
-                            cross_section_mm2=frac * h * thickness_mm,
-                            geometry_source=f"zone:{zone.layer}:v",
-                        )
-                        edges_added += 1
+            # Horizontal edges (x, y) -> (x+h, y); vertical edges (x, y) -> (x, y+h).
+            horizontal = fractions(shapely_box(xs[:-1], y - h / 2, xs[1:], y + h / 2))
+            vertical = (
+                fractions(shapely_box(xs - h / 2, y, xs + h / 2, ys[iy + 1]))
+                if iy + 1 < len(ys) else np.zeros(len(xs))
+            )
+            if not horizontal.any() and not vertical.any():
+                continue
+            for ix in np.flatnonzero((np.append(horizontal, 0.0) > 1e-9) | (vertical > 1e-9)):
+                x = xs[ix]
+                if ix + 1 < len(xs) and horizontal[ix] > 1e-9:
+                    frac = float(horizontal[ix])
+                    mesh.add_edge_direct(
+                        node_at(x, y), node_at(xs[ix + 1], y), sigma * thickness_mm * frac,
+                        kind="lateral",
+                        cross_section_mm2=frac * h * thickness_mm,
+                        geometry_source=f"zone:{layer}:h",
+                    )
+                    edges_added += 1
+                if vertical[ix] > 1e-9:
+                    frac = float(vertical[ix])
+                    mesh.add_edge_direct(
+                        node_at(x, y), node_at(x, ys[iy + 1]), sigma * thickness_mm * frac,
+                        kind="lateral",
+                        cross_section_mm2=frac * h * thickness_mm,
+                        geometry_source=f"zone:{layer}:v",
+                    )
+                    edges_added += 1
 
         return edges_added
 

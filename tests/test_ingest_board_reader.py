@@ -265,6 +265,69 @@ class TestReadBoard(unittest.TestCase):
         self.assertIn("GND", nets)
 
 
+class TestZoneIslandsAndLayers(unittest.TestCase):
+    """Every filled island of a zone is copper, on every layer it fills.
+
+    The reader kept the largest island of a zone's single layer. A zone declared
+    with (layers ...) had no layer, so all its fills were dropped -- 8 of 24 zones
+    on the reference board, and zones of that form on 5 of the KiCad 10 demo
+    projects; a pour split into islands lost all but one.
+    """
+
+    ZONES = MINI_PCB.replace(
+        """    (zone
+        (net "GND")
+        (net_name "GND")
+        (layer "B.Cu")
+        (uuid "zone-uuid-1")
+        (connect_pads (clearance 0.5))
+        (filled_polygon
+            (layer "B.Cu")
+            (pts (xy 5 5) (xy 25 5) (xy 25 20) (xy 5 20))
+        )
+    )""",
+        """    (zone
+        (net "GND")
+        (net_name "GND")
+        (layers "F.Cu" "B.Cu")
+        (uuid "zone-uuid-1")
+        (polygon (pts (xy 0 0) (xy 30 0) (xy 30 25) (xy 0 25)))
+        (filled_polygon (layer "F.Cu") (pts (xy 1 1) (xy 9 1) (xy 9 9) (xy 1 9)))
+        (filled_polygon (layer "F.Cu") (pts (xy 20 1) (xy 29 1) (xy 29 9) (xy 20 9)))
+        (filled_polygon (layer "B.Cu") (pts (xy 1 1) (xy 29 1) (xy 29 24) (xy 1 24)))
+    )
+    (zone
+        (net "GND")
+        (net_name "GND")
+        (layers "F.Cu" "B.Cu")
+        (uuid "zone-uuid-2")
+        (polygon (pts (xy 0 0) (xy 5 0) (xy 5 5) (xy 0 5)))
+    )""",
+    )
+
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(
+            suffix=".kicad_pcb", mode="w", encoding="utf-8", delete=False
+        )
+        self.tmp.write(self.ZONES)
+        self.tmp.close()
+        self.pcb_path = Path(self.tmp.name)
+        self.board = read_board(self.pcb_path)
+
+    def tearDown(self):
+        self.pcb_path.unlink(missing_ok=True)
+
+    def test_every_island_on_every_layer_is_kept(self):
+        filled = sorted((zone.layer, zone.filled_polygon[0]) for zone in self.board.zones if zone.filled_polygon)
+        self.assertEqual(filled, [
+            ("B.Cu", (1.0, 1.0)), ("F.Cu", (1.0, 1.0)), ("F.Cu", (20.0, 1.0)),
+        ])
+
+    def test_an_unfilled_multi_layer_zone_keeps_its_outline_per_layer(self):
+        unfilled = sorted(zone.layer for zone in self.board.zones if not zone.filled_polygon)
+        self.assertEqual(unfilled, ["B.Cu", "F.Cu"])
+
+
 class TestBoardMissingFile(unittest.TestCase):
     def test_missing_file_raises(self):
         with self.assertRaises((OSError, ValueError)):

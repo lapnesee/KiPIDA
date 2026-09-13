@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Fixed the offline board reader dropping copper: a zone declared on several
+  layers lost all its fills, and a zone split into islands kept only the largest.
+  On the reference board 24 of 40 filled zones were read; the DC advisor sized
+  every fix on that incomplete copper. Every island on every layer is read now.
+- Changed the hybrid mesher to mesh a net's pours as one copper union per layer
+  on a lattice aligned on the step, so overlapping zones no longer count shared
+  copper twice and islands attach consistently, and to compute cell fractions
+  a row at a time: meshing the seven configured rails of the reference board
+  went from 142 s to 13.5 s.
 - Changed how a campaign groups findings into actions: a shared component still
   groups them, a shared net only together with evidence at the same spot on the
   same layer. Every finding names a ground or a rail, and a shared net alone had

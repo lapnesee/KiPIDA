@@ -522,8 +522,16 @@ def _parse_zones(root: list, net_map: dict[str, str]) -> list[Zone]:
             if net_node and len(net_node) > 1:
                 net_name = _resolve_net(str(net_node[1]), net_map)
 
+        # A zone names one layer, (layer "F.Cu"), or several, (layers "F.Cu"
+        # "B.Cu"). Only the first form was read: a zone on several layers came
+        # back with no layer at all, and every one of its fills was dropped.
+        declared: list[str] = []
         layer_node = find(zone_node, "layer")
-        layer = layer_node[1] if layer_node and len(layer_node) > 1 else ""
+        if layer_node and len(layer_node) > 1:
+            declared = [str(layer_node[1])]
+        layers_node = find(zone_node, "layers")
+        if layers_node:
+            declared = [str(item) for item in layers_node[1:] if isinstance(item, str)]
 
         # Design-rule outline polygon (always present in a zone definition)
         outline: list[tuple[float, float]] = []
@@ -531,24 +539,33 @@ def _parse_zones(root: list, net_map: dict[str, str]) -> list[Zone]:
         if poly_node:
             outline = _parse_polygon_pts(poly_node)
 
-        # Filled copper — KiCad writes (filled_polygon (layer "...") (pts ...))
-        # after zone fill. A zone may contain multiple filled_polygon blocks
-        # (one per island). We take the largest (most vertices) for the primary
-        # cut-cell geometry; additional islands are ignored for now.
-        filled: list[tuple[float, float]] = []
+        # Filled copper -- KiCad writes one (filled_polygon (layer "...") (pts
+        # ...)) per island per layer. Only the largest island of the zone's
+        # single layer was kept, so a pour split by a slot or spread over two
+        # layers lost the rest of its copper: on the reference board 8 of 24
+        # zones vanished and 6 islands with them. Every island is kept now, each
+        # as a Zone on the layer its fill names.
+        islands: list[tuple[str, list[tuple[float, float]]]] = []
         for fp_node in find_all(zone_node, "filled_polygon"):
             fp_layer_node = find(fp_node, "layer")
-            fp_layer = fp_layer_node[1] if fp_layer_node and len(fp_layer_node) > 1 else ""
-            if fp_layer and fp_layer != layer:
-                continue
+            fp_layer = str(fp_layer_node[1]) if fp_layer_node and len(fp_layer_node) > 1 else ""
+            if not fp_layer and len(declared) == 1:
+                fp_layer = declared[0]
             pts = _parse_polygon_pts(fp_node)
-            if len(pts) > len(filled):
-                filled = pts
+            if fp_layer and len(pts) >= 3:
+                islands.append((fp_layer, pts))
 
-        zones.append(Zone(
-            net_name=net_name,
-            layer=layer,
-            filled_polygon=filled,
-            outline_polygon=outline,
-        ))
+        if islands:
+            for fp_layer, pts in islands:
+                zones.append(Zone(
+                    net_name=net_name, layer=fp_layer,
+                    filled_polygon=pts, outline_polygon=outline,
+                ))
+        else:
+            # Unfilled: the outline stands in for the copper, per layer.
+            for layer in declared or [""]:
+                zones.append(Zone(
+                    net_name=net_name, layer=layer,
+                    filled_polygon=[], outline_polygon=outline,
+                ))
     return zones
