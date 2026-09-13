@@ -160,6 +160,15 @@ Zeo avec `p02_alimentation` ouverte directement ; Zeo avec un projet non membre
 *Sortie* : règle de détection choisie sur preuves et consignée ici ; valeur de
 `Project.path` en mode membre connue.
 
+*État au 2026-09-13* : la sonde est livrée (`host_probe.py`, appelée par
+`ipc_entry.py`) et le plugin installé en porte la même version que le dépôt
+(fichiers identiques octet pour octet) ; aucun redéploiement n'est nécessaire.
+`%TEMP%\kipida_host_probe.log` n'existe pas encore : aucun des quatre lancements
+n'a eu lieu. La règle de détection reste à choisir, et la phase 3.2 attend ce
+journal. Une observation hors plugin a été écartée : l'instance Zeo qui répond
+sur le canal IPC par défaut est probablement celle où `p02_revision_e` est
+ouverte, et cette carte est hors du plan.
+
 **0.2 Harnais de corpus.** `validation/ingest_corpus.py`, lecture seule, chemins
 en argument, n'écrit rien à côté des projets. Il mesure les invariants de la
 phase 1 à 4, pas un second parseur. Mesure initiale consignée dans
@@ -186,6 +195,38 @@ phase 1 à 4, pas un second parseur. Mesure initiale consignée dans
 par instance (119, 169, 2 876 sur les cas multi-instances).
 *Tests synthétiques* : feuille à deux instances, projet renommé, hiérarchie à
 trois niveaux, feuille manquante, `lib_name`, symbole multi-unités.
+
+**Fait le 2026-09-13** (`21b63fe`, `a5c1c23`, `772c91c`, `19b49cd`). Mesuré par
+`validation/ingest_corpus.py` sur les 36 démos et le conteneur de référence :
+
+* symboles 119, 169 et 2 876 sur complex_hierarchy, multichannel et vme-wren
+  (73, 61 et 1 606 avant) ;
+* I1 à 100 % sur les 15 cartes des démos, 0 % avant ; sur la référence,
+  p02_alimentation 124/124, LEDS_sub 17/17, main 437/440, les trois empreintes
+  restantes (J1, J2, J5) pointant vers des symboles absents de tous ses fichiers
+  schéma : carte non mise à jour, pas défaut de lecture ;
+* SCH-005 passe de 29 à 0 sur complex_hierarchy et de 78 à 0 sur multichannel ;
+* I5 et I6 sont mesurés et retrouvent les comptes faits à la main au §1 :
+  SCH-002 sur broches marquées 77/77, 69/69, 63/63, et 119/217 sur video (les
+  98 broches sans marqueur de la phase 4) ; nets de symbole d'alimentation
+  classés rails 38/53, openair-max 0/7 ;
+* aucune feuille manquante ni ancienne dans le corpus.
+
+Deux choix pris sur mesure plutôt que sur l'énoncé :
+
+* **Placement des broches** (marqueurs no-connect) : parmi les huit lectures
+  possibles (sens de rotation, axe du miroir, ordre), celle retenue pose 6 756
+  des 7 368 broches de symboles tournés ou en miroir sur un fil, une étiquette,
+  une jonction ou un marqueur, et gagne dans les sept combinaisons à la fois ;
+  la suivante en pose 5 629.
+* **Seuils de format (1.4)** : KiCad 7.0.0 écrit 20230121 (schéma) et 20221018
+  (PCB), KiCad 8.0.0 20231120 et 20240108 (sources KiCad aux étiquettes). Un
+  seuil à 8.0 refuserait une feuille de la démo vme-wren livrée avec KiCad 10
+  (20230819, cycle de développement de la 8) : KiCad ne réécrit pas une feuille
+  que personne n'a modifiée. Sont donc refusés les fichiers écrits par KiCad 7.0
+  ou antérieur. Le refus porte sur la carte et sur la feuille racine, que KiCad
+  réécrit à chaque enregistrement ; une sous-feuille ancienne d'un projet actuel
+  est lue et signalée (`old_sheet_format`).
 
 ### Phase 2 — Lien PCB ↔ schéma et modèle de conception (M)
 

@@ -20,8 +20,8 @@ conversation being remembered.
 Working constraints for this project:
 
 * Branch `claude/pcb-analysis-tool-40t1dr`, commit messages in English.
-* `python -m unittest discover -s tests` must stay green. It was 947
-  tests on 2026-09-13, after the audit recommendations were carried out. How many skip depends on what is installed: on a machine with
+* `python -m unittest discover -s tests` must stay green. It was 959
+  tests on 2026-09-13, after phase 1 of the universality plan. How many skip depends on what is installed: on a machine with
   wxPython, CuPy, openEMS and ngspice nothing should skip but the CUDA
   branches. Without wxPython -- the usual case on a Linux runner, where it has
   no wheel -- 25 more skip and `test_plotter`/`test_i18n` fail outright on the
@@ -524,6 +524,23 @@ Re-run on 2026-09-13 after the audit recommendations (demos plus
 same failures as the baseline -- I1 16 boards, I2 5, I3 5, I4 1, I7 the ecc83
 pick. Expected: those invariants belong to the universality plan's phase 1,
 which the recommendations did not touch.
+
+Re-run after phase 1 (schematic read by sheet instance, 2026-09-13; demos plus
+the three reference boards, no PCB size cap):
+
+| invariant | demos: boards failing | reference container: boards failing |
+| --- | --- | --- |
+| I1 | 0 / 15 | 1 (main 437/440: three footprints whose symbols the schematic no longer has) |
+| I2 | 4 (unchanged) | 2 (unchanged) |
+| I3 | 4 (unchanged) | 2 (unchanged) |
+| I4 | 1 (unchanged) | 1 (unchanged) |
+| I5 SCH-002 on marked pins | 13 (pic_programmer 77/77, kit-dev 69/69, interf_u 63/63, video 119/217, ...) | 2 (p02 25/26, main 163/165) |
+| I6 power-symbol nets classified | 9 (38 of 53 nets; openair-max 0/7) | 1 (main: `+5V_LOGIC`) |
+
+I5 and I6 are measured for the first time and reproduce the hand counts above.
+They, I2, I3 and I4 belong to phase 4. SCH-005's false findings on
+multi-instance sheets are gone with I1 (complex_hierarchy 29 to 0,
+multichannel 78 to 0).
 
 ## E. Audit recommendations — carried out
 
