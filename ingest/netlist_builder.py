@@ -40,6 +40,15 @@ class NetInfo:
     voltage_hint: Optional[float]
     pins: list[NetPin] = field(default_factory=list)
     aliases: set[str] = field(default_factory=set)
+    # Why the net is a rail, and how sure that is: RAIL_POWER_SYMBOL (declared
+    # by the designer, "declared") or RAIL_POWER_PIN (inferred from a pin type,
+    # "inferred"); empty when it is not a rail.
+    rail_source: str = ""
+    rail_confidence: str = ""
+
+
+RAIL_POWER_SYMBOL = "power_symbol"
+RAIL_POWER_PIN = "power_pin"
 
 
 # How a footprint relates to the schematic. Absence is a state, not a gap.
@@ -86,8 +95,11 @@ class BoardNetlist:
     link_issues: list[LinkIssue] = field(default_factory=list)
 
 
-# Power-bearing pin types — a net with any of these carries power.
-_POWER_TYPES = frozenset({"power_in", "power_out", "open_collector", "open_emitter"})
+# Power-bearing pin types -- a net with any of these carries power. Open
+# collector and open emitter used to be counted: they are signal outputs that
+# only sink or source, and on the KiCad 10 demos they alone made rails of 15
+# nets (8 on cm5_minima, 4 on royalblue54L).
+_POWER_TYPES = frozenset({"power_in", "power_out"})
 _SOURCE_TYPES = frozenset({"power_out"})
 
 
@@ -163,8 +175,9 @@ def build_netlist(
                 net_name=pad.net_name,
                 electrical_type=etype,
             ))
-            if etype in _POWER_TYPES:
+            if etype in _POWER_TYPES and not net.is_power_rail:
                 net.is_power_rail = True
+                net.rail_source, net.rail_confidence = RAIL_POWER_PIN, "inferred"
             if etype in _SOURCE_TYPES:
                 net.has_power_out_source = True
 
@@ -208,6 +221,23 @@ def build_netlist(
             _ensure_net(zone.net_name)
 
     # Apply cross-board aliases
+    # A net a power symbol names is a rail by the designer's declaration, the
+    # strongest evidence there is (plan P4), whatever its pins say: on the demos
+    # 15 of the 53 nets carried by a power symbol had no power pin at all (every
+    # ground and supply of openair-max among them). PWR_FLAG marks a net without
+    # naming it. A local power symbol names a net of its own sheet only, and the
+    # board's name for it is not known here, so it is left to pin types.
+    if schematic:
+        declared = {
+            inst.value for inst in schematic.instances
+            if inst.power == "global" and inst.value and inst.lib_id.split(":")[-1] != "PWR_FLAG"
+        }
+        for name in declared:
+            net = nets_map.get(name)
+            if net is not None:
+                net.is_power_rail = True
+                net.rail_source, net.rail_confidence = RAIL_POWER_SYMBOL, "declared"
+
     # Each local net a link joins is aliased to the nets it joins on the other
     # boards, under their own names.
     for cbn in cross_board_nets or ():

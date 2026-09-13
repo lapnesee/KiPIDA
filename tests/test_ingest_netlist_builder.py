@@ -145,6 +145,30 @@ class TestPowerRailClassification(unittest.TestCase):
         self.assertEqual(pin.electrical_type, "power_out")
 
 
+class TestRailEvidence(unittest.TestCase):
+    def _board(self, pads):
+        return _make_board(footprints=[Footprint(
+            reference="U1", value="", lib_id="", position=(0, 0), rotation=0, layer="F.Cu",
+            sch_path="/u1", sch_sheet_file="", pads=[Pad(n, net, pintype, (0, 0)) for n, net, pintype in pads],
+        )])
+
+    def test_open_collector_pins_alone_make_no_rail(self):
+        nl = build_netlist(self._board([("1", "IRQ_N", "open_collector")]), None, "b")
+        self.assertFalse(nl.nets[0].is_power_rail)
+
+    def test_a_net_a_power_symbol_names_is_a_declared_rail(self):
+        ground = SymbolInstance(lib_id="power:GND", uuid="g", reference="#PWR01", value="GND", footprint="",
+                                datasheet="", extra_fields={}, sheet_path="/r", pins=[], power="global")
+        flag = SymbolInstance(lib_id="power:PWR_FLAG", uuid="f", reference="#FLG01", value="PWR_FLAG",
+                              footprint="", datasheet="", extra_fields={}, sheet_path="/r", pins=[], power="global")
+        nl = build_netlist(self._board([("1", "GND", "passive"), ("2", "VCC", "power_in")]),
+                           _make_schematic([ground, flag]), "b")
+        self.assertTrue(next(n for n in nl.nets if n.name == "GND").is_power_rail)
+        nets = {n.name: (n.is_power_rail, n.rail_source, n.rail_confidence) for n in nl.nets}
+        self.assertEqual(nets["GND"], (True, "power_symbol", "declared"))
+        self.assertEqual(nets["VCC"], (True, "power_pin", "inferred"))
+
+
 class TestSchematicLink(unittest.TestCase):
     """A footprint meets its symbol by path; a reference is never a join key."""
 

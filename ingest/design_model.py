@@ -212,6 +212,8 @@ def _netlist_to_dict(nl: BoardNetlist) -> dict:
             "name": n.name,
             "board_uuid": n.board_uuid,
             "is_power_rail": n.is_power_rail,
+            "rail_source": n.rail_source,
+            "rail_confidence": n.rail_confidence,
             "has_power_out_source": n.has_power_out_source,
             "voltage_hint": n.voltage_hint,
             "aliases": sorted(n.aliases),

@@ -153,9 +153,12 @@ def measure_project(pro, max_pcb_mb):
     row["I2_ok"] = sch005_pathless == 0
 
     power_pin_types = {"power_in", "power_out"}
+    # A rail no power symbol declares and no power pin supports: what open
+    # collector pins alone used to make.
     oc_only = [
         net.name for net in netlist.nets
-        if net.is_power_rail and not any(pin.electrical_type in power_pin_types for pin in net.pins)
+        if net.is_power_rail and getattr(net, "rail_source", "") != "power_symbol"
+        and not any(pin.electrical_type in power_pin_types for pin in net.pins)
     ]
     row["I3_open_collector_only_rails"] = len(oc_only)
     row["I3_ok"] = not oc_only
