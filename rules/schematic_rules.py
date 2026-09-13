@@ -233,38 +233,50 @@ def _check_unconnected_pins(context: SchematicRuleContext) -> list:
     remediation_template="Add a Power field to {ref} or verify manually.",
 )
 def _check_missing_power_rating(context: SchematicRuleContext) -> list:
+    """One finding for the project, naming every resistor concerned.
+
+    It was one INFO per resistor -- 53 on the reference board main, 29 on
+    tiny_tapeout -- for a single observation about how the project records its
+    parts, which buried the findings that point at a place on the board.
+    """
     netlist = context.netlist
     voltage_by_net = {n.name: n.voltage_hint for n in netlist.nets}
 
-    findings = []
+    references: list[str] = []
+    nets: list[str] = []
     for component in netlist.components:
-        if not _is_resistor(component):
+        if not _is_resistor(component) or _has_power_field(component):
             continue
-        if _has_power_field(component):
+        on_known_voltage = [
+            net_name for net_name in component.nets_by_pad.values()
+            if voltage_by_net.get(net_name) is not None
+        ]
+        if not on_known_voltage:
             continue
-        for net_name in component.nets_by_pad.values():
-            voltage_hint = voltage_by_net.get(net_name)
-            if voltage_hint is None:
-                continue
-            findings.append(AnalysisFinding(
-                rule_id="SCH-003",
-                category="SCHEMATIC",
-                severity=FindingSeverity.INFO,
-                title="Missing power-rating data",
-                description=(
-                    f"{component.reference} is on net '{net_name}' (~{voltage_hint}V) "
-                    "with no Power field on the schematic symbol."
-                ),
-                recommendation=(
-                    f"Add a Power field to {component.reference} or verify manually that "
-                    f"dissipation stays under the package rating for {voltage_hint}V across it."
-                ),
-                confidence=EvidenceConfidence.HEURISTIC,
-                nets=[net_name],
-                components=[component.reference],
-            ))
-            break  # one finding per component is enough
-    return findings
+        references.append(component.reference)
+        for net_name in on_known_voltage:
+            if net_name not in nets:
+                nets.append(net_name)
+    if not references:
+        return []
+    shown = ", ".join(references[:10]) + (", ..." if len(references) > 10 else "")
+    return [AnalysisFinding(
+        rule_id="SCH-003",
+        category="SCHEMATIC",
+        severity=FindingSeverity.INFO,
+        title="Missing power-rating data",
+        description=(
+            f"{len(references)} resistor(s) sit on nets with a nominal voltage and carry no Power "
+            f"field on their schematic symbol: {shown}."
+        ),
+        recommendation=(
+            "Add a Power field to these resistors, or check by hand that each one's dissipation "
+            "stays under its package rating."
+        ),
+        confidence=EvidenceConfidence.HEURISTIC,
+        nets=nets,
+        components=references,
+    )]
 
 
 # ---------------------------------------------------------------------------

@@ -148,6 +148,14 @@ class TestMissingPowerRating(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0].severity.value, "INFO")
 
+    def test_one_finding_names_every_resistor(self):
+        nets = [NetInfo("+5V_RAIL", "b1", True, False, 5.0)]
+        second = self._resistor(False)
+        second.reference = "R6"
+        ctx = SchematicRuleContext(netlist=_netlist("b1", [self._resistor(False), second], nets))
+        findings = _check_missing_power_rating(ctx)
+        self.assertEqual([f.components for f in findings], [["R5", "R6"]])
+
     def test_no_finding_when_power_field_present(self):
         nets = [NetInfo("+5V_RAIL", "b1", True, False, 5.0)]
         ctx = SchematicRuleContext(netlist=_netlist("b1", [self._resistor(True)], nets))
