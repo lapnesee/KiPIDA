@@ -132,6 +132,9 @@ class EMCGeometrySnapshot:
     ignored_offboard_nets: tuple = ()
     ignored_offboard_counts: dict = field(default_factory=dict)
     inductors: list = field(default_factory=list)
+    # {reference: {"capacitor", "powered", "connector"}} from the project's
+    # saved files (ingest.declarations.component_classes); empty without them.
+    component_classes: dict = field(default_factory=dict)
 
     @property
     def tracks_by_net(self):
@@ -142,7 +145,7 @@ class EMCGeometrySnapshot:
 
     @classmethod
     def capture(cls, board, settings, rails=None, differential_pairs=None,
-                board_file_path=None, log_callback=None):
+                board_file_path=None, log_callback=None, component_classes=None):
         if board is None:
             raise RuntimeError(
                 "No live KiCad PCB is connected; EMI/EMC geometry capture was cancelled."
@@ -357,6 +360,7 @@ class EMCGeometrySnapshot:
             ignored_offboard_nets=tuple(sorted(ignored_nets)),
             ignored_offboard_counts=dict(sorted(ignored_counts.items())),
             inductors=inductors,
+            component_classes=dict(component_classes or {}),
         )
 
 
@@ -1007,11 +1011,43 @@ class EMCAnalyzer:
         return ((track.start[0] + track.end[0]) / 2.0,
                 (track.start[1] + track.end[1]) / 2.0)
 
+    def _classes(self, item):
+        """The project files' classes for a footprint, or None when they do not classify it."""
+        return (getattr(self.snapshot, "component_classes", None) or {}).get(item.reference)
+
+    def _is_connector(self, item):
+        # The user's connector prefixes, or a Connector symbol or footprint library.
+        return (
+            any(item.reference.upper().startswith(prefix.upper())
+                for prefix in self.settings.external_connector_prefixes)
+            or "connector" in (self._classes(item) or ())
+        )
+
+    def _is_capacitor(self, item):
+        # A capacitor symbol or footprint says so; a connector symbol says not,
+        # whatever its reference; otherwise the C annotation prefix.
+        classes = self._classes(item) or set()
+        if "capacitor" in classes:
+            return True
+        return "connector" not in classes and item.reference.upper().startswith("C")
+
+    def _needs_decoupling(self, item):
+        """A part with a power_in pin, or a U/IC part; never a capacitor or a connector.
+
+        The pin type adds parts the prefix misses (a module annotated M1) but
+        does not replace it: vendor symbols often type their supply pins
+        passive, and on the reference board main 96 of 114 U parts have no
+        power_in pin at all.
+        """
+        if self._is_connector(item) or self._is_capacitor(item):
+            # A connector's VBUS pin is often typed power_in, and connectors
+            # from private libraries carry no Connector library name.
+            return False
+        return "powered" in (self._classes(item) or ()) or item.reference.upper().startswith(("U", "IC"))
+
     def _signal_rules(self):
         source_by_net = self._source_by_net
-        connectors = [item for item in self.snapshot.footprints
-                      if any(item.reference.upper().startswith(prefix.upper())
-                             for prefix in self.settings.external_connector_prefixes)]
+        connectors = [item for item in self.snapshot.footprints if self._is_connector(item)]
         bounds = self.snapshot.bounds_mm
         reference_names = set(self.settings.reference_net_names)
         if self.snapshot.ignored_offboard_items:
@@ -1154,7 +1190,7 @@ class EMCAnalyzer:
                       "HIGH", [net], location=(*via.position, via.layer_ids[0] if via.layer_ids else None))
 
     def _component_rules(self):
-        capacitors = [item for item in self.snapshot.footprints if item.reference.upper().startswith("C")]
+        capacitors = [item for item in self.snapshot.footprints if self._is_capacitor(item)]
         protection_value = re.compile(
             r"(?:USBLC|PESD|TPD\d|ESD|TVS|TRANSIL|SMBJ|SMAJ|SMCJ|SRV05|PRTR|CMF|CMC|COMMON.?MODE|FERRITE)",
             re.I,
@@ -1174,7 +1210,7 @@ class EMCAnalyzer:
 
         filters = [item for item in self.snapshot.footprints if is_filter(item)]
         if self._enabled("DECOUPLING"):
-            for ic in [item for item in self.snapshot.footprints if item.reference.upper().startswith(("U", "IC"))]:
+            for ic in [item for item in self.snapshot.footprints if self._needs_decoupling(item)]:
                 power_management = bool(re.search(
                     r"(?:LTC|LT\d|TPS|LM\d|REGULATOR|BUCK|BOOST|POWER.?PATH|PMIC)",
                     ic.value, re.I,
@@ -1228,9 +1264,7 @@ class EMCAnalyzer:
                               "LOW" if power_management else "MEDIUM",
                               components=[ic.reference, nearest[1].reference], location=(*ic.position, None))
         if any(self._enabled(category) for category in ("IO", "ESD", "SHIELDING")):
-            for connector in [item for item in self.snapshot.footprints
-                              if any(item.reference.upper().startswith(prefix.upper())
-                                     for prefix in self.settings.external_connector_prefixes)]:
+            for connector in [item for item in self.snapshot.footprints if self._is_connector(item)]:
                 self._check()
                 likely_external = bool(re.search(r"USB|HDMI|RJ|ETH|CAN|EXT", connector.value, re.I))
                 connector_signals = (

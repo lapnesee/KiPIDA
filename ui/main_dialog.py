@@ -1257,6 +1257,18 @@ class KiPIDA_MainDialog(wx.Dialog):
         if not enabled_sources:
             self.log("EMI/EMC note: no clock or switching source is enabled; geometry-only rules will run.")
         pairs = [pair for pair in self.differential_panel.settings.pairs if pair.enabled]
+        component_classes = {}
+        context = getattr(self, "project_context", None)
+        if context is not None:
+            try:
+                from ingest.declarations import component_classes as classify, design_netlist
+
+                component_classes = classify(design_netlist(context.project))
+            except Exception as exc:
+                self.log(
+                    "EMI/EMC: parts are classified by reference prefix only; the project's saved "
+                    f"files could not be read ({exc})."
+                )
         snapshot = EMCGeometrySnapshot.capture(
             self.board,
             settings,
@@ -1264,6 +1276,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             differential_pairs=pairs,
             board_file_path=self._board_file_path(),
             log_callback=self.log,
+            component_classes=component_classes,
         )
         ac_results = []
         ac_result = getattr(self, "ac_result", None)

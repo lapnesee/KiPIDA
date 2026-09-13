@@ -372,6 +372,34 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertEqual(finding.confidence, "LOW")
         self.assertIn("rail-bypass", finding.title)
 
+    def test_parts_are_classified_by_what_the_project_files_say(self):
+        from ingest.declarations import component_classes
+        from ingest.netlist_builder import ComponentInfo
+
+        def component(reference, symbol, pins, footprint=""):
+            return ComponentInfo(reference, "", footprint, "", {}, (0, 0), {}, pins, symbol_lib_id=symbol)
+
+        netlist = SimpleNamespace(components=[
+            component("M1", "Module:ESP32", {"1": "power_in"}),          # a module needs decoupling
+            component("CX1", "Device:C", {"1": "passive"}),              # a capacitor by its symbol
+            component("C9", "Connector:Conn_01x02", {"1": "power_in"}),  # a connector, not a part to decouple
+        ])
+        classes = component_classes(netlist)
+        self.assertEqual(classes, {"M1": {"powered"}, "CX1": {"capacitor"}, "C9": {"connector", "powered"}})
+
+        snap = EMCGeometrySnapshot(
+            bounds_mm=(0.0, 0.0, 30.0, 10.0), stackup=stackup(), tracks=[], vias=[],
+            footprints=[
+                EMCFootprint("M1", "ESP32", (5.0, 5.0), ("3V3", "GND"), (("3V3", 5.0, 5.0),)),
+                EMCFootprint("C9", "Conn", (25.0, 5.0), ("3V3", "GND"), (("3V3", 25.0, 5.0),)),
+            ],
+            power_nets={"3V3"}, component_classes=classes,
+        )
+        findings = EMCAnalyzer(snap, EMCAnalysisSettings(sources=[])).analyze().findings
+        # M1 is no U or IC, and was never checked; its nearest "capacitor" C9 is a connector.
+        self.assertEqual([(f.rule_id, f.components) for f in findings if f.rule_id.startswith("DE-")],
+                         [("DE-002", ["M1"])])
+
     def test_connected_usblc_value_suppresses_connector_protection_false_positive(self):
         snap = EMCGeometrySnapshot(
             bounds_mm=(0.0, 0.0, 30.0, 20.0), stackup=stackup(),

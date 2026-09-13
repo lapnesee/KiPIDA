@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Changed the EMI/EMC decoupling and connector rules to use what the project's
+  files say about each part, on top of the reference prefixes: a part with a
+  power_in pin is checked for decoupling even when it is not a U or IC (a
+  compute module, a regulator annotated VR), a capacitor symbol or footprint
+  counts as a capacitor, and a Connector symbol or footprint marks a
+  connector, which is never checked for decoupling nor counted as a capacitor.
 - Changed ground detection to start from the project's ground symbols: a net
   KiCad's GND, GNDA, Earth or VSS symbol names is a ground whatever it is
   called, and a net name is only a hint. SCH-001 counts a capacitor to such a

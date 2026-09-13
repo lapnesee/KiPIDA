@@ -87,6 +87,8 @@ class ComponentInfo:
     schematic_link: str = NO_SCHEMATIC
     # Pads whose pin the designer marked no-connect, on any unit of the symbol.
     no_connect_pads: set[str] = field(default_factory=set)
+    # The schematic symbol it was placed from ("Device:C"); lib_id is the footprint's.
+    symbol_lib_id: str = ""
 
 
 @dataclass
@@ -210,6 +212,7 @@ def build_netlist(
             pin_types_by_pad=dict(pin_type_map),
             schematic_link=link,
             no_connect_pads=set(no_connect_by_reference.get(sch_inst.reference, ())) if sch_inst else set(),
+            symbol_lib_id=sch_inst.lib_id if sch_inst else "",
         ))
 
     footprints_by_reference: dict[str, int] = {}
