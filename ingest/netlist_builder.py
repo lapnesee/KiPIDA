@@ -64,6 +64,8 @@ class ComponentInfo:
     nets_by_pad: dict[str, str]
     pin_types_by_pad: dict[str, str]
     schematic_link: str = NO_SCHEMATIC
+    # Pads whose pin the designer marked no-connect, on any unit of the symbol.
+    no_connect_pads: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -100,10 +102,15 @@ def build_netlist(
     # The path a footprint records -> the symbol placement it came from. Every
     # unit of a multi-unit symbol has its own uuid, so each is indexed.
     sch_by_path: dict[str, SymbolInstance] = {}
+    # A footprint's path names one unit; its other units share the symbol's
+    # reference inside the schematic, which is how KiCad itself groups them.
+    no_connect_by_reference: dict[str, set[str]] = {}
     if schematic:
         for inst in schematic.instances:
             if inst.footprint_path:
                 sch_by_path.setdefault(inst.footprint_path, inst)
+            if inst.no_connect_pins:
+                no_connect_by_reference.setdefault(inst.reference, set()).update(inst.no_connect_pins)
     link_issues: list[LinkIssue] = []
 
     # Accumulate nets: net_name → NetInfo
@@ -175,6 +182,7 @@ def build_netlist(
             nets_by_pad=nets_by_pad,
             pin_types_by_pad=dict(pin_type_map),
             schematic_link=link,
+            no_connect_pads=set(no_connect_by_reference.get(sch_inst.reference, ())) if sch_inst else set(),
         ))
 
     footprints_by_reference: dict[str, int] = {}

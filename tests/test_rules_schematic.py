@@ -96,6 +96,32 @@ class TestUnconnectedPin(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0].severity.value, "LOW")
 
+    def test_a_pin_the_designer_marked_no_connect_is_not_reported(self):
+        from ingest.board_reader import Footprint, Pad, ParsedBoard
+        from ingest.netlist_builder import build_netlist
+
+        board = ParsedBoard(None, _STACKUP, _BOUNDS, footprints=[Footprint(
+            reference="U1", value="MCU", lib_id="Package:QFN", position=(0, 0), rotation=0, layer="F.Cu",
+            sch_path="/u1", sch_sheet_file="",
+            pads=[Pad("7", "unconnected-(U1-Pad7)", "passive", (0, 0)), Pad("8", "unconnected-(U1-Pad8)", "passive", (1, 0))],
+        )], segments=[], vias=[], zones=[])
+        # Unit 1 is on the board; the marker sits on a pin of unit 2.
+        units = [
+            SymbolInstance(lib_id="x", uuid="u1", reference="U1", value="MCU", footprint="", datasheet="",
+                           extra_fields={}, sheet_path="/r", pins=[], footprint_path="/u1", unit=1),
+            SymbolInstance(lib_id="x", uuid="u2", reference="U1", value="MCU", footprint="", datasheet="",
+                           extra_fields={}, sheet_path="/r", pins=[], footprint_path="/u2", unit=2,
+                           no_connect_pins={"7"}),
+        ]
+        schematic = ParsedSchematic(root_sch_path=None, symbol_defs={}, instances=units, global_nets=[])
+        netlist = build_netlist(board, schematic, "b1")
+        findings = _check_unconnected_pins(SchematicRuleContext(netlist=netlist, schematic=schematic))
+        self.assertEqual([f.description for f in findings], ["U1 pad 8 is unconnected (unconnected-(U1-Pad8))."])
+
+        # A pin its library types no_connect is left open by design.
+        netlist.components[0].pin_types_by_pad["8"] = "no_connect"
+        self.assertEqual(_check_unconnected_pins(SchematicRuleContext(netlist=netlist, schematic=schematic)), [])
+
     def test_no_finding_for_normal_net(self):
         component = ComponentInfo(
             reference="J1", value="Conn", lib_id="Connector:Conn", datasheet="",

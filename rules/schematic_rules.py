@@ -179,7 +179,9 @@ def _check_undecoupled_power_pins(context: SchematicRuleContext) -> list:
 @rule(
     "SCH-002", "SCHEMATIC",
     "Unconnected pin",
-    "A footprint pad is on a KiCad-synthesized 'unconnected-(...)' net.",
+    "A footprint pad is on a KiCad-synthesized 'unconnected-(...)' net, its pin "
+    "carries no no-connect marker in the schematic, and its library does not "
+    "declare it a no-connect pin.",
     default_severity="LOW",
     reference="",
     remediation_template="Verify {ref} pad {pad} is intentionally unconnected.",
@@ -188,7 +190,17 @@ def _check_unconnected_pins(context: SchematicRuleContext) -> list:
     findings = []
     for component in context.netlist.components:
         for pad_number, net_name in component.nets_by_pad.items():
-            if not net_name.startswith("unconnected-"):
+            if not net_name.startswith(_UNCONNECTED_PREFIX):
+                continue
+            if pad_number in component.no_connect_pads:
+                # The designer marked it: unconnected is what was asked for.
+                # Every SCH-002 on pic_programmer (77), kit-dev (69) and
+                # interf_u (63) was such a pin.
+                continue
+            if component.pin_types_by_pad.get(pad_number) == "no_connect":
+                # The library declares the pin not connected, and KiCad's ERC
+                # leaves such a pin alone when it is left open. The 98 findings
+                # video kept after markers were honoured were all of this kind.
                 continue
             documented = component.pin_types_by_pad.get(pad_number) is not None
             severity = FindingSeverity.LOW if documented else FindingSeverity.INFO
