@@ -243,6 +243,26 @@ Deux choix pris sur mesure plutôt que sur l'énoncé :
 *Invariant* : 100 % des empreintes à chemin appariées, zéro repli par référence,
 sur les 15 cartes. *Tests* : empreinte sans chemin, collision de référence.
 
+**Fait le 2026-09-13** (`b180996`, `cb14bef`, `7818dc2`).
+
+* 2.1 : le repli par référence n'existe plus. Chaque composant porte son état
+  (`linked`, `pcb_only`, `symbol_missing`, `no_schematic`) et la netlist
+  diagnostique références en double et références divergentes. Toutes les
+  empreintes à chemin sont liées sur les 15 cartes des démos, p02_alimentation
+  et LEDS_sub ; main garde ses 3 `symbol_missing`. Seul signalement : références
+  en double sur les empreintes posées sans schéma de tiny_tapeout. Aucune règle
+  ne change de résultat sur le corpus.
+* 2.2 : l'empreinte de hachage couvre toutes les feuilles lues (une modification
+  de sous-feuille la laissait inchangée) ; les `except Exception: pass` de
+  `design_model` et `project_resolver` sont remplacés par des entrées
+  `issues`/`notes`. Les fichiers Zeo restent hachés dès qu'un conteneur est
+  résolu : les limiter à la surcouche active demande le `ProjectContext` (3.2).
+* 2.3 : faisable sur la capture existante (`DCBoardSnapshot` porte toutes les
+  empreintes et leurs pastilles). `saved_footprint_differences` nomme les
+  empreintes ajoutées, supprimées ou déplacées ; le moteur des règles schéma en
+  fait une limitation « Unsaved changes ». Pas ajouté au DC, que DC-004 couvre
+  déjà sur le cuivre de ses rails.
+
 ### Phase 3 — Résolution de projet et surcouche Zeo (L)
 
 3.1 Entrée par l'identité hôte (P1) ; statuts complet / schéma seul / PCB seul ;
