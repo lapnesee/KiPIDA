@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .project_resolver import BoardProject, resolve_project
+from .zeo_container import ZeoContainer, read_zeo_container
 
 KICAD = "kicad"
 ZEO = "zeo"
@@ -89,6 +90,10 @@ class ProjectContext:
     boards: list[BoardProject]       # the boards analysed: one, except in container mode
     container_path: Optional[Path] = None
     notes: list[str] = field(default_factory=list)
+    # The container's boards and links, in the Zeo modes only. Its links are
+    # checked against the PCBs by zeo_container.validate_links when a use needs
+    # them, not here: the context is built at launch.
+    zeo: Optional[ZeoContainer] = None
 
     @property
     def summary(self) -> str:
@@ -140,10 +145,23 @@ def build_project_context(project_path, detection: HostDetection) -> ProjectCont
     if entry is None:
         return single(f"orphan board: its container {container_path.name} does not list it")
     project.sub_project_uuid = str(entry.get("uuid") or project.sub_project_uuid)
-    return ProjectContext(detection, ZEO_MEMBER, project, [project], container_path=container_path)
+    listed, notes = _listed_boards(container_path, container_settings)
+    return ProjectContext(
+        detection, ZEO_MEMBER, project, [project], container_path=container_path, notes=notes,
+        zeo=read_zeo_container(container_path, listed),
+    )
 
 
 def _container_context(detection, project, container_path, settings) -> ProjectContext:
+    boards, notes = _listed_boards(container_path, settings)
+    return ProjectContext(
+        detection, ZEO_CONTAINER, project, boards, container_path=container_path, notes=notes,
+        zeo=read_zeo_container(container_path, boards),
+    )
+
+
+def _listed_boards(container_path: Path, settings: dict):
+    """The boards a container lists in sub_projects, with their uuids, and those that do not exist."""
     boards, notes = [], []
     for entry in settings.get("sub_projects") or ():
         path = (container_path.parent / str(entry.get("path") or "")).resolve()
@@ -153,7 +171,7 @@ def _container_context(detection, project, container_path, settings) -> ProjectC
         board = resolve_project(path)
         board.sub_project_uuid = str(entry.get("uuid") or board.sub_project_uuid)
         boards.append(board)
-    return ProjectContext(detection, ZEO_CONTAINER, project, boards, container_path=container_path, notes=notes)
+    return boards, notes
 
 
 def _multi_board(pro_path: Path) -> dict:
