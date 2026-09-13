@@ -79,6 +79,15 @@ _SNAP = 0.001
 PAD_PLATING_MM = PLATING_THICKNESS_FALLBACK_MM
 
 
+def _barrel_section_mm2(drill_mm: float, plating_mm: float) -> float:
+    """Wall section of a plated barrel whose finished hole is *drill_mm*.
+
+    The same annulus :func:`~ingest.track_resistance.via_resistance` conducts
+    through, so a density computed from it matches the resistance used.
+    """
+    return math.pi * (drill_mm * plating_mm + plating_mm * plating_mm)
+
+
 def _snap(v: float) -> float:
     """Round a coordinate to the nearest _SNAP mm to allow junction sharing."""
     return round(v / _SNAP) * _SNAP
@@ -312,10 +321,12 @@ class HybridMesher:
                 continue
             vx, vy = via.position
             drill_mm = via.drill_mm if via.drill_mm > 0 else 0.3
-            size_mm = via.size_mm if via.size_mm > 0 else (drill_mm + 0.05)
-            plating_mm = (size_mm - drill_mm) / 2.0
-            if plating_mm <= 0:
-                plating_mm = PLATING_THICKNESS_FALLBACK_MM
+            # The board file does not record barrel plating. Half of size minus
+            # drill is the annular ring -- the pad copper around the hole on
+            # each layer -- and taking it for the barrel wall made a 0.6/0.3 mm
+            # via's barrel 0.15 mm thick instead of about 0.02 mm, ten times too
+            # conductive. The shared fallback is what the raster mesher uses.
+            plating_mm = PLATING_THICKNESS_FALLBACK_MM
 
             top_layer = via.layers[0]
             bot_layer = via.layers[-1]
@@ -349,7 +360,7 @@ class HybridMesher:
                     mesh.add_edge_direct(
                         previous, node, g,
                         kind="vertical",
-                        cross_section_mm2=math.pi * drill_mm * plating_mm,
+                        cross_section_mm2=_barrel_section_mm2(drill_mm, plating_mm),
                         geometry_source=f"via:{top_layer}-{bot_layer}",
                     )
                     added = True
@@ -418,7 +429,7 @@ class HybridMesher:
                         mesh.add_edge_direct(
                             previous, node, conductance,
                             kind="vertical",
-                            cross_section_mm2=math.pi * drill * PAD_PLATING_MM,
+                            cross_section_mm2=_barrel_section_mm2(drill, PAD_PLATING_MM),
                             geometry_source=f"pad:{footprint.reference}-{pad.number}",
                         )
                         added = True

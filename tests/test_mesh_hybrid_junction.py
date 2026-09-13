@@ -106,12 +106,15 @@ class ThroughViaSpanTests(unittest.TestCase):
         from ingest.board_reader import Via
         from ingest.track_resistance import via_resistance
         from mesh_hybrid import HybridMesher
+        from physical_constants import PLATING_THICKNESS_FALLBACK_MM
 
         board = _board(vias=[Via("VCC", (1.0, 1.0), 0.6, 0.3, ["F.Cu", "B.Cu"])])
         mesh = HybridMesher(board).build_mesh("VCC")
 
         total = sum(b.resistance_ohm for b in mesh.branches)
-        expected = via_resistance(1.6, 0.3, 0.15)
+        # The plating is the shared fallback. This expectation used to be 0.15
+        # mm -- the via's annular ring, which is not the barrel wall.
+        expected = via_resistance(1.6, 0.3, PLATING_THICKNESS_FALLBACK_MM)
         self.assertAlmostEqual(total, expected, places=12)
 
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed via barrel resistance in both DC meshers. The hybrid mesher took half
+  of the via size minus its drill -- the annular ring -- for the plating wall,
+  making a 0.6/0.3 mm via ten times too conductive; the raster mesher sized the
+  barrel from the via pad diameter instead of the drill, nearly doubling it.
+  Both now use the drill and the shared plating fallback, since the board file
+  records no plating.
 - Fixed the offline board reader finding no copper layers on a board whose
   setup was never edited: KiCad writes the stackup block only then, and 4 of
   the 19 KiCad 10 demo boards have none. The copper layers now come from the

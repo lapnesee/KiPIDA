@@ -667,10 +667,17 @@ class Mesher:
         mesh.G_coo_col.extend(np.concatenate(cols))
         mesh.G_coo_data.extend(np.concatenate(data))
 
-    def _calculate_vertical_g(self, layer_a, layer_b, stackup, diameter_mm):
+    def _calculate_vertical_g(self, layer_a, layer_b, stackup, drill_mm):
+        """Barrel conductance between two layers of a plated hole.
+
+        *drill_mm* is the finished hole, and the plating wall lies outside it:
+        the same section the branch records as its cross-section, and the one
+        ``ingest.track_resistance.via_resistance`` uses. Vias used to pass their
+        pad diameter here, which nearly doubled every via barrel's conductance.
+        """
         if layer_a == layer_b: return 1.0e9
         plating_thick = PLATING_THICKNESS_FALLBACK_MM
-        area = math.pi * (diameter_mm * plating_thick - plating_thick**2)
+        area = math.pi * (drill_mm * plating_thick + plating_thick**2)
         if area <= 0: return 1000.0
         rho = stackup.get('resistivity', COPPER_RESISTIVITY_OHM_MM)
         h = 0
@@ -809,7 +816,7 @@ class Mesher:
             nid_b = nodes_in_stack[i+1]
             la = mesh.node_coords[nid_a][2]
             lb = mesh.node_coords[nid_b][2]
-            g_via = self._calculate_vertical_g(la, lb, stackup, dia_mm)
+            g_via = self._calculate_vertical_g(la, lb, stackup, drill_mm)
             l_via = self._calculate_vertical_l(la, lb, stackup, dia_mm)
             mesh.add_edge_direct(
                 nid_a, nid_b, g_via, l_via, "via",

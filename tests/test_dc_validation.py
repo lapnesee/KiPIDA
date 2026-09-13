@@ -343,7 +343,59 @@ class TestHybridMesherVia(unittest.TestCase):
         board = self._board_with_via()
         mesh = HybridMesher(board).build_mesh("VCC")
         self.assertGreater(mesh.branches[0].resistance_ohm, 0)
-        self.assertLess(mesh.branches[0].resistance_ohm, 1e-3)
+        self.assertLess(mesh.branches[0].resistance_ohm, 1e-2)
+
+    def test_the_annular_ring_is_not_taken_for_the_barrel_wall(self):
+        # A 0.6/0.3 mm via has a 0.15 mm annular ring. Reading that as plating
+        # made the barrel ten times too conductive; the file records no plating,
+        # so the barrel uses the shared fallback whatever the pad size.
+        import math
+
+        from ingest.track_resistance import via_resistance
+        from mesh_hybrid import HybridMesher
+        from physical_constants import PLATING_THICKNESS_FALLBACK_MM as t
+
+        branch = HybridMesher(self._board_with_via()).build_mesh("VCC").branches[0]
+        self.assertAlmostEqual(
+            branch.resistance_ohm, via_resistance(1.6, 0.3, t), delta=1e-9,
+        )
+        self.assertAlmostEqual(branch.cross_section_mm2, math.pi * (0.3 * t + t * t), places=9)
+
+
+class TestRasterViaBarrel(unittest.TestCase):
+    def test_the_barrel_is_sized_from_the_drill_not_the_via_pad(self):
+        try:
+            import matplotlib  # noqa: F401
+            from shapely.geometry import Polygon
+        except ImportError:
+            self.skipTest("matplotlib/shapely not available")
+        import math
+
+        from application.dc_controller import (
+            DCBoardSnapshot, DCNetSnapshot, DCPointSnapshot, DCViaSnapshot,
+        )
+        from mesh import Mesher
+        from physical_constants import COPPER_RESISTIVITY_OHM_MM as rho
+        from physical_constants import PLATING_THICKNESS_FALLBACK_MM as t
+
+        point = DCPointSnapshot(0.0, 0.0)
+        via = DCViaSnapshot(
+            net=DCNetSnapshot("VCC"), position=point, start=point, width=600_000,
+            drill_size=DCPointSnapshot(300_000, 300_000), layers=(0, 31),
+        )
+        square = Polygon([(-1, -1), (1, -1), (1, 1), (-1, 1)])
+        stackup = {
+            "copper": {0: {"thickness_mm": 0.035}, 31: {"thickness_mm": 0.035}},
+            "resistivity": rho,
+            "substrate": [{"thickness_mm": 1.5, "between": [0, 31]}],
+        }
+        mesh = Mesher(DCBoardSnapshot((), (via,))).generate_mesh(
+            "VCC", {0: square, 31: square}, stackup, grid_size_mm=0.5,
+        )
+        barrels = [branch for branch in mesh.branches if branch.kind == "via"]
+        self.assertEqual(len(barrels), 1)
+        expected = rho * 1.5 / (math.pi * (0.3 * t + t * t))
+        self.assertAlmostEqual(barrels[0].resistance_ohm, expected, delta=1e-6 * expected)
 
 
 # ---------------------------------------------------------------------------
