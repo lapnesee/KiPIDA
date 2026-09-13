@@ -19,6 +19,11 @@ from __future__ import annotations
 import math
 from typing import Callable, Optional
 
+try:
+    from ..ingest.board_reader import pad_copper_layers
+except (ImportError, ValueError):
+    from ingest.board_reader import pad_copper_layers
+
 
 # A pad centre rarely coincides with a mesh node: zone cut-cell nodes sit on
 # the mesher's grid, and track nodes at segment endpoints. The nearest grid
@@ -66,18 +71,10 @@ def pad_layer_ids(parsed_board, pad) -> list:
     Empty when the board or pad does not say, which callers take as "any
     layer" rather than as "none".
     """
-    stackup = getattr(parsed_board, "stackup", None)
-    order = [
-        (layer.name, layer.layer_id)
-        for layer in (getattr(stackup, "layers", ()) or ())
+    return [
+        layer.layer_id
+        for layer in pad_copper_layers(getattr(parsed_board, "stackup", None), pad)
     ]
-    declared = {str(name) for name in (getattr(pad, "layers", ()) or ())}
-    through = str(getattr(pad, "pad_type", "")).lower() in {"thru_hole", "np_thru_hole"}
-    if not order or not (declared or through):
-        return []
-    if through or "*.Cu" in declared:
-        return [layer_id for _name, layer_id in order]
-    return [layer_id for name, layer_id in order if name in declared]
 
 
 def pad_pin_type(pad) -> str:

@@ -363,6 +363,22 @@ class TestRotatedPadPositions(unittest.TestCase):
         self.assertAlmostEqual(pad.position[0], 9.175, places=6)
         self.assertAlmostEqual(pad.position[1], 10.0, places=6)
 
+    def test_pad_outline_fields_are_read_as_written(self):
+        # The file writes a pad's angle in board coordinates; it is kept as is.
+        r1 = next(fp for fp in self.board.footprints if fp.reference == "R1")
+        pad = next(p for p in r1.pads if p.number == "1")
+        self.assertEqual((pad.shape, pad.size_mm, pad.angle_deg), ("roundrect", (0.8, 0.95), 0.0))
+        text = MINI_PCB.replace("(at -0.825 0 0)", "(at -0.825 0 90)")
+        tmp = tempfile.NamedTemporaryFile(suffix=".kicad_pcb", mode="w", encoding="utf-8", delete=False)
+        tmp.write(text)
+        tmp.close()
+        try:
+            turned = read_board(Path(tmp.name))
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+        r1 = next(fp for fp in turned.footprints if fp.reference == "R1")
+        self.assertEqual(next(p for p in r1.pads if p.number == "1").angle_deg, 90.0)
+
 
 NO_STACKUP_PCB = """\
 (kicad_pcb

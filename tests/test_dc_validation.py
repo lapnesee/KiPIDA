@@ -330,20 +330,31 @@ class TestHybridMesherVia(unittest.TestCase):
         bounds = BoardBounds(0, 0, 10, 10)
         return ParsedBoard(None, stackup, bounds, [], [], [via], [])
 
-    def test_via_two_nodes_one_branch(self):
+    @staticmethod
+    def _barrels(mesh):
+        # The via's land is meshed as copper on each layer too; the barrel is
+        # the vertical branch between them.
+        return [branch for branch in mesh.branches if branch.kind == "vertical"]
+
+    def test_via_one_barrel_between_its_two_lands(self):
         from mesh_hybrid import HybridMesher
         board = self._board_with_via()
         mesh = HybridMesher(board).build_mesh("VCC")
-        self.assertEqual(len(mesh.nodes), 2)
-        self.assertEqual(len(mesh.branches), 1)
-        self.assertEqual(mesh.branches[0].kind, "vertical")
+        barrels = self._barrels(mesh)
+        self.assertEqual(len(barrels), 1)
+        layers = {mesh.node_coords[barrels[0].node_a][2], mesh.node_coords[barrels[0].node_b][2]}
+        self.assertEqual(layers, {0, 2})
+        self.assertTrue(all(
+            branch.geometry_source.startswith("pad-copper:")
+            for branch in mesh.branches if branch.kind != "vertical"
+        ))
 
     def test_via_resistance_positive(self):
         from mesh_hybrid import HybridMesher
         board = self._board_with_via()
-        mesh = HybridMesher(board).build_mesh("VCC")
-        self.assertGreater(mesh.branches[0].resistance_ohm, 0)
-        self.assertLess(mesh.branches[0].resistance_ohm, 1e-2)
+        barrel = self._barrels(HybridMesher(board).build_mesh("VCC"))[0]
+        self.assertGreater(barrel.resistance_ohm, 0)
+        self.assertLess(barrel.resistance_ohm, 1e-2)
 
     def test_the_annular_ring_is_not_taken_for_the_barrel_wall(self):
         # A 0.6/0.3 mm via has a 0.15 mm annular ring. Reading that as plating
@@ -355,7 +366,7 @@ class TestHybridMesherVia(unittest.TestCase):
         from mesh_hybrid import HybridMesher
         from physical_constants import PLATING_THICKNESS_FALLBACK_MM as t
 
-        branch = HybridMesher(self._board_with_via()).build_mesh("VCC").branches[0]
+        branch = self._barrels(HybridMesher(self._board_with_via()).build_mesh("VCC"))[0]
         self.assertAlmostEqual(
             branch.resistance_ohm, via_resistance(1.6, 0.3, t), delta=1e-9,
         )

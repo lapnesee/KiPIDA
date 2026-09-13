@@ -18,6 +18,9 @@ Key improvements over the legacy mesher
   fraction of the cell centred on it. A net's fills on a layer are meshed as
   one union, on a lattice aligned on multiples of the step and shared by
   every layer of the net.
+* **Pad and via lands** — meshed as copper areas on the same lattice, so a
+  track or pour spoke meets a pad wherever it touches it; a track is split
+  where it runs across a land.
 
 Node-coordinate convention
 ---------------------------
@@ -33,14 +36,14 @@ import math
 from typing import Callable, Optional
 
 try:
-    from .ingest.board_reader import ParsedBoard, Segment, Via, Zone
+    from .ingest.board_reader import ParsedBoard, Segment, Via, Zone, pad_copper_layers
     from .ingest.track_resistance import (
         RHO_COPPER,
         segment_resistance,
         via_resistance,
     )
 except (ImportError, ValueError):
-    from ingest.board_reader import ParsedBoard, Segment, Via, Zone
+    from ingest.board_reader import ParsedBoard, Segment, Via, Zone, pad_copper_layers
     from ingest.track_resistance import (
         RHO_COPPER,
         segment_resistance,
@@ -86,6 +89,45 @@ def _barrel_section_mm2(drill_mm: float, plating_mm: float) -> float:
     through, so a density computed from it matches the resistance used.
     """
     return math.pi * (drill_mm * plating_mm + plating_mm * plating_mm)
+
+
+def _pad_outline(pad):
+    """A pad's copper outline in board coordinates, or ``None``.
+
+    Round pads are circles and ovals stadiums; every other shape is taken as
+    its bounding rectangle -- exact for "rect", a corner-sized overestimate for
+    "roundrect", and the anchor size for "custom", whose primitives are not
+    parsed. A pad drilled without plating carries no copper.
+    """
+    if not _SHAPELY_OK:
+        return None
+    width, height = (tuple(getattr(pad, "size_mm", ()) or ()) + (0.0, 0.0))[:2]
+    if width <= 0.0 or height <= 0.0 or str(getattr(pad, "pad_type", "")) == "np_thru_hole":
+        return None
+    cx, cy = pad.position
+    shape = str(getattr(pad, "shape", "") or "")
+    if shape == "circle":
+        return shapely.Point(cx, cy).buffer(width / 2.0, quad_segs=8)
+    rad = math.radians(float(getattr(pad, "angle_deg", 0.0) or 0.0))
+    cos_a, sin_a = math.cos(rad), math.sin(rad)
+
+    def board_point(lx, ly):
+        # KiCad's Y axis points down: a positive angle turns local +X to -Y.
+        return (cx + lx * cos_a + ly * sin_a, cy - lx * sin_a + ly * cos_a)
+
+    if shape == "oval" and abs(width - height) > 1e-9:
+        half = abs(width - height) / 2.0
+        ends = (
+            [board_point(-half, 0.0), board_point(half, 0.0)] if width > height
+            else [board_point(0.0, -half), board_point(0.0, half)]
+        )
+        return shapely.LineString(ends).buffer(min(width, height) / 2.0, quad_segs=8)
+    if shape == "oval":
+        return shapely.Point(cx, cy).buffer(width / 2.0, quad_segs=8)
+    return ShapelyPolygon([
+        board_point(-width / 2.0, -height / 2.0), board_point(width / 2.0, -height / 2.0),
+        board_point(width / 2.0, height / 2.0), board_point(-width / 2.0, height / 2.0),
+    ])
 
 
 def _snap(v: float) -> float:
@@ -162,6 +204,9 @@ class HybridMesher:
             Ready for :class:`~solver.Solver`.
         """
         mesh = Mesh()
+        # A net without pours must not inherit the step a previous net's pours
+        # were coarsened to.
+        self._effective_grid_step = self._grid_step
         node_registry: dict[tuple[float, float, int], int] = {}
         node_counter = [0]
         # Zone nodes indexed by their grid cell, so a track landing on a plane
@@ -260,8 +305,13 @@ class HybridMesher:
         # Order matters here. Tracks can only adopt a plane node if the plane
         # nodes already exist, so meshing zones last left every track isolated.
         # ------------------------------------------------------------------
-        zone_count = self._mesh_zones(net_name, board, mesh, get_or_create, zone_index)
-        self._log(f"[HybridMesher] Net '{net_name}': {zone_count} zone edges")
+        lands = self._copper_lands(net_name, board)
+        zone_count = self._mesh_zones(net_name, board, mesh, get_or_create, zone_index, lands)
+        self._log(f"[HybridMesher] Net '{net_name}': {zone_count} zone and pad edges")
+        land_trees = {
+            layer: (shapely.STRtree(polygons), polygons)
+            for layer, polygons in lands.items()
+        }
 
         # ------------------------------------------------------------------
         # 1. Track segments — analytical resistance
@@ -289,20 +339,35 @@ class HybridMesher:
                 )
                 continue
             layer_id = _layer_id_for_name(board, seg.layer)
-            u = attach(x0, y0, layer_id)
-            v = attach(x1, y1, layer_id)
-            if u == v:
-                # Both endpoints snapped to same node — treat as short
-                continue
-            g = 1.0 / R
             cs = width_mm * thickness_mm  # mm²
-            mesh.add_edge_direct(
-                u, v, g,
-                kind="lateral",
-                cross_section_mm2=cs,
-                geometry_source=f"seg:{seg.layer}",
-            )
-            seg_count += 1
+            # A track is joined to every pad or via land it runs across, not
+            # only to those at its ends. On +3V3AON a B.Cu track from C5 runs
+            # straight through the pads of C7 and C8 and stops beyond them;
+            # meshed as one branch between its ends, it left both capacitors
+            # on islands. The track is split where it crosses each land, and
+            # the pieces' resistances add up to the whole track's.
+            stations = [0.0, *self._land_crossings(seg, length_mm, land_trees), length_mm]
+            added = False
+            for start_mm, end_mm in zip(stations, stations[1:]):
+                piece_mm = end_mm - start_mm
+                if piece_mm <= _SNAP:
+                    continue
+                u = attach(x0 + (x1 - x0) * start_mm / length_mm,
+                           y0 + (y1 - y0) * start_mm / length_mm, layer_id)
+                v = attach(x0 + (x1 - x0) * end_mm / length_mm,
+                           y0 + (y1 - y0) * end_mm / length_mm, layer_id)
+                if u == v:
+                    # Both ends adopted the same node: copper already joined.
+                    continue
+                mesh.add_edge_direct(
+                    u, v, 1.0 / (R * piece_mm / length_mm),
+                    kind="lateral",
+                    cross_section_mm2=cs,
+                    geometry_source=f"seg:{seg.layer}",
+                )
+                added = True
+            if added:
+                seg_count += 1
 
         self._log(f"[HybridMesher] Net '{net_name}': {seg_count} segment branches")
 
@@ -439,7 +504,50 @@ class HybridMesher:
 
         self._log(f"[HybridMesher] Net '{net_name}': {pad_count} pad connections")
 
+        self._publish_grid(mesh)
         return mesh
+
+    def _publish_grid(self, mesh: Mesh) -> None:
+        """Fill the grid fields of the :class:`~mesh.Mesh` contract.
+
+        Result readers report the step a solve ran at and draw density maps
+        from ``node_map``. Pour nodes sit exactly on the lattice; a track or
+        pad node takes the lattice slot it falls in when no pour node holds it,
+        which places it within half a step for display only.
+        """
+        step = self._effective_grid_step
+        mesh.grid_origin = (0.0, 0.0)
+        mesh.grid_step = step
+        mesh.requested_grid_step = self._grid_step
+        mesh.adaptive_grid = step > self._grid_step * (1.0 + 1e-9)
+        for node_id in sorted(mesh.node_coords):
+            x, y, layer_id = mesh.node_coords[node_id]
+            key = (int(round(x / step)), int(round(y / step)), layer_id)
+            mesh.node_map.setdefault(key, node_id)
+
+    @staticmethod
+    def _land_crossings(seg: Segment, length_mm: float, land_trees: dict) -> list:
+        """Distances along *seg* at which it runs across a land of its layer.
+
+        One station per land crossed, at the middle of the stretch inside it,
+        which lies within the land for every convex outline. Stations at the
+        track's own ends are left to the ends.
+        """
+        entry = land_trees.get(seg.layer)
+        if entry is None:
+            return []
+        tree, polygons = entry
+        line = shapely.LineString([seg.start, seg.end])
+        stations = set()
+        for index in tree.query(line, predicate="intersects"):
+            inside = line.intersection(polygons[int(index)])
+            if inside.is_empty or inside.length <= 0.0:
+                continue
+            middle = inside.interpolate(0.5, normalized=True)
+            station = line.project(middle)
+            if _SNAP < station < length_mm - _SNAP:
+                stations.add(round(station / _SNAP) * _SNAP)
+        return sorted(stations)
 
     @staticmethod
     def _pad_layers(board: ParsedBoard, pad):
@@ -449,11 +557,7 @@ class HybridMesher:
         through-hole pad carries; a surface pad names the single layer it sits
         on. Anything unrecognised yields nothing rather than a guess.
         """
-        order = [(cl.name, cl.layer_id) for cl in board.stackup.layers]
-        if pad.is_through_hole or "*.Cu" in pad.layers:
-            return order
-        named = {str(name) for name in pad.layers}
-        return [entry for entry in order if entry[0] in named]
+        return [(cl.name, cl.layer_id) for cl in pad_copper_layers(board.stackup, pad)]
 
     @staticmethod
     def _layers_spanned(board: ParsedBoard, top_layer: str, bottom_layer: str):
@@ -492,7 +596,42 @@ class HybridMesher:
         except Exception:
             return None
 
-    def _mesh_zones(self, net_name, board, mesh, get_or_create, zone_index) -> int:
+    def _copper_lands(self, net_name: str, board: ParsedBoard) -> dict:
+        """Outlines of the net's pads and via lands, by copper layer name.
+
+        Pads are copper areas. Modelling one as its centre point left every
+        track and pour spoke touching it elsewhere unjoined: on the reference
+        board the source pad of +3V3AON met a 5-node stub at its centre while
+        the rail's network reached the same pad at its end, and every load was
+        stranded. A pour's thermal spokes stop at the pad edge, so only the
+        pad's own outline joins them; a pour set not to connect keeps its
+        clearance gap and stays apart.
+
+        A via's land is the same kind of copper, and a track may end anywhere
+        on it: R9's feed on +3V3AON stops 0.14 mm from the centre of a 0.7 mm
+        via, and meeting the via only at its centre stranded that load too.
+        """
+        lands: dict[str, list] = {}
+        if not _SHAPELY_OK:
+            return lands
+        for footprint in board.footprints:
+            for pad in footprint.pads:
+                if pad.net_name != net_name:
+                    continue
+                outline = _pad_outline(pad)
+                if outline is None:
+                    continue
+                for layer in pad_copper_layers(board.stackup, pad):
+                    lands.setdefault(layer.name, []).append(outline)
+        for via in board.vias:
+            if via.net_name != net_name or via.size_mm <= 0.0 or len(via.layers) < 2:
+                continue
+            land = shapely.Point(*via.position).buffer(via.size_mm / 2.0, quad_segs=8)
+            for name, _layer_id in self._layers_spanned(board, via.layers[0], via.layers[-1]):
+                lands.setdefault(name, []).append(land)
+        return lands
+
+    def _mesh_zones(self, net_name, board, mesh, get_or_create, zone_index, lands=None) -> int:
         """Mesh every pour of *net_name*: one copper union per layer, one lattice.
 
         Zones were meshed one at a time, each on a lattice anchored at its own
@@ -521,15 +660,29 @@ class HybridMesher:
                 )
                 continue
             polygons_by_layer.setdefault(zone.layer, []).append(poly)
-        if not polygons_by_layer:
+
+        pad_polygons = lands if lands is not None else self._copper_lands(net_name, board)
+        if not polygons_by_layer and not pad_polygons:
             return 0
 
         copper_by_layer = {
             layer: shapely.union_all(polygons) if len(polygons) > 1 else polygons[0]
             for layer, polygons in polygons_by_layer.items()
         }
+        # Pad copper already inside a pour is meshed with the pour; the rest is
+        # meshed on the same lattice under its own label, so the conductances of
+        # a cell split between the two add up to the union's.
+        pad_copper_by_layer = {}
+        for layer, polygons in pad_polygons.items():
+            geometry = shapely.union_all(polygons)
+            if layer in copper_by_layer:
+                geometry = geometry.difference(copper_by_layer[layer])
+            if not geometry.is_empty and geometry.area > 0.0:
+                pad_copper_by_layer[layer] = geometry
         h = self._grid_step
-        estimated_nodes = sum(geom.area for geom in copper_by_layer.values()) / (h * h)
+        estimated_nodes = sum(
+            geom.area for geom in (*copper_by_layer.values(), *pad_copper_by_layer.values())
+        ) / (h * h)
         if estimated_nodes > self.MAX_ZONE_NODES:
             h = min(5.0, h * math.sqrt(estimated_nodes / self.MAX_ZONE_NODES) * 1.05)
             self._log(
@@ -544,11 +697,16 @@ class HybridMesher:
             edges += self._mesh_copper_cutcell(
                 geometry, layer, board, mesh, get_or_create, zone_index, h,
             )
+        for layer, geometry in pad_copper_by_layer.items():
+            edges += self._mesh_copper_cutcell(
+                geometry, layer, board, mesh, get_or_create, zone_index, h,
+                label="pad-copper",
+            )
         return edges
 
     def _mesh_copper_cutcell(
         self, geometry, layer: str, board: ParsedBoard, mesh: Mesh,
-        get_or_create, zone_index, h: float,
+        get_or_create, zone_index, h: float, label: str = "zone",
     ) -> int:
         """Add cut-cell edges for one layer's copper. Returns the edge count.
 
@@ -645,7 +803,7 @@ class HybridMesher:
                         node_at(x, y), node_at(xs[ix + 1], y), sigma * thickness_mm * frac,
                         kind="lateral",
                         cross_section_mm2=frac * h * thickness_mm,
-                        geometry_source=f"zone:{layer}:h",
+                        geometry_source=f"{label}:{layer}:h",
                     )
                     edges_added += 1
                 if vertical[ix] > 1e-9:
@@ -654,7 +812,7 @@ class HybridMesher:
                         node_at(x, y), node_at(x, ys[iy + 1]), sigma * thickness_mm * frac,
                         kind="lateral",
                         cross_section_mm2=frac * h * thickness_mm,
-                        geometry_source=f"zone:{layer}:v",
+                        geometry_source=f"{label}:{layer}:v",
                     )
                     edges_added += 1
 

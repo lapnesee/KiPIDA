@@ -59,10 +59,39 @@ class Pad:
     # assumed: the barrel resistance depends on it, and a guessed drill would
     # put an invented number into a voltage-drop result.
     drill_mm: float = 0.0
+    # The pad's copper outline: KiCad shape name ("rect", "roundrect",
+    # "circle", "oval", "trapezoid", "custom"), size before rotation, and the
+    # orientation on the board. The file writes a pad's angle in board
+    # coordinates, footprint rotation included (314 of 314 rotated passives on
+    # three boards). A track may end anywhere on a pad, so locating one by its
+    # centre alone left tracks and pour spokes touching the pad unjoined.
+    shape: str = ""
+    size_mm: tuple[float, float] = (0.0, 0.0)
+    angle_deg: float = 0.0
 
     @property
     def is_through_hole(self) -> bool:
         return str(self.pad_type).lower() in {"thru_hole", "np_thru_hole"}
+
+
+def pad_copper_layers(stackup, pad) -> list:
+    """The stackup's copper layers a pad occupies, top to bottom.
+
+    ``*.Cu`` is KiCad's shorthand for every copper layer and ``F&B.Cu`` for
+    both outer ones; a through-hole pad reaches every layer it is drilled
+    through. Returns an empty list when the stackup or the pad does not say,
+    which callers take as "unknown", not as "none".
+    """
+    layers = list(getattr(stackup, "layers", ()) or ())
+    declared = {str(name) for name in (getattr(pad, "layers", ()) or ())}
+    through = str(getattr(pad, "pad_type", "")).lower() in {"thru_hole", "np_thru_hole"}
+    if not layers or not (declared or through):
+        return []
+    if through or "*.Cu" in declared:
+        return layers
+    if "F&B.Cu" in declared:
+        declared |= {"F.Cu", "B.Cu"}
+    return [layer for layer in layers if layer.name in declared]
 
 
 @dataclass
@@ -353,6 +382,9 @@ def _parse_bounds(root: list) -> BoardBounds:
     )
 
 
+_PAD_SHAPES = frozenset({"circle", "rect", "oval", "trapezoid", "roundrect", "custom", "chamfered_rect"})
+
+
 def _parse_footprints(root: list, net_map: dict[str, str]) -> list[Footprint]:
     footprints: list[Footprint] = []
     for fp_node in find_all(root, "footprint"):
@@ -395,11 +427,12 @@ def _parse_footprints(root: list, net_map: dict[str, str]) -> list[Footprint]:
             pintype_node = find(pad_node, "pintype")
             pintype = pintype_node[1] if pintype_node and len(pintype_node) > 1 else "passive"
 
-            # Absolute pad position = fp position (pad offsets ignored for simplicity)
             pad_at = find(pad_node, "at")
+            pad_angle = rotation
             if pad_at and len(pad_at) >= 3:
                 try:
                     pad_dx, pad_dy = float(pad_at[1]), float(pad_at[2])
+                    pad_angle = float(pad_at[3]) if len(pad_at) > 3 else 0.0
                     # Rotate the pad offset by the footprint rotation, in KiCad's
                     # frame: Y points down, so a positive angle turns a pad at
                     # local +X towards -Y. The textbook (Y-up) matrix used here
@@ -425,6 +458,18 @@ def _parse_footprints(root: list, net_map: dict[str, str]) -> list[Footprint]:
                 }:
                     pad_type = token
                     break
+            shape = next((
+                token for token in pad_node[2:5]
+                if isinstance(token, str) and token in _PAD_SHAPES
+            ), "")
+            size_node = find(pad_node, "size")
+            try:
+                size_mm = (
+                    (float(size_node[1]), float(size_node[2] if len(size_node) > 2 else size_node[1]))
+                    if size_node and len(size_node) > 1 else (0.0, 0.0)
+                )
+            except (TypeError, ValueError):
+                size_mm = (0.0, 0.0)
             layers_node = find(pad_node, "layers")
             pad_layers = tuple(
                 str(item) for item in (layers_node[1:] if layers_node else ())
@@ -450,6 +495,9 @@ def _parse_footprints(root: list, net_map: dict[str, str]) -> list[Footprint]:
                 pad_type=pad_type,
                 layers=pad_layers,
                 drill_mm=drill_mm,
+                shape=shape,
+                size_mm=size_mm,
+                angle_deg=pad_angle,
             ))
 
         footprints.append(Footprint(

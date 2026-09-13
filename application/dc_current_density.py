@@ -97,6 +97,8 @@ def _copper_kind_from_source(geometry_source):
         return "TRACK"
     if source.startswith("zone:"):
         return "ZONE"
+    if source.startswith("pad-copper:"):
+        return "PAD_OR_OTHER"
     return None
 
 

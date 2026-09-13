@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed the hybrid DC mesh treating pads and via lands as points. A track
+  ending anywhere but a pad's centre, a pour's thermal spokes, and a track
+  running straight across a pad all stayed unjoined, which left loads on four
+  of the reference board's seven rails with no path to their source. Pad
+  outlines (read from the board file with their shape, size and orientation)
+  and via lands are now meshed as copper on the pour lattice, and tracks are
+  split where they cross them; all seven rails solve with every load reached.
 - Fixed the DC advisor anchoring a surface pad on whatever node lay nearest on
   any layer, typically the plane directly beneath it, which fed the load past
   the vias that really carry it. Pads are now located on their own copper
