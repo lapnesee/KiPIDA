@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Changed EMI/EMC source discovery to stop inventing frequencies. A source
+  takes its frequency from the power tree's converter model, from the value of
+  a crystal, oscillator or resonator on its net, from a Frequency or Fsw field
+  on its part, or from the standard its differential pair names (USB_HS,
+  USB_FS); otherwise it is unknown, where clocks used to get 25 MHz, switching
+  nodes 500 kHz, fast interfaces 100 MHz and pairs 240 or 125 MHz. A declared
+  crystal or oscillator is a clock source even when its nets have no clock-like
+  name. A new EE-003 finding names the sources whose frequency is unknown and
+  says their harmonic, switching-band and near-field estimates were not
+  computed.
 - Changed the power tree's board scan, used when a project has no saved
   configuration, to propose first the rails the project's files declare --
   nets a power symbol names, then nets with power pins -- and net-name guesses

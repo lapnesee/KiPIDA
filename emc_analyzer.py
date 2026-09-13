@@ -405,8 +405,87 @@ def supply_voltages_by_net(footprints, rails):
     }
 
 
+# A frequency written on a part: "25MHz", "32.768 kHz", "ABM8-25.000MHZ-B2".
+_FREQUENCY_RE = re.compile(r"(?<![\w.])(\d+(?:[.,]\d+)?)\s*([kKmMgG]?)\s*[hH][zZ]")
+# On a timing part or in a frequency field the unit is often left out: "12M", "32.768k".
+_BARE_FREQUENCY_RE = re.compile(r"(?<![\w.])(\d+(?:[.,]\d+)?)\s*([kKmMgG])(?![\w])")
+_FREQUENCY_FIELD_RE = re.compile(r"^(frequency|freq|fsw|f_sw|switching[ _]frequency)$", re.I)
+_TIMING_REF_RE = re.compile(r"^(Y|X|XTAL|OSC)\d", re.I)
+_TIMING_PART_RE = re.compile(r"crystal|oscillator|xtal|resonator", re.I)
+_FREQUENCY_MULTIPLIER = {"": 1.0, "k": 1e3, "m": 1e6, "g": 1e9}
+_STANDARD_PAIR_FUNDAMENTALS = {
+    "USB_HS": (240e6, "240 MHz maximum-toggle fundamental of the 480 Mbit/s USB 2.0 high-speed rate."),
+    "USB_FS": (6e6, "6 MHz maximum-toggle fundamental of the 12 Mbit/s USB full-speed rate."),
+}
+_UNKNOWN_FREQUENCY_NOTE = (
+    "Frequency unknown: nothing in the project states it, so no harmonic or field "
+    "estimate uses this source until it is entered."
+)
+
+
+def parse_frequency_hz(text, bare_unit=False):
+    """The first frequency written in *text*, in hertz, or None."""
+    match = _FREQUENCY_RE.search(text or "")
+    if match is None and bare_unit:
+        match = _BARE_FREQUENCY_RE.search(text or "")
+    if match is None:
+        return None
+    value = float(match.group(1).replace(",", "."))
+    return value * _FREQUENCY_MULTIPLIER[match.group(2).lower()] or None
+
+
+def declared_frequencies(components, rail_nets=()):
+    """What a project's parts say about frequencies: ``(by_net, by_part)``.
+
+    ``by_net`` maps each signal net of a crystal, oscillator or resonator to
+    the frequency its value or its Frequency field states; ``by_part`` maps a
+    reference to a Frequency/Fsw field on any part (a converter's switching
+    frequency). Each entry is ``(hertz, where it was read)``. Rails and
+    unconnected nets are left out, so an oscillator's supply is not a clock.
+    """
+    by_net, by_part = {}, {}
+    rail_nets = set(rail_nets or ())
+    for component in components:
+        reference = str(getattr(component, "reference", "") or "")
+        field_hz = None
+        for key, text in (getattr(component, "extra_fields", None) or {}).items():
+            if _FREQUENCY_FIELD_RE.match(str(key).strip()):
+                field_hz = parse_frequency_hz(str(text), bare_unit=True)
+                if field_hz:
+                    by_part[reference.upper()] = (field_hz, f"the {key} field of {reference} ({text})")
+                    break
+        value = str(getattr(component, "value", "") or "")
+        timing = (
+            _TIMING_REF_RE.match(reference)
+            or _TIMING_PART_RE.search(str(getattr(component, "lib_id", "") or ""))
+            or _TIMING_PART_RE.search(value)
+        )
+        if not timing:
+            continue
+        if field_hz:
+            declared = by_part[reference.upper()]
+        else:
+            hz = parse_frequency_hz(value, bare_unit=True)
+            if not hz:
+                continue
+            declared = (hz, f"the value of {reference} ({value})")
+        for net in set((getattr(component, "nets_by_pad", None) or {}).values()):
+            if net and net not in rail_nets and not net.startswith("unconnected-"):
+                by_net.setdefault(net, declared)
+    return by_net, by_part
+
+
 class EMCSourceDiscoverer:
-    """Name/evidence based source discovery with manual-setting preservation."""
+    """Name/evidence based source discovery with manual-setting preservation.
+
+    A net's name says a source may be there; it does not say at what
+    frequency. Frequencies come from the power tree's converter loss models,
+    from what the project's parts state (``declared_frequencies``) or from
+    the user. Otherwise a source's frequency is 0 -- unknown -- where it used
+    to be 25 MHz for a clock, 500 kHz for a switching node, 100 MHz for a fast
+    interface and 240 or 125 MHz for a differential pair, figures nothing on
+    the board had stated (docs/plan-universalite.md, 5.2).
+    """
     CLOCK_PATTERN = re.compile(r"(^|[_/])(CLK|CLOCK|MCLK|BCLK|SCLK|XTAL)([_/]|$)", re.I)
     FAST_PATTERN = re.compile(r"USB|HDMI|PCIE|ETH|RMII|RGMII|MIPI|LVDS", re.I)
 
@@ -439,11 +518,21 @@ class EMCSourceDiscoverer:
             "assumed defaults to confirm."
         )
 
+    @staticmethod
+    def _declared(net_frequencies, net):
+        """(frequency, note, confidence) for a net a part states a frequency for, or unknown."""
+        declared = (net_frequencies or {}).get(net)
+        if declared is None:
+            return 0.0, _UNKNOWN_FREQUENCY_NOTE, "LOW"
+        return float(declared[0]), f"Frequency from {declared[1]}.", "MEDIUM"
+
     @classmethod
     def discover(cls, net_names, existing=None, differential_pairs=None,
-                 switching_frequencies=None, supply_voltages=None):
+                 switching_frequencies=None, supply_voltages=None,
+                 net_frequencies=None, part_frequencies=None):
         retained = {source.net_name: source for source in (existing or []) if source.source == "manual"}
         switching_frequencies = switching_frequencies or {}
+        part_frequencies = part_frequencies or {}
         enabled_pairs = [
             pair for pair in (differential_pairs or [])
             if getattr(pair, "enabled", True)
@@ -457,70 +546,108 @@ class EMCSourceDiscoverer:
             if name in retained:
                 continue
             if cls.CLOCK_PATTERN.search(name):
+                frequency, frequency_note, confidence = cls._declared(net_frequencies, name)
                 voltage, notes = cls._rail_swing(
                     name, supply_voltages, "Name-based clock defaults; confirm all electrical parameters.",
                 )
                 discovered.append(EMCSignalSource(
-                    name, name, "CLOCK", 25e6, 2.0, source="auto",
-                    voltage_swing_v=voltage, parameter_notes=notes,
+                    name, name, "CLOCK", frequency, 2.0, source="auto",
+                    voltage_swing_v=voltage, parameter_confidence=confidence,
+                    parameter_notes=f"{frequency_note} {notes}",
                 ))
             elif cls.is_switching_node(name):
                 ref_match = re.search(
                     r"(^|[^A-Z0-9])(U\d+)[_-]SW(?:[^A-Z0-9]|$)", name, re.I,
                 )
                 ref_des = ref_match.group(2).upper() if ref_match else ""
-                parameters = switching_frequencies.get(ref_des, 500e3)
+                parameters = switching_frequencies.get(ref_des)
+                confidence = "LOW"
                 if isinstance(parameters, dict):
-                    frequency = float(parameters.get("frequency_hz", 500e3))
+                    frequency = float(parameters.get("frequency_hz", 0.0))
                     voltage = float(parameters.get("voltage_swing_v", 3.3))
                     current = float(parameters.get("current_a", 0.1))
-                    origin = "power-tree"
+                    origin, confidence = "power-tree", "MEDIUM"
                     notes = (
                         "Frequency from converter loss model; voltage from input rail; "
                         "current from downstream load; 10 ns rise time remains an editable estimate."
                     )
                 else:
-                    frequency = float(parameters)
                     current, origin = 0.1, "auto"
+                    if parameters is not None:
+                        frequency, frequency_note = float(parameters), "Switching frequency supplied by the caller."
+                    elif ref_des in part_frequencies:
+                        declared = part_frequencies[ref_des]
+                        frequency, frequency_note = float(declared[0]), f"Frequency from {declared[1]}."
+                        confidence = "MEDIUM"
+                    else:
+                        frequency, frequency_note = 0.0, _UNKNOWN_FREQUENCY_NOTE
                     voltage, notes = cls._rail_swing(
                         name, supply_voltages,
                         "Name-based switching-source defaults; confirm all electrical parameters.",
                     )
+                    notes = f"{frequency_note} {notes}"
                 discovered.append(EMCSignalSource(
                     name, name, "SWITCHING", frequency, 10.0, source=origin,
                     voltage_swing_v=voltage, current_a=current,
-                    parameter_confidence="MEDIUM" if origin == "power-tree" else "LOW",
+                    parameter_confidence=confidence,
                     parameter_notes=notes,
                 ))
             elif cls.FAST_PATTERN.search(name) and name not in paired_nets:
+                frequency, frequency_note, _confidence = cls._declared(net_frequencies, name)
                 voltage, current = cls._usb_levels(name)
                 notes = "Interface-name defaults; confirm activity rate and edge time."
                 if "USB" not in name.upper():
                     # USB levels are set by the standard, not by a supply.
                     voltage, notes = cls._rail_swing(name, supply_voltages, notes)
                 discovered.append(EMCSignalSource(
-                    name, name, "DIGITAL", 100e6, 1.0, source="auto",
+                    name, name, "DIGITAL", frequency, 1.0, source="auto",
                     voltage_swing_v=voltage, current_a=current,
                     parameter_confidence="LOW",
-                    parameter_notes=notes,
+                    parameter_notes=f"{frequency_note} {notes}",
                 ))
+        # A timing part the project declares is a clock source whatever its nets
+        # are called: crystal nets are named /XI, Net-(U10-XTAL1_IN) and the
+        # like, which the name patterns miss. One source per part, on its first
+        # signal net; skipped when a named source already covers one of them.
+        covered = set(retained) | {source.net_name for source in discovered} | paired_nets
+        by_part = defaultdict(list)
+        for net, (hz, where) in (net_frequencies or {}).items():
+            by_part[(hz, where)].append(net)
+        for (hz, where), nets in sorted(by_part.items(), key=lambda item: item[0][1]):
+            if covered.intersection(nets):
+                continue
+            net = sorted(nets)[0]
+            voltage, notes = cls._rail_swing(
+                net, supply_voltages, "Electrical parameters are defaults; confirm them.",
+            )
+            discovered.append(EMCSignalSource(
+                f"Clock ({where})", net, "CLOCK", float(hz), 2.0, source="auto",
+                voltage_swing_v=voltage, parameter_confidence="MEDIUM",
+                parameter_notes=f"Frequency from {where}, on nets {', '.join(sorted(nets))}. {notes}",
+            ))
         for pair in enabled_pairs:
             if pair.positive_net in retained or pair.negative_net in retained:
                 continue
-            # USB 2.0 HS is 480 Mbit/s NRZI.  A maximum-transition pattern
-            # alternates state every bit, so its square-wave fundamental is
-            # 240 MHz; 480 MHz is the bit rate, not the fundamental.
-            default_frequency = 240e6 if "USB" in pair.interface.upper() else 125e6
+            interface = str(pair.interface or "").upper()
+            if interface in _STANDARD_PAIR_FUNDAMENTALS:
+                # A pair whose interface names its speed: the standard fixes
+                # the rate. USB 2.0 HS is 480 Mbit/s NRZI, and a maximum-
+                # transition pattern alternates every bit, so its square-wave
+                # fundamental is 240 MHz; 480 MHz is the bit rate.
+                frequency, frequency_note = _STANDARD_PAIR_FUNDAMENTALS[interface]
+                confidence = "MEDIUM"
+            else:
+                # "USB" alone does not say high, full or low speed.
+                frequency, frequency_note, confidence = cls._declared(net_frequencies, pair.positive_net)
             voltage, current = cls._usb_levels(pair.name + " " + pair.interface)
             discovered.append(EMCSignalSource(
-                pair.name, pair.positive_net, "DIFFERENTIAL", default_frequency,
+                pair.name, pair.positive_net, "DIFFERENTIAL", frequency,
                 0.8, source="differential-scan",
                 voltage_swing_v=voltage, current_a=current,
                 negative_net_name=pair.negative_net,
-                parameter_confidence="MEDIUM",
+                parameter_confidence=confidence,
                 parameter_notes=(
-                    "Differential nets confirmed by pair scan; USB HS uses a 240 MHz "
-                    "maximum-toggle fundamental derived from the 480 Mbit/s NRZI rate. "
+                    f"Differential nets confirmed by pair scan. {frequency_note} "
                     "Electrical levels, edge time and activity remain editable defaults."
                 ),
             ))
@@ -1546,6 +1673,18 @@ class EMCAnalyzer:
                       f"Generated {len(self.result.frequency_risks)} relative harmonic markers for lab prioritisation.",
                       "Treat amplitudes as relative ranking only; measure absolute field strength.",
                       "HIGH" if all(item.source == "manual" for item in self.settings.sources if item.enabled) else "LOW")
+        unknown = [item for item in self.settings.sources if item.enabled and item.frequency_hz <= 0.0]
+        if unknown:
+            # What an unknown frequency costs, said once, instead of harmonics
+            # computed on a frequency the project never stated.
+            names = ", ".join(item.name for item in unknown[:10]) + (", ..." if len(unknown) > 10 else "")
+            self._add("EE-003", "EMISSIONS", "INFO", "Source frequency unknown",
+                      f"{len(unknown)} source(s) have no frequency stated by the project or entered: {names}. "
+                      "Their harmonic markers, switching-band check (SW-001) and near-field "
+                      "contributions are not computed.",
+                      "Enter each source's frequency, or state it on the board: a crystal or "
+                      "oscillator value, or a Frequency/Fsw field on the part.",
+                      "HIGH", sorted({item.net_name for item in unknown}))
 
     def _thermal_rules(self):
         if not self._enabled("THERMAL") or self.thermal_result is None:

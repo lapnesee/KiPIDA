@@ -11,6 +11,20 @@ from ui.runtime_settings_panel import RuntimeSettingsPanel
 from ui.thermal_analysis_panel import ThermalAnalysisPanel
 
 
+def _design_provider(project_context):
+    """The project's saved board and schematic as one netlist, read on demand; None without a project."""
+    project = getattr(project_context, "project", None)
+    if project is None:
+        return None
+
+    def read():
+        from ingest.declarations import design_netlist
+
+        return design_netlist(project)
+
+    return read
+
+
 class DialogPages:
     """Build panels in the exact order expected by the workspace page constants."""
 
@@ -65,6 +79,7 @@ class DialogPages:
             differential_pairs_provider=lambda: self.differential_panel.settings.pairs,
             rails_provider=lambda: self.power_tree.rails,
             log_callback=log_callback,
+            design_provider=_design_provider(project_context),
         )
         self.power_tree.emc_profile_provider = self.emc_panel.get_settings
         self.power_tree.emc_profile_consumer = self.emc_panel.set_settings

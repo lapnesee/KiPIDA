@@ -115,12 +115,15 @@ class EMCSourceDialog(wx.Dialog):
 
 class EMCAnalysisPanel(wx.ScrolledWindow):
     def __init__(self, parent, board, differential_pairs_provider=None,
-                 rails_provider=None, log_callback=None):
+                 rails_provider=None, log_callback=None, design_provider=None):
         super().__init__(parent, style=wx.VSCROLL | wx.BORDER_NONE)
         self.SetScrollRate(0, 10)
         self.board = board
         self.differential_pairs_provider = differential_pairs_provider or (lambda: [])
         self.rails_provider = rails_provider or (lambda: [])
+        # The project's saved board fused with its schematic (a BoardNetlist),
+        # read when a scan asks; None without a project.
+        self.design_provider = design_provider
         self.log_callback = log_callback
         self.settings = EMCAnalysisSettings()
         self.results = None
@@ -539,10 +542,31 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
         except Exception as exc:
             self.log(f"EMI/EMC sources keep the default swing: the board's parts could not be read ({exc}).")
             supply_voltages = {}
+        net_frequencies, part_frequencies = {}, {}
+        if self.design_provider is not None:
+            try:
+                from emc_analyzer import declared_frequencies
+
+                design = self.design_provider()
+                net_frequencies, part_frequencies = declared_frequencies(
+                    design.components, {net.name for net in design.nets if net.is_power_rail},
+                )
+            except Exception as exc:
+                self.log(
+                    "EMI/EMC sources take no frequency from the project's parts: its saved "
+                    f"files could not be read ({exc})."
+                )
         self.settings.sources = EMCSourceDiscoverer.discover(
             self._net_names(), self.settings.sources, pairs, switching_frequencies,
             supply_voltages=supply_voltages,
+            net_frequencies=net_frequencies, part_frequencies=part_frequencies,
         )
+        unknown = [source.name for source in self.settings.sources if source.enabled and source.frequency_hz <= 0.0]
+        if unknown:
+            self.log(
+                f"EMI/EMC: {len(unknown)} source(s) have no frequency stated by the project; "
+                "enter them for harmonic and field estimates: " + ", ".join(unknown[:10])
+            )
         self._update_sources()
         self._update_inductors()
         self.log(f"EMI/EMC source scan complete: {len(self.settings.sources)} candidate(s).")

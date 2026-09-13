@@ -225,6 +225,51 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertAlmostEqual(sources["SPI_CLK"].voltage_swing_v, 3.3)
         self.assertIn("defaults", sources["SPI_CLK"].parameter_notes)
 
+    def test_a_source_frequency_comes_from_the_parts_or_is_unknown(self):
+        from emc_analyzer import declared_frequencies
+
+        def part(reference, value, nets, lib_id="", **fields):
+            return SimpleNamespace(reference=reference, value=value, lib_id=lib_id, extra_fields=fields,
+                                   nets_by_pad={str(i): net for i, net in enumerate(nets, start=1)})
+
+        by_net, by_part = declared_frequencies([
+            part("Y1", "25MHz", ["XTAL_IN", "XTAL_OUT"]),
+            part("X2", "SG-8018CA", ["+3V3", "GND", "OSC_CLK"], lib_id="Oscillator:SG-8018", Frequency="12M"),
+            part("U4", "TPS54560", ["Net-(U4-SW)", "+12V"], Fsw="600 kHz"),
+            part("U1", "STM32", ["MCU_CLK", "+3V3"]),
+            part("Y3", "32.768KHz", ["/XI", "/XO"]),
+        ], rail_nets={"+3V3", "GND", "+12V"})
+        self.assertEqual({net: hz for net, (hz, _where) in by_net.items()},
+                         {"XTAL_IN": 25e6, "XTAL_OUT": 25e6, "OSC_CLK": 12e6, "/XI": 32768.0, "/XO": 32768.0})
+        self.assertEqual(by_part["U4"][0], 600e3)
+
+        pair = DifferentialPairCandidate("USB_D", "USB_D_P", "USB_D_N", interface="USB")
+        sources = {source.net_name: source for source in EMCSourceDiscoverer.discover(
+            {"XTAL_IN", "MCU_CLK", "/P02/U4_SW", "Net-(U7-SW)", "ETH_TX", "USB_D_P", "USB_D_N"},
+            differential_pairs=[pair], net_frequencies=by_net, part_frequencies=by_part,
+        )}
+        self.assertEqual(sources["XTAL_IN"].frequency_hz, 25e6)
+        self.assertIn("the value of Y1 (25MHz)", sources["XTAL_IN"].parameter_notes)
+        self.assertEqual(sources["/P02/U4_SW"].frequency_hz, 600e3)
+        # Nothing states these: no 25 MHz, 500 kHz, 100 MHz or 240 MHz stands in.
+        for net in ("MCU_CLK", "Net-(U7-SW)", "ETH_TX", "USB_D_P"):
+            self.assertEqual(sources[net].frequency_hz, 0.0, net)
+            self.assertIn("Frequency unknown", sources[net].parameter_notes, net)
+        # Y3's nets match no clock name; its declared frequency makes it one source.
+        self.assertEqual(sources["/XI"].frequency_hz, 32768.0)
+        self.assertNotIn("/XO", sources)
+        # Y1 already has a named source on XTAL_IN, so it adds none on XTAL_OUT.
+        self.assertNotIn("XTAL_OUT", sources)
+
+    def test_an_unknown_source_frequency_is_one_finding_not_harmonics(self):
+        settings = self.settings()
+        settings.sources.append(EMCSignalSource("MCU clock", "MCU_CLK", "CLOCK", 0.0, 2.0))
+        result = EMCAnalyzer(self.snapshot(), settings).analyze()
+        unknown = [finding for finding in result.findings if finding.rule_id == "EE-003"]
+        self.assertEqual(len(unknown), 1)
+        self.assertIn("MCU clock", unknown[0].description)
+        self.assertFalse(any(risk.source_name == "MCU clock" for risk in result.frequency_risks))
+
     def test_source_scan_collapses_confirmed_differential_pair(self):
         pair = DifferentialPairCandidate(
             "USB_HOST_D", "USB_HOST_D_+", "USB_HOST_D_-", interface="USB_HS",

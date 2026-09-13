@@ -12,6 +12,13 @@ from .project_resolver import BoardProject
 from .schematic_reader import read_schematic
 
 
+def design_netlist(project: BoardProject):
+    """The saved board fused with its schematic. Reading errors propagate."""
+    board = read_board(project.pcb_path)
+    schematic = read_schematic(project.sch_root_path) if project.sch_root_path.is_file() else None
+    return build_netlist(board, schematic, board_uuid=project.sub_project_uuid or project.pro_path.stem)
+
+
 def rail_declarations(project: BoardProject) -> dict[str, str]:
     """``{net name: rail source}`` for every net the saved files make a rail.
 
@@ -19,7 +26,5 @@ def rail_declarations(project: BoardProject) -> dict[str, str]:
     ``power_pin`` when only a power pin type does (ingest.netlist_builder).
     Reading errors propagate: the caller decides what a guess costs.
     """
-    board = read_board(project.pcb_path)
-    schematic = read_schematic(project.sch_root_path) if project.sch_root_path.is_file() else None
-    netlist = build_netlist(board, schematic, board_uuid=project.sub_project_uuid or project.pro_path.stem)
+    netlist = design_netlist(project)
     return {net.name: net.rail_source for net in netlist.nets if net.is_power_rail}
