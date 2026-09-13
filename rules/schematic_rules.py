@@ -51,7 +51,10 @@ except (ImportError, ValueError):
 class SchematicRuleContext:
     netlist: BoardNetlist
     schematic: Optional[ParsedSchematic] = None
-    all_board_netlists: Optional[list] = None  # list[BoardNetlist], for SCH-004
+    all_board_netlists: Optional[list] = None  # list[BoardNetlist]
+    # The Zeo container with its links validated (ingest.zeo_container), in the
+    # Zeo modes of the project context only; None everywhere else.
+    zeo: Optional[object] = None
 
 
 # A capacitance as designers write it: digits, then an SI multiplier followed by
@@ -285,53 +288,62 @@ def _check_missing_power_rating(context: SchematicRuleContext) -> list:
 
 @rule(
     "SCH-004", "SCHEMATIC",
-    "Undeclared cross-board net name collision",
-    "Nets with the same name exist on multiple boards of a multi-board "
-    "project without being declared as a cross-board net.",
+    "Cross-board link out of date",
+    "In a Zeo multi-board project, a link the container declares no longer "
+    "matches a board: the pin is on another net, or the board, component or "
+    "pad is gone; or a declared differential pair names no link.",
     default_severity="HIGH",
     reference="",
-    remediation_template="Confirm nets named {net} across boards are intentionally independent.",
+    remediation_template="Update the multi-board schematic or the board so the link {net} matches.",
 )
-def _check_cross_board_net_collisions(context: SchematicRuleContext) -> list:
-    netlists = context.all_board_netlists
-    if not netlists or len(netlists) < 2:
+def _check_cross_board_links(context: SchematicRuleContext) -> list:
+    """Only with a Zeo container, and only on what it declares.
+
+    The rule used to flag nets sharing a name on several boards. A name is a
+    label (plan P2): two boards may each have a GND that nothing joins, and a
+    link may join nets named differently. What can be wrong is a declaration
+    the boards no longer honour, which validate_links has already measured.
+    """
+    zeo = context.zeo
+    if zeo is None:
         return []
-
-    # name -> {board_uuid: NetInfo}
-    by_name: dict[str, dict] = {}
-    for nl in netlists:
-        for net in nl.nets:
-            by_name.setdefault(net.name, {})[nl.board_uuid] = net
-
+    board_uuid = context.netlist.board_uuid
+    # Analysing one board of the container: the links that reach it. Otherwise all of them.
+    concerned = [
+        link for link in zeo.links
+        if board_uuid not in zeo.boards or any(e.board_uuid == board_uuid for e in link.endpoints)
+    ]
     findings = []
-    for name, per_board in by_name.items():
-        if len(per_board) < 2:
-            continue
-        board_uuids = list(per_board.keys())
-        declared = True
-        for i, uuid_a in enumerate(board_uuids):
-            net_a = per_board[uuid_a]
-            for uuid_b in board_uuids[i + 1:]:
-                if f"{uuid_b}:{name}" not in net_a.aliases:
-                    declared = False
-                    break
-            if not declared:
-                break
-        if declared:
-            continue
+    for link in concerned:
+        for endpoint in link.endpoints:
+            if endpoint.state not in ("stale", "missing"):
+                continue
+            board = zeo.boards.get(endpoint.board_uuid)
+            where = board.pro_path.stem if board is not None else endpoint.board_uuid
+            findings.append(AnalysisFinding(
+                rule_id="SCH-004",
+                category="SCHEMATIC",
+                severity=FindingSeverity.HIGH,
+                title="Cross-board link out of date",
+                description=(
+                    f"Link {link.name}: on board {where}, {endpoint.detail}"
+                    + (" -- the boards no longer agree on what this link connects."
+                       if endpoint.state == "stale" else " -- this end of the link is not on the board.")
+                ),
+                recommendation=f"Update the multi-board schematic or board {where} so link {link.name} matches.",
+                confidence=EvidenceConfidence.DETERMINISTIC,
+                nets=[name for name in (endpoint.net, endpoint.pin_name) if name],
+                components=[endpoint.component] if endpoint.component else [],
+            ))
+    for issue in zeo.diff_pair_issues:
         findings.append(AnalysisFinding(
             rule_id="SCH-004",
             category="SCHEMATIC",
-            severity=FindingSeverity.HIGH,
-            title="Undeclared cross-board net name collision",
-            description=(
-                f"Nets named '{name}' exist on {len(per_board)} boards "
-                "without being declared as a cross-board net — verify they are not "
-                "accidentally isolated or unintentionally merged."
-            ),
-            recommendation=f"Confirm nets named {name} across boards are intentionally independent.",
+            severity=FindingSeverity.MEDIUM,
+            title="Cross-board differential pair names no link",
+            description=f"The container declares a {issue}.",
+            recommendation="Rename the pair's nets in the multi-board schematic to the links that carry it.",
             confidence=EvidenceConfidence.DETERMINISTIC,
-            nets=[name],
         ))
     return findings
 

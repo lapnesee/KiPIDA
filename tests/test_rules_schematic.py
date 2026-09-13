@@ -14,7 +14,7 @@ from rules.schematic_rules import (
     _check_undecoupled_power_pins,
     _check_unconnected_pins,
     _check_missing_power_rating,
-    _check_cross_board_net_collisions,
+    _check_cross_board_links,
     _check_pcb_schematic_consistency,
 )
 
@@ -162,31 +162,42 @@ class TestMissingPowerRating(unittest.TestCase):
         self.assertEqual(_check_missing_power_rating(ctx), [])
 
 
-class TestCrossBoardNetCollisions(unittest.TestCase):
+class TestCrossBoardLinks(unittest.TestCase):
 
-    def test_undeclared_collision_flagged(self):
-        net_a = NetInfo("GND", "boardA", True, False, None)
-        net_b = NetInfo("GND", "boardB", True, False, None)
-        nl_a = _netlist("boardA", [], [net_a])
-        nl_b = _netlist("boardB", [], [net_b])
+    def _zeo(self):
+        from pathlib import Path
+        from ingest.project_resolver import BoardProject
+        from ingest.zeo_container import CrossBoardLink, LinkEndpoint, ZeoContainer
+
+        def board(stem, uuid):
+            return BoardProject(Path(f"{stem}.kicad_pro"), Path(f"{stem}.kicad_pcb"), Path(f"{stem}.kicad_sch"),
+                                [], True, uuid)
+        return ZeoContainer(
+            path=Path("system.kicad_pro"),
+            boards={"A": board("power", "A"), "B": board("main", "B")},
+            links=[
+                CrossBoardLink("+5V", "l1", [LinkEndpoint("A", "J1", "1", "+5V", "ok", "+5V"),
+                                             LinkEndpoint("B", "J2", "1", "+5V", "ok", "+5V")]),
+                CrossBoardLink("SDA", "l2", [LinkEndpoint("A", "J1", "2", "SDA", "stale", "SDA_OLD",
+                                                          "J1 pad 2 is on SDA_OLD, not SDA"),
+                                             LinkEndpoint("B", "J2", "2", "SDA", "ok", "SDA")]),
+            ],
+            diff_pairs=[],
+        )
+
+    def test_same_named_nets_on_two_boards_are_no_finding(self):
+        # Two boards each with a GND nothing joins: a name is not a link.
+        nl_a = _netlist("A", [], [NetInfo("GND", "A", True, False, None)])
+        nl_b = _netlist("B", [], [NetInfo("GND", "B", True, False, None)])
         ctx = SchematicRuleContext(netlist=nl_a, all_board_netlists=[nl_a, nl_b])
-        findings = _check_cross_board_net_collisions(ctx)
-        self.assertEqual(len(findings), 1)
-        self.assertEqual(findings[0].rule_id, "SCH-004")
+        self.assertEqual(_check_cross_board_links(ctx), [])
 
-    def test_declared_alias_not_flagged(self):
-        net_a = NetInfo("GND", "boardA", True, False, None, aliases={"boardB:GND"})
-        net_b = NetInfo("GND", "boardB", True, False, None, aliases={"boardA:GND"})
-        nl_a = _netlist("boardA", [], [net_a])
-        nl_b = _netlist("boardB", [], [net_b])
-        ctx = SchematicRuleContext(netlist=nl_a, all_board_netlists=[nl_a, nl_b])
-        self.assertEqual(_check_cross_board_net_collisions(ctx), [])
-
-    def test_single_board_context_produces_no_findings(self):
-        net_a = NetInfo("GND", "boardA", True, False, None)
-        nl_a = _netlist("boardA", [], [net_a])
-        ctx = SchematicRuleContext(netlist=nl_a, all_board_netlists=None)
-        self.assertEqual(_check_cross_board_net_collisions(ctx), [])
+    def test_a_stale_endpoint_is_reported_on_the_boards_its_link_reaches(self):
+        ctx = SchematicRuleContext(netlist=_netlist("A", [], []), zeo=self._zeo())
+        findings = _check_cross_board_links(ctx)
+        self.assertEqual([(f.rule_id, f.severity.value, f.components) for f in findings],
+                         [("SCH-004", "HIGH", ["J1"])])
+        self.assertIn("on board power, J1 pad 2 is on SDA_OLD, not SDA", findings[0].description)
 
 
 class TestPcbSchematicConsistency(unittest.TestCase):
