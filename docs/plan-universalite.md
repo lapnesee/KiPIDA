@@ -284,6 +284,40 @@ manquante sur fixtures synthétiques. *Validation* : corpus entier en mono-carte
 conteneur de référence (`p02_alimentation`, `main`, `LEDS_sub`) en hôte Zeo simulé,
 résultat consigné sans être figé dans un test.
 
+**Fait le 2026-09-13, sauf la règle de détection** (`4cc6b91`, `030bb65`,
+`1837cf8`, `77971d7`).
+
+* 3.1 : un `.kicad_pro` est résolu comme lui-même (la remontée vers le conteneur
+  par une clé `filename` que Zeo n'écrit pas est supprimée) ; un dossier à
+  plusieurs projets est une erreur qui les nomme (I7 : plus de choix silencieux
+  sur `ecc83`) ; `is_part_of_multiboard` n'est plus vrai pour tout projet
+  enregistré par Zeo ; `BoardProject.status`.
+* 3.2 : `ingest/project_context.py` applique la table §3.1, une ligne un test.
+  `detect_host()` rassemble les indices (chemin de `kicad-cli` et présence de
+  l'exécutable Zeo à côté, ascendance des processus, noms des variables) et
+  **répond `unknown`** : la règle reste à choisir sur le journal des quatre
+  lancements. D'ici là, tout lancement est en mode mono-carte. Le contexte est
+  construit par `ipc_entry`, journalisé, et rendu dans le rapport de campagne
+  (hôte et mode, avec la raison).
+* 3.3 : `ingest/zeo_container.py` lit `sub_projects`, `cross_board_nets`,
+  `cross_board_diff_pairs`, rattache les blocs du `.kicad_mbs` et garde bruts les
+  champs non interprétés. `validate_links` vérifie chaque extrémité contre le PCB
+  de sa carte (ok, périmé, manquant) et forme les nets système par union de nets
+  qualifiés `(carte, net)`. La validation n'a pas lieu au lancement (lecture de
+  tous les PCB) mais à la demande.
+* 3.4 : `extract_cross_board_nets` est supprimé ; les nets inter-cartes et les
+  alias viennent des liens validés.
+
+Validation. Corpus : les 36 démos donnent le mode mono-carte sous les trois
+hôtes (en Zeo simulé, « projet autonome »). Conteneur de référence en Zeo
+simulé : trois cartes, 16 liens et 40 extrémités tous valides, 15 nets système
+(les deux liens `GND` se rejoignent), mêmes 15 nets que l'ancien appariement par
+nom sur cette carte. Les deux paires différentielles déclarées sont signalées :
+`USB_HOST_DP_+`/`USB_HOST_DM_-` et la paire `USB_DEVISE_…` nomment des nets
+qu'aucune carte ne porte, alors que les liens portent `USB_HOST_D_+` et
+`USB_HOST_D_-`. p02_alimentation et LEDS_sub donnent le mode membre ;
+p02_revision_d et p02_refonte_pd, le mode mono-carte « projet autonome ».
+
 ### Phase 4 — Règles fiables, puis branchées (M)
 
 4.1 SCH-001 : condensateur identifié par la classe du composant (préfixe,
