@@ -76,6 +76,15 @@ class ReportPresenterTests(unittest.TestCase):
         self.assertIn("Maximum via current: 0.2 A", report)
         self.assertIn("TRACK on layer F.Cu at (1.0000, 2.0000) mm", report)
         self.assertIn("not an IPC ampacity certification", report)
+        self.assertIn("Drop:  0.2000 V", report)
+
+    def test_dc_report_names_the_worst_load_drop_and_the_engine(self):
+        report = format_dc_report({"VCC": {
+            "stats": (3.1, 3.3, 0.2), "load_drop_v": 0.05, "engine": "hybrid",
+        }})
+        self.assertIn("Worst load drop: 0.0500 V", report)
+        self.assertIn("Net spread: 0.2000 V", report)
+        self.assertIn("DC mesh: hybrid", report)
 
     def test_cfd_report_contains_conservation_and_scope(self):
         mesh = SimpleNamespace(cell_count=24, shape=(2, 3, 4))

@@ -950,11 +950,31 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
     density_hotspots = {}
     for index, (rail, data) in enumerate((system_results or {}).items(), start=1):
         vmin, vmax, drop = data.get("stats", (0.0, 0.0, 0.0))
-        drop_pct = (float(drop) / float(vmax) * 100.0) if vmax else 0.0
-        metrics.append(AnalysisMetric(
-            f"rail_{index}_drop", f"{rail} voltage drop", drop_pct, "%",
-            "WARN" if drop_pct > float(maximum_drop_pct) else "PASS",
-        ))
+        spread_pct = (float(drop) / float(vmax) * 100.0) if vmax else 0.0
+        source_voltage = float(data.get("source_voltage_v", 0.0) or 0.0)
+        if "load_drop_v" in data and source_voltage > 0.0:
+            # The drop a load actually sees, from the rail's source to its
+            # worst-placed load -- what the advisor sizes a fix against. The
+            # node spread also counts copper no load draws through, and judged
+            # alone it flagged rails whose loads were well within budget.
+            drop_v = float(data["load_drop_v"])
+            drop_pct = drop_v / source_voltage * 100.0
+            metrics.append(AnalysisMetric(
+                f"rail_{index}_drop", f"{rail} voltage drop at the worst load", drop_pct, "%",
+                "WARN" if drop_pct > float(maximum_drop_pct) else "PASS",
+            ))
+            metrics.append(AnalysisMetric(
+                f"rail_{index}_spread", f"{rail} voltage spread across the net",
+                spread_pct, "%", "INFO",
+            ))
+            drop_text = f"The worst-placed load sees {drop_pct:.3f}% ({drop_v * 1000.0:.1f} mV)"
+        else:
+            drop_pct = spread_pct
+            metrics.append(AnalysisMetric(
+                f"rail_{index}_drop", f"{rail} voltage drop", drop_pct, "%",
+                "WARN" if drop_pct > float(maximum_drop_pct) else "PASS",
+            ))
+            drop_text = f"Calculated drop is {drop_pct:.3f}%"
         density = data.get("current_density")
         if density is not None:
             metrics.extend([
@@ -1007,13 +1027,22 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
             # (validation/dc_raster_fidelity.py). An island can be the mesh's.
             step = float(data.get("grid_size_mm", 0.0) or 0.0)
             coarsened = bool(data.get("adaptive_grid", False))
-            step_text = (
-                f" The mesh ran at {step:g} mm"
-                + (f", coarsened from the requested {float(data.get('requested_grid_size_mm', 0.0) or 0.0):g} mm" if coarsened else "")
-                + "; tracks narrower than about 1.4 grid steps on a diagonal are not"
-                " connected at that step, so the island may be the mesh's rather than the board's."
-                if step > 0.0 else ""
-            )
+            if data.get("engine") == "hybrid":
+                # Tracks are analytic there, so no grid step opens one. The
+                # mesh is the board as last saved, not as it is on screen.
+                step_text = (
+                    " The mesh was built from the saved board file with exact track"
+                    " geometry, so no grid step disconnects a track; edits not yet"
+                    " saved are not part of it."
+                )
+            else:
+                step_text = (
+                    f" The mesh ran at {step:g} mm"
+                    + (f", coarsened from the requested {float(data.get('requested_grid_size_mm', 0.0) or 0.0):g} mm" if coarsened else "")
+                    + "; tracks narrower than about 1.4 grid steps on a diagonal are not"
+                    " connected at that step, so the island may be the mesh's rather than the board's."
+                    if step > 0.0 else ""
+                )
             findings.append(_finding(
                 "DC-001", index, "CONNECTIVITY", FindingSeverity.HIGH,
                 f"{rail} contains source-free loads",
@@ -1033,7 +1062,7 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
             findings.append(_finding(
                 "DC-003", index, "VOLTAGE_DROP", FindingSeverity.HIGH,
                 f"{rail} exceeds the voltage-drop target",
-                f"Calculated drop is {drop_pct:.3f}% versus {maximum_drop_pct:.3f}% allowed.",
+                f"{drop_text} versus {maximum_drop_pct:.3f}% allowed.",
                 "Increase copper cross-section or reduce path/load resistance.",
             ))
     return AnalysisResult(

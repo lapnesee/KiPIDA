@@ -102,7 +102,15 @@ def format_dc_report(system_results):
     lines = ["System Simulation Results:", "=========================="]
     for net, data in system_results.items():
         vmin, vmax, drop = data["stats"]
-        lines.extend([f"Rail: {net}", f"  Range: {vmin:.4f} - {vmax:.4f} V", f"  Drop:  {drop:.4f} V", ""])
+        lines.extend([f"Rail: {net}", f"  Range: {vmin:.4f} - {vmax:.4f} V"])
+        if "load_drop_v" in data:
+            lines.append(f"  Worst load drop: {float(data['load_drop_v']):.4f} V")
+            lines.append(f"  Net spread: {drop:.4f} V")
+        else:
+            lines.append(f"  Drop:  {drop:.4f} V")
+        if data.get("engine"):
+            lines.append(f"  DC mesh: {data['engine']}")
+        lines.append("")
         actual_grid = data.get("grid_size_mm")
         requested_grid = data.get("requested_grid_size_mm", actual_grid)
         if actual_grid is not None:

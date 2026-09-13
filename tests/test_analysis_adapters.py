@@ -145,6 +145,34 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertIn("current_density_hotspots", payload)
         self.assertNotIn("planar_samples", payload)
 
+    def test_dc_003_judges_the_worst_load_not_the_net_spread(self):
+        # 9% between the net's highest and lowest nodes -- a pour corner no
+        # load draws through -- while the worst load sees 100 mV of 3.3 V.
+        within = adapt_dc_result({"+3V3": {
+            "stats": (3.0, 3.3, 0.3), "load_drop_v": 0.1, "source_voltage_v": 3.3,
+        }}, 5.0)
+        self.assertNotIn("DC-003", {item.rule_id for item in within.findings})
+        metrics = {metric.key: metric for metric in within.metrics}
+        self.assertAlmostEqual(metrics["rail_1_drop"].value, 0.1 / 3.3 * 100.0)
+        self.assertEqual(metrics["rail_1_drop"].status, "PASS")
+        self.assertAlmostEqual(metrics["rail_1_spread"].value, 0.3 / 3.3 * 100.0)
+
+        beyond = adapt_dc_result({"+3V3": {
+            "stats": (3.0, 3.3, 0.3), "load_drop_v": 0.25, "source_voltage_v": 3.3,
+        }}, 5.0)
+        finding = next(item for item in beyond.findings if item.rule_id == "DC-003")
+        self.assertIn("250.0 mV", finding.description)
+
+    def test_a_hybrid_island_is_not_blamed_on_the_grid_step(self):
+        detail = SimpleNamespace(valid=False, excluded_load_node_count=1)
+        result = adapt_dc_result({"+5V": {
+            "stats": (4.9, 5.0, 0.1), "detailed_result": detail, "engine": "hybrid",
+            "grid_size_mm": 0.1, "load_drop_v": 0.05, "source_voltage_v": 5.0,
+        }}, 5.0)
+        island = next(item for item in result.findings if item.rule_id == "DC-001")
+        self.assertNotIn("1.4 grid steps", island.description)
+        self.assertIn("saved board file", island.description)
+
 
 if __name__ == "__main__":
     unittest.main()

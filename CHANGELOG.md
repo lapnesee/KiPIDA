@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Added a hybrid DC solver engine: the same rails, regulators, injections and
+  result contract as the raster engine, solved on the saved board file with
+  exact tracks, barrels, cut-cell pours and pad lands. Its layers are published
+  under the live board's ids, paired by name (designer names included). It is
+  not selected by default yet.
+- Changed DC-003 to judge the drop at the worst-placed load, the quantity the
+  DC advisor sizes its fixes against; the spread between the net's highest and
+  lowest nodes, which also counts copper no load draws through, is still
+  published as a metric. The DC report names both and the engine that ran.
+- Fixed a regulator cascade losing demand: a rail skipped for want of copper
+  no longer drops its own regulators' input current from the rail feeding it.
 - Fixed the hybrid DC mesh treating pads and via lands as points. A track
   ending anywhere but a pad's centre, a pour's thermal spokes, and a track
   running straight across a pad all stayed unjoined, which left loads on four

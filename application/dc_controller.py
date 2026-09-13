@@ -7,11 +7,18 @@ geometries, so it never calls the live KiCad board API.
 
 from copy import deepcopy
 from dataclasses import dataclass
+from pathlib import Path
 import time
 from typing import Any, Callable, Dict, Optional, Tuple
 
+from advisor.dc_advisor import load_drop_v
+from advisor.rail_sources import (
+    NODE_MATCH_FLOOR_MM, NODE_MATCH_GRID_FACTOR, NodeIndex, map_pads_to_nodes,
+)
 from extractor import GeometryExtractor
+from ingest.board_reader import read_board
 from mesh import Mesher
+from mesh_hybrid import HybridMesher
 from solver import Solver
 from application.background_controller import BackgroundAnalysisController
 
@@ -332,16 +339,124 @@ def _mesh_nodes(mesh, board, ref_des, pad_names, debug=False, emit=lambda _messa
     return list(set(nodes))
 
 
+def _regulator_input_currents(rail, rails, rail_current):
+    """Current each regulator fed by *rail* draws from it, and the rail's total.
+
+    *rail_current* must already hold every downstream rail's total, which the
+    solve order guarantees. It is computed for every rail whether or not the
+    rail is then meshed: a rail skipped for want of copper still passes its
+    regulators' demand upstream, where it used to drop out of the cascade.
+    """
+    rail_current[rail.net_name] = sum(load.total_current for load in rail.loads)
+    demands = []
+    for regulator in rail.child_regulators:
+        output_current = rail_current.get(regulator.output_rail_name, 0.0)
+        if not output_current:
+            continue
+        output_rail = next((item for item in rails if item.net_name == regulator.output_rail_name), None)
+        if regulator.reg_type == "SWITCHING":
+            output_power = output_current * (output_rail.nominal_voltage if output_rail else 0.0)
+            input_power = output_power / regulator.efficiency if regulator.efficiency > 0 else output_power
+            input_current = input_power / rail.nominal_voltage if rail.nominal_voltage > 0 else 0.0
+        else:
+            input_current = output_current
+        rail_current[rail.net_name] += input_current
+        demands.append((regulator, input_current))
+    return demands
+
+
+def _rail_injections(rail, rails, regulator_demands, locate, emit):
+    """Sources and loads of one rail as solver injections, for either engine.
+
+    Declared sources and the outputs of the regulators producing the rail hold
+    it at its nominal voltage; declared loads and the inputs of the regulators
+    it feeds draw current, split evenly over the nodes their pads were located
+    on. *locate* maps ``(ref_des, pad_names)`` to node ids on the engine's mesh.
+    """
+    sources, loads = [], []
+    for source in rail.sources:
+        nodes = locate(source.component_ref.ref_des, source.pad_names)
+        if not nodes: emit(f"  WARNING: Source {source.component_ref.ref_des} found NO mesh nodes!")
+        sources.extend({'node_id': node, 'voltage': rail.nominal_voltage} for node in nodes)
+    for parent in rails:
+        for regulator in parent.child_regulators:
+            if regulator.output_rail_name == rail.net_name:
+                nodes = locate(regulator.output_ref_des, regulator.output_pad_names)
+                sources.extend({'node_id': node, 'voltage': rail.nominal_voltage} for node in nodes)
+    for load in rail.loads:
+        nodes = locate(load.component_ref.ref_des, load.pad_names)
+        if nodes:
+            current = load.total_current / len(nodes)
+            loads.extend({'node_id': node, 'current': current, 'ref_des': load.component_ref.ref_des} for node in nodes)
+    for regulator, input_current in regulator_demands:
+        nodes = locate(regulator.input_ref_des, regulator.input_pad_names)
+        if not nodes:
+            emit(f"  WARNING: Regulator {regulator.name} input found NO mesh nodes!")
+            continue
+        current = input_current / len(nodes)
+        loads.extend({'node_id': node, 'current': current, 'ref_des': regulator.input_ref_des} for node in nodes)
+    return sources, loads
+
+
+def _load_point_drop(voltages, sources, loads):
+    """``(worst drop seen by a load, rail voltage it is measured from)``.
+
+    The drop DC-003 judges. The spread between the highest and lowest node of
+    the net also counts copper no load draws through -- a stub, a pour corner
+    -- and is not the quantity the DC advisor sizes a fix against; this is.
+    """
+    source_voltages = [voltages[item['node_id']] for item in sources if item.get('node_id') in voltages]
+    if not source_voltages:
+        return 0.0, 0.0
+    return load_drop_v(voltages, sources, loads), max(source_voltages)
+
+
 class DCSolverEngine:
+    """DC solve on a raster mesh of the live board's captured copper."""
+
+    engine_name = "raster"
+
     def __init__(self, mesher_factory=Mesher, solver_factory=Solver):
         self._mesher_factory = mesher_factory
         self._solver_factory = solver_factory
+
+    # -- hooks an engine variant overrides ------------------------------------
+
+    def _begin(self, request, emit):
+        """Per-run state shared by every rail; the raster engine needs none."""
+        return None
+
+    def _build_mesh(self, rail, request, context, emit):
+        """The rail's mesh, or ``None`` with the reason logged."""
+        geometry = request.geometry_by_rail.get(rail.net_name, {})
+        if not geometry:
+            emit(f"  Skipping {rail.net_name}: No geometry.")
+            return None
+        mesher = self._mesher_factory(
+            request.board, debug=request.debug, log_callback=emit,
+            compute_settings=request.compute_settings,
+        )
+        return mesher.generate_mesh(
+            rail.net_name, geometry, request.stackup,
+            grid_size_mm=request.grid_size_mm,
+        )
+
+    def _locator(self, rail, mesh, request, context, emit):
+        return lambda ref_des, pad_names: _mesh_nodes(
+            mesh, request.board, ref_des, pad_names, request.debug, emit,
+        )
+
+    def _publish_mesh(self, mesh, context):
+        """Bring the mesh to the live board's conventions before it is read."""
+
+    # -- shared solve loop ----------------------------------------------------
 
     def solve(self, request, emit, progress, cancelled):
         rails = list(request.rails)
         emit(f"--- Starting System Simulation ({len(rails)} rails) ---")
         sorted_rails = _sorted_rails(rails)
         emit("Rail solve order: " + " -> ".join(rail.net_name for rail in sorted_rails))
+        context = self._begin(request, emit)
         results = {}
         rail_current = {rail.net_name: 0.0 for rail in rails}
         total = max(1, len(sorted_rails) * 3)
@@ -349,23 +464,14 @@ class DCSolverEngine:
         for rail in sorted_rails:
             if cancelled(): raise DCAnalysisCancelled("DC analysis cancelled.")
             emit(f"Processing Rail: {rail.net_name} (Sources: {len(rail.sources)}, Loads: {len(rail.loads)})")
-            rail_current[rail.net_name] = sum(load.total_current for load in rail.loads)
-            geometry = request.geometry_by_rail.get(rail.net_name, {})
+            demands = _regulator_input_currents(rail, rails, rail_current)
             completed += 1
             progress(completed, total, f"{rail.net_name}: geometry")
-            if not geometry:
-                emit(f"  Skipping {rail.net_name}: No geometry.")
+            mesh = self._build_mesh(rail, request, context, emit)
+            if mesh is None:
                 completed += 2
                 progress(completed, total, f"{rail.net_name}: skipped")
                 continue
-            mesher = self._mesher_factory(
-                request.board, debug=request.debug, log_callback=emit,
-                compute_settings=request.compute_settings,
-            )
-            mesh = mesher.generate_mesh(
-                rail.net_name, geometry, request.stackup,
-                grid_size_mm=request.grid_size_mm,
-            )
             completed += 1
             progress(completed, total, f"{rail.net_name}: mesh ({len(mesh.nodes):,} nodes)")
             if cancelled(): raise DCAnalysisCancelled("DC analysis cancelled.")
@@ -375,39 +481,10 @@ class DCSolverEngine:
                 progress(completed, total, f"{rail.net_name}: skipped")
                 continue
 
-            sources, loads = [], []
-            for source in rail.sources:
-                nodes = _mesh_nodes(mesh, request.board, source.component_ref.ref_des, source.pad_names, request.debug, emit)
-                if not nodes: emit(f"  WARNING: Source {source.component_ref.ref_des} found NO mesh nodes!")
-                sources.extend({'node_id': node, 'voltage': rail.nominal_voltage} for node in nodes)
-            for parent in rails:
-                for regulator in parent.child_regulators:
-                    if regulator.output_rail_name == rail.net_name:
-                        nodes = _mesh_nodes(mesh, request.board, regulator.output_ref_des, regulator.output_pad_names, request.debug, emit)
-                        sources.extend({'node_id': node, 'voltage': rail.nominal_voltage} for node in nodes)
-            for load in rail.loads:
-                nodes = _mesh_nodes(mesh, request.board, load.component_ref.ref_des, load.pad_names, request.debug, emit)
-                if nodes:
-                    current = load.total_current / len(nodes)
-                    loads.extend({'node_id': node, 'current': current, 'ref_des': load.component_ref.ref_des} for node in nodes)
-            for regulator in rail.child_regulators:
-                output_current = rail_current.get(regulator.output_rail_name, 0.0)
-                if not output_current:
-                    continue
-                output_rail = next((item for item in rails if item.net_name == regulator.output_rail_name), None)
-                if regulator.reg_type == "SWITCHING":
-                    output_power = output_current * (output_rail.nominal_voltage if output_rail else 0.0)
-                    input_power = output_power / regulator.efficiency if regulator.efficiency > 0 else output_power
-                    input_current = input_power / rail.nominal_voltage if rail.nominal_voltage > 0 else 0.0
-                else:
-                    input_current = output_current
-                rail_current[rail.net_name] += input_current
-                nodes = _mesh_nodes(mesh, request.board, regulator.input_ref_des, regulator.input_pad_names, request.debug, emit)
-                if not nodes:
-                    emit(f"  WARNING: Regulator {regulator.name} input found NO mesh nodes!")
-                    continue
-                current = input_current / len(nodes)
-                loads.extend({'node_id': node, 'current': current, 'ref_des': regulator.input_ref_des} for node in nodes)
+            sources, loads = _rail_injections(
+                rail, rails, demands,
+                self._locator(rail, mesh, request, context, emit), emit,
+            )
             if not sources:
                 emit(f"  Warning: No sources for {rail.net_name}. Skipping solve.")
                 completed += 1
@@ -419,6 +496,7 @@ class DCSolverEngine:
                 compute_settings=request.compute_settings,
             )
             detailed = solver.solve_detailed(mesh, sources, loads)
+            self._publish_mesh(mesh, context)
             from application.dc_current_density import calculate_current_density
             current_density = calculate_current_density(
                 mesh, detailed, request.stackup,
@@ -427,9 +505,13 @@ class DCSolverEngine:
             voltages = detailed.voltages
             if voltages:
                 values = list(voltages.values())
+                worst_load_drop, source_voltage = _load_point_drop(voltages, sources, loads)
                 results[rail.net_name] = {
                     'mesh': mesh, 'results': voltages,
                     'stats': (min(values), max(values), max(values) - min(values)),
+                    'load_drop_v': worst_load_drop,
+                    'source_voltage_v': source_voltage,
+                    'engine': self.engine_name,
                     'sources': sources, 'loads': loads, 'detailed_result': detailed,
                     'current_density': current_density,
                     'compute_metadata': solver.last_compute,
@@ -437,7 +519,10 @@ class DCSolverEngine:
                     'requested_grid_size_mm': mesh.requested_grid_step,
                     'adaptive_grid': mesh.adaptive_grid,
                 }
-                emit(f"  Solved {rail.net_name}: Drop {max(values) - min(values):.4f} V")
+                emit(
+                    f"  Solved {rail.net_name}: worst load drop {worst_load_drop:.4f} V, "
+                    f"net spread {max(values) - min(values):.4f} V"
+                )
                 if not getattr(detailed, "valid", True):
                     excluded = ", ".join(getattr(detailed, "excluded_load_references", ()))
                     references = f" [{excluded}]" if excluded else ""
@@ -457,6 +542,143 @@ class DCSolverEngine:
             completed += 1
             progress(completed, total, f"{rail.net_name}: solved")
         return results
+
+
+def live_layer_ids(file_stackup, live_stackup):
+    """Map the board file's copper layer ids onto the live board's.
+
+    The two number layers differently -- the file by KiCad's internal ordinal,
+    IPC by its own enum -- so only names can pair them. The live stackup
+    carries the designer's name where one was given, the file both names.
+    Layers no name pairs are paired by position when both stacks hold the same
+    number of copper layers, since both list them top to bottom.
+
+    Returns ``(mapping, paired_by_position, unmatched)`` where the last two are
+    lists of file layer names.
+    """
+    copper = dict((live_stackup or {}).get("copper", {}) or {})
+    by_name = {}
+    for live_id, data in copper.items():
+        name = str((data or {}).get("name", "") or "")
+        if name:
+            by_name.setdefault(name, live_id)
+    file_layers = list(getattr(file_stackup, "layers", ()) or ())
+    mapping = {}
+    for layer in file_layers:
+        live_id = by_name.get(layer.name)
+        if live_id is None and getattr(layer, "user_name", ""):
+            live_id = by_name.get(layer.user_name)
+        if live_id is not None and live_id not in mapping.values():
+            mapping[layer.layer_id] = live_id
+    order = list((live_stackup or {}).get("layer_order") or copper.keys())
+    positional = []
+    if len(mapping) < len(file_layers) and len(order) == len(file_layers):
+        used = set(mapping.values())
+        for layer, live_id in zip(file_layers, order):
+            if layer.layer_id not in mapping and live_id not in used:
+                mapping[layer.layer_id] = live_id
+                used.add(live_id)
+                positional.append(layer.name)
+    unmatched = [layer.name for layer in file_layers if layer.layer_id not in mapping]
+    return mapping, positional, unmatched
+
+
+def _relabel_layers(mesh, mapping):
+    """Rewrite the mesh's layer ids through *mapping*, in place.
+
+    A layer with no live counterpart gets a negative id, which no live layer
+    uses, rather than keeping a file ordinal that may name another live layer.
+    """
+    def live(layer_id):
+        if layer_id in mapping:
+            return mapping[layer_id]
+        return -1000 - int(layer_id) if int(layer_id) >= 0 else int(layer_id)
+
+    mesh.node_coords = {
+        node_id: (x, y, live(layer_id))
+        for node_id, (x, y, layer_id) in mesh.node_coords.items()
+    }
+    mesh.node_map = {
+        (ix, iy, live(layer_id)): node_id
+        for (ix, iy, layer_id), node_id in mesh.node_map.items()
+    }
+
+
+@dataclass(frozen=True)
+class _HybridRunContext:
+    board: Any
+    layer_mapping: Dict[int, Any]
+
+
+class HybridDCSolverEngine(DCSolverEngine):
+    """DC solve on the saved board file: exact tracks, barrels, cut-cell pours.
+
+    Tracks are analytic branches whatever their width or angle, where the
+    raster mesh joins only 4-neighbour grid nodes and can open a narrow
+    diagonal track altogether. It reads the ``.kicad_pcb`` the request was
+    captured from, so it solves the board as last saved; the result contract,
+    injections and solve order are the raster engine's.
+    """
+
+    engine_name = "hybrid"
+
+    def __init__(self, mesher_factory=HybridMesher, solver_factory=Solver,
+                 board_reader=read_board):
+        super().__init__(mesher_factory=mesher_factory, solver_factory=solver_factory)
+        self._board_reader = board_reader
+
+    def _begin(self, request, emit):
+        if not request.board_path:
+            raise ValueError(
+                "The hybrid DC engine reads the saved board file, and this run "
+                "does not know where the board was loaded from."
+            )
+        started = time.perf_counter()
+        board = self._board_reader(Path(request.board_path))
+        mapping, positional, unmatched = live_layer_ids(board.stackup, request.stackup)
+        emit(
+            f"Read {Path(request.board_path).name} for the hybrid DC mesh in "
+            f"{time.perf_counter() - started:.2f} s "
+            f"({len(board.stackup.layers)} copper layers from its {board.stackup.source} table)."
+        )
+        if positional:
+            emit(
+                "  Copper layers paired with the live board by position, their names "
+                "differing: " + ", ".join(positional) + "."
+            )
+        if unmatched:
+            emit(
+                "  WARNING: copper layers of the saved board with no live counterpart: "
+                + ", ".join(unmatched) + ". Their current density cannot use the live stackup."
+            )
+        return _HybridRunContext(board, mapping)
+
+    def _build_mesh(self, rail, request, context, emit):
+        mesher = self._mesher_factory(
+            context.board, grid_step_mm=request.grid_size_mm, log_callback=emit,
+        )
+        return mesher.build_mesh(rail.net_name)
+
+    def _locator(self, rail, mesh, request, context, emit):
+        tolerance = max(NODE_MATCH_GRID_FACTOR * mesh.grid_step, NODE_MATCH_FLOOR_MM)
+        index = NodeIndex(mesh, tolerance)
+
+        def locate(ref_des, pad_names):
+            nodes, unlocated = map_pads_to_nodes(
+                mesh, context.board, ref_des, pad_names, net_name=rail.net_name,
+                tolerance_mm=tolerance, index=index,
+            )
+            if unlocated:
+                emit(
+                    f"  {ref_des} pad(s) {', '.join(unlocated)} have no {rail.net_name} "
+                    f"copper within {tolerance:.2f} mm on their layers."
+                )
+            return nodes
+
+        return locate
+
+    def _publish_mesh(self, mesh, context):
+        _relabel_layers(mesh, context.layer_mapping)
 
 
 class DCAnalysisController(BackgroundAnalysisController):
