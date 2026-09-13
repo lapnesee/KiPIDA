@@ -17,6 +17,7 @@ from analysis_contract import (
     AnalysisFinding,
     AnalysisResult,
     AnalysisStatus,
+    EvidenceConfidence,
     FindingSeverity,
     Remediation,
     RemediationEffort,
@@ -28,14 +29,31 @@ from analysis_contract import (
 CAMPAIGN_SCHEMA_VERSION = "1.0.0"
 
 # Score penalty per finding, by severity.  INFO costs nothing: an
-# informational finding is a note, not a defect.
+# informational finding is a note, not a defect.  These are the EMC analyzer's
+# weights, so a domain score reads on the same scale whichever domain it is.
 SEVERITY_PENALTY: Dict[FindingSeverity, float] = {
     FindingSeverity.CRITICAL: 25.0,
-    FindingSeverity.HIGH: 10.0,
-    FindingSeverity.MEDIUM: 4.0,
-    FindingSeverity.LOW: 1.0,
+    FindingSeverity.HIGH: 12.0,
+    FindingSeverity.MEDIUM: 6.0,
+    FindingSeverity.LOW: 2.0,
     FindingSeverity.INFO: 0.0,
 }
+
+# How much of its severity a finding costs, by what it rests on.  A heuristic
+# that fires can say where to look; it must not be able to sink a domain the
+# way an observed fact does.  The EMC analyzer weighs HIGH/MEDIUM/LOW 1/0.65/
+# 0.25; these are the same weights on the evidence basis.
+CONFIDENCE_WEIGHT: Dict[EvidenceConfidence, float] = {
+    EvidenceConfidence.DETERMINISTIC: 1.0,
+    EvidenceConfidence.MEASURED: 1.0,
+    EvidenceConfidence.DATASHEET_BACKED: 1.0,
+    EvidenceConfidence.ESTIMATED: 0.65,
+    EvidenceConfidence.HEURISTIC: 0.25,
+}
+
+# A rule that fires two hundred times reports one systematic cause, not two
+# hundred defects: only its worst few findings are charged to the score.
+MAX_FINDINGS_PER_RULE_IN_SCORE = 3
 
 # Ranking weights.  Severity sets the base, effort divides it: a cheap fix
 # for a moderate problem can legitimately outrank an expensive fix for a
@@ -160,17 +178,75 @@ def _colocated(left: AnalysisFinding, right: AnalysisFinding) -> bool:
     return False
 
 
-def _same_problem(left: AnalysisFinding, right: AnalysisFinding) -> bool:
-    """Whether two findings describe one physical defect.
+def _finding_penalty(finding: AnalysisFinding) -> float:
+    return (
+        SEVERITY_PENALTY.get(finding.severity, 0.0)
+        * CONFIDENCE_WEIGHT.get(finding.confidence, CONFIDENCE_WEIGHT[EvidenceConfidence.HEURISTIC])
+    )
 
-    Shared nets or shared components are the strongest signal; failing
-    those, evidence pinned to the same spot on the same layer.
+
+def score_findings(findings: List[AnalysisFinding]) -> float:
+    """100 minus each rule's worst few findings, weighted by what they rest on."""
+    by_rule: Dict[str, List[float]] = {}
+    for finding in findings:
+        by_rule.setdefault(finding.rule_id, []).append(_finding_penalty(finding))
+    penalty = sum(
+        sum(sorted(penalties, reverse=True)[:MAX_FINDINGS_PER_RULE_IN_SCORE])
+        for penalties in by_rule.values()
+    )
+    return max(0.0, 100.0 - penalty)
+
+
+def _group_findings(tagged: List[tuple]) -> List[List[tuple]]:
+    """Group findings into physical problems, transitively and order-free.
+
+    Two findings describe one problem when they share a component -- two
+    domains blaming the same part point at the same thing to change -- or
+    when they share a net *and* carry evidence at the same spot on the same
+    layer.  A shared net alone is not enough: nearly every finding names the
+    ground or a rail, and "shares a net" merged a PDN impedance miss, a
+    fragmented plane and a DC solve that did not converge into one action
+    ranked first, because each mentioned GND or +3V3.
+
+    Grouping used to be greedy too: a finding joined the first group it
+    matched and stopped, so one linking two existing groups left them apart,
+    and reordering the domains changed the actions.  Union-find makes the
+    grouping a property of the findings alone.  Groups keep the order of
+    their first finding, so action ids stay stable.
     """
-    if set(left.nets) & set(right.nets):
-        return True
-    if set(left.components) & set(right.components):
-        return True
-    return _colocated(left, right)
+    parent = list(range(len(tagged)))
+
+    def root(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def join(left: int, right: int) -> None:
+        a, b = root(left), root(right)
+        if a != b:
+            parent[max(a, b)] = min(a, b)
+
+    by_component: Dict[str, List[int]] = {}
+    by_net: Dict[str, List[int]] = {}
+    for index, (_domain, finding) in enumerate(tagged):
+        for component in set(finding.components):
+            by_component.setdefault(component, []).append(index)
+        for net in set(finding.nets):
+            by_net.setdefault(net, []).append(index)
+    for members in by_component.values():
+        for other in members[1:]:
+            join(members[0], other)
+    for members in by_net.values():
+        for position, left in enumerate(members):
+            for right in members[position + 1:]:
+                if root(left) != root(right) and _colocated(tagged[left][1], tagged[right][1]):
+                    join(left, right)
+
+    groups: Dict[int, List[tuple]] = {}
+    for index, entry in enumerate(tagged):
+        groups.setdefault(root(index), []).append(entry)
+    return [groups[key] for key in sorted(groups)]
 
 
 def _dedupe_remediations(remediations: List[Remediation]) -> List[Remediation]:
@@ -224,11 +300,14 @@ class CampaignResult:
                     headline="No data produced for this domain.",
                 ))
                 continue
-            penalty = sum(
-                SEVERITY_PENALTY[severity] * counts.get(severity.value, 0)
-                for severity in FindingSeverity
+            # A domain that grades itself -- the EMC analyzer's risk score --
+            # keeps its own figure, so the campaign and the domain's own tab
+            # never show two different scores for the same analysis.
+            own = (result.summary or {}).get("domain_score")
+            score = (
+                max(0.0, min(100.0, float(own))) if own is not None
+                else score_findings(result.findings)
             )
-            score = max(0.0, 100.0 - penalty)
             scores.append(DomainScore(
                 domain=result.analysis_type,
                 status=result.status,
@@ -254,15 +333,7 @@ class CampaignResult:
             for result in self.results
             for finding in result.findings
         ]
-        groups: List[List[tuple]] = []
-        for entry in tagged:
-            _domain, finding = entry
-            for group in groups:
-                if any(_same_problem(finding, member[1]) for member in group):
-                    group.append(entry)
-                    break
-            else:
-                groups.append([entry])
+        groups = _group_findings(tagged)
 
         actions: List[CampaignAction] = []
         for index, group in enumerate(groups, start=1):

@@ -47,14 +47,15 @@ def result(domain="DC", status=AnalysisStatus.WARN, findings=None):
 
 class DomainScoreTests(unittest.TestCase):
     def test_penalty_formula(self):
-        # 1 CRITICAL (25) + 2 HIGH (20) + 1 LOW (1) = 46 -> score 54
+        # Deterministic findings cost their full weight:
+        # 1 CRITICAL (25) + 2 HIGH (24) + 1 LOW (2) = 51 -> score 49
         campaign = CampaignResult.from_results([result("DC", findings=[
             finding("A", FindingSeverity.CRITICAL, nets=["N1"]),
             finding("B", FindingSeverity.HIGH, nets=["N2"]),
             finding("C", FindingSeverity.HIGH, nets=["N3"]),
             finding("D", FindingSeverity.LOW, nets=["N4"]),
         ])])
-        self.assertAlmostEqual(campaign.domain_scores[0].score, 54.0)
+        self.assertAlmostEqual(campaign.domain_scores[0].score, 49.0)
 
     def test_info_findings_do_not_reduce_score(self):
         campaign = CampaignResult.from_results([result("DC", AnalysisStatus.PASS, [
@@ -97,13 +98,22 @@ class OverallStatusTests(unittest.TestCase):
 
 
 class DeduplicationTests(unittest.TestCase):
-    def test_shared_net_merges_across_domains(self):
+    def test_shared_net_alone_does_not_merge(self):
+        # Nearly every finding names a ground or a rail; sharing one says
+        # nothing about sharing a cause (tests/test_campaign_grouping.py).
         campaign = CampaignResult.from_results([
             result("DC", findings=[finding("DC-1", title="Drop on GND", nets=["GND"])]),
             result("EMC", findings=[finding("GP-3", title="Return path", nets=["GND"])]),
         ])
+        self.assertEqual(len(campaign.actions), 2)
+
+    def test_shared_component_merges_across_domains(self):
+        campaign = CampaignResult.from_results([
+            result("THERMAL", findings=[finding("TH-1", title="Hot", components=["U7"])]),
+            result("EMC", findings=[finding("DE-2", title="Decoupling", components=["U7"])]),
+        ])
         self.assertEqual(len(campaign.actions), 1)
-        self.assertEqual(sorted(campaign.actions[0].domains), ["DC", "EMC"])
+        self.assertEqual(sorted(campaign.actions[0].domains), ["EMC", "THERMAL"])
         self.assertEqual(len(campaign.actions[0].consequences), 2)
 
     def test_different_nets_stay_separate(self):
@@ -113,14 +123,23 @@ class DeduplicationTests(unittest.TestCase):
         ])
         self.assertEqual(len(campaign.actions), 2)
 
-    def test_nearby_evidence_merges(self):
+    def test_nearby_evidence_on_a_shared_net_merges(self):
         near = [AnalysisEvidence("PCB", "d", x_mm=10.0, y_mm=10.0, layer="F.Cu")]
         also_near = [AnalysisEvidence("PCB", "d", x_mm=11.0, y_mm=10.0, layer="F.Cu")]
         campaign = CampaignResult.from_results([
-            result("DC", findings=[finding("DC-1", evidence=near)]),
-            result("EMC", findings=[finding("GP-3", evidence=also_near)]),
+            result("DC", findings=[finding("DC-1", nets=["VCC"], evidence=near)]),
+            result("EMC", findings=[finding("GP-3", nets=["VCC"], evidence=also_near)]),
         ])
         self.assertEqual(len(campaign.actions), 1)
+
+    def test_nearby_evidence_on_different_nets_does_not_merge(self):
+        near = [AnalysisEvidence("PCB", "d", x_mm=10.0, y_mm=10.0, layer="F.Cu")]
+        also_near = [AnalysisEvidence("PCB", "d", x_mm=11.0, y_mm=10.0, layer="F.Cu")]
+        campaign = CampaignResult.from_results([
+            result("DC", findings=[finding("DC-1", nets=["VCC"], evidence=near)]),
+            result("EMC", findings=[finding("GP-3", nets=["CLK"], evidence=also_near)]),
+        ])
+        self.assertEqual(len(campaign.actions), 2)
 
     def test_distant_evidence_does_not_merge(self):
         here = [AnalysisEvidence("PCB", "d", x_mm=10.0, y_mm=10.0, layer="F.Cu")]
@@ -144,12 +163,12 @@ class DeduplicationTests(unittest.TestCase):
 class GainRankTests(unittest.TestCase):
     def test_multi_domain_outranks_single_domain_of_same_severity(self):
         campaign = CampaignResult.from_results([
-            result("DC", findings=[finding("DC-1", FindingSeverity.HIGH, nets=["GND"])]),
-            result("EMC", findings=[finding("GP-3", FindingSeverity.HIGH, nets=["GND"])]),
-            result("THERMAL", findings=[finding("TH-1", FindingSeverity.HIGH, nets=["VCC"])]),
+            result("DC", findings=[finding("DC-1", FindingSeverity.HIGH, components=["Q3"])]),
+            result("EMC", findings=[finding("GP-3", FindingSeverity.HIGH, components=["Q3"])]),
+            result("THERMAL", findings=[finding("TH-1", FindingSeverity.HIGH, components=["U9"])]),
         ])
         ranked = campaign.top_actions()
-        self.assertEqual(ranked[0].nets, ["GND"])
+        self.assertEqual(ranked[0].components, ["Q3"])
         self.assertGreater(ranked[0].gain_rank, ranked[1].gain_rank)
 
     def test_low_effort_outranks_high_effort_at_equal_severity(self):
@@ -178,14 +197,14 @@ class SerializationTests(unittest.TestCase):
         campaign = CampaignResult.from_results(
             [
                 result("DC", findings=[finding(
-                    "DC-1", FindingSeverity.CRITICAL, nets=["GND"],
+                    "DC-1", FindingSeverity.CRITICAL, components=["Q3"],
                     remediations=[Remediation(
                         action="WIDEN_TRACK", target="seg-1",
                         current_value=0.25, proposed_value=0.6, unit="mm",
                         predicted_gain="drop 3.1% -> 1.8%", verified=True,
                     )],
                 )]),
-                result("EMC", findings=[finding("GP-3", nets=["GND"])]),
+                result("EMC", findings=[finding("GP-3", components=["Q3"])]),
             ],
             project_name="demo", board_fingerprint="abc123",
         )

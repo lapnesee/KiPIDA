@@ -76,6 +76,9 @@ def adapt_emc_result(settings: Any, domain_result: Any) -> AnalysisResult:
         },
         summary={
             "risk_score": int(getattr(domain_result, "risk_score", 0)),
+            # The campaign takes this as the EMC domain score rather than
+            # re-scoring the findings on its own scale.
+            "domain_score": int(getattr(domain_result, "risk_score", 0)),
             "total_checks": int(getattr(domain_result, "total_checks", 0)),
             "per_net_scores": dict(getattr(domain_result, "per_net_scores", {}) or {}),
         },

@@ -61,8 +61,9 @@ class ComparisonTests(unittest.TestCase):
         current = campaign([], fingerprint="fp-new")
         delta = compare_campaigns(baseline, current)
         self.assertTrue(delta.board_changed)
-        # Baseline lost 10 points to one HIGH finding; current is clean.
-        self.assertAlmostEqual(delta.score_deltas["DC"], 10.0)
+        # Baseline lost 3 points to one HIGH finding of heuristic confidence
+        # (12 x 0.25); current is clean.
+        self.assertAlmostEqual(delta.score_deltas["DC"], 3.0)
         self.assertEqual(delta.net_improvement, 1)
 
     def test_pre_rename_emc_rule_ids_still_match(self):

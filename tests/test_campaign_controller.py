@@ -65,6 +65,7 @@ def fake_adapter(analysis_type):
                 description="synthetic",
                 confidence=EvidenceConfidence.DETERMINISTIC,
                 nets=spec.get("nets", []),
+                components=spec.get("components", []),
             ))
         if result.findings:
             result.status = AnalysisStatus.WARN
@@ -231,9 +232,9 @@ class CancellationTests(unittest.TestCase):
 
 
 class AggregationTests(unittest.TestCase):
-    def test_two_domains_on_same_net_merge_into_one_action(self):
-        shared = [{"rule_id": "R-1", "title": "Problem on VCC",
-                   "severity": FindingSeverity.HIGH, "nets": ["VCC"]}]
+    def test_two_domains_on_same_component_merge_into_one_action(self):
+        shared = [{"rule_id": "R-1", "title": "Problem on U3",
+                   "severity": FindingSeverity.HIGH, "components": ["U3"]}]
         engine = build(
             {
                 "DC": FakeEngine(findings=shared),
@@ -248,7 +249,7 @@ class AggregationTests(unittest.TestCase):
 
         self.assertEqual(len(campaign.results), 2)
         self.assertEqual(len(campaign.actions), 1,
-                         "findings on the same net must deduplicate")
+                         "findings on the same component must deduplicate")
         self.assertEqual(sorted(campaign.actions[0].domains), ["DC", "EMC"])
 
     def test_campaign_carries_project_identity(self):

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Changed how a campaign groups findings into actions: a shared component still
+  groups them, a shared net only together with evidence at the same spot on the
+  same layer. Every finding names a ground or a rail, and a shared net alone had
+  merged unrelated problems -- a PDN impedance miss, a fragmented plane and a DC
+  solve that did not converge -- into one action ranked first. Grouping is now
+  transitive and independent of domain order.
+- Changed domain scores to weigh each finding by its confidence and to charge a
+  rule for its three worst findings only, with the EMC analyzer's severity
+  weights; the EMC domain keeps its own risk score, so the campaign and the EMC
+  tab no longer show two different figures.
 - Changed what DETERMINISTIC means: a fact about the run, never a model's
   verdict or a hard-coded threshold. Findings graded HIGH by the older analyzers
   (the EMC rules above all) now read ESTIMATED; AC-001 is always ESTIMATED and
