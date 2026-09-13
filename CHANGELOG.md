@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed the design model's source hash ignoring every sheet but the root, so
+  an edit below the root sheet left it unchanged. It now covers every file the
+  model read. A board, schematic or project file that cannot be read, and a
+  board project a container names but that does not exist, are listed in the
+  model's issues instead of being skipped; the model also carries each
+  footprint's schematic link, the netlist's link issues and the schematic's
+  sheet issues.
 - Changed the offline netlist to join a footprint to its symbol by the
   schematic path the footprint records, and never by reference. A footprint
   now says whether it is linked, placed on the board only, pointing at a

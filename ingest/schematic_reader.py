@@ -107,6 +107,7 @@ class ParsedSchematic:
     instances: list[SymbolInstance]
     global_nets: list[str]
     issues: list[SchematicIssue] = field(default_factory=list)
+    files: list[Path] = field(default_factory=list)  # every sheet file parsed, once each
 
 
 def read_schematic(root_sch_path: Path) -> ParsedSchematic:
@@ -196,6 +197,7 @@ def read_schematic(root_sch_path: Path) -> ParsedSchematic:
         instances=instances,
         global_nets=global_nets,
         issues=issues,
+        files=list(parsed_files),
     )
 
 

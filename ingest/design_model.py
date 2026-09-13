@@ -3,13 +3,18 @@
 DesignModel is the frozen artefact that all Ki-PIDA analyses consume.
 It carries a SHA-256 hash of the source files so that analyses can be
 cached and invalidated when the design changes.
+
+The hash covers every file the model was built from -- every sheet of the
+hierarchy, not only the root, which an edit to a sub-sheet leaves unchanged.
+A file that could not be read is an entry of ``issues``, not a silent gap in
+the netlist.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -30,6 +35,7 @@ class DesignModel:
     board_netlists: tuple        # tuple[dict, ...]
     cross_board_nets: tuple      # tuple[dict, ...]
     source_hash: str             # SHA-256 of all source file contents
+    issues: tuple = ()           # tuple[dict, ...]: files that could not be read, and why
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-compatible dict."""
@@ -39,6 +45,7 @@ class DesignModel:
             "board_netlists": list(self.board_netlists),
             "cross_board_nets": list(self.cross_board_nets),
             "source_hash": self.source_hash,
+            "issues": list(self.issues),
         }
 
     def to_json(self, **kwargs) -> str:
@@ -61,14 +68,14 @@ def _from_multiboard(mp: MultiboardProject) -> DesignModel:
     project_name = mp.mbs_path.stem
 
     netlists: list[dict] = []
+    issues: list[dict] = [{"board": "", "file": str(mp.mbs_path), "error": note} for note in mp.notes]
     source_paths: list[Path] = [mp.mbs_path]
     if mp.container_pro_path:
         source_paths.append(mp.container_pro_path)
 
     for bp in mp.boards:
-        source_paths.extend(_board_source_paths(bp))
-        nl = _build_board_netlist(bp, mp.cross_board_nets)
-        netlists.append(_netlist_to_dict(nl))
+        nl = _build_board_netlist(bp, mp.cross_board_nets, source_paths, issues)
+        netlists.append(nl)
 
     source_hash = _hash_files(source_paths)
 
@@ -83,41 +90,63 @@ def _from_multiboard(mp: MultiboardProject) -> DesignModel:
         board_netlists=tuple(netlists),
         cross_board_nets=tuple(cross_dicts),
         source_hash=source_hash,
+        issues=tuple(issues),
     )
 
 
 def _from_single_board(bp: BoardProject) -> DesignModel:
     project_name = bp.pro_path.stem
-    source_paths = _board_source_paths(bp)
-    nl = _build_board_netlist(bp, [])
+    source_paths: list[Path] = []
+    issues: list[dict] = []
+    nl = _build_board_netlist(bp, [], source_paths, issues)
     source_hash = _hash_files(source_paths)
 
     return DesignModel(
         project_name=project_name,
         is_multiboard=False,
-        board_netlists=((_netlist_to_dict(nl)),),
+        board_netlists=(nl,),
         cross_board_nets=(),
         source_hash=source_hash,
+        issues=tuple(issues),
     )
+
+
+# What a reader raises for a file it cannot use: absent or locked, not text,
+# or not a KiCad file it supports (UnsupportedFileFormat is a ValueError).
+_READ_ERRORS = (OSError, UnicodeDecodeError, ValueError)
 
 
 def _build_board_netlist(
     bp: BoardProject,
     cross_board_nets: list[CrossBoardNet],
-) -> BoardNetlist:
+    source_paths: list[Path],
+    issues: list[dict],
+) -> dict:
+    """The board's netlist as a dict; the files it read join ``source_paths``."""
+    board_id = bp.sub_project_uuid or bp.pro_path.stem
+    source_paths.append(bp.pro_path)
+
+    def unreadable(path: Path, exc: Exception) -> None:
+        issues.append({"board": board_id, "file": str(path), "error": f"{type(exc).__name__}: {exc}"})
+
+    issues.extend({"board": board_id, "file": str(bp.pro_path), "error": note} for note in bp.notes)
+
     board: Optional[ParsedBoard] = None
     if bp.pcb_path.exists():
+        source_paths.append(bp.pcb_path)
         try:
             board = read_board(bp.pcb_path)
-        except Exception:
-            pass
+        except _READ_ERRORS as exc:
+            unreadable(bp.pcb_path, exc)
 
     schematic: Optional[ParsedSchematic] = None
     if bp.sch_root_path.exists():
         try:
             schematic = read_schematic(bp.sch_root_path)
-        except Exception:
-            pass
+            source_paths.extend(schematic.files)
+        except _READ_ERRORS as exc:
+            source_paths.append(bp.sch_root_path)
+            unreadable(bp.sch_root_path, exc)
 
     if board is None:
         # Construct minimal empty board
@@ -132,30 +161,32 @@ def _build_board_netlist(
             zones=[],
         )
 
-    return build_netlist(
+    netlist = _netlist_to_dict(build_netlist(
         board=board,
         schematic=schematic,
-        board_uuid=bp.sub_project_uuid or bp.pro_path.stem,
+        board_uuid=board_id,
         cross_board_nets=cross_board_nets,
-    )
-
-
-def _board_source_paths(bp: BoardProject) -> list[Path]:
-    paths = [bp.pro_path]
-    if bp.pcb_path.exists():
-        paths.append(bp.pcb_path)
-    if bp.sch_root_path.exists():
-        paths.append(bp.sch_root_path)
-    return paths
+    ))
+    netlist["schematic_issues"] = [
+        {"kind": issue.kind, "sheet_path": issue.sheet_path, "sheet_name": issue.sheet_name,
+         "sheet_file": issue.sheet_file, "detail": issue.detail}
+        for issue in (schematic.issues if schematic else [])
+    ]
+    return netlist
 
 
 def _hash_files(paths: list[Path]) -> str:
+    """SHA-256 over each file's name and bytes; a file that cannot be read still counts.
+
+    The name, not the full path: a project moved or copied elsewhere is the same design.
+    """
     h = hashlib.sha256()
-    for p in sorted(set(paths)):
+    for p in sorted({Path(path).resolve() for path in paths}):
+        h.update(p.name.encode("utf-8"))
         try:
             h.update(p.read_bytes())
-        except OSError:
-            pass
+        except OSError as exc:
+            h.update(f"<unreadable: {type(exc).__name__}>".encode("utf-8"))
     return h.hexdigest()
 
 
@@ -172,6 +203,7 @@ def _netlist_to_dict(nl: BoardNetlist) -> dict:
             "position": list(c.position),
             "nets_by_pad": c.nets_by_pad,
             "pin_types_by_pad": c.pin_types_by_pad,
+            "schematic_link": c.schematic_link,
         })
 
     nets = []
@@ -223,4 +255,8 @@ def _netlist_to_dict(nl: BoardNetlist) -> dict:
         },
         "components": components,
         "nets": nets,
+        "link_issues": [
+            {"kind": issue.kind, "references": list(issue.references), "detail": issue.detail}
+            for issue in nl.link_issues
+        ],
     }

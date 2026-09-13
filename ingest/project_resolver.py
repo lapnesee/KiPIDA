@@ -23,6 +23,7 @@ class BoardProject:
     sch_sheets: list[tuple[str, str]]  # [(uuid, name), ...]
     is_part_of_multiboard: bool
     sub_project_uuid: str
+    notes: list[str] = field(default_factory=list)  # what could not be read or resolved, and why
 
 
 @dataclass
@@ -31,6 +32,7 @@ class MultiboardProject:
     container_pro_path: Path | None
     boards: list[BoardProject]
     cross_board_nets: list[CrossBoardNet]
+    notes: list[str] = field(default_factory=list)
 
 
 def resolve_project(path: Path) -> MultiboardProject | BoardProject:
@@ -63,16 +65,23 @@ def resolve_project(path: Path) -> MultiboardProject | BoardProject:
 # Internal resolvers
 # ---------------------------------------------------------------------------
 
-def _load_pro(pro_path: Path) -> dict:
+def _load_pro(pro_path: Path, notes: list[str]) -> dict:
+    """The project file's settings, or {} with the reason added to *notes*."""
     try:
-        return json.loads(pro_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        data = json.loads(pro_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        notes.append(f"{pro_path.name} could not be read ({type(exc).__name__}: {exc}); "
+                     "its sheet list and multi-board settings are unknown.")
         return {}
+    if not isinstance(data, dict):
+        notes.append(f"{pro_path.name} is not a KiCad project file (no settings object).")
+        return {}
+    return data
 
 
 def _resolve_pro(pro_path: Path) -> MultiboardProject | BoardProject:
-    pro_data = _load_pro(pro_path)
-    stem = pro_path.stem
+    notes: list[str] = []
+    pro_data = _load_pro(pro_path, notes)
 
     # PCB: same stem, same directory
     pcb_path = pro_path.with_suffix(".kicad_pcb")
@@ -104,6 +113,7 @@ def _resolve_pro(pro_path: Path) -> MultiboardProject | BoardProject:
         sch_sheets=sch_sheets,
         is_part_of_multiboard=is_multi,
         sub_project_uuid=sub_uuid,
+        notes=notes,
     )
 
     # If it references a multi_board parent, try to resolve the full MBS
@@ -114,8 +124,9 @@ def _resolve_pro(pro_path: Path) -> MultiboardProject | BoardProject:
             if parent_path.exists() and parent_path.suffix == ".kicad_mbs":
                 try:
                     return _resolve_mbs(parent_path)
-                except Exception:
-                    pass
+                except (OSError, UnicodeDecodeError, ValueError) as exc:
+                    notes.append(f"The container {parent_path.name} could not be resolved "
+                                 f"({type(exc).__name__}: {exc}); the board is read on its own.")
 
     return bp
 
@@ -140,6 +151,7 @@ def _resolve_mbs(mbs_path: Path) -> MultiboardProject:
     cross_nets: list[CrossBoardNet] = extract_cross_board_nets(blocks)
 
     boards: list[BoardProject] = []
+    container_notes: list[str] = []
     seen_sub_paths: set[str] = set()
     for block in blocks:
         sub_rel = block.sub_project_path
@@ -148,8 +160,10 @@ def _resolve_mbs(mbs_path: Path) -> MultiboardProject:
         seen_sub_paths.add(sub_rel)
         sub_pro_path = (mbs_dir / sub_rel).resolve()
         if not sub_pro_path.exists():
+            container_notes.append(f"Board project {sub_rel} named by {mbs_path.name} does not exist.")
             continue
-        pro_data = _load_pro(sub_pro_path)
+        board_notes: list[str] = []
+        pro_data = _load_pro(sub_pro_path, board_notes)
         stem = sub_pro_path.stem
         pcb_path = sub_pro_path.with_suffix(".kicad_pcb")
         sch_path = sub_pro_path.with_suffix(".kicad_sch")
@@ -166,6 +180,7 @@ def _resolve_mbs(mbs_path: Path) -> MultiboardProject:
             sch_sheets=sch_sheets,
             is_part_of_multiboard=True,
             sub_project_uuid=block.sub_project_uuid,
+            notes=board_notes,
         ))
 
     return MultiboardProject(
@@ -173,4 +188,5 @@ def _resolve_mbs(mbs_path: Path) -> MultiboardProject:
         container_pro_path=container_pro,
         boards=boards,
         cross_board_nets=cross_nets,
+        notes=container_notes,
     )

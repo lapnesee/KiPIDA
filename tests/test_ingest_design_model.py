@@ -132,6 +132,23 @@ class TestBuildDesignModelFromSingleBoard(unittest.TestCase):
         dm = build_design_model(self._make_bp())
         self.assertEqual(len(dm.board_netlists), 1)
 
+    def test_an_edit_to_a_sub_sheet_changes_the_source_hash(self):
+        # Only the root sheet was hashed: a change below it left cached analyses valid.
+        self.sch_path.write_text('(kicad_sch (version 20260306) (uuid "root") '
+                                 '(sheet (uuid "s") (property "Sheetfile" "child.kicad_sch")))', encoding="utf-8")
+        child = Path(self.tmpdir) / "child.kicad_sch"
+        child.write_text('(kicad_sch (version 20260306) (uuid "c"))', encoding="utf-8")
+        before = build_design_model(self._make_bp()).source_hash
+        child.write_text('(kicad_sch (version 20260306) (uuid "c") '
+                         '(symbol (lib_id "Device:R") (uuid "r") (property "Reference" "R1")))', encoding="utf-8")
+        self.assertNotEqual(build_design_model(self._make_bp()).source_hash, before)
+
+    def test_a_board_that_cannot_be_read_is_an_issue_not_an_empty_board(self):
+        self.pcb_path.write_text("(kicad_pcb (version 20221018))", encoding="utf-8")  # KiCad 7
+        dm = build_design_model(self._make_bp())
+        self.assertEqual([(i["file"], i["error"].split(":")[0]) for i in dm.issues],
+                         [(str(self.pcb_path), "UnsupportedFileFormat")])
+
 
 class TestNetlistToDict(unittest.TestCase):
     def test_structure(self):
