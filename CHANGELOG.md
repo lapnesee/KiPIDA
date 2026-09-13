@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed the offline board reader finding no copper layers on a board whose
+  setup was never edited: KiCad writes the stackup block only then, and 4 of
+  the 19 KiCad 10 demo boards have none. The copper layers now come from the
+  layer table, in physical order, with thickness left unknown, so vias and
+  through-hole pads join the layers again. The reader also keeps each layer's
+  designer name ("L2GND" for In1.Cu), the name KiCad's IPC stackup reports.
 - Fixed the offline board reader mirroring the pads of every footprint rotated
   by anything but 0 or 180 degrees: it rotated pad offsets with a Y-up matrix in
   KiCad's Y-down frame. The DC advisor located sources and loads on such parts at

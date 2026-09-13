@@ -364,6 +364,110 @@ class TestRotatedPadPositions(unittest.TestCase):
         self.assertAlmostEqual(pad.position[1], 10.0, places=6)
 
 
+NO_STACKUP_PCB = """\
+(kicad_pcb
+    (version 20260206)
+    (generator "pcbnew")
+    (general
+        (thickness 1.6)
+    )
+    (layers
+        (0 "F.Cu" signal "Top Layer")
+        (2 "B.Cu" signal)
+        (4 "In1.Cu" power "L2GND")
+        (6 "In2.Cu" signal)
+        (25 "Edge.Cuts" user)
+    )
+    (setup
+        (pad_to_mask_clearance 0)
+    )
+    (net 1 "VCC")
+    (segment (start 1 1) (end 5 1) (width 0.5) (layer "F.Cu") (net 1) (uuid "s1"))
+    (segment (start 5 1) (end 9 1) (width 0.5) (layer "B.Cu") (net 1) (uuid "s2"))
+    (via (at 5 1) (size 0.6) (drill 0.3) (layers "F.Cu" "B.Cu") (net 1) (uuid "v1"))
+)
+"""
+
+
+class TestBoardWithoutStackupBlock(unittest.TestCase):
+    """A board whose setup was never edited still has its copper layers.
+
+    KiCad writes the (stackup) block only after the board setup is edited, and
+    4 of the 19 KiCad 10 demo boards have none. The reader returned no copper
+    layers for them, so every via and through-hole pad fell out of the hybrid
+    mesh and each layer's copper stood alone.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(
+            suffix=".kicad_pcb", mode="w", encoding="utf-8", delete=False
+        )
+        self.tmp.write(NO_STACKUP_PCB)
+        self.tmp.close()
+        self.pcb_path = Path(self.tmp.name)
+        self.board = read_board(self.pcb_path)
+
+    def tearDown(self):
+        self.pcb_path.unlink(missing_ok=True)
+
+    def test_copper_layers_come_from_the_layer_table_in_physical_order(self):
+        layers = self.board.stackup.layers
+        self.assertEqual([layer.name for layer in layers], ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"])
+        self.assertEqual([layer.layer_id for layer in layers], [0, 4, 6, 2])
+        self.assertEqual(self.board.stackup.source, "layers")
+        self.assertEqual(self.board.stackup.copper_layer_count, 4)
+        self.assertAlmostEqual(self.board.stackup.total_thickness_mm, 1.6)
+
+    def test_thickness_is_left_unknown_rather_than_invented(self):
+        self.assertTrue(all(layer.thickness_mm == 0.0 for layer in self.board.stackup.layers))
+
+    def test_designer_layer_names_are_kept(self):
+        names = {layer.name: layer.user_name for layer in self.board.stackup.layers}
+        self.assertEqual(names["F.Cu"], "Top Layer")
+        self.assertEqual(names["In1.Cu"], "L2GND")
+        self.assertEqual(names["B.Cu"], "")
+
+    def test_the_via_joins_the_two_tracks_in_the_hybrid_mesh(self):
+        try:
+            import numpy, shapely  # noqa: F401
+        except ImportError:
+            self.skipTest("numpy/shapely not available")
+        from mesh_hybrid import HybridMesher
+
+        mesh = HybridMesher(self.board, grid_step_mm=0.2).build_mesh("VCC")
+        vertical = [branch for branch in mesh.branches if branch.kind == "vertical"]
+        # F.Cu -> In1.Cu -> In2.Cu -> B.Cu: the through via passes both inner layers.
+        self.assertEqual(len(vertical), 3)
+        adjacency = {}
+        for branch in mesh.branches:
+            adjacency.setdefault(branch.node_a, set()).add(branch.node_b)
+            adjacency.setdefault(branch.node_b, set()).add(branch.node_a)
+        start = next(iter(adjacency))
+        seen, stack = {start}, [start]
+        while stack:
+            for neighbour in adjacency[stack.pop()] - seen:
+                seen.add(neighbour)
+                stack.append(neighbour)
+        self.assertEqual(len(seen), len(mesh.nodes))
+
+
+class TestStackupUserNames(unittest.TestCase):
+    def test_a_renamed_layer_keeps_its_designer_name_beside_the_canonical_one(self):
+        text = MINI_PCB.replace('(0 "F.Cu" signal)', '(0 "F.Cu" signal "TOP")')
+        tmp = tempfile.NamedTemporaryFile(
+            suffix=".kicad_pcb", mode="w", encoding="utf-8", delete=False
+        )
+        tmp.write(text)
+        tmp.close()
+        try:
+            board = read_board(Path(tmp.name))
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+        top = board.stackup.layers[0]
+        self.assertEqual((top.name, top.user_name), ("F.Cu", "TOP"))
+        self.assertEqual(board.stackup.source, "stackup")
+
+
 class TestBoardMissingFile(unittest.TestCase):
     def test_missing_file_raises(self):
         with self.assertRaises((OSError, ValueError)):

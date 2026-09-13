@@ -22,6 +22,10 @@ class CopperLayer:
     thickness_mm: float
     epsilon_r: Optional[float] = None
     loss_tangent: Optional[float] = None
+    # The name the designer gave the layer ("L2GND" for In1.Cu), empty when it
+    # was not renamed. KiCad's IPC stackup reports this name, not the canonical
+    # one, so matching the file's layers to the live board needs both.
+    user_name: str = ""
 
 
 @dataclass
@@ -29,6 +33,10 @@ class Stackup:
     layers: list[CopperLayer]
     total_thickness_mm: float
     copper_layer_count: int
+    # "stackup" when the copper layers come from the board's (stackup) block,
+    # "layers" when the board has none and they come from its layer table --
+    # thicknesses are then unknown (0.0) rather than read.
+    source: str = "stackup"
 
 
 @dataclass
@@ -205,16 +213,14 @@ def _resolve_net(net_val: str, net_map: dict[str, str]) -> str:
 
 def _parse_stackup(root: list) -> Stackup:
     setup = find(root, "setup")
-    if not setup:
-        return Stackup(layers=[], total_thickness_mm=0.0, copper_layer_count=0)
-
-    stackup_node = find(setup, "stackup")
+    stackup_node = find(setup, "stackup") if setup else None
     copper_layers: list[CopperLayer] = []
     total_thickness = 0.0
 
     # Top-level layer declarations give us layer_id and type
     layer_id_map: dict[str, int] = {}  # name → id
     layer_type_map: dict[str, str] = {}  # name → signal/power
+    user_name_map: dict[str, str] = {}  # name → designer's name
     for layer_decl in find_all(root, "layers"):
         for entry in layer_decl[1:]:
             if isinstance(entry, list) and len(entry) >= 3:
@@ -225,6 +231,8 @@ def _parse_stackup(root: list) -> Stackup:
                     if isinstance(lname, str) and isinstance(ltype, str):
                         layer_id_map[lname] = lid
                         layer_type_map[lname] = ltype
+                        if len(entry) >= 4 and isinstance(entry[3], str):
+                            user_name_map[lname] = entry[3]
                 except (ValueError, IndexError):
                     pass
 
@@ -256,7 +264,26 @@ def _parse_stackup(root: list) -> Stackup:
                     thickness_mm=thick,
                     epsilon_r=eps,
                     loss_tangent=loss,
+                    user_name=user_name_map.get(lname, ""),
                 ))
+
+    source = "stackup"
+    if not copper_layers:
+        # KiCad writes a (stackup) block only once the board setup has been
+        # edited; 4 of the 19 KiCad 10 demo boards have none. Their copper
+        # layers are still declared in the layer table, and without them every
+        # layer lookup failed: vias and through-hole pads were dropped from the
+        # mesh, leaving each layer's copper unconnected to the others.
+        source = "layers"
+        declared = [name for name in layer_id_map if _copper_order(name) is not None]
+        for lname in sorted(declared, key=_copper_order):
+            copper_layers.append(CopperLayer(
+                layer_id=layer_id_map[lname],
+                name=lname,
+                layer_type=layer_type_map.get(lname, "signal"),
+                thickness_mm=0.0,
+                user_name=user_name_map.get(lname, ""),
+            ))
 
     # Fallback: parse (general (thickness T)) for total thickness
     if total_thickness == 0.0:
@@ -273,7 +300,24 @@ def _parse_stackup(root: list) -> Stackup:
         layers=copper_layers,
         total_thickness_mm=total_thickness,
         copper_layer_count=len(copper_layers),
+        source=source,
     )
+
+
+def _copper_order(name: str) -> Optional[tuple[int, int]]:
+    """Physical position of a canonical copper layer name, or None.
+
+    The layer table lists copper by KiCad's internal id, which no longer
+    follows the board from top to bottom (B.Cu is 2, In1.Cu is 4), so the
+    order has to come from the names: F.Cu, In1.Cu .. InN.Cu, B.Cu.
+    """
+    if name == "F.Cu":
+        return (0, 0)
+    if name == "B.Cu":
+        return (2, 0)
+    if name.startswith("In") and name.endswith(".Cu") and name[2:-3].isdigit():
+        return (1, int(name[2:-3]))
+    return None
 
 
 def _parse_bounds(root: list) -> BoardBounds:
