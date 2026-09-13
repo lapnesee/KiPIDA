@@ -164,7 +164,11 @@ def _check_undecoupled_power_pins(context: SchematicRuleContext) -> list:
                         f"'{net_name}' with no decoupling capacitor to ground found on that net."
                     ),
                     recommendation=f"Add a decoupling capacitor between {net_name} and ground, close to {component.reference}.",
-                    confidence=EvidenceConfidence.DETERMINISTIC,
+                    # The pin type is a fact; "no capacitor to ground" is a
+                    # verdict resting on recognising capacitors by class and
+                    # value and grounds by name. DETERMINISTIC is for facts
+                    # about the run (docs/audit-coherence-analyses.md, R6).
+                    confidence=EvidenceConfidence.ESTIMATED,
                     nets=[net_name],
                     components=[component.reference],
                     evidence=[AnalysisEvidence(

@@ -54,6 +54,8 @@ class TestUndecoupledPowerPin(unittest.TestCase):
         findings = _check_undecoupled_power_pins(self._ic(decoupled=False))
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0].rule_id, "SCH-001")
+        # A verdict drawn from recognising capacitors and grounds, not a fact.
+        self.assertEqual(findings[0].confidence.value, "ESTIMATED")
 
     def test_present_decoupling_not_flagged(self):
         findings = _check_undecoupled_power_pins(self._ic(decoupled=True))
