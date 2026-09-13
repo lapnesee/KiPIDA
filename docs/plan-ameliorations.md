@@ -20,8 +20,8 @@ conversation being remembered.
 Working constraints for this project:
 
 * Branch `claude/pcb-analysis-tool-40t1dr`, commit messages in English.
-* `python -m unittest discover -s tests` must stay green. It was 987
-  tests on 2026-09-13, after phase 4 of the universality plan. How many skip depends on what is installed: on a machine with
+* `python -m unittest discover -s tests` must stay green. It was 999
+  tests on 2026-09-13, after phase 6 of the universality plan. How many skip depends on what is installed: on a machine with
   wxPython, CuPy, openEMS and ngspice nothing should skip but the CUDA
   branches. Without wxPython -- the usual case on a Linux runner, where it has
   no wheel -- 25 more skip and `test_plotter`/`test_i18n` fail outright on the

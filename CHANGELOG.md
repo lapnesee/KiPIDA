@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Changed how the project's saved files are read for its declarations: once
+  per session while no file changes, and not at all without being asked for a
+  board over 50 MB, where reading takes tens of seconds; the log gives the
+  board's size and names stand in. Zeo container paths written with
+  backslashes now resolve on macOS and Linux.
 - Changed the EMI/EMC decoupling and connector rules to use what the project's
   files say about each part, on top of the reference prefixes: a part with a
   power_in pin is checked for decoupling even when it is not a U or IC (a

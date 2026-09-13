@@ -424,6 +424,24 @@ s'appellent GND.
 6.3 CI : fixtures synthétiques exécutées sur le runner Linux ; harnais de corpus
     exécuté à la main, hors CI.
 
+**Fait le 2026-09-13, sauf ce qui dépend de la règle de détection** (`8b12835`,
+`27dd375`, `6a9779f`).
+
+* 6.1 : les chemins d'un conteneur Zeo (`sub_projects`, chemin relatif du
+  conteneur, `mbs_file`) sont lus avec des `/` quel que soit le système qui les a
+  écrits ; la comparaison des cartes suit la casse du système. Les indices
+  d'hôte notent un `kicad-cli` logé dans un paquet d'application (Zeo.app sur
+  macOS). Détecter l'hôte sur macOS et Linux attend la règle de la phase 0.
+* 6.2 : mesuré sur les démos, vme-wren (68 Mo) se lit en 25 s (carte 16 s,
+  schéma 9 s), la carte Jetson (85 Mo) en 22 s, main (~20 Mo) en 4 s. La
+  lecture des déclarations est gardée tant que ni la carte ni aucune feuille ne
+  change ; au-delà de 50 Mo elle n'a pas lieu sans demande
+  (`DesignReadDeclined`, taille dite dans le journal) et les noms prennent le
+  relais.
+* 6.3 : un job Linux exécute les 19 modules de fixtures d'ingestion, de
+  contexte, de règles et de scans (225 tests, sans wx). Rien n'est poussé : le
+  job n'a pas encore tourné sur GitHub.
+
 ### Phase 7 — Multi-cartes KiKit (prévue, non planifiée)
 
 KiKit matérialise le multi-cartes autrement que Zeo : **un seul projet, un seul
