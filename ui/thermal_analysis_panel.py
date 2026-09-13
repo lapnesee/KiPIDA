@@ -177,9 +177,13 @@ class ThermalAnalysisPanel(wx.Panel):
         self.chk_radiation = wx.CheckBox(settings_parent, label="Include radiation")
         self.chk_dc_loss = wx.CheckBox(settings_parent, label="Include DC copper losses")
         self.chk_internal_layers = wx.CheckBox(settings_parent, label="Show internal copper maps in Results")
+        self.chk_mesh_sensitivity = wx.CheckBox(settings_parent, label="Check mesh sensitivity (2x grid)")
+        self.chk_mesh_sensitivity.SetToolTip(
+            "Solve again at twice the grid step and report how far the hotspot moves."
+        )
         for check in (
             self.chk_top, self.chk_bottom, self.chk_edges, self.chk_radiation,
-            self.chk_dc_loss, self.chk_internal_layers,
+            self.chk_dc_loss, self.chk_internal_layers, self.chk_mesh_sensitivity,
         ):
             check.SetValue(True)
             checks.Add(check, 0, wx.RIGHT, 14)
@@ -425,6 +429,7 @@ class ThermalAnalysisPanel(wx.Panel):
         if minimum is not None and maximum is not None and maximum <= minimum:
             raise ValueError("Thermal colour maximum must be greater than the colour minimum.")
         self.settings.show_internal_copper_layers = self.chk_internal_layers.GetValue()
+        self.settings.mesh_sensitivity_check = self.chk_mesh_sensitivity.GetValue()
         self.settings.coupled_iterations = int(self.txt_iterations.GetValue())
         self.settings.convergence_c = float(self.txt_convergence.GetValue())
         if not 0.01 <= self.settings.grid_size_mm <= 5.0 or self.settings.coupled_iterations < 1:
@@ -458,6 +463,7 @@ class ThermalAnalysisPanel(wx.Panel):
         self.chk_internal_layers.SetValue(
             bool(getattr(self.settings, "show_internal_copper_layers", True))
         )
+        self.chk_mesh_sensitivity.SetValue(bool(self.settings.mesh_sensitivity_check))
         colour_map = str(getattr(self.settings, "color_map", "inferno")).lower()
         colour_index = next(
             (index for index, (_, value) in enumerate(THERMAL_COLOR_MAPS) if value == colour_map),

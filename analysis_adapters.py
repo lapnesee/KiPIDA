@@ -756,9 +756,55 @@ def _copper_loss_evidence(copper_loss_source: str) -> list:
     )]
 
 
+# A hotspot that moves by more than this between the grid and one twice as
+# coarse is not converged in mesh: the solve's own resolution decides the
+# figure more than a design change of that size would.
+THERMAL_MESH_SENSITIVITY_LIMIT_C = 2.0
+
+
+def _thermal_mesh_sensitivity(mesh_sensitivity: Any):
+    """(metrics, findings, limitations) for a hotspot solved at two grid steps."""
+    data = dict(mesh_sensitivity or {})
+    if "delta_c" not in data:
+        return [], [], []
+    delta = float(data["delta_c"])
+    exceeded = delta > THERMAL_MESH_SENSITIVITY_LIMIT_C
+    metrics = [AnalysisMetric(
+        "hotspot_mesh_sensitivity",
+        f"Hotspot change at twice the grid step ({float(data.get('coarse_grid_mm', 0.0)):g} mm)",
+        delta, "°C", "WARN" if exceeded else "INFO",
+    )]
+    if not exceeded:
+        # Two solves agreeing is not convergence. Measured on a synthetic
+        # board (validation/thermal_mesh_sensitivity.py) the hotspot read
+        # 105.3, 101.3, 105.7 and 104.9 C at 0.5, 1, 2 and 4 mm: the 2 and
+        # 4 mm solves agree within 0.8 C while 0.5 mm is 4 C from 1 mm.
+        return metrics, [], [
+            f"The hotspot moved {delta:.2f} C between {float(data.get('fine_grid_mm', 0.0)):g} and "
+            f"{float(data.get('coarse_grid_mm', 0.0)):g} mm. Two steps agreeing does not prove the "
+            "mesh converged: on a synthetic board the 2 and 4 mm solves agreed within 0.8 C "
+            "while the 0.5 and 1 mm solves were 4 C apart (validation/thermal_mesh_sensitivity.py)."
+        ]
+    return metrics, [_finding(
+        "TH-004", 1, "NUMERICS", FindingSeverity.MEDIUM,
+        "Thermal result is not converged in mesh",
+        f"The hotspot is {float(data.get('fine_hotspot_c', 0.0)):.2f} C at "
+        f"{float(data.get('fine_grid_mm', 0.0)):g} mm and "
+        f"{float(data.get('coarse_hotspot_c', 0.0)):.2f} C at "
+        f"{float(data.get('coarse_grid_mm', 0.0)):g} mm, {delta:.2f} C apart, more than the "
+        f"{THERMAL_MESH_SENSITIVITY_LIMIT_C:g} C the mesh may move a converged result.",
+        f"Rerun with a finer grid until the check stays under {THERMAL_MESH_SENSITIVITY_LIMIT_C:g} C; "
+        f"until then read temperatures as uncertain by at least {delta:.1f} C.",
+        confidence=EvidenceConfidence.DETERMINISTIC,
+    )], []
+
+
 def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seconds: float = 0.0,
-                         *, copper_loss_source: str = "") -> AnalysisResult:
-    findings = []
+                         *, copper_loss_source: str = "", mesh_sensitivity: Any = None) -> AnalysisResult:
+    sensitivity_metrics, sensitivity_findings, sensitivity_limitations = (
+        _thermal_mesh_sensitivity(mesh_sensitivity)
+    )
+    findings = list(sensitivity_findings)
     components = list(getattr(domain_result, "component_results", ()) or ())
     for index, component in enumerate(components, start=1):
         if float(getattr(component, "margin_c", 0.0)) < 0:
@@ -830,7 +876,7 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
                 # it to be read as physical accuracy.
                 "NUMERICS_OK" if abs(balance) <= 5.0 else "WARN",
             ),
-        ] + _thermal_surface_metrics(domain_result),
+        ] + _thermal_surface_metrics(domain_result) + sensitivity_metrics,
         provenance=[
             AnalysisEvidence(
                 "PCB_GEOMETRY",
@@ -855,7 +901,7 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
         },
         limitations=[
             "Compact thermal models require datasheet and measurement validation.",
-        ] + _thermal_grid_limitations(domain_result),
+        ] + _thermal_grid_limitations(domain_result) + sensitivity_limitations,
     ).finish()
 
 

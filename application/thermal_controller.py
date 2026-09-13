@@ -1,5 +1,6 @@
 """UI-independent orchestration for thermal and coupled DC/thermal analyses."""
 
+import copy
 from dataclasses import dataclass, replace
 import time
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -53,6 +54,10 @@ class ThermalRunOutcome:
     elapsed_seconds: float
     # Where the copper-loss heat sources came from; empty when there were none.
     copper_loss_source: str = ""
+    # The hotspot solved again at twice the grid step, when the settings ask:
+    # {"fine_grid_mm", "coarse_grid_mm", "fine_hotspot_c", "coarse_hotspot_c",
+    # "delta_c"}. None when not computed.
+    mesh_sensitivity: Optional[Dict[str, float]] = None
 
 
 def describe_dc_source(system_results, origin):
@@ -241,6 +246,9 @@ class ThermalSolverEngine:
             )
         if cancelled():
             raise ThermalAnalysisCancelled("Thermal analysis cancelled.")
+        mesh_sensitivity = None
+        if not request.coupled and getattr(request.settings, "mesh_sensitivity_check", False):
+            mesh_sensitivity = self._mesh_sensitivity(model, request, result, emit, cancelled)
         return ThermalRunOutcome(
             mesh=mesh,
             result=result,
@@ -250,7 +258,59 @@ class ThermalSolverEngine:
             cache_value=(mesh, thermal_solver),
             elapsed_seconds=time.perf_counter() - started,
             copper_loss_source=copper_loss_source,
+            mesh_sensitivity=mesh_sensitivity,
         )
+
+    def _mesh_sensitivity(self, model, request, result, emit, cancelled):
+        """Solve at twice the grid step and measure how far the hotspot moves.
+
+        The thermal result carried no error bar; this is the cheapest one it
+        can have, since a mesh twice as coarse costs a fraction of the solve
+        just done. Its progress stays out of the progress bar, and its log
+        lines are marked, so the run the user asked for still reads as one.
+        """
+        hotspot = getattr(result, "hotspot", None)
+        if hotspot is None:
+            return None
+        fine_step = float(getattr(result, "effective_grid_size_mm", 0.0) or 0.0) or float(
+            request.settings.grid_size_mm
+        )
+        coarse_settings = copy.copy(request.settings)
+        coarse_settings.grid_size_mm = fine_step * 2.0
+
+        def quiet(*_args):
+            if cancelled():
+                raise ThermalAnalysisCancelled("Thermal analysis cancelled.")
+
+        def marked(message):
+            emit(f"[mesh sensitivity, {fine_step * 2.0:g} mm] {message}")
+
+        emit(f"Checking mesh sensitivity: solving again at {fine_step * 2.0:g} mm.")
+        coarse_mesh = self._mesher_factory(
+            debug=request.debug, log_callback=marked, compute_settings=request.compute_settings,
+        ).generate_mesh(
+            model, coarse_settings, progress_callback=quiet,
+            air_velocity_m_s=request.air_velocity_m_s,
+        )
+        coarse = self._solver_factory(
+            debug=request.debug, log_callback=marked, compute_settings=request.compute_settings,
+        ).solve_with_surface_refinement(coarse_mesh, coarse_settings, progress_callback=quiet)
+        coarse_hotspot = getattr(coarse, "hotspot", None)
+        if coarse_hotspot is None:
+            return None
+        coarse_step = float(getattr(coarse, "effective_grid_size_mm", 0.0) or 0.0) or fine_step * 2.0
+        delta = abs(float(hotspot.temperature_c) - float(coarse_hotspot.temperature_c))
+        emit(
+            f"Hotspot {float(hotspot.temperature_c):.2f} C at {fine_step:g} mm, "
+            f"{float(coarse_hotspot.temperature_c):.2f} C at {coarse_step:g} mm: {delta:.2f} C apart."
+        )
+        return {
+            "fine_grid_mm": fine_step,
+            "coarse_grid_mm": coarse_step,
+            "fine_hotspot_c": float(hotspot.temperature_c),
+            "coarse_hotspot_c": float(coarse_hotspot.temperature_c),
+            "delta_c": delta,
+        }
 
 
 class ThermalAnalysisController(BackgroundAnalysisController):

@@ -854,6 +854,10 @@ class ThermalAnalysisSettings:
     color_scale_maximum_mode: str = "AUTO"
     color_scale_maximum_c: Optional[float] = None
     show_internal_copper_layers: bool = True
+    # Solve a second time at twice the grid step and publish how far the
+    # hotspot moves: the thermal result had no error bar, and mesh resolution
+    # alone moved the reference board's hotspot by 7.4 C between 0.5 and 0.1 mm.
+    mesh_sensitivity_check: bool = True
     coupled_iterations: int = 10
     convergence_c: float = 0.1
     relaxation: float = 0.6

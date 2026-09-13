@@ -1605,13 +1605,14 @@ class KiPIDA_MainDialog(wx.Dialog):
             settings.color_scale_maximum_mode,
             settings.show_internal_copper_layers,
             copper_loss_source=getattr(outcome, "copper_loss_source", ""),
+            mesh_sensitivity=getattr(outcome, "mesh_sensitivity", None),
         )
 
     def _finish_thermal_worker(
         self, mesh, result, coupled, coupled_result, system_results, elapsed_seconds,
         color_map, color_scale_minimum_c, color_scale_minimum_mode,
         color_scale_maximum_c, color_scale_maximum_mode,
-        show_internal_copper_layers, copper_loss_source="",
+        show_internal_copper_layers, copper_loss_source="", mesh_sensitivity=None,
     ):
         self.btn_run_thermal.Enable()
         self.btn_run_coupled.Enable()
@@ -1629,6 +1630,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             color_scale_maximum_mode=color_scale_maximum_mode,
             show_internal_copper_layers=show_internal_copper_layers,
             copper_loss_source=copper_loss_source,
+            mesh_sensitivity=mesh_sensitivity,
         )
         self.log(f"Thermal analysis completed in {elapsed_seconds:.3f} s.")
         self._set_interaction_status("Thermal analysis · complete")
@@ -1649,7 +1651,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self, mesh, result, coupled=False, elapsed_seconds=None, color_map="inferno",
         color_scale_minimum_c=None, color_scale_minimum_mode="AUTO",
         color_scale_maximum_c=None, color_scale_maximum_mode="AUTO",
-        show_internal_copper_layers=True, copper_loss_source="",
+        show_internal_copper_layers=True, copper_loss_source="", mesh_sensitivity=None,
     ):
         report = format_thermal_report(
             mesh, result, coupled=coupled,
@@ -1670,6 +1672,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             "THERMAL", report, [],
             structured_result=adapt_thermal_result(
                 result, coupled, elapsed_seconds or 0.0, copper_loss_source=copper_loss_source,
+                mesh_sensitivity=mesh_sensitivity,
             ),
         )
         page.show_rendering("Rendering thermal plots in background...")

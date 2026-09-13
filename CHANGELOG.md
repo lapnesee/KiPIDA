@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added a mesh sensitivity check to the thermal analysis, on by default: the
+  board is solved again at twice the grid step, the hotspot change is
+  published, and above 2 C a TH-004 finding says the result is not converged
+  in mesh. Below it the result says that two steps agreeing does not prove
+  convergence: on a synthetic board the hotspot read 105.3, 101.3, 105.7 and
+  104.9 C at 0.5, 1, 2 and 4 mm (`validation/thermal_mesh_sensitivity.py`).
+  Coupled runs are not checked.
 - Changed a campaign to solve the DC once: the thermal and CFD runs that need
   copper losses take them from the campaign's DC result instead of solving the
   same DC again from their own capture. A coupled electro-thermal run keeps

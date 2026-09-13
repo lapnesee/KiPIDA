@@ -265,6 +265,16 @@ activé par défaut, déclaré une seule fois (test B1). Mesure de l'écart au
 préréglage « Normal (1,0 mm) » sur un modèle synthétique ; la mesure sur carte
 réelle demande un lancement depuis KiCad ou Zeo et reste signalée comme à faire.
 
+**Fait**, hors couplage électrothermique (non vérifié). Mesure
+(`validation/thermal_mesh_sensitivity.py`, carte synthétique 60 × 40 mm, trois
+composants, convection naturelle et rayonnement) : point chaud 105,3 / 101,3 /
+105,7 / 104,9 °C à 0,5 / 1 / 2 / 4 mm. Au préréglage Normal, l'écart à pas double
+vaut **4,35 °C** : TH-004 se déclenche. La convergence n'est pas monotone : 2 et
+4 mm s'accordent à 0,8 °C alors que 0,5 et 1 mm sont à 4 °C. Le contrôle à deux
+pas peut donc dire « non convergé », jamais « convergé » ; quand il passe, le
+résultat le précise. **Reste à faire** : la mesure sur la carte de référence,
+qui demande un lancement depuis KiCad ou Zeo.
+
 ## Clôture
 
 Harnais relancés (`dc_raster_fidelity.py`, `ingest_corpus.py`, comparaison DC),

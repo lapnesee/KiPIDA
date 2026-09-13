@@ -164,6 +164,7 @@ def _adapt_thermal(domain_result, request) -> AnalysisResult:
         domain_result.coupled_result is not None,
         domain_result.elapsed_seconds,
         copper_loss_source=getattr(domain_result, "copper_loss_source", ""),
+        mesh_sensitivity=getattr(domain_result, "mesh_sensitivity", None),
     )
 
 
