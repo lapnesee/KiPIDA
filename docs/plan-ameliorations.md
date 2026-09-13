@@ -20,8 +20,8 @@ conversation being remembered.
 Working constraints for this project:
 
 * Branch `claude/pcb-analysis-tool-40t1dr`, commit messages in English.
-* `python -m unittest discover -s tests` must stay green. It was 959
-  tests on 2026-09-13, after phase 1 of the universality plan. How many skip depends on what is installed: on a machine with
+* `python -m unittest discover -s tests` must stay green. It was 987
+  tests on 2026-09-13, after phase 4 of the universality plan. How many skip depends on what is installed: on a machine with
   wxPython, CuPy, openEMS and ngspice nothing should skip but the CUDA
   branches. Without wxPython -- the usual case on a Linux runner, where it has
   no wheel -- 25 more skip and `test_plotter`/`test_i18n` fail outright on the
@@ -541,6 +541,12 @@ I5 and I6 are measured for the first time and reproduce the hand counts above.
 They, I2, I3 and I4 belong to phase 4. SCH-005's false findings on
 multi-instance sheets are gone with I1 (complex_hierarchy 29 to 0,
 multichannel 78 to 0).
+
+After phases 2 to 4 (same corpus): I2, I3, I4, I5, I6 and I7 fail on no board;
+I1 fails only on main, whose three footprints point at symbols its schematic no
+longer holds and are now SCH-005's three findings. The schematic rules run in
+the batch -- B2's note that `rules/` was reached by nothing is closed, and the
+reachability guard covers it.
 
 ## E. Audit recommendations — carried out
 

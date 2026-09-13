@@ -339,6 +339,30 @@ pic_programmer, kit-dev, interf_u ; 53/53 nets à symbole d'alimentation classé
 0 rail open-collector seul ; 19/19 condensateurs reconnus sur cm5. Le reliquat
 SCH-002 de `video` (98 broches sans marqueur) est examiné et documenté, pas figé.
 
+**Fait le 2026-09-13** (`675b8b1`, `748ae53`, `d6fd6ff`, `a1d91f8`, `e084567`,
+`92a0ca6`, `7f8f32e`, `2309ab4`). Tous les invariants tiennent, mesurés par
+`ingest_corpus.py` : SCH-005 = 0 sur les 15 cartes ; SCH-002 = 0 sur les trois
+cartes nommées ; 53/53 ; 0 rail open-collector ; cm5 19/19 (et main 57/57) ;
+I2 à I6 n'échouent sur aucune carte, référence comprise.
+
+* Le reliquat de `video` : les 98 broches sont typées `no_connect` par leur
+  bibliothèque (modules SIM4X32), comme les 21 restées sur cm5. L'ERC de KiCad
+  ne les signale pas quand elles sont libres ; SCH-002 non plus, et sa
+  description le dit. Restent 1 (multichannel), 1 (openair-max), 2
+  (tiny_tapeout) et 22 (LEDS_sub) broches passives sans marqueur.
+* SCH-001 : restent une broche de référence GPIO (cm5), un VBUS USB
+  (tiny_tapeout), le VBAT de U100 (main) et des pastilles de blindage typées
+  `power_in` (p02, main) — un blindage n'est pas une alimentation, question de
+  la phase 5.5. Passé en ESTIMATED (R6 de l'audit).
+* SCH-005 garde un seul sens ; les empreintes « PCB seul » sont un INFO agrégé
+  sous un nouvel identifiant, SCH-006, pour que l'invariant compte ce qu'il dit.
+* SCH-004 : sur le conteneur de référence en Zeo simulé, les deux paires
+  différentielles et rien d'autre.
+* 4.7 : les règles sont le premier domaine du batch (moteur, adaptateur,
+  dialogue) ; la garde d'accessibilité couvre `application.schematic_controller`,
+  `rules.schematic_rules`, `ingest.project_resolver`, `ingest.project_context` et
+  `ingest.zeo_container`, et résout désormais les imports relatifs.
+
 ### Phase 5 — Analyses : déclarations du projet au lieu de suppositions (L)
 
 5.1 Rails DC/AC : liste issue du `DesignModel` (P4) ; la regex de `discovery.py`
