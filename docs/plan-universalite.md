@@ -382,6 +382,39 @@ I2 à I6 n'échouent sur aucune carte, référence comprise.
 *Invariant* : sur le corpus, aucune fréquence ni aucun rail n'apparaît dans un
 résultat sans provenance traçable à un champ du projet ou à une saisie.
 
+**Fait le 2026-09-13** (`7bb3969`, `db1633d`, `5107734`, `9fd2ac4`, `b7b84b5`).
+L'invariant est mesuré pour les fréquences (I8 de `ingest_corpus.py`) : aucune
+carte n'échoue ; 12 fréquences énoncées par le projet, les autres inconnues. Un
+rail proposé par le scan porte sa source (`PowerRail.discovery`), et le résultat
+DC la cite.
+
+Quatre écarts à la lettre du plan, tous pris sur mesure :
+
+* **5.1** : les noms ne sont pas abandonnés quand le projet déclare des rails,
+  ils passent en dernier et se disent devinés. p02_alimentation ne déclare que
+  GND par symbole d'alimentation et porte ses rails sur des étiquettes : un scan
+  limité aux déclarations aurait perdu 5 de ses 7 rails configurés.
+* **5.2** : un quartz ou oscillateur déclaré devient lui-même une source
+  d'horloge, ses nets (`/XI`, `Net-(U10-XTAL1_IN)`) échappant aux motifs de nom.
+  Les 240 MHz d'une paire USB ne restent que si l'interface nomme la vitesse
+  (USB_HS) ; « USB » seul ne dit pas HS, FS ou LS. EE-003 dit ce qu'une fréquence
+  inconnue empêche de calculer.
+* **5.3** : symbole et type de broche **complètent** les préfixes au lieu de les
+  remplacer. Remplacer U/IC par « a une broche power_in » faisait passer les
+  pièces contrôlées de 114 à 18 sur main et de 16 à 0 sur OpenAir-Max, les
+  symboles de fabricants typant souvent l'alimentation en passif, et ajoutait des
+  connecteurs de bibliothèques privées dont VBUS est power_in.
+* **5.4** : la convention est exactement celle du routeur de KiCad
+  (`matchDpSuffix`) ; les paramètres de paire d'une netclass ne sont pas une
+  déclaration (toutes en ont, Default compris), l'appartenance à une netclass
+  nommée en est une, et un nom d'impédance (« 90ohm ») fixe la cible.
+
+Sur 5.5, la masse vient des symboles de masse de KiCad (GND, GNDA, Earth,
+VSS…, par nom de symbole de bibliothèque) quel que soit le nom du net ; SCH-001,
+l'onglet AC, l'EMC et le différentiel en tiennent compte, le nom restant un
+indice. Aucun constat de règle ne change sur le corpus, où toutes les masses
+s'appellent GND.
+
 ### Phase 6 — Plateformes et échelle (M)
 
 6.1 Détection d'hôte et chemins sous Windows, macOS (`Zeo.app`) et Linux ;
