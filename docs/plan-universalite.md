@@ -69,6 +69,13 @@ Hôte (constaté) :
   et porte le chemin de KiCad 10 : `sys.executable` et `sys.base_prefix` disent
   qui a créé l'environnement, pas qui a lancé le plugin.
 * Aucune API multi-cartes n'existe dans le kipy livré avec zeo-mcp 0.6.3.
+* Interrogé en lecture seule hors plugin (2026-09-13), un Zeo 0.3.0 en cours
+  d'exécution répond `get_version` = `10.0.3`, `get_api_version` =
+  `10.0.1-0-g2db9e5a72b`, `get_kicad_binary_path("kicad-cli")` =
+  `C:/Program Files/Zeo/v0.3.0/bin/kicad-cli.exe`, et `Project.path` = le
+  `.kicad_pro` de la carte ouverte. Le chemin du binaire est donc un candidat
+  sérieux pour la détection (§3.2) ; il reste à l'observer depuis un lancement
+  du plugin, et dans le cas d'une carte ouverte depuis un conteneur.
 * Ce que `Project.path` renvoie quand une carte membre est ouverte depuis le
   conteneur dans Zeo **n'est pas connu** : aucun journal existant ne le consigne.
 
