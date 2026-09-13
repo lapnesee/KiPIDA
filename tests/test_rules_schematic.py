@@ -59,6 +59,26 @@ class TestUndecoupledPowerPin(unittest.TestCase):
         findings = _check_undecoupled_power_pins(self._ic(decoupled=True))
         self.assertEqual(findings, [])
 
+    def test_capacitances_written_without_farad_decouple(self):
+        # cm5_minima writes 17 of its 19 capacitors this way.
+        for value in ("100n", "4u7", "10u", "100n / INA238"):
+            context = self._ic(decoupled=True)
+            context.netlist.components[1].value = value
+            self.assertEqual(_check_undecoupled_power_pins(context), [], value)
+
+    def test_an_inductor_valued_like_a_capacitor_does_not_decouple(self):
+        context = self._ic(decoupled=True)
+        context.netlist.components[1] = ComponentInfo(
+            reference="L1", value="10u", lib_id="Inductor_SMD:L_0603", datasheet="", extra_fields={},
+            position=(1, 0), nets_by_pad={"1": "+3V3", "2": "GND"}, pin_types_by_pad={"1": "passive", "2": "passive"},
+        )
+        self.assertEqual(len(_check_undecoupled_power_pins(context)), 1)
+
+    def test_an_unconnected_power_input_is_not_undecoupled(self):
+        context = self._ic(decoupled=False)
+        context.netlist.components[0].nets_by_pad["1"] = "unconnected-(U1-Pad1)"
+        self.assertEqual(_check_undecoupled_power_pins(context), [])
+
 
 class TestUnconnectedPin(unittest.TestCase):
 

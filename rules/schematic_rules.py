@@ -54,15 +54,34 @@ class SchematicRuleContext:
     all_board_netlists: Optional[list] = None  # list[BoardNetlist], for SCH-004
 
 
-_CAPACITOR_VALUE_RE = re.compile(r"\d+\.?\d*\s*[pnuµ]f", re.IGNORECASE)
+# A capacitance as designers write it: digits, then an SI multiplier followed by
+# F, by the decimal digits of "4u7", or by nothing -- "100n", "10u", "4u7",
+# "100nF", "0.1uF", "CC0603_100NF_50V" -- or a bare farad. The "F" used to be
+# required, which left 17 of cm5_minima's 19 capacitors undecoupling anything.
+_CAPACITOR_VALUE_RE = re.compile(
+    r"(?<![\d.,])\d+(?:[.,]\d+)?\s*(?:[pnuµμ](?:f|\d|(?![a-z]))|mf|f(?![a-z]))", re.IGNORECASE,
+)
+# The class of the part: KiCad's capacitor annotation prefix, or a footprint
+# from a capacitor library. A value alone is not a class: "10u" is also an inductor's.
+_CAPACITOR_REF_RE = re.compile(r"^C\d")
+_CAPACITOR_FOOTPRINT_RE = re.compile(r"capacitor|(^|:)CP?_", re.IGNORECASE)
 _GND_NET_RE = re.compile(r"gnd", re.IGNORECASE)
 _RESISTOR_REF_RE = re.compile(r"^R\d", re.IGNORECASE)
 _RESISTOR_VALUE_RE = re.compile(r"\d+\.?\d*\s*[kKmM]?\s*(ohm|Ω|r)\b", re.IGNORECASE)
 _POWER_FIELD_RE = re.compile(r"power|watt", re.IGNORECASE)
+_UNCONNECTED_PREFIX = "unconnected-"
 
 
 def _is_capacitor_value(value: str) -> bool:
     return bool(_CAPACITOR_VALUE_RE.search(value or ""))
+
+
+def _is_capacitor(component: ComponentInfo) -> bool:
+    is_capacitor_class = bool(
+        _CAPACITOR_REF_RE.match(component.reference or "")
+        or _CAPACITOR_FOOTPRINT_RE.search(component.lib_id or "")
+    )
+    return is_capacitor_class and _is_capacitor_value(component.value)
 
 
 def _is_gnd_net(name: str) -> bool:
@@ -109,6 +128,10 @@ def _check_undecoupled_power_pins(context: SchematicRuleContext) -> list:
             etype = component.pin_types_by_pad.get(pad_number)
             if etype != "power_in":
                 continue
+            if net_name.startswith(_UNCONNECTED_PREFIX):
+                # A power input left unconnected has no net to decouple;
+                # whether it should be connected is another question.
+                continue
             if _is_gnd_net(net_name):
                 # A power_in pin tied directly to ground (e.g. a GND pin
                 # itself) has nothing to be decoupled against.
@@ -121,7 +144,7 @@ def _check_undecoupled_power_pins(context: SchematicRuleContext) -> list:
             decoupled = False
             for other_ref in net_to_refs.get(net_name, ()):
                 other = components_by_ref.get(other_ref)
-                if other is None or not _is_capacitor_value(other.value):
+                if other is None or not _is_capacitor(other):
                     continue
                 if any(_is_gnd_net(n) for n in other.nets_by_pad.values()):
                     decoupled = True
