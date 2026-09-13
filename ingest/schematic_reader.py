@@ -43,12 +43,17 @@ class PinDef:
     number: str
     name: str
     electrical_type: str  # power_in, power_out, bidirectional, passive, input, output…
+    unit: int = 0         # 0: drawn in every unit
+    body_style: int = 0   # 0: drawn in every body style; 2 is the De Morgan alternate
+    x: float = 0.0        # connection point, library coordinates (Y up)
+    y: float = 0.0
 
 
 @dataclass
 class SymbolDef:
     lib_id: str
     pins: list[PinDef] = field(default_factory=list)
+    power: str = ""       # "global" or "local" for a power symbol, "" otherwise
 
 
 @dataclass
@@ -61,11 +66,25 @@ class SymbolInstance:
     datasheet: str
     extra_fields: dict[str, str]
     sheet_path: str       # instance path of the sheet holding it: "/root_uuid/sheet_uuid"
-    pins: list[PinDef]    # from lib definition
+    pins: list[PinDef]    # from lib definition, every unit and body style
     # The path a PCB footprint records for this symbol: the sheet instance path
     # without the root sheet, then the symbol's own uuid ("/sheet_uuid/symbol_uuid").
     footprint_path: str = ""
     unit: int = 1
+    body_style: int = 1
+    lib_name: str = ""    # the embedded definition, when it differs from the library's
+    power: str = ""       # from the definition: "global", "local" or ""
+    # Attributes as KiCad applies them: a symbol inside a sheet excluded from
+    # the board or the BOM, or marked DNP, carries its sheet's exclusion.
+    in_bom: bool = True
+    on_board: bool = True
+    dnp: bool = False
+    no_connect_pins: set[str] = field(default_factory=set)  # pin numbers under a no-connect marker
+
+    def unit_pins(self) -> list[PinDef]:
+        """The pins this placement draws: its unit's and body style's, and the shared ones."""
+        return [pin for pin in self.pins
+                if pin.unit in (0, self.unit) and pin.body_style in (0, self.body_style)]
 
 
 @dataclass
@@ -93,30 +112,34 @@ def read_schematic(root_sch_path: Path) -> ParsedSchematic:
     instances: list[SymbolInstance] = []
     global_nets: list[str] = []
     issues: list[SchematicIssue] = []
-    parsed_files: dict[Path, list] = {}
+    parsed_files: dict[Path, Optional[_SheetFile]] = {}
     listings: dict[Path, list[str]] = {}
 
-    def _load(sch_path: Path):
+    def _load(sch_path: Path) -> Optional[_SheetFile]:
         """Parse a file once, however many instances use it."""
         if sch_path not in parsed_files:
             roots = parse(sch_path.read_text(encoding="utf-8"))
             root = roots[0] if roots and isinstance(roots[0], list) else None
-            parsed_files[sch_path] = root
-            if root is not None:
-                _collect_file_data(root, symbol_defs, global_nets)
+            parsed_files[sch_path] = None if root is None else _SheetFile(
+                root=root,
+                definitions=_collect_file_data(root, symbol_defs, global_nets),
+                no_connects={_point_key(x, y) for x, y in _no_connect_points(root)},
+            )
         return parsed_files[sch_path]
 
-    def _walk(sch_path: Path, segments: tuple[str, ...], ancestry: tuple[Path, ...]) -> None:
+    def _walk(sch_path: Path, segments: tuple[str, ...], ancestry: tuple[Path, ...],
+              attributes: _Attributes) -> None:
         sch_path = sch_path.resolve()
-        root = _load(sch_path)
-        if root is None:
+        sheet_file = _load(sch_path)
+        if sheet_file is None:
             return
+        root = sheet_file.root
         if not segments:
             segments = (_uuid_of(root),)
         sheet_path = "/" + "/".join(segments)
 
         for sym_node in find_all(root, "symbol"):
-            instance = _symbol_instance(sym_node, sheet_path, segments, symbol_defs)
+            instance = _symbol_instance(sym_node, sheet_path, segments, sheet_file, symbol_defs, attributes)
             if instance is not None:
                 instances.append(instance)
 
@@ -124,9 +147,9 @@ def read_schematic(root_sch_path: Path) -> ParsedSchematic:
             written = _sheet_filename(sheet_node)
             if written:
                 _follow(sheet_node, written, sch_path, segments + (_uuid_of(sheet_node),),
-                        ancestry + (sch_path,))
+                        ancestry + (sch_path,), attributes.within(sheet_node))
 
-    def _follow(sheet_node, written, parent_path, segments, ancestry) -> None:
+    def _follow(sheet_node, written, parent_path, segments, ancestry, attributes) -> None:
         def issue(kind, detail):
             issues.append(SchematicIssue(
                 kind=kind, sheet_path="/" + "/".join(segments),
@@ -145,12 +168,12 @@ def read_schematic(root_sch_path: Path) -> ParsedSchematic:
             issue(RECURSIVE_SHEET, f"{written} is already one of this sheet's parents; not followed.")
             return
         try:
-            _walk(child, segments, ancestry)
+            _walk(child, segments, ancestry, attributes)
         except (OSError, UnicodeDecodeError) as exc:
             issue(UNREADABLE_SHEET, f"{written} could not be read ({exc}); "
                                     "the symbols of this sheet are not read.")
 
-    _walk(root_sch_path, (), ())
+    _walk(root_sch_path, (), (), _Attributes())
     return ParsedSchematic(
         root_sch_path=root_sch_path,
         symbol_defs=symbol_defs,
@@ -172,27 +195,59 @@ _PIN_TYPES = {
 }
 
 
-def _collect_file_data(root: list, symbol_defs: dict[str, SymbolDef], global_nets: list[str]) -> None:
-    """Library definitions and global labels, which do not depend on the instance."""
+@dataclass
+class _SheetFile:
+    root: list
+    definitions: dict[str, SymbolDef]   # this file's own lib_symbols
+    no_connects: set[tuple[int, int]]   # marker positions, see _point_key
+
+
+@dataclass(frozen=True)
+class _Attributes:
+    """Exclusions a sheet passes to everything placed inside it."""
+    in_bom: bool = True
+    on_board: bool = True
+    dnp: bool = False
+
+    def within(self, node: list) -> "_Attributes":
+        return _Attributes(
+            in_bom=self.in_bom and _yes_no(node, "in_bom", True),
+            on_board=self.on_board and _yes_no(node, "on_board", True),
+            dnp=self.dnp or _yes_no(node, "dnp", False),
+        )
+
+
+def _collect_file_data(root: list, symbol_defs: dict[str, SymbolDef],
+                       global_nets: list[str]) -> dict[str, SymbolDef]:
+    """Library definitions and global labels, which do not depend on the instance.
+
+    Returns the file's own definitions. Each sheet embeds the definitions it
+    uses, and two sheets can embed different symbols under one name; a placed
+    symbol is resolved against its own file first.
+    """
+    definitions: dict[str, SymbolDef] = {}
     lib_syms_node = find(root, "lib_symbols")
     if lib_syms_node:
         for sym_node in find_all(lib_syms_node, "symbol"):
             if not sym_node or len(sym_node) < 2:
                 continue
             lib_id = sym_node[1] if isinstance(sym_node[1], str) else ""
-            if not lib_id or lib_id in symbol_defs:
+            if not lib_id or lib_id in definitions:
                 continue
-            symbol_defs[lib_id] = _parse_sym_def(lib_id, sym_node)
+            definitions[lib_id] = _parse_sym_def(lib_id, sym_node)
+            symbol_defs.setdefault(lib_id, definitions[lib_id])
 
     for gl_node in find_all(root, "global_label"):
         if len(gl_node) >= 2 and isinstance(gl_node[1], str):
             name = gl_node[1]
             if name and name not in global_nets:
                 global_nets.append(name)
+    return definitions
 
 
 def _symbol_instance(sym_node: list, sheet_path: str, segments: tuple[str, ...],
-                     symbol_defs: dict[str, SymbolDef]):
+                     sheet_file: _SheetFile, symbol_defs: dict[str, SymbolDef],
+                     attributes: _Attributes):
     """One placed symbol under one sheet instance, or None for a non-symbol node."""
     if not sym_node or len(sym_node) < 2:
         return None
@@ -200,6 +255,7 @@ def _symbol_instance(sym_node: list, sheet_path: str, segments: tuple[str, ...],
     if lib_id_node is None:
         return None  # a bare library definition, not a placed symbol
     lib_id = lib_id_node[1] if len(lib_id_node) > 1 else ""
+    lib_name = _str_atom(find(sym_node, "lib_name"), "")
 
     uuid = _uuid_of(sym_node)
     props = _collect_properties(sym_node)
@@ -214,8 +270,13 @@ def _symbol_instance(sym_node: list, sheet_path: str, segments: tuple[str, ...],
     if entry is not None:
         reference = _str_atom(find(entry, "reference"), reference)
         unit = _int_atom(find(entry, "unit"), unit)
+    # KiCad 9 renamed (convert N) to (body_style N).
+    body_style = _int_atom(find(sym_node, "body_style") or find(sym_node, "convert"), 1)
 
-    return SymbolInstance(
+    definition = _resolve_definition(lib_name or lib_id, sheet_file.definitions, symbol_defs)
+    pins = list(definition.pins) if definition else []
+    placed = attributes.within(sym_node)
+    instance = SymbolInstance(
         lib_id=lib_id,
         uuid=uuid,
         reference=reference,
@@ -224,10 +285,79 @@ def _symbol_instance(sym_node: list, sheet_path: str, segments: tuple[str, ...],
         datasheet=props.get("Datasheet", ""),
         extra_fields=extra,
         sheet_path=sheet_path,
-        pins=_resolve_pins(lib_id, symbol_defs),
+        pins=pins,
         footprint_path="/" + "/".join(segments[1:] + (uuid,)),
         unit=unit,
+        body_style=body_style,
+        lib_name=lib_name,
+        power=definition.power if definition else "",
+        in_bom=placed.in_bom,
+        on_board=placed.on_board,
+        dnp=placed.dnp,
     )
+    if sheet_file.no_connects:
+        placement = _placement(sym_node)
+        instance.no_connect_pins = {
+            pin.number for pin in instance.unit_pins()
+            if _point_key(*_place(pin.x, pin.y, placement)) in sheet_file.no_connects
+        }
+    return instance
+
+
+def _no_connect_points(root: list) -> list[tuple[float, float]]:
+    points = []
+    for marker in find_all(root, "no_connect"):
+        at = find(marker, "at")
+        if at is not None and len(at) >= 3:
+            try:
+                points.append((float(at[1]), float(at[2])))
+            except ValueError:
+                continue
+    return points
+
+
+def _placement(sym_node: list) -> tuple[float, float, int, str]:
+    """Position, rotation in degrees and mirror axis of a placed symbol."""
+    at = find(sym_node, "at")
+    values = [float(v) for v in at[1:4]] if at is not None else []
+    x, y, angle = (values + [0.0, 0.0, 0.0])[:3]
+    return x, y, int(round(angle)) % 360, _str_atom(find(sym_node, "mirror"), "")
+
+
+_QUARTER_TURNS = {0: (1, 0), 90: (0, 1), 180: (-1, 0), 270: (0, -1)}  # (cos, sin)
+
+
+def _place(px: float, py: float, placement: tuple[float, float, int, str]) -> tuple[float, float]:
+    """A library point on the sheet.
+
+    Library Y points up and the sheet's down; the symbol turns counter-clockwise
+    as seen on the sheet, then ``(mirror x)`` flips it top to bottom and
+    ``(mirror y)`` left to right. Chosen among the eight readings of rotation
+    direction, mirror axis and order by where pins land on the KiCad 10 demos:
+    this one puts 6,756 of the 7,368 pins of turned or mirrored symbols on a
+    wire end, label, junction or no-connect marker, and wins in every
+    turn-and-mirror combination at once; the next best reaches 5,629.
+    """
+    x0, y0, angle, mirror = placement
+    cos, sin = _QUARTER_TURNS.get(angle, (1, 0))
+    x, y = px, -py
+    x, y = x * cos + y * sin, -x * sin + y * cos
+    if mirror == "x":
+        y = -y
+    elif mirror == "y":
+        x = -x
+    return x0 + x, y0 + y
+
+
+def _point_key(x: float, y: float) -> tuple[int, int]:
+    # Schematic coordinates are written to 0.1 um; compare to the micrometre so
+    # that rounding in the placement arithmetic cannot separate a pin from its marker.
+    return round(x * 1000), round(y * 1000)
+
+
+def _yes_no(node: list, tag: str, default: bool) -> bool:
+    value = _str_atom(find(node, tag), "")
+    return default if value not in ("yes", "no") else value == "yes"
 
 
 def _instance_entry(sym_node: list, sheet_path: str):
@@ -324,14 +454,26 @@ def _int_atom(node, default: int) -> int:
         return default
 
 
+_UNIT_SUFFIX_RE = re.compile(r"_(\d+)_(\d+)$")
+
+
 def _parse_sym_def(lib_id: str, sym_node: list) -> SymbolDef:
     pins: list[PinDef] = []
-    _collect_pins_recursive(sym_node, pins)
-    return SymbolDef(lib_id=lib_id, pins=pins)
+    _collect_pins_recursive(sym_node, pins, 0, 0)
+    power_node = find(sym_node, "power")
+    power = ""
+    if power_node is not None:
+        # (power) before KiCad 9; (power global) or (power local) since.
+        power = power_node[1] if len(power_node) > 1 and power_node[1] in ("global", "local") else "global"
+    return SymbolDef(lib_id=lib_id, pins=pins, power=power)
 
 
-def _collect_pins_recursive(node: list, pins: list[PinDef]) -> None:
-    """Walk all sub-nodes collecting (pin <type> ...) definitions."""
+def _collect_pins_recursive(node: list, pins: list[PinDef], unit: int, body_style: int) -> None:
+    """Walk all sub-nodes collecting (pin <type> ...) definitions.
+
+    A definition draws each unit and body style in a sub-symbol named
+    ``<name>_<unit>_<body style>``, 0 standing for all of them.
+    """
     for child in node[1:]:
         if not isinstance(child, list) or not child:
             continue
@@ -342,9 +484,21 @@ def _collect_pins_recursive(node: list, pins: list[PinDef]) -> None:
             number_node = find(child, "number")
             pin_name = name_node[1] if name_node and len(name_node) > 1 else ""
             pin_num = number_node[1] if number_node and len(number_node) > 1 else ""
-            pins.append(PinDef(number=pin_num, name=pin_name, electrical_type=etype))
+            at = find(child, "at")
+            try:
+                x, y = (float(at[1]), float(at[2])) if at is not None and len(at) >= 3 else (0.0, 0.0)
+            except ValueError:
+                x, y = 0.0, 0.0
+            pins.append(PinDef(number=pin_num, name=pin_name, electrical_type=etype,
+                               unit=unit, body_style=body_style, x=x, y=y))
+        elif child[0] == "symbol" and len(child) >= 2 and isinstance(child[1], str):
+            match = _UNIT_SUFFIX_RE.search(child[1])
+            if match:
+                _collect_pins_recursive(child, pins, int(match.group(1)), int(match.group(2)))
+            else:
+                _collect_pins_recursive(child, pins, unit, body_style)
         else:
-            _collect_pins_recursive(child, pins)
+            _collect_pins_recursive(child, pins, unit, body_style)
 
 
 def _collect_properties(sym_node: list) -> dict[str, str]:
@@ -358,12 +512,16 @@ def _collect_properties(sym_node: list) -> dict[str, str]:
     return props
 
 
-def _resolve_pins(lib_id: str, symbol_defs: dict[str, SymbolDef]) -> list[PinDef]:
-    """Return pin defs for lib_id, handling unit suffixes like "Device:R_0_1"."""
-    if lib_id in symbol_defs:
-        return list(symbol_defs[lib_id].pins)
-    # Try stripping unit suffix (e.g. "Device:R" from "Device:R_0_1")
-    base = re.sub(r"_\d+_\d+$", "", lib_id)
-    if base in symbol_defs:
-        return list(symbol_defs[base].pins)
-    return []
+def _resolve_definition(name: str, own: dict[str, SymbolDef],
+                        symbol_defs: dict[str, SymbolDef]) -> Optional[SymbolDef]:
+    """The definition a placed symbol draws: its ``lib_name`` if it has one, else its ``lib_id``.
+
+    KiCad writes a ``lib_name`` when the embedded symbol no longer matches the
+    library's (261 placements across the KiCad 10 demos); the definition is
+    embedded under that name, and looking it up by ``lib_id`` found nothing.
+    """
+    for candidate in (name, _UNIT_SUFFIX_RE.sub("", name)):
+        definition = own.get(candidate) or symbol_defs.get(candidate)
+        if definition is not None:
+            return definition
+    return None

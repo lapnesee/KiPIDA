@@ -15,6 +15,12 @@
   that contains itself, and -- read, but flagged -- a sheet file named with
   backslashes or with a case the file on disk does not have, which only some
   filesystems resolve.
+- Added to the offline schematic reader what the schematic rules will need:
+  whether a symbol is a power symbol, which of its pins sit under a no-connect
+  marker, its unit and body style and the pins that unit draws, and its BOM,
+  board and DNP attributes combined with those of the sheets above it. Placed
+  symbols whose embedded definition differs from the library (a `lib_name`,
+  261 placements across the KiCad 10 demos) now get their pins; they had none.
 - Added a mesh sensitivity check to the thermal analysis, on by default: the
   board is solved again at twice the grid step, the hotspot change is
   published, and above 2 C a TH-004 finding says the result is not converged

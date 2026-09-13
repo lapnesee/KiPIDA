@@ -30,11 +30,12 @@ I2  SCH-005 never reports a footprint that has no schematic path: such a
 I3  no net is a power rail on open-collector/open-emitter pins alone.
 I4  every C-prefixed component whose value is written as a capacitance is
     recognised as a capacitor by the rules.
-I5  SCH-002 never reports a pin the designer marked no-connect.
-I6  every net carried by a power-flag symbol is classified a rail.
-    I5 and I6 need data the schematic reader does not collect yet (no-connect
-    markers, the power flag); phase 1.3 collects it and adds their measurement
-    here. Until then they print n/a rather than a guess.
+I5  SCH-002 never reports a pin the designer marked no-connect: a pad of the
+    finding's component, on the finding's net, whose pin sits under a
+    no-connect marker in the schematic.
+I6  every net carried by a power symbol is classified a rail. A global power
+    symbol names its net by its value; PWR_FLAG marks a net without naming it
+    and is left out. Nets the board does not have are not counted.
 I7  resolving a directory that holds more than one project fails loudly
     instead of picking one.
 """
@@ -108,7 +109,6 @@ def measure_project(pro, max_pcb_mb):
         schematic = read_schematic(sch_path)
         row["symbols"] = len(schematic.instances)
         row["schematic_issues"] = [f"{issue.kind}: {issue.sheet_file}" for issue in schematic.issues]
-        row["I6_power_flag_nets"] = "n/a (phase 1.3)"
     if not has_pcb:
         row["seconds"] = round(time.perf_counter() - started, 2)
         return row
@@ -171,10 +171,41 @@ def measure_project(pro, max_pcb_mb):
         row["I4_examples"] = missed[:5]
         row["I4_ok"] = not missed
 
-    row["I5_sch002_on_no_connect"] = "n/a (phase 1.3)"
+    if schematic is not None:
+        _measure_no_connect_and_power_nets(row, schematic, netlist, findings)
 
     row["seconds"] = round(time.perf_counter() - started, 2)
     return row
+
+
+def _measure_no_connect_and_power_nets(row, schematic, netlist, findings):
+    marked = {}
+    for inst in schematic.instances:
+        if inst.no_connect_pins:
+            marked.setdefault(inst.reference, set()).update(inst.no_connect_pins)
+    components = {c.reference: c for c in netlist.components}
+    sch002 = [f for f in findings if f.rule_id == "SCH-002"]
+    on_marker = 0
+    for finding in sch002:
+        for ref in finding.components:
+            component = components.get(ref)
+            pads = {pad for pad, net in (component.nets_by_pad.items() if component else ()) if net in finding.nets}
+            if pads & marked.get(ref, set()):
+                on_marker += 1
+                break
+    row["I5_sch002_on_no_connect"] = f"{on_marker}/{len(sch002)}"
+    row["I5_ok"] = on_marker == 0
+
+    power_names = {
+        inst.value for inst in schematic.instances
+        if inst.power == "global" and inst.value and inst.lib_id.split(":")[-1] != "PWR_FLAG"
+    }
+    nets = {net.name: net for net in netlist.nets}
+    present = sorted(name for name in power_names if name in nets)
+    unclassified = [name for name in present if not nets[name].is_power_rail]
+    row["I6_power_symbol_nets_classified"] = f"{len(present) - len(unclassified)}/{len(present)}"
+    row["I6_examples"] = unclassified[:5]
+    row["I6_ok"] = not unclassified
 
 
 def directory_resolution_invariant(arguments):
@@ -221,6 +252,8 @@ def main(argv):
         "I2_boards_failing": sum(1 for r in rows if r.get("I2_ok") is False),
         "I3_boards_failing": sum(1 for r in rows if r.get("I3_ok") is False),
         "I4_boards_failing": sum(1 for r in rows if r.get("I4_ok") is False),
+        "I5_boards_failing": sum(1 for r in rows if r.get("I5_ok") is False),
+        "I6_boards_failing": sum(1 for r in rows if r.get("I6_ok") is False),
         "I7_silent_directory_picks": silent,
     }
     print(json.dumps({"summary": summary}, ensure_ascii=False, indent=1))

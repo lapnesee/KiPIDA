@@ -100,5 +100,58 @@ class SheetFileIssueTests(unittest.TestCase):
         self.assertEqual([i.kind for i in parsed.issues], ["sheet_file_separator"])
 
 
+_AMPLIFIER = """
+(lib_symbols
+  (symbol "Amp_1"
+    (symbol "Amp_1_0_1" (pin power_in line (at 0 7.62 270) (name "V+") (number "8")))
+    (symbol "Amp_1_1_1" (pin input line (at -7.62 2.54 0) (name "+") (number "3")))
+    (symbol "Amp_1_2_1" (pin input line (at -7.62 2.54 0) (name "+") (number "5"))))
+  (symbol "power:GND" (power) (symbol "GND_0_1" (pin power_in line (at 0 0 270) (name "GND") (number "1")))))
+"""
+
+
+class CollectedDataTests(unittest.TestCase):
+    """What the rules of later phases need: definitions by lib_name, units, no-connect, attributes."""
+
+    def _read(self, body):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "root.kicad_sch"
+            root.write_text(f'(kicad_sch (version 20250114) (uuid "root") {_AMPLIFIER} {body})', encoding="utf-8")
+            return read_schematic(root)
+
+    def test_a_unit_placed_turned_and_mirrored_marks_its_no_connect_pin(self):
+        # Unit 2 at (100, 50), turned 90 degrees and mirrored top to bottom: its pin 5, at
+        # (-7.62, 2.54) in the library, lands on (97.46, 42.38) -- the convention measured
+        # on the KiCad 10 demos, see schematic_reader._place.
+        parsed = self._read(
+            '(symbol (lib_name "Amp_1") (lib_id "Amplifier:Amp") (at 100 50 90) (mirror x) (unit 2) '
+            '(uuid "u") (property "Reference" "U1") (instances (project "p" (path "/root" (reference "U1") (unit 2)))))'
+            '(no_connect (at 97.46 42.38) (uuid "nc"))'
+        )
+        amplifier = parsed.instances[0]
+        self.assertEqual(sorted(pin.number for pin in amplifier.pins), ["3", "5", "8"])
+        self.assertEqual(sorted(pin.number for pin in amplifier.unit_pins()), ["5", "8"])
+        self.assertEqual(amplifier.no_connect_pins, {"5"})
+
+    def test_a_power_symbol_carries_the_flag_of_its_definition(self):
+        parsed = self._read(
+            '(symbol (lib_id "power:GND") (at 10 10 0) (uuid "g") (property "Reference" "#PWR01") '
+            '(property "Value" "GND"))'
+        )
+        self.assertEqual(parsed.instances[0].power, "global")
+
+    def test_a_symbol_inherits_its_sheet_exclusions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / "child.kicad_sch").write_text(
+                '(kicad_sch (uuid "child") (symbol (lib_id "Device:R") (uuid "r") (in_bom yes) '
+                '(property "Reference" "R1")))', encoding="utf-8")
+            root = directory / "root.kicad_sch"
+            root.write_text('(kicad_sch (uuid "root") (sheet (uuid "s") (on_board no) (dnp yes) '
+                            '(property "Sheetfile" "child.kicad_sch")))', encoding="utf-8")
+            resistor = read_schematic(root).instances[0]
+        self.assertEqual((resistor.in_bom, resistor.on_board, resistor.dnp), (True, False, True))
+
+
 if __name__ == "__main__":
     unittest.main()
