@@ -278,7 +278,7 @@ class TestEMCAnalyzer(unittest.TestCase):
             ],
         )
         result = EMCAnalyzer(snap, EMCAnalysisSettings(sources=[])).analyze()
-        finding = next(item for item in result.findings if item.rule_id == "DC-001")
+        finding = next(item for item in result.findings if item.rule_id == "DE-001")
         self.assertEqual(finding.severity, "MEDIUM")
         self.assertEqual(finding.confidence, "LOW")
         self.assertIn("rail-bypass", finding.title)

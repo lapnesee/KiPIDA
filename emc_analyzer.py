@@ -1000,7 +1000,7 @@ class EMCAnalyzer:
                     candidates.append((distance, cap, sorted(shared)))
                 nearest = min(candidates, key=lambda item: item[0], default=None)
                 if nearest is None:
-                    self._add("DC-002", "DECOUPLING", "HIGH", "No nearby decoupling capacitor",
+                    self._add("DE-002", "DECOUPLING", "HIGH", "No nearby decoupling capacitor",
                               f"No capacitor sharing a known supply rail with {ic.reference} was found.",
                               "Verify every supply pin and place its high-frequency capacitor at the pin/via pair.",
                               "LOW", components=[ic.reference], location=(*ic.position, None))
@@ -1019,7 +1019,7 @@ class EMCAnalyzer:
                         if power_management else
                         "Move the high-frequency capacitor closer and minimise pad-to-via inductance."
                     )
-                    self._add("DC-001", "DECOUPLING", severity, title,
+                    self._add("DE-001", "DECOUPLING", severity, title,
                               f"The nearest capacitor sharing {', '.join(nearest[2])} with "
                               f"{ic.reference} is {nearest[1].reference} at {nearest[0]:.2f} mm.",
                               recommendation,
@@ -1478,7 +1478,7 @@ class EMCAnalyzer:
         hotspot = getattr(self.thermal_result, "hotspot", None)
         if hotspot is not None and hotspot.temperature_c > 85.0:
             self._check()
-            self._add("TH-001", "THERMAL", "MEDIUM", "High temperature may alter EMC components",
+            self._add("TE-001", "THERMAL", "MEDIUM", "High temperature may alter EMC components",
                       f"The latest thermal hotspot is {hotspot.temperature_c:.1f} C.",
                       "Verify MLCC DC-bias/SRF and ferrite impedance at the local operating temperature.",
                       "MEDIUM", location=(hotspot.x_mm, hotspot.y_mm, None))

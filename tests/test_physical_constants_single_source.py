@@ -56,7 +56,7 @@ def _production_modules():
 
 def _copies(path):
     with open(path, "rb") as handle:
-        source = handle.read().decode("utf-8")
+        source = handle.read().decode("utf-8-sig")
     found = []
     for token in tokenize.generate_tokens(io.StringIO(source).readline):
         if token.type != tokenize.NUMBER:

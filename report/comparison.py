@@ -11,6 +11,32 @@ from typing import Dict, List
 
 from campaign import CampaignAction, CampaignResult
 
+# EMC rules renamed because their identifiers collided with other domains':
+# decoupling was DC-001/DC-002 like the DC analysis's island and convergence
+# findings, and the hot-component rule was TH-001 like the junction limit. A
+# campaign saved before the rename still carries the old identifiers, and
+# comparing it with a newer one would report each such EMC action as resolved
+# and an identical one as introduced.
+_LEGACY_EMC_RULE_IDS = {"DC-001": "DE-001", "DC-002": "DE-002", "TH-001": "TE-001"}
+
+
+def _identity(action: CampaignAction) -> str:
+    """The action's identity, with pre-rename EMC identifiers translated.
+
+    Only an action that EMC reported without the DC or thermal domain is
+    translated: when those domains are in the same action, an old ``DC-001``
+    could be either rule, and guessing would be worse than a mismatch.
+    """
+    domains = set(action.domains)
+    if "EMC" not in domains or domains & {"DC", "THERMAL"}:
+        return action.identity
+    rule_ids = [_LEGACY_EMC_RULE_IDS.get(rule_id, rule_id) for rule_id in action.rule_ids]
+    return "|".join((
+        ",".join(sorted(rule_ids)),
+        ",".join(sorted(action.nets)),
+        ",".join(sorted(action.components)),
+    ))
+
 
 @dataclass
 class CampaignDelta:
@@ -34,8 +60,8 @@ def compare_campaigns(baseline: CampaignResult, current: CampaignResult) -> Camp
     in ``board_changed`` so a caller never silently compares two unrelated
     boards while believing it is looking at one board over time.
     """
-    baseline_by_identity = {action.identity: action for action in baseline.actions}
-    current_by_identity = {action.identity: action for action in current.actions}
+    baseline_by_identity = {_identity(action): action for action in baseline.actions}
+    current_by_identity = {_identity(action): action for action in current.actions}
 
     resolved = [
         action for identity, action in baseline_by_identity.items()

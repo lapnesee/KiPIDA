@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Renamed three EMC rules whose identifiers were also used by another domain:
+  decoupling `DC-001`/`DC-002` are now `DE-001`/`DE-002` (the DC analysis
+  keeps `DC-001`/`DC-002` for copper islands and solver convergence), and the
+  hot-component rule `TH-001` is now `TE-001` (the thermal analysis keeps it
+  for junction limits). Campaign comparison still pairs EMC actions saved under
+  the old identifiers.
 - Changed the DC analysis, the AC sweep and the copper losses fed to thermal
   and CFD to model copper at 1.72e-8 ohm-m, the value the DC advisor already
   used; they used 1.68e-8, so every raster-mesh resistance rises by 2.4 %.

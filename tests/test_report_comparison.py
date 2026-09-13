@@ -18,17 +18,17 @@ from campaign import CampaignResult  # noqa: E402
 from report.comparison import compare_campaigns  # noqa: E402
 
 
-def campaign(rule_net_pairs, fingerprint="fp-1"):
+def campaign(rule_net_pairs, fingerprint="fp-1", domain="DC"):
     findings = [
         AnalysisFinding(
-            rule_id=rule, category="DC", severity=FindingSeverity.HIGH,
+            rule_id=rule, category=domain, severity=FindingSeverity.HIGH,
             title=f"Problem on {net}", description="d", nets=[net],
         )
         for rule, net in rule_net_pairs
     ]
     return CampaignResult.from_results(
         [AnalysisResult(
-            analysis_type="DC", title="DC", status=AnalysisStatus.WARN,
+            analysis_type=domain, title=domain, status=AnalysisStatus.WARN,
             findings=findings,
         )],
         board_fingerprint=fingerprint,
@@ -64,6 +64,23 @@ class ComparisonTests(unittest.TestCase):
         # Baseline lost 10 points to one HIGH finding; current is clean.
         self.assertAlmostEqual(delta.score_deltas["DC"], 10.0)
         self.assertEqual(delta.net_improvement, 1)
+
+    def test_pre_rename_emc_rule_ids_still_match(self):
+        # EMC decoupling was DC-001 before it collided with the DC analysis's
+        # island finding; a campaign saved then must still pair with one run now.
+        baseline = campaign([("DC-001", "+3V3")], domain="EMC")
+        current = campaign([("DE-001", "+3V3")], domain="EMC")
+        delta = compare_campaigns(baseline, current)
+        self.assertEqual(len(delta.persisting), 1)
+        self.assertEqual(delta.resolved, [])
+        self.assertEqual(delta.introduced, [])
+
+    def test_dc_domain_rule_ids_are_not_translated(self):
+        baseline = campaign([("DC-001", "+3V3")], domain="DC")
+        current = campaign([("DE-001", "+3V3")], domain="DC")
+        delta = compare_campaigns(baseline, current)
+        self.assertEqual(len(delta.resolved), 1)
+        self.assertEqual(len(delta.introduced), 1)
 
     def test_same_fingerprint_is_not_reported_as_board_change(self):
         delta = compare_campaigns(campaign([]), campaign([]))
