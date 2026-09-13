@@ -20,8 +20,8 @@ conversation being remembered.
 Working constraints for this project:
 
 * Branch `claude/pcb-analysis-tool-40t1dr`, commit messages in English.
-* `python -m unittest discover -s tests` must stay green. It is currently 826
-  tests. How many skip depends on what is installed: on a machine with
+* `python -m unittest discover -s tests` must stay green. It was 845
+  tests on 2026-09-13. How many skip depends on what is installed: on a machine with
   wxPython, CuPy, openEMS and ngspice nothing should skip but the CUDA
   branches. Without wxPython -- the usual case on a Linux runner, where it has
   no wheel -- 25 more skip and `test_plotter`/`test_i18n` fail outright on the
@@ -486,6 +486,38 @@ rather than a separate control.
 **C3. "Iterations" now means a cap, not a target.**
 Since the loop exits on convergence, the field's meaning changed. The label
 should say so, otherwise raising it looks like asking for a longer run.
+
+## D. Universality — ingestion that holds on any project
+
+The work is planned in `docs/plan-universalite.md` (French), with the decisions
+it rests on. It exists because fixes derived from the reference board alone
+did not survive other projects: measured on the KiCad 10 demos, a symbol UUID
+is ambiguous on multi-instance sheets and the project name in a symbol's
+instance block is wrong on renamed projects -- the two keys a board-only fix
+would have used.
+
+**Baseline, 2026-09-13**, from `validation/ingest_corpus.py`, before any
+ingestion change. The demos are those installed with KiCad 10
+(`<install>/share/kicad/demos`, 36 projects, 15 boards with schematic and PCB,
+vme-wren and jetson skipped as PCBs over 25 MB). The reference container is
+measured by passing `p02_alimentation`, `main` and `LEDS_sub` explicitly.
+
+| invariant | demos: boards failing | reference container: boards failing |
+| --- | --- | --- |
+| I1 footprint with a path resolves by that path to one symbol | 15 / 15 (0 % everywhere) | 3 / 3 |
+| I2 SCH-005 silent on footprints without a path | 4 (tiny_tapeout 159, cm5 28, interf_u 1, NFC antenna 1) | 2 (p02 5, main 15) |
+| I3 no rail on open-collector pins alone | 4 (cm5 8, royalblue 4, video 2, kit-dev 1) | 2 (p02 3, main 2) |
+| I4 capacitances recognised by the rules | 1 (cm5 17 of 19: `100n`, `10u`, `4u7`) | 1 (main: `100n / INA238`) |
+| I7 ambiguous directory fails loudly | ecc83 resolved silently to `ecc83-pp` | -- |
+
+I5 (SCH-002 on no-connect pins) and I6 (power-flag nets classified) print n/a
+until phase 1.3 collects the data they need. What they will measure is already
+visible by hand: on pic_programmer, kit-dev and interf_u every SCH-002 finding
+is a pin the designer marked no-connect (77/77, 69/69, 63/63).
+
+The reference-only fallback hides I1 on most boards -- the netlist still finds
+symbols by designator -- but not on multi-instance designs, where it reaches
+39 of 68 footprints (complex_hierarchy) and 36 of 114 (multichannel).
 
 ## What is deliberately not on this list
 
