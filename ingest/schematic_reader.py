@@ -14,6 +14,10 @@ A symbol's instance block lists every path it is placed under:
 The entry is chosen by its path alone. The project name written there is the
 one the sheet was annotated under, which is not the file's name once a project
 has been renamed or copied (nine of the KiCad 10 demos).
+
+A sheet that cannot be followed is an :class:`SchematicIssue`, never a silent
+gap: its symbols are missing from every count and rule downstream, and whoever
+reads the result has to be told which ones.
 """
 
 from __future__ import annotations
@@ -21,8 +25,17 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 from .sexpr import parse, find, find_all
+
+# Issue kinds. The first three leave the sheet's symbols out; the last two read
+# it, but name a reference that only resolves on some filesystems.
+MISSING_SHEET = "missing_sheet"
+UNREADABLE_SHEET = "unreadable_sheet"
+RECURSIVE_SHEET = "recursive_sheet"
+SHEET_FILE_CASE = "sheet_file_case"
+SHEET_FILE_SEPARATOR = "sheet_file_separator"
 
 
 @dataclass
@@ -56,11 +69,21 @@ class SymbolInstance:
 
 
 @dataclass
+class SchematicIssue:
+    kind: str          # one of the module's issue kinds
+    sheet_path: str    # instance path the sheet would have had
+    sheet_name: str
+    sheet_file: str    # as written in the parent sheet
+    detail: str
+
+
+@dataclass
 class ParsedSchematic:
     root_sch_path: Path
     symbol_defs: dict[str, SymbolDef]
     instances: list[SymbolInstance]
     global_nets: list[str]
+    issues: list[SchematicIssue] = field(default_factory=list)
 
 
 def read_schematic(root_sch_path: Path) -> ParsedSchematic:
@@ -69,7 +92,9 @@ def read_schematic(root_sch_path: Path) -> ParsedSchematic:
     symbol_defs: dict[str, SymbolDef] = {}
     instances: list[SymbolInstance] = []
     global_nets: list[str] = []
+    issues: list[SchematicIssue] = []
     parsed_files: dict[Path, list] = {}
+    listings: dict[Path, list[str]] = {}
 
     def _load(sch_path: Path):
         """Parse a file once, however many instances use it."""
@@ -83,17 +108,9 @@ def read_schematic(root_sch_path: Path) -> ParsedSchematic:
 
     def _walk(sch_path: Path, segments: tuple[str, ...], ancestry: tuple[Path, ...]) -> None:
         sch_path = sch_path.resolve()
-        if sch_path in ancestry:
-            return  # a sheet cannot contain itself; KiCad refuses to load one that does
-        try:
-            root = _load(sch_path)
-        except OSError:
-            if not ancestry:
-                raise  # propagate for the root file; silently skip sub-sheets
-            return
+        root = _load(sch_path)
         if root is None:
             return
-
         if not segments:
             segments = (_uuid_of(root),)
         sheet_path = "/" + "/".join(segments)
@@ -104,13 +121,34 @@ def read_schematic(root_sch_path: Path) -> ParsedSchematic:
                 instances.append(instance)
 
         for sheet_node in find_all(root, "sheet"):
-            sub_filename = _sheet_filename(sheet_node)
-            if sub_filename:
-                _walk(
-                    sch_path.parent / sub_filename,
-                    segments + (_uuid_of(sheet_node),),
-                    ancestry + (sch_path,),
-                )
+            written = _sheet_filename(sheet_node)
+            if written:
+                _follow(sheet_node, written, sch_path, segments + (_uuid_of(sheet_node),),
+                        ancestry + (sch_path,))
+
+    def _follow(sheet_node, written, parent_path, segments, ancestry) -> None:
+        def issue(kind, detail):
+            issues.append(SchematicIssue(
+                kind=kind, sheet_path="/" + "/".join(segments),
+                sheet_name=_sheet_name(sheet_node), sheet_file=written, detail=detail,
+            ))
+
+        child, notes = _resolve_sheet_file(parent_path.parent, written, listings)
+        for kind, detail in notes:
+            issue(kind, detail)
+        if child is None:
+            issue(MISSING_SHEET, f"{written} does not exist beside {parent_path.name}; "
+                                 "the symbols of this sheet are not read.")
+            return
+        if child.resolve() in ancestry:
+            # KiCad refuses to load a sheet that contains itself.
+            issue(RECURSIVE_SHEET, f"{written} is already one of this sheet's parents; not followed.")
+            return
+        try:
+            _walk(child, segments, ancestry)
+        except (OSError, UnicodeDecodeError) as exc:
+            issue(UNREADABLE_SHEET, f"{written} could not be read ({exc}); "
+                                    "the symbols of this sheet are not read.")
 
     _walk(root_sch_path, (), ())
     return ParsedSchematic(
@@ -118,6 +156,7 @@ def read_schematic(root_sch_path: Path) -> ParsedSchematic:
         symbol_defs=symbol_defs,
         instances=instances,
         global_nets=global_nets,
+        issues=issues,
     )
 
 
@@ -215,6 +254,57 @@ def _sheet_filename(sheet_node: list) -> str:
         if len(prop) >= 3 and str(prop[1]).lower() == "sheetfile":
             return str(prop[2])
     return ""
+
+
+def _sheet_name(sheet_node: list) -> str:
+    for prop in find_all(sheet_node, "property"):
+        if len(prop) >= 3 and str(prop[1]).lower() == "sheetname":
+            return str(prop[2])
+    return ""
+
+
+def _resolve_sheet_file(parent_dir: Path, written: str, listings: dict[Path, list[str]]):
+    """The file a Sheetfile names, and what about the name would not travel.
+
+    KiCad resolves a sheet file against the directory of the sheet naming it.
+    Whether that works can depend on the machine: a backslash is a separator
+    only on Windows, and a name differing from the file in case only resolves
+    on a case-insensitive filesystem -- which Windows answers as a match, so
+    the case is compared with the directory listing rather than trusted to
+    ``exists()``.
+    """
+    notes = []
+    relative = written
+    if "\\" in written:
+        relative = written.replace("\\", "/")
+        notes.append((SHEET_FILE_SEPARATOR,
+                      f"{written} uses backslashes, which only Windows reads as separators."))
+    if Path(relative).is_absolute():
+        target = Path(relative)
+        return (target if target.is_file() else None), notes
+
+    current = parent_dir
+    for part in Path(relative).parts:
+        if part in (".", ".."):
+            current = current / part
+            continue
+        if current not in listings:
+            try:
+                listings[current] = [entry.name for entry in current.iterdir()]
+            except OSError:
+                listings[current] = []
+        names = listings[current]
+        if part in names:
+            current = current / part
+            continue
+        folded = [name for name in names if name.casefold() == part.casefold()]
+        if not folded:
+            return None, notes
+        notes.append((SHEET_FILE_CASE,
+                      f"{written} names {part} but the file on disk is {folded[0]}; "
+                      "a case-sensitive filesystem would not find it."))
+        current = current / folded[0]
+    return (current if current.is_file() else None), notes
 
 
 def _uuid_of(node: list) -> str:

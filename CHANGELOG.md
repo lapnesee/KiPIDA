@@ -10,6 +10,11 @@
   KiCad 10 demos, complex_hierarchy reads 119 symbols instead of 73 and
   multichannel 169 instead of 61; every footprint with a schematic path now
   finds its symbol by that path on the 15 demo boards measured, where none did.
+- Changed the offline schematic reader to report a sheet it cannot follow
+  instead of skipping it silently: a missing or unreadable sheet file, a sheet
+  that contains itself, and -- read, but flagged -- a sheet file named with
+  backslashes or with a case the file on disk does not have, which only some
+  filesystems resolve.
 - Added a mesh sensitivity check to the thermal analysis, on by default: the
   board is solved again at twice the grid step, the hotspot change is
   published, and above 2 C a TH-004 finding says the result is not converged

@@ -107,6 +107,7 @@ def measure_project(pro, max_pcb_mb):
     if has_sch:
         schematic = read_schematic(sch_path)
         row["symbols"] = len(schematic.instances)
+        row["schematic_issues"] = [f"{issue.kind}: {issue.sheet_file}" for issue in schematic.issues]
         row["I6_power_flag_nets"] = "n/a (phase 1.3)"
     if not has_pcb:
         row["seconds"] = round(time.perf_counter() - started, 2)

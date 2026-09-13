@@ -70,5 +70,35 @@ class SheetInstanceTests(unittest.TestCase):
         self.assertEqual([(i.reference, i.footprint_path) for i in parsed.instances], [("R7", "/a/b/r")])
 
 
+class SheetFileIssueTests(unittest.TestCase):
+    """A sheet that cannot be followed, or only on some machines, is said so."""
+
+    def _read(self, sheetfile, disk_name="amp.kicad_sch", subdirectory=""):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / subdirectory).mkdir(exist_ok=True)
+            (directory / subdirectory / disk_name).write_text(
+                '(kicad_sch (uuid "amp") ' + _symbol("r", "R?", [("/root/s", "R1")]) + ")", encoding="utf-8")
+            root = directory / "root.kicad_sch"
+            root.write_text('(kicad_sch (uuid "root") ' + _sheet("s", sheetfile) + ")", encoding="utf-8")
+            return read_schematic(root)
+
+    def test_a_missing_sheet_is_an_issue_naming_it(self):
+        parsed = self._read("absent.kicad_sch")
+        self.assertEqual(parsed.instances, [])
+        self.assertEqual([(i.kind, i.sheet_file, i.sheet_path) for i in parsed.issues],
+                         [("missing_sheet", "absent.kicad_sch", "/root/s")])
+
+    def test_a_name_differing_in_case_is_read_and_flagged(self):
+        parsed = self._read("AMP.kicad_sch")
+        self.assertEqual([i.reference for i in parsed.instances], ["R1"])
+        self.assertEqual([i.kind for i in parsed.issues], ["sheet_file_case"])
+
+    def test_a_backslash_separator_is_read_and_flagged(self):
+        parsed = self._read("sub\\amp.kicad_sch", subdirectory="sub")
+        self.assertEqual([i.reference for i in parsed.instances], ["R1"])
+        self.assertEqual([i.kind for i in parsed.issues], ["sheet_file_separator"])
+
+
 if __name__ == "__main__":
     unittest.main()
