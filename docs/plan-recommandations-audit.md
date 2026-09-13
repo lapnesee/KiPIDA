@@ -281,3 +281,11 @@ Harnais relancés (`dc_raster_fidelity.py`, `ingest_corpus.py`, comparaison DC),
 état des recommandations reporté dans `audit-coherence-analyses.md` et
 `plan-ameliorations.md`, `CHANGELOG`. Le plugin installé n'est pas redéployé sans
 accord.
+
+**Fait le 2026-09-13.** Comparaison DC relancée après les lots 5.5 à 8 : mêmes
+chiffres, quatre critères franchis (rapport de durée 2,18). `dc_raster_fidelity.py`
+relancé au pas de 0,1 mm pour la table de `raster_fidelity.py`. `ingest_corpus.py`
+sur les 36 démos KiCad 10 et `p02_alimentation` : 37 projets, aucune erreur,
+invariants I1 à I7 inchangés (ils relèvent de la phase 1 du plan d'universalité).
+Suite : 947 tests, verte. Worktree de référence retiré. Rien n'est poussé ; le
+plugin installé n'est pas redéployé.

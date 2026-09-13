@@ -20,8 +20,8 @@ conversation being remembered.
 Working constraints for this project:
 
 * Branch `claude/pcb-analysis-tool-40t1dr`, commit messages in English.
-* `python -m unittest discover -s tests` must stay green. It was 845
-  tests on 2026-09-13. How many skip depends on what is installed: on a machine with
+* `python -m unittest discover -s tests` must stay green. It was 947
+  tests on 2026-09-13, after the audit recommendations were carried out. How many skip depends on what is installed: on a machine with
   wxPython, CuPy, openEMS and ngspice nothing should skip but the CUDA
   branches. Without wxPython -- the usual case on a Linux runner, where it has
   no wheel -- 25 more skip and `test_plotter`/`test_i18n` fail outright on the
@@ -518,6 +518,41 @@ is a pin the designer marked no-connect (77/77, 69/69, 63/63).
 The reference-only fallback hides I1 on most boards -- the netlist still finds
 symbols by designator -- but not on multi-instance designs, where it reaches
 39 of 68 footprints (complex_hierarchy) and 36 of 114 (multichannel).
+
+Re-run on 2026-09-13 after the audit recommendations (demos plus
+`p02_alimentation`, PCBs over 20 MB skipped): 37 projects, no errors, and the
+same failures as the baseline -- I1 16 boards, I2 5, I3 5, I4 1, I7 the ecc83
+pick. Expected: those invariants belong to the universality plan's phase 1,
+which the recommendations did not touch.
+
+## E. Audit recommendations — carried out
+
+`docs/audit-coherence-analyses.md` §7 holds the eight recommendations and their
+status; `docs/plan-recommandations-audit.md` the plan, the DC gate and its
+measured result. All eight are done. What executing them exposed, and what is
+still open:
+
+* **The DC analysis now solves the saved board with the hybrid mesh**
+  (`DefaultDCSolverEngine`), and the thermal, CFD and advisor read the same
+  result; DC-004 says when the open board differs from the file. Getting there
+  took five ingestion fixes that no unit test had caught and one real board
+  did: no stackup block (4 of 19 KiCad 10 demos), via barrels sized on the
+  annular ring, pads and via lands treated as points, arc tracks not read,
+  sources and loads held on one node.
+* **DC findings carried no net.** `attach_dc_remediations` finds a finding's
+  rail by its nets, so no DC-003 had ever been given a sized fix. The wiring
+  test built its findings by hand, nets included -- the B2 shape again.
+* **Open: the contact model dominates low drops.** On the reference board's
+  +5V_U4 the worst load drop is 2.94 mV with one node per pad and 1.20 mV with
+  the whole pad as contact. The second is more physical, but neither is
+  measured; the uncertainty belongs in the result.
+* **Open: AC stays raster.** Its track error is now stated, not removed.
+* **Open: barrel plating** is in no board file and rests on the 20 um
+  fallback, for every via and plated pad in both meshers.
+* **Open: thermal mesh sensitivity on the reference board** (needs a launch
+  from KiCad or Zeo) and on coupled runs. On a synthetic board convergence is
+  not monotonic -- 105.3, 101.3, 105.7, 104.9 C at 0.5, 1, 2, 4 mm -- so the
+  check can say "not converged" and never "converged".
 
 ## What is deliberately not on this list
 

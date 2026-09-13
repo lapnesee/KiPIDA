@@ -54,6 +54,11 @@ d'un rail porté par des plans. Ce qu'il ne faut pas lire comme une valeur : la
 chute DC d'un rail routé en pistes fines, un point chaud thermique au dixième de
 degré, un champ E en V/m, un score sur 100.
 
+> **Mise à jour du 2026-09-13.** Les huit recommandations du §7 ont été exécutées
+> selon `docs/plan-recommandations-audit.md` ; leur état, et ce que chacune a
+> révélé, est au §7. Les points 1 à 6 ci-dessus décrivent l'état audité, pas
+> l'état actuel.
+
 ---
 
 ## 1. Échelles
@@ -361,6 +366,27 @@ utilisateurs, puis par effort. Aucune n'est engagée : elles sont à arbitrer co
 8. **Partager le DC dans la campagne** au lieu de le résoudre trois fois, et
    brancher l'EMC sur les rails configurés (tension, courant). *Effort moyen.*
 
+### État au 2026-09-13
+
+| Rec. | État | Ce qui l'a tenu, et ce que l'exécution a révélé |
+|---|---|---|
+| R1 un seul moteur DC | **fait** | Porte de décision franchie sur ses quatre critères fixés d'avance (`validation/dc_engine_comparison.py`). L'analyse DC, la campagne, les pertes cuivre du thermique et de la CFD, et le conseiller passent par le moteur hybride dès que le fichier de carte est connu ; repli rasterisé dit sinon ; DC-004 si la carte ouverte diffère du fichier. Pour y arriver, cinq défauts d'ingestion corrigés (carte sans bloc stackup, fûts de via, pastilles et collerettes traitées en points, arcs non lus, contact sur un seul nœud) et un défaut ancien : les findings DC ne portaient aucun net, si bien qu'aucun DC-003 n'avait jamais reçu de correctif dimensionné. |
+| R2 dire l'erreur du rasterisé | **fait** | AC toujours, DC en repli : piste la plus fine en pas, pistes obliques, limitation chiffrée depuis `raster_fidelity.py`. DC-001 ESTIMATED (lot 3). |
+| R3 agrégation de campagne | **fait** | Regroupement par composant, ou net + même lieu ; transitif ; scores pondérés par la confiance et plafonnés par règle. |
+| R4 espace de noms des règles | **fait** | `DE-001`/`DE-002`, `TE-001` côté EMC ; test AST d'unicité par domaine. |
+| R5 constantes physiques | **fait** | `physical_constants.py`, test « une seule source ». |
+| R6 calibrer la confiance | **fait** | DETERMINISTIC réservé aux faits sur le calcul ; AC-001 ESTIMATED ; TH-001 CRITICAL seulement sur θJB déclaré. |
+| R7 barre d'erreur thermique | **fait**, hors couplage | Résolution à pas double, TH-004 au-delà de 2 °C. Mesuré au préréglage Normal sur carte synthétique : 4,35 °C ; convergence non monotone, donc « sous 2 °C » n'est pas dit « convergé ». Carte réelle : à mesurer depuis KiCad ou Zeo. |
+| R8 DC partagé, EMC sur les rails | **fait** | La campagne passe son résultat DC au thermique et à la CFD (hors couplage, capture identique) ; sources EMC sans modèle de pertes à la tension du rail qui alimente leurs composants. |
+
+Ce qui reste ouvert après exécution : l'AC reste rasterisé (son erreur est dite,
+pas corrigée) ; la métallisation des fûts n'est dans aucun fichier et repose sur
+le repli de 20 µm ; sur les rails à faible chute, **le modèle de contact aux
+pastilles domine la chute** (+5V_U4 : 2,94 mV avec un nœud par pastille, 1,20 mV
+avec la pastille entière) et mériterait d'être publié comme incertitude ; la
+barre d'erreur thermique n'est pas mesurée sur carte réelle ni appliquée au
+couplage électrothermique.
+
 ---
 
 ## 8. Ce que cet audit n'a pas établi
@@ -368,7 +394,14 @@ utilisateurs, puis par effort. Aucune n'est engagée : elles sont à arbitrer co
 * **L'effet du rasterisé sur un rail réel.** La mesure porte sur des pistes
   isolées ; la part de pistes fines et diagonales dans la chute d'un rail dépend
   de la carte. À mesurer en comparant rasterisé et hybride sur le corpus.
+  *Mesuré depuis sur la carte de référence (sept rails portés par des plans) :
+  à localisation des pastilles égale, les deux maillages s'accordent à 5,8 %
+  près ; les écarts du rasterisé de production (jusqu'à +46 % sur un rail notable)
+  viennent de sa localisation des pastilles. Le corpus, sans rails configurés,
+  n'a pas été mesuré.*
 * **L'erreur thermique au pas par défaut** (1,0 mm) : jamais mesurée.
+  *Mesurée depuis sur une carte synthétique (4,35 °C à pas double) ; toujours pas
+  sur carte réelle.*
 * **L'effet sur l'AC des pistes ouvertes à 0,5 mm** : déduit, non constaté.
 * **La justesse absolue du solveur 2D, du champ proche et de la CFD** : aucune
   référence externe disponible dans le dépôt ni sur cette machine.
