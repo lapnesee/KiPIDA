@@ -202,7 +202,8 @@ class TestPlotter(unittest.TestCase):
         self.assertTrue(interactive.png_bytes.startswith(b"\x89PNG"))
         self.assertTrue(interactive.click_probe.points)
         popup = interactive.click_probe.points[0][2]
-        self.assertEqual(popup.confidence, "DETERMINISTIC")
+        # The finding is graded HIGH, which is an estimate, not a fact.
+        self.assertEqual(popup.confidence, "ESTIMATED")
         finding.confidence = "LOW"
         heuristic = self.plotter.plot_emc_risk_map(
             snapshot, result, as_png=True, with_click_probe=True,

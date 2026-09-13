@@ -40,6 +40,16 @@ class FindingSeverity(_StringEnum):
 
 
 class EvidenceConfidence(_StringEnum):
+    """What a finding's claim rests on -- not how serious it is.
+
+    DETERMINISTIC is a fact about the run or an exact count: a solve that did
+    not converge, a mesh coarser than a stated limit, a file that differs from
+    the open board. A model's verdict is never deterministic, however exact
+    its arithmetic, and neither is a comparison against a hard-coded
+    threshold: both are ESTIMATED (or HEURISTIC when the input itself is
+    guessed). DATASHEET_BACKED and MEASURED name where an input came from.
+    """
+
     DETERMINISTIC = "DETERMINISTIC"
     DATASHEET_BACKED = "DATASHEET_BACKED"
     MEASURED = "MEASURED"
@@ -48,7 +58,13 @@ class EvidenceConfidence(_StringEnum):
 
 
 def normalize_evidence_confidence(value: Any) -> EvidenceConfidence:
-    """Normalize legacy certainty labels at every UI/result boundary."""
+    """Normalize legacy certainty labels at every UI/result boundary.
+
+    HIGH used to become DETERMINISTIC. The analyzers that still grade
+    HIGH/MEDIUM/LOW -- the EMC rules above all -- give HIGH to findings whose
+    observation is exact geometry and whose verdict is a hard-coded distance
+    or ratio, so a HIGH is an estimate that rests on good data, not a fact.
+    """
     if isinstance(value, EvidenceConfidence):
         return value
     name = str(value or "LOW").upper().replace("-", "_")
@@ -56,7 +72,7 @@ def normalize_evidence_confidence(value: Any) -> EvidenceConfidence:
     if name in direct:
         return direct[name]
     return {
-        "HIGH": EvidenceConfidence.DETERMINISTIC,
+        "HIGH": EvidenceConfidence.ESTIMATED,
         "MEDIUM": EvidenceConfidence.ESTIMATED,
         "LOW": EvidenceConfidence.HEURISTIC,
     }.get(name, EvidenceConfidence.HEURISTIC)

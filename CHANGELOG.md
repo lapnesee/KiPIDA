@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Changed what DETERMINISTIC means: a fact about the run, never a model's
+  verdict or a hard-coded threshold. Findings graded HIGH by the older analyzers
+  (the EMC rules above all) now read ESTIMATED; AC-001 is always ESTIMATED and
+  the AC result states that capacitor mounting inductance and DC-bias derating
+  are not modelled; DC-001 is ESTIMATED and says when the mesh step can open
+  narrow diagonal tracks; TH-001 is CRITICAL only when the component's thetaJB
+  was stated, and HIGH with the assumed value named otherwise.
 - Renamed three EMC rules whose identifiers were also used by another domain:
   decoupling `DC-001`/`DC-002` are now `DE-001`/`DE-002` (the DC analysis
   keeps `DC-001`/`DC-002` for copper islands and solver convergence), and the

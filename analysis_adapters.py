@@ -279,13 +279,12 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
             f"({exceedance_ratio:.3g}x the {target:.6g} ohm target).{band}{origin}",
             recommendation,
         )
-        # A derived target rests on an assumed ripple and transient fraction,
-        # so the finding is an estimate however exact the sweep itself was.
-        finding.confidence = (
-            EvidenceConfidence.ESTIMATED
-            if (estimated_components or target_is_derived)
-            else EvidenceConfidence.DETERMINISTIC
-        )
+        # The verdict of a lumped PDN model, which omits each capacitor's
+        # mounting inductance and DC-bias derating -- both of which push the
+        # real impedance above the swept one at high frequency. However exact
+        # the target and the capacitor data, this is an estimate. It used to
+        # read DETERMINISTIC whenever the target was explicit.
+        finding.confidence = EvidenceConfidence.ESTIMATED
         finding.nets = [item for item in (rail_name, ground_name) if item]
         finding.components = [item["reference"] for item in capacitors if item["reference"]]
         finding.evidence = [AnalysisEvidence(
@@ -360,6 +359,7 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
         )],
         limitations=[
             "The AC result is an engineering PDN model; package, connector, and measurement-fixture parasitics require explicit models or measurement.",
+            "Capacitor mounting inductance (the pad and via loop) and MLCC DC-bias derating are not modelled; both raise the real impedance above the swept one from a few MHz upward, so a passing sweep is optimistic there.",
             "The AC mesh is intentionally independent from the finer DC voltage-drop mesh; refine it only after validating runtime and convergence.",
         ] + [
             # A dropped observation point narrows what the sweep actually
@@ -655,13 +655,34 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
     components = list(getattr(domain_result, "component_results", ()) or ())
     for index, component in enumerate(components, start=1):
         if float(getattr(component, "margin_c", 0.0)) < 0:
-            findings.append(_finding(
-                "TH-001", index, "JUNCTION_TEMPERATURE", FindingSeverity.CRITICAL,
+            # The junction is the board temperature plus P x thetaJB, so the
+            # verdict is only as good as thetaJB. A default one cannot carry a
+            # CRITICAL: the same component with its datasheet value may pass.
+            source = str(getattr(component, "thermal_source", "estimate") or "estimate").lower()
+            stated = source != "estimate"
+            theta = float(getattr(component, "theta_jb_c_per_w", 0.0) or 0.0)
+            finding = _finding(
+                "TH-001", index, "JUNCTION_TEMPERATURE",
+                FindingSeverity.CRITICAL if stated else FindingSeverity.HIGH,
                 f"{component.ref_des} exceeds its junction limit",
                 f"Estimated Tj is {component.junction_temperature_c:.3f} C with "
-                f"{component.margin_c:.3f} C margin.",
-                "Reduce dissipation or improve the component thermal path.",
-            ))
+                f"{component.margin_c:.3f} C margin"
+                + (
+                    f", from a thetaJB of {theta:g} C/W taken from {source}."
+                    if stated else
+                    f", from an assumed thetaJB of {theta:g} C/W; the datasheet value "
+                    "decides whether the limit is really exceeded."
+                ),
+                "Reduce dissipation or improve the component thermal path."
+                if stated else
+                "Enter the component's datasheet thetaJB, then reduce dissipation or "
+                "improve the thermal path if it still exceeds the limit.",
+            )
+            if "datasheet" in source:
+                finding.confidence = EvidenceConfidence.DATASHEET_BACKED
+            elif "measur" in source:
+                finding.confidence = EvidenceConfidence.MEASURED
+            findings.append(finding)
     if not bool(getattr(domain_result, "converged", True)):
         findings.append(_finding(
             "TH-002", 1, "NUMERICS", FindingSeverity.HIGH,
@@ -977,12 +998,26 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
         detailed = data.get("detailed_result")
         compute = data.get("compute_metadata")
         if detailed is not None and not getattr(detailed, "valid", True):
+            # Not a fact about the copper: the raster mesh joins only
+            # 4-neighbour grid nodes, and a track narrower than about 1.4 grid
+            # steps on a diagonal carries no current in it at all
+            # (validation/dc_raster_fidelity.py). An island can be the mesh's.
+            step = float(data.get("grid_size_mm", 0.0) or 0.0)
+            coarsened = bool(data.get("adaptive_grid", False))
+            step_text = (
+                f" The mesh ran at {step:g} mm"
+                + (f", coarsened from the requested {float(data.get('requested_grid_size_mm', 0.0) or 0.0):g} mm" if coarsened else "")
+                + "; tracks narrower than about 1.4 grid steps on a diagonal are not"
+                " connected at that step, so the island may be the mesh's rather than the board's."
+                if step > 0.0 else ""
+            )
             findings.append(_finding(
                 "DC-001", index, "CONNECTIVITY", FindingSeverity.HIGH,
                 f"{rail} contains source-free loads",
-                f"{getattr(detailed, 'excluded_load_node_count', 0)} load node(s) were excluded.",
-                "Repair copper connectivity before using this rail result.",
-                confidence=EvidenceConfidence.DETERMINISTIC,
+                f"{getattr(detailed, 'excluded_load_node_count', 0)} load node(s) were excluded."
+                + step_text,
+                "Check the copper between the source and these loads in the editor. If it "
+                "is continuous, rerun with a finer DC grid before editing the board.",
             ))
         if compute is not None and not getattr(compute, "converged", True):
             findings.append(_finding(

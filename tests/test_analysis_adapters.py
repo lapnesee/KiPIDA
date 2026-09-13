@@ -29,7 +29,9 @@ class AnalysisAdapterTests(unittest.TestCase):
         result = adapt_emc_result(EMCAnalysisSettings(), domain)
         self.assertEqual(result.status, AnalysisStatus.WARN)
         self.assertEqual(result.findings[0].severity, FindingSeverity.HIGH)
-        self.assertEqual(result.findings[0].confidence, EvidenceConfidence.DETERMINISTIC)
+        # HIGH is exact geometry judged against a hard-coded threshold: an
+        # estimate resting on good data, no longer labelled a fact.
+        self.assertEqual(result.findings[0].confidence, EvidenceConfidence.ESTIMATED)
         self.assertEqual(result.findings[0].evidence[0].x_mm, 10.0)
         self.assertEqual(result.summary["risk_score"], 72)
         self.assertEqual(result.metrics[0].unit, "/100")
@@ -86,8 +88,11 @@ class AnalysisAdapterTests(unittest.TestCase):
     def test_thermal_adapter_reports_over_limit_component(self):
         thermal = ThermalResult(
             hotspot=ThermalHotspot(1, 2.0, 3.0, 0.1, 130.0),
+            # A CRITICAL needs a stated thetaJB; a default one yields HIGH
+            # (tests/test_confidence_calibration.py).
             component_results=[SimpleNamespace(
                 ref_des="U1", junction_temperature_c=140.0, margin_c=-15.0,
+                theta_jb_c_per_w=8.5, thermal_source="datasheet",
             )],
             total_input_power_w=2.0, energy_balance_error_pct=0.5,
         )
