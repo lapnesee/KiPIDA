@@ -484,6 +484,47 @@ class TestStackupUserNames(unittest.TestCase):
         self.assertEqual(board.stackup.source, "stackup")
 
 
+class TestArcTracks(unittest.TestCase):
+    """An arc track is copper; leaving it out opened the DC mesh there."""
+
+    def _board_with_arc(self, start, mid, end):
+        arc = (
+            f'    (arc (start {start[0]} {start[1]}) (mid {mid[0]} {mid[1]}) '
+            f'(end {end[0]} {end[1]}) (width 0.3) (layer "F.Cu") (net "VCC") (uuid "a1"))\n'
+        )
+        text = MINI_PCB.rstrip().rstrip(")") + arc + ")\n"
+        tmp = tempfile.NamedTemporaryFile(suffix=".kicad_pcb", mode="w", encoding="utf-8", delete=False)
+        tmp.write(text)
+        tmp.close()
+        try:
+            return read_board(Path(tmp.name))
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+
+    def test_a_quarter_arc_becomes_chords_as_long_as_the_arc(self):
+        import math
+
+        # Centre (10, 10), radius 5, from (15, 10) through 45 degrees to (10, 15).
+        mid = (10 + 5 * math.cos(math.radians(45)), 10 + 5 * math.sin(math.radians(45)))
+        board = self._board_with_arc((15, 10), mid, (10, 15))
+        chords = [seg for seg in board.segments if seg.net_name == "VCC"]
+        self.assertGreaterEqual(len(chords), 9)
+        self.assertEqual(chords[0].start, (15.0, 10.0))
+        self.assertEqual(chords[-1].end, (10.0, 15.0))
+        length = sum(math.dist(seg.start, seg.end) for seg in chords)
+        self.assertAlmostEqual(length, math.pi / 2 * 5, delta=0.0013 * math.pi / 2 * 5)
+        self.assertTrue(all((seg.width_mm, seg.layer) == (0.3, "F.Cu") for seg in chords))
+
+    def test_the_arc_bends_through_its_midpoint_not_the_other_way(self):
+        import math
+
+        # The same ends, but the long way round through (5, 10).
+        board = self._board_with_arc((15, 10), (5, 10), (10, 15))
+        chords = [seg for seg in board.segments if seg.net_name == "VCC"]
+        length = sum(math.dist(seg.start, seg.end) for seg in chords)
+        self.assertAlmostEqual(length, 1.5 * math.pi * 5, delta=0.0013 * 1.5 * math.pi * 5)
+
+
 class TestBoardMissingFile(unittest.TestCase):
     def test_missing_file_raises(self):
         with self.assertRaises((OSError, ValueError)):

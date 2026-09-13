@@ -556,7 +556,66 @@ def _parse_segments(root: list, net_map: dict[str, str]) -> list[Segment]:
             start=(sx, sy),
             end=(ex, ey),
         ))
+
+    # Arc tracks. The reader took only straight segments, and an arc left out
+    # is an open circuit to the DC mesh; 3 of 4 boards checked route with them
+    # (2,316 arcs on the Jetson baseboard demo, 200 on CM5 Minima). Each arc
+    # becomes chords of at most ARC_MAX_STEP_DEG, whose total length is within
+    # 0.13 % of the arc's.
+    for arc in find_all(root, "arc"):
+        try:
+            points = [
+                (float(node[1]), float(node[2]))
+                for node in (find(arc, "start"), find(arc, "mid"), find(arc, "end"))
+            ]
+        except (TypeError, ValueError, IndexError):
+            continue
+        width_node = find(arc, "width")
+        layer_node = find(arc, "layer")
+        net_node = find(arc, "net")
+        try:
+            width = float(width_node[1]) if width_node and len(width_node) > 1 else 0.0
+        except ValueError:
+            width = 0.0
+        layer = layer_node[1] if layer_node and len(layer_node) > 1 else ""
+        net_name = _resolve_net(str(net_node[1]), net_map) if net_node and len(net_node) > 1 else ""
+        chain = _arc_polyline(*points)
+        for start, end in zip(chain, chain[1:]):
+            segments.append(Segment(net_name=net_name, width_mm=width, layer=layer, start=start, end=end))
     return segments
+
+
+ARC_MAX_STEP_DEG = 10.0
+
+
+def _arc_polyline(start, mid, end) -> list[tuple[float, float]]:
+    """Points along the circular arc from *start* through *mid* to *end*.
+
+    Ends are the file's own coordinates, so tracks and pads meeting the arc
+    still share its end nodes. Three collinear points are a straight track.
+    """
+    (ax, ay), (bx, by), (cx, cy) = start, mid, end
+    det = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+    if abs(det) < 1e-12:
+        return [start, end]
+    a2, b2, c2 = ax * ax + ay * ay, bx * bx + by * by, cx * cx + cy * cy
+    ox = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / det
+    oy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / det
+    radius = math.hypot(ax - ox, ay - oy)
+    t_start = math.atan2(ay - oy, ax - ox)
+    t_mid = math.atan2(by - oy, bx - ox)
+    t_end = math.atan2(cy - oy, cx - ox)
+    # Sweep from start to end in the direction that passes the midpoint.
+    sweep = (t_end - t_start) % (2.0 * math.pi)
+    if (t_mid - t_start) % (2.0 * math.pi) > sweep:
+        sweep -= 2.0 * math.pi
+    pieces = max(1, math.ceil(abs(math.degrees(sweep)) / ARC_MAX_STEP_DEG))
+    inner = [
+        (ox + radius * math.cos(t_start + sweep * k / pieces),
+         oy + radius * math.sin(t_start + sweep * k / pieces))
+        for k in range(1, pieces)
+    ]
+    return [start, *inner, end]
 
 
 def _parse_vias(root: list, net_map: dict[str, str]) -> list[Via]:
