@@ -813,7 +813,7 @@ def _dict_to_thermal_settings(data: dict) -> ThermalAnalysisSettings:
         coupled_iterations=int(data.get("coupled_iterations", 10)),
         convergence_c=float(data.get("convergence_c", 0.1)),
         relaxation=float(data.get("relaxation", 0.6)),
-        copper_temp_coefficient_per_c=float(data.get("copper_temp_coefficient_per_c", 0.00393)),
+        copper_temp_coefficient_per_c=float(data.get("copper_temp_coefficient_per_c", ThermalAnalysisSettings().copper_temp_coefficient_per_c)),
         components=[ThermalComponentModel(
             ref_des=component["ref_des"],
             power_w=float(component.get("power_w", 0.0)),

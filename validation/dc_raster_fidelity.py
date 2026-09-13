@@ -44,8 +44,8 @@ from shapely.geometry import LineString
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mesh import Mesher  # noqa: E402
+from physical_constants import COPPER_RESISTIVITY_OHM_MM as RHO_OHM_MM  # noqa: E402
 
-RHO_OHM_MM = 1.72e-5
 THICKNESS_MM = 0.035
 LENGTH_MM = 20.0
 HELD_BELOW_MM, HELD_ABOVE_MM = 2.0, 18.0

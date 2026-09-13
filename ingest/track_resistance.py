@@ -6,8 +6,13 @@ No external dependencies.
 
 import math
 
-# Copper resistivity at 20 °C, Ω·m
-RHO_COPPER = 1.72e-8
+try:
+    from ..physical_constants import COPPER_RESISTIVITY_OHM_M, PLATING_THICKNESS_FALLBACK_MM
+except (ImportError, ValueError):
+    from physical_constants import COPPER_RESISTIVITY_OHM_M, PLATING_THICKNESS_FALLBACK_MM
+
+# Copper resistivity at 20 °C, Ω·m. Kept under this name for its importers.
+RHO_COPPER = COPPER_RESISTIVITY_OHM_M
 
 _MM_TO_M = 1e-3
 
@@ -47,7 +52,7 @@ def segment_resistance(
 def via_resistance(
     height_mm: float,
     drill_mm: float,
-    plating_mm: float = 0.025,
+    plating_mm: float = PLATING_THICKNESS_FALLBACK_MM,
     rho: float = RHO_COPPER,
 ) -> float:
     """Resistance of a plated-through via barrel.
@@ -60,7 +65,8 @@ def via_resistance(
     Args:
         height_mm: Board thickness / via height in mm.
         drill_mm: Finished drill diameter in mm.
-        plating_mm: Copper plating thickness in mm (default 25 µm).
+        plating_mm: Copper plating thickness in mm (default: the shared
+            fallback, the IPC-6012 Class 2 minimum of 20 µm).
         rho: Resistivity in Ω·m.
 
     Returns:

@@ -13,10 +13,12 @@ import math
 import numpy as np
 
 try:
+    from .physical_constants import DEFAULT_COPPER_THICKNESS_MM
     from .field_solver_2d import (
         dielectric_map, energy_from_potential, piecewise_grid, solve_potential_sor,
     )
 except (ImportError, ValueError):
+    from physical_constants import DEFAULT_COPPER_THICKNESS_MM
     from field_solver_2d import (
         dielectric_map, energy_from_potential, piecewise_grid, solve_potential_sor,
     )
@@ -89,7 +91,7 @@ class GroundedCoplanarDifferentialSolver:
 
     @classmethod
     def solve(cls, width_mm, pair_gap_mm, ground_gap_mm, height_below_mm,
-              epsilon_below, copper_thickness_mm=0.035, height_above_mm=0.0,
+              epsilon_below, copper_thickness_mm=DEFAULT_COPPER_THICKNESS_MM, height_above_mm=0.0,
               epsilon_above=None, include_solder_mask=True,
               solder_mask_thickness_mm=0.02, solder_mask_epsilon_r=3.3,
               backing_plane=True):

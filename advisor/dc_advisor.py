@@ -48,12 +48,14 @@ try:
     from ..ingest.track_resistance import RHO_COPPER
     from ..mesh import Mesh
     from ..mesh_hybrid import HybridMesher
+    from ..physical_constants import COPPER_THICKNESS_PER_OUNCE_MM
     from ..solver import Solver
 except (ImportError, ValueError):
     from ingest.board_reader import ParsedBoard, Segment, Stackup
     from ingest.track_resistance import RHO_COPPER
     from mesh import Mesh
     from mesh_hybrid import HybridMesher
+    from physical_constants import COPPER_THICKNESS_PER_OUNCE_MM
     from solver import Solver
 
 
@@ -703,7 +705,7 @@ def _zone_layer_of(geometry_source: str) -> str:
 COPPER_WEIGHTS_OZ = (0.5, 1.0, 2.0, 3.0, 4.0)
 
 # Nominal finished thickness of one ounce of copper, mm (IPC-2221).
-OUNCE_MM = 0.0348
+OUNCE_MM = COPPER_THICKNESS_PER_OUNCE_MM
 
 
 def _plane_copper_actions(

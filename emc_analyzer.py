@@ -37,6 +37,11 @@ except (ImportError, ValueError):
     )
 
 try:
+    from .physical_constants import DEFAULT_COPPER_THICKNESS_MM
+except (ImportError, ValueError):
+    from physical_constants import DEFAULT_COPPER_THICKNESS_MM
+
+try:
     from .crosstalk_2d import (
         SymmetricCoupledLineSolver, far_end_crosstalk_ratio,
         near_end_crosstalk_coefficient, near_end_crosstalk_ratio,
@@ -577,7 +582,7 @@ class EMCAnalyzer:
         for layer in self._copper_layers:
             if layer.layer_id is not None and int(layer.layer_id) == int(layer_id):
                 return max(float(layer.thickness_mm), 1.0e-4)
-        return 0.035
+        return DEFAULT_COPPER_THICKNESS_MM
 
     def _dielectric_between(self, layer_a, layer_b):
         """Thickness-weighted epsilon_r of the dielectric separating two layers.

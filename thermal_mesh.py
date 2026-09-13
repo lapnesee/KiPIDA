@@ -32,9 +32,21 @@ except ImportError:
 try:
     from .models import ThermalAnalysisSettings
     from . import surface_convection
+    from .physical_constants import (
+        COPPER_THERMAL_CONDUCTIVITY_W_MK, DEFAULT_BOARD_THICKNESS_MM,
+        DEFAULT_COPPER_THICKNESS_MM, PLATING_THICKNESS_FALLBACK_MM,
+    )
 except (ImportError, ValueError):
     from models import ThermalAnalysisSettings
     import surface_convection
+    from physical_constants import (
+        COPPER_THERMAL_CONDUCTIVITY_W_MK, DEFAULT_BOARD_THICKNESS_MM,
+        DEFAULT_COPPER_THICKNESS_MM, PLATING_THICKNESS_FALLBACK_MM,
+    )
+
+# Dielectric of a board whose stackup states nothing: the finished default
+# thickness less its two outer copper layers.
+_DEFAULT_DIELECTRIC_MM = DEFAULT_BOARD_THICKNESS_MM - 2 * DEFAULT_COPPER_THICKNESS_MM
 
 
 @dataclass
@@ -347,7 +359,7 @@ def estimate_thermal_mesh_cost(context, grid_size_mm):
 
 
 class ThermalMesher:
-    COPPER_K = 385.0
+    COPPER_K = COPPER_THERMAL_CONDUCTIVITY_W_MK
     FR4_K_XY = 0.8
     FR4_K_Z = 0.3
     SIGMA = 5.670374419e-8
@@ -528,7 +540,7 @@ class ThermalMesher:
             info = copper.get(layer_id, {})
             specs.append(ThermalLayerSpec(
                 name=info.get("name", str(layer_id)),
-                thickness_mm=max(0.005, float(info.get("thickness_mm", 0.035))),
+                thickness_mm=max(0.005, float(info.get("thickness_mm", DEFAULT_COPPER_THICKNESS_MM))),
                 layer_id=layer_id,
                 material="copper-layer",
             ))
@@ -542,7 +554,7 @@ class ThermalMesher:
                                   if set(item.get("between", [])) == {layer_id, next_id}), None)
             thickness = float(substrate.get("thickness_mm", 0.0)) if substrate else 0.0
             if thickness <= 0:
-                thickness = 1.53 / max(1, len(order) - 1)
+                thickness = _DEFAULT_DIELECTRIC_MM / max(1, len(order) - 1)
             specs.append(ThermalLayerSpec(
                 name=(substrate or {}).get("material", "FR4"),
                 thickness_mm=thickness,
@@ -551,9 +563,9 @@ class ThermalMesher:
             ))
         if not specs:
             specs = [
-                ThermalLayerSpec("F.Cu", 0.035, 0, "copper-layer"),
-                ThermalLayerSpec("FR4", 1.53, None, "dielectric"),
-                ThermalLayerSpec("B.Cu", 0.035, 31, "copper-layer"),
+                ThermalLayerSpec("F.Cu", DEFAULT_COPPER_THICKNESS_MM, 0, "copper-layer"),
+                ThermalLayerSpec("FR4", _DEFAULT_DIELECTRIC_MM, None, "dielectric"),
+                ThermalLayerSpec("B.Cu", DEFAULT_COPPER_THICKNESS_MM, 31, "copper-layer"),
             ]
         return specs
 
@@ -768,7 +780,7 @@ class ThermalMesher:
             top = int(layer_grids[-1][0][iy, ix])
             if bottom < 0 or top < 0 or bottom == top:
                 continue
-            plating_mm = 0.025
+            plating_mm = PLATING_THICKNESS_FALLBACK_MM
             area_mm2 = math.pi * max(via.diameter_mm * plating_mm - plating_mm ** 2, 1e-6)
             conductance = self.COPPER_K * area_mm2 * 1e-6 / board_thickness_m
             mesh.add_branch(bottom, top, conductance, "via")

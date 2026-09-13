@@ -1,6 +1,11 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+try:
+    from .physical_constants import COPPER_TEMPERATURE_COEFFICIENT_PER_C, DEFAULT_COPPER_THICKNESS_MM
+except (ImportError, ValueError):
+    from physical_constants import COPPER_TEMPERATURE_COEFFICIENT_PER_C, DEFAULT_COPPER_THICKNESS_MM
+
 @dataclass
 class ComponentRef:
     """Reference to a specific footprint component on the board."""
@@ -284,7 +289,7 @@ class DifferentialSectionResult:
     reference_coverage_pct: float = 0.0
     single_ended_impedance_ohm: float = 0.0
     differential_impedance_ohm: float = 0.0
-    copper_thickness_mm: float = 0.035
+    copper_thickness_mm: float = DEFAULT_COPPER_THICKNESS_MM
     reference_distance_mm: float = 0.0
     reference_above_distance_mm: float = 0.0
     reference_below_distance_mm: float = 0.0
@@ -849,7 +854,7 @@ class ThermalAnalysisSettings:
     coupled_iterations: int = 10
     convergence_c: float = 0.1
     relaxation: float = 0.6
-    copper_temp_coefficient_per_c: float = 0.00393
+    copper_temp_coefficient_per_c: float = COPPER_TEMPERATURE_COEFFICIENT_PER_C
     components: List[ThermalComponentModel] = field(default_factory=list)
     power_stage_reports: List[PowerStageResult] = field(default_factory=list)
 

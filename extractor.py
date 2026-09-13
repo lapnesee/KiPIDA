@@ -20,6 +20,15 @@ try:
 except ImportError:
     HAS_KIPY = False
 
+try:
+    from .physical_constants import (
+        COPPER_RESISTIVITY_OHM_MM, DEFAULT_BOARD_THICKNESS_MM, DEFAULT_COPPER_THICKNESS_MM,
+    )
+except (ImportError, ValueError):
+    from physical_constants import (
+        COPPER_RESISTIVITY_OHM_MM, DEFAULT_BOARD_THICKNESS_MM, DEFAULT_COPPER_THICKNESS_MM,
+    )
+
 # Constants mapping (approximate)
 # Needs to be verified against kipy enums
 # For now defining local helpers
@@ -333,8 +342,8 @@ class GeometryExtractor:
                 return None
             
             stackup = self.board.get_stackup()
-            
-            rho_copper = 1.68e-5 # Ohm-mm
+
+            rho_copper = COPPER_RESISTIVITY_OHM_MM
             copper_data = {}
             layer_order = []
             substrates = []
@@ -378,7 +387,7 @@ class GeometryExtractor:
                     
                     copper_data[lid] = {
                         'name': name,
-                        'thickness_mm': thickness_mm if thickness_mm > 0 else 0.035
+                        'thickness_mm': thickness_mm if thickness_mm > 0 else DEFAULT_COPPER_THICKNESS_MM
                     }
                     layer_order.append(lid)
                     
@@ -441,21 +450,23 @@ class GeometryExtractor:
         if self.debug:
             self.logger.warning(msg)
 
-        rho_copper = 1.68e-5 # Ohm-mm
-        
+        rho_copper = COPPER_RESISTIVITY_OHM_MM
+
         # Default to F.Cu (0) and B.Cu (31)
         f_cu_id = 0
         b_cu_id = 31
-        
+
         copper_data = {
-            f_cu_id: {'name': 'F.Cu', 'thickness_mm': 0.035},
-            b_cu_id: {'name': 'B.Cu', 'thickness_mm': 0.035}
+            f_cu_id: {'name': 'F.Cu', 'thickness_mm': DEFAULT_COPPER_THICKNESS_MM},
+            b_cu_id: {'name': 'B.Cu', 'thickness_mm': DEFAULT_COPPER_THICKNESS_MM}
         }
-        
+
         layer_order = [f_cu_id, b_cu_id]
-        
+
         substrates = [{
-            'thickness_mm': 1.6,
+            # The dielectric of a default board, not the board: the two copper
+            # layers take their share of the finished thickness.
+            'thickness_mm': DEFAULT_BOARD_THICKNESS_MM - 2 * DEFAULT_COPPER_THICKNESS_MM,
             'between': [f_cu_id, b_cu_id],
             'material': 'FR4',
             'epsilon_r': 4.4
@@ -498,7 +509,7 @@ class GeometryExtractor:
             layers.append(StackupLayerModel(
                 name=layer.get('name', str(layer_id)),
                 kind='COPPER',
-                thickness_mm=float(layer.get('thickness_mm', 0.035)),
+                thickness_mm=float(layer.get('thickness_mm', DEFAULT_COPPER_THICKNESS_MM)),
                 layer_id=int(layer_id),
                 material='Copper',
                 epsilon_r=1.0,

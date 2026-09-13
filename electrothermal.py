@@ -6,11 +6,13 @@ import numpy as np
 
 try:
     from .models import ElectroThermalResult
+    from .physical_constants import COPPER_RESISTIVITY_REFERENCE_C
     from .solver import Solver
     from .thermal_model import PowerLossEstimator
     from .thermal_solver import ThermalSolver
 except (ImportError, ValueError):
     from models import ElectroThermalResult
+    from physical_constants import COPPER_RESISTIVITY_REFERENCE_C
     from solver import Solver
     from thermal_model import PowerLossEstimator
     from thermal_solver import ThermalSolver
@@ -223,7 +225,7 @@ class ElectroThermalSolver:
                 ]
                 scales = np.clip(
                     1.0 + float(settings.copper_temp_coefficient_per_c) *
-                    (branch_temperatures - 20.0),
+                    (branch_temperatures - COPPER_RESISTIVITY_REFERENCE_C),
                     0.2, 3.0,
                 )
                 detailed = dc_solver.solve_detailed(

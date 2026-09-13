@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Changed the DC analysis, the AC sweep and the copper losses fed to thermal
+  and CFD to model copper at 1.72e-8 ohm-m, the value the DC advisor already
+  used; they used 1.68e-8, so every raster-mesh resistance rises by 2.4 %.
+  The fallback plating of a via or plated pad whose geometry does not give it
+  is now 20 um (IPC-6012 Class 2 minimum) in every engine instead of 25 um in
+  some and 20 um in others. All shared physical constants now come from
+  `physical_constants.py`, and the DC result names the resistivity and its
+  reference temperature.
 - Fixed the enclosure CFD's CFD-004 finding, and the matching limitation,
   stating that the solver has no surface film coefficient. Solid-air faces have
   carried one since the film was added; what still limits solid temperatures is

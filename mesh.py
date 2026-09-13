@@ -8,8 +8,17 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 try:
     from .models import MeshBranch
+    from .physical_constants import (
+        COPPER_RESISTIVITY_OHM_MM, DEFAULT_COPPER_THICKNESS_MM, PLATING_THICKNESS_FALLBACK_MM,
+    )
 except (ImportError, ValueError):
     from models import MeshBranch
+    from physical_constants import (
+        COPPER_RESISTIVITY_OHM_MM, DEFAULT_COPPER_THICKNESS_MM, PLATING_THICKNESS_FALLBACK_MM,
+    )
+
+# How a barrel section was obtained, for the current-density report.
+_PLATING_LABEL = f"ESTIMATED_PLATING_{PLATING_THICKNESS_FALLBACK_MM:.3f}MM"
 
 # Use explicit check if needed, but we assume kipy objects are passed
 def to_mm(val):
@@ -539,8 +548,8 @@ class Mesher:
                 # 4. Generate Lateral Edges (Vectorized)
                 # Physical props
                 copper_info = stackup.get('copper', {}).get(lid, {})
-                thick = copper_info.get('thickness_mm', 0.035)
-                rho = stackup.get('resistivity', 1.7e-5)
+                thick = copper_info.get('thickness_mm', DEFAULT_COPPER_THICKNESS_MM)
+                rho = stackup.get('resistivity', COPPER_RESISTIVITY_OHM_MM)
                 g_lat_val = thick / rho
                 l_lat_val = self._estimate_lateral_l(lid, stackup)
                 
@@ -660,10 +669,10 @@ class Mesher:
 
     def _calculate_vertical_g(self, layer_a, layer_b, stackup, diameter_mm):
         if layer_a == layer_b: return 1.0e9
-        plating_thick = 0.025 
+        plating_thick = PLATING_THICKNESS_FALLBACK_MM
         area = math.pi * (diameter_mm * plating_thick - plating_thick**2)
-        if area <= 0: return 1000.0 
-        rho = stackup.get('resistivity', 1.68e-5)
+        if area <= 0: return 1000.0
+        rho = stackup.get('resistivity', COPPER_RESISTIVITY_OHM_MM)
         h = 0
         l_min, l_max = min(layer_a, layer_b), max(layer_a, layer_b)
         for sub in stackup.get('substrate', []):
@@ -778,10 +787,10 @@ class Mesher:
         ))
         drill_mm = to_mm(raw_drill) if raw_drill else max(0.05, dia_mm * 0.5)
         geometry_source = (
-            "PCB_DRILL+ESTIMATED_PLATING_0.025MM" if raw_drill
-            else "ESTIMATED_DRILL_FROM_VIA_DIAMETER+ESTIMATED_PLATING_0.025MM"
+            f"PCB_DRILL+{_PLATING_LABEL}" if raw_drill
+            else f"ESTIMATED_DRILL_FROM_VIA_DIAMETER+{_PLATING_LABEL}"
         )
-        plating_mm = 0.025
+        plating_mm = PLATING_THICKNESS_FALLBACK_MM
         barrel_area_mm2 = math.pi * (drill_mm * plating_mm + plating_mm ** 2)
         
         nodes_in_stack = []
@@ -816,7 +825,7 @@ class Mesher:
              
         x_mm, y_mm = to_mm(pos.x), to_mm(pos.y)
         radius_mm = diameter / 2.0
-        plating_mm = 0.025
+        plating_mm = PLATING_THICKNESS_FALLBACK_MM
         barrel_area_mm2 = math.pi * (diameter * plating_mm + plating_mm ** 2)
         
         nodes_in_stack = []
@@ -835,7 +844,7 @@ class Mesher:
             mesh.add_edge_direct(
                 nid_a, nid_b, g_via, l_via, "pth",
                 cross_section_mm2=barrel_area_mm2,
-                geometry_source="PCB_DRILL+ESTIMATED_PLATING_0.025MM",
+                geometry_source=f"PCB_DRILL+{_PLATING_LABEL}",
             )
 
 

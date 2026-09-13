@@ -3,6 +3,11 @@
 from dataclasses import dataclass, field
 from typing import List, Tuple
 
+try:
+    from .physical_constants import DEFAULT_COPPER_THICKNESS_MM
+except (ImportError, ValueError):
+    from physical_constants import DEFAULT_COPPER_THICKNESS_MM
+
 
 @dataclass
 class CFDObstacle:
@@ -35,7 +40,7 @@ class EnclosureModelBuilder:
     def _board_thickness_mm(stackup):
         copper = stackup.get("copper", {})
         substrate = stackup.get("substrate", [])
-        thickness = sum(float(item.get("thickness_mm", 0.035)) for item in copper.values())
+        thickness = sum(float(item.get("thickness_mm", DEFAULT_COPPER_THICKNESS_MM)) for item in copper.values())
         thickness += sum(float(item.get("thickness_mm", 0.0)) for item in substrate)
         return max(thickness, 1.0)
 

@@ -18,18 +18,21 @@ from typing import Optional
 
 try:
     from ..analysis_contract import Remediation, RemediationEffort
+    from ..physical_constants import COPPER_THERMAL_CONDUCTIVITY_W_MK, PLATING_THICKNESS_FALLBACK_MM
 except (ImportError, ValueError):
     from analysis_contract import Remediation, RemediationEffort
+    from physical_constants import COPPER_THERMAL_CONDUCTIVITY_W_MK, PLATING_THICKNESS_FALLBACK_MM
 
 
-# Thermal conductivity of copper at room temperature, W/(m·K)
-K_COPPER_W_MK = 385.0
+# Thermal conductivity of copper at room temperature, W/(m·K). Kept under this
+# name for its importers.
+K_COPPER_W_MK = COPPER_THERMAL_CONDUCTIVITY_W_MK
 
 _MM_TO_M = 1e-3
 
 
 def via_thermal_resistance_c_per_w(
-    height_mm: float, drill_mm: float, plating_mm: float = 0.025,
+    height_mm: float, drill_mm: float, plating_mm: float = PLATING_THICKNESS_FALLBACK_MM,
     k_copper_w_mk: float = K_COPPER_W_MK,
 ) -> float:
     """Thermal resistance of one plated via barrel, in °C/W.
@@ -59,7 +62,7 @@ def via_thermal_resistance_c_per_w(
 
 def vias_required_for_delta_t(
     power_w: float, target_delta_t_c: float,
-    height_mm: float, drill_mm: float, plating_mm: float = 0.025,
+    height_mm: float, drill_mm: float, plating_mm: float = PLATING_THICKNESS_FALLBACK_MM,
     k_copper_w_mk: float = K_COPPER_W_MK,
 ) -> int:
     """Parallel via count needed to hold the rise under *target_delta_t_c*.
@@ -93,7 +96,7 @@ def _effort_for_added_vias(added: int) -> RemediationEffort:
 def build_thermal_via_remediation(
     component_ref: str, power_w: float, target_delta_t_c: float,
     height_mm: float, drill_mm: float, existing_via_count: int = 0,
-    plating_mm: float = 0.025,
+    plating_mm: float = PLATING_THICKNESS_FALLBACK_MM,
 ) -> Optional[Remediation]:
     """Advise adding thermal vias under *component_ref*, or ``None`` if enough.
 

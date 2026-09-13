@@ -9,6 +9,7 @@ except ImportError:
     LineString = Point = unary_union = None
 
 try:
+    from .physical_constants import DEFAULT_COPPER_THICKNESS_MM
     from .differential_3d import Targeted3DRefiner
     from .differential_length import assess_length_symmetry
     from .differential_geometry import (
@@ -19,6 +20,7 @@ try:
     from .models import DifferentialPairResult, DifferentialSectionResult
     from .reference_plane_analyzer import ReferencePlaneAnalyzer
 except (ImportError, ValueError):
+    from physical_constants import DEFAULT_COPPER_THICKNESS_MM
     from differential_3d import Targeted3DRefiner
     from differential_length import assess_length_symmetry
     from differential_geometry import (
@@ -251,7 +253,7 @@ class DifferentialImpedanceSolver:
         layer_id = positive["layer_id"]
         copper = self._copper_layer(layer_id)
         layer_name = copper.name if copper else str(layer_id)
-        thickness = copper.thickness_mm if copper else 0.035
+        thickness = copper.thickness_mm if copper else DEFAULT_COPPER_THICKNESS_MM
         width = 0.5 * (positive["width_mm"] + negative["width_mm"])
         context = self.plane_analyzer.analyze(
             layer_id, positive, negative, gap_mm

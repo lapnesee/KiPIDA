@@ -8,6 +8,7 @@ from analysis_contract import (
     AnalysisStatus, EvidenceConfidence, FindingSeverity,
     normalize_evidence_confidence,
 )
+from physical_constants import COPPER_RESISTIVITY_OHM_M, COPPER_RESISTIVITY_REFERENCE_C
 
 
 def _severity(value: Any) -> FindingSeverity:
@@ -1024,6 +1025,9 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
             ),
         ],
         limitations=[
+            f"Copper is modelled at {COPPER_RESISTIVITY_OHM_M:.3g} ohm-m, its resistivity at "
+            f"{COPPER_RESISTIVITY_REFERENCE_C:g} C; the DC solve applies no temperature correction, "
+            "which the coupled electro-thermal analysis does.",
             "Connector and contact resistances are included only when explicitly modeled.",
             "Current density is a DC mesh diagnostic, not an IPC ampacity certification; AC skin/proximity effects, contact details, and measured copper temperature are excluded.",
         ],

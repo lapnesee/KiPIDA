@@ -50,8 +50,14 @@ except (ImportError, ValueError):
 
 try:
     from .mesh import Mesh
+    from .physical_constants import (
+        DEFAULT_BOARD_THICKNESS_MM, DEFAULT_COPPER_THICKNESS_MM, PLATING_THICKNESS_FALLBACK_MM,
+    )
 except (ImportError, ValueError):
     from mesh import Mesh
+    from physical_constants import (
+        DEFAULT_BOARD_THICKNESS_MM, DEFAULT_COPPER_THICKNESS_MM, PLATING_THICKNESS_FALLBACK_MM,
+    )
 
 try:
     import numpy as np
@@ -67,10 +73,10 @@ _SNAP = 0.001
 
 # Barrel plating for a through-hole pad, mm. A via's plating is derived from
 # its annular ring (size minus drill); a pad carries no equivalent pair in the
-# parsed data, so the IPC-6012 Class 2 minimum of 20 um is used. It is a floor,
-# which keeps the pad's modelled resistance on the pessimistic side rather than
-# flattering a rail with plating nobody promised.
-PAD_PLATING_MM = 0.020
+# parsed data, so the shared fallback -- the IPC-6012 Class 2 minimum -- is
+# used. It is a floor, which keeps the pad's modelled resistance on the
+# pessimistic side rather than flattering a rail with plating nobody promised.
+PAD_PLATING_MM = PLATING_THICKNESS_FALLBACK_MM
 
 
 def _snap(v: float) -> float:
@@ -87,11 +93,11 @@ def _layer_id_for_name(parsed_board: ParsedBoard, name: str) -> int:
 
 
 def _thickness_for_layer(parsed_board: ParsedBoard, name: str) -> float:
-    """Return copper thickness in mm for a named layer, or 0.035 mm as default."""
+    """Return copper thickness in mm for a named layer, or the shared default."""
     for cl in parsed_board.stackup.layers:
         if cl.name == name:
-            return cl.thickness_mm if cl.thickness_mm > 0 else 0.035
-    return 0.035
+            return cl.thickness_mm if cl.thickness_mm > 0 else DEFAULT_COPPER_THICKNESS_MM
+    return DEFAULT_COPPER_THICKNESS_MM
 
 
 class HybridMesher:
@@ -303,7 +309,7 @@ class HybridMesher:
         via_count = 0
         board_height_mm = board.stackup.total_thickness_mm
         if board_height_mm <= 0:
-            board_height_mm = 1.6  # fallback
+            board_height_mm = DEFAULT_BOARD_THICKNESS_MM
 
         for via in board.vias:
             if via.net_name != net_name:
@@ -315,7 +321,7 @@ class HybridMesher:
             size_mm = via.size_mm if via.size_mm > 0 else (drill_mm + 0.05)
             plating_mm = (size_mm - drill_mm) / 2.0
             if plating_mm <= 0:
-                plating_mm = 0.025  # minimum 25 µm
+                plating_mm = PLATING_THICKNESS_FALLBACK_MM
 
             top_layer = via.layers[0]
             bot_layer = via.layers[-1]
