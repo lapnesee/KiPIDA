@@ -89,11 +89,12 @@ class TestBuildNetlistBasic(unittest.TestCase):
 
 class TestPowerRailClassification(unittest.TestCase):
     def _board_with_sch(self):
-        # Footprint with sch_path linking to regulator
+        # Footprint with sch_path linking to regulator: a root-sheet symbol's
+        # footprint records "/<symbol uuid>", without the root sheet's uuid.
         fp = Footprint(
             reference="U1", value="LM7805", lib_id="Regulator_Linear:LM7805",
             position=(10, 10), rotation=0, layer="F.Cu",
-            sch_path="/root-uuid/sym-uuid-1",
+            sch_path="/sym-uuid-1",
             sch_sheet_file="sheet.kicad_sch",
             pads=[
                 Pad("1", "VIN", "passive", (9, 10)),    # power_in
@@ -111,12 +112,13 @@ class TestPowerRailClassification(unittest.TestCase):
             footprint="",
             datasheet="",
             extra_fields={},
-            sheet_path="/root-uuid/sym-uuid-1",
+            sheet_path="/root-uuid",
             pins=[
                 PinDef("1", "VI", "power_in"),
                 PinDef("2", "VO", "power_out"),
                 PinDef("3", "GND", "power_in"),
             ],
+            footprint_path="/sym-uuid-1",
         )
         sch = _make_schematic(instances=[sym])
         return board, sch
@@ -141,6 +143,44 @@ class TestPowerRailClassification(unittest.TestCase):
         out_net = next(n for n in nl.nets if n.name == "+5V_OUT")
         pin = next(p for p in out_net.pins if p.footprint_ref == "U1")
         self.assertEqual(pin.electrical_type, "power_out")
+
+
+class TestSchematicLink(unittest.TestCase):
+    """A footprint meets its symbol by path; a reference is never a join key."""
+
+    def _regulator_symbol(self, reference="U1", footprint_path="/sym-u1"):
+        return SymbolInstance(
+            lib_id="Regulator_Linear:LM7805", uuid="sym-u1", reference=reference, value="LM7805",
+            footprint="", datasheet="", extra_fields={"MPN": "LM7805CT"}, sheet_path="/root",
+            pins=[PinDef("2", "VO", "power_out")], footprint_path=footprint_path,
+        )
+
+    def _footprint(self, reference, sch_path):
+        return Footprint(
+            reference=reference, value="LM7805", lib_id="Package_TO_SOT_THT:TO-220-3",
+            position=(0, 0), rotation=0, layer="F.Cu", sch_path=sch_path, sch_sheet_file="",
+            pads=[Pad("2", "+5V", "passive", (0, 0))],
+        )
+
+    def test_a_footprint_without_a_path_is_pcb_only_even_when_a_symbol_shares_its_reference(self):
+        board = _make_board(footprints=[self._footprint("U1", "")])
+        nl = build_netlist(board, _make_schematic([self._regulator_symbol()]), "b")
+        component = nl.components[0]
+        self.assertEqual(component.pin_types_by_pad["2"], "passive")
+        self.assertEqual(component.extra_fields, {})
+        self.assertEqual(component.schematic_link, "pcb_only")
+
+    def test_links_by_path_and_diagnoses_what_disagrees(self):
+        board = _make_board(footprints=[
+            self._footprint("U7", "/sym-u1"),     # linked, but the board kept an old reference
+            self._footprint("U2", "/deleted"),    # its symbol is gone from the schematic
+            self._footprint("U2", ""),
+        ])
+        nl = build_netlist(board, _make_schematic([self._regulator_symbol()]), "b")
+        self.assertEqual([c.schematic_link for c in nl.components], ["linked", "symbol_missing", "pcb_only"])
+        self.assertEqual(nl.components[0].pin_types_by_pad["2"], "power_out")
+        self.assertEqual(sorted((i.kind, tuple(i.references)) for i in nl.link_issues),
+                         [("duplicate_reference", ("U2",)), ("reference_mismatch", ("U7", "U1"))])
 
 
 class TestCrossBoardAliases(unittest.TestCase):

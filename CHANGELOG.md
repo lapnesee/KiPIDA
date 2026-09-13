@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Changed the offline netlist to join a footprint to its symbol by the
+  schematic path the footprint records, and never by reference. A footprint
+  now says whether it is linked, placed on the board only, pointing at a
+  symbol the schematic no longer has, or read without a schematic; the netlist
+  reports footprints sharing a reference and linked footprints whose reference
+  differs from their symbol's. A footprint placed on the board only no longer
+  takes the pin types and fields of whichever symbol shares its reference.
 - Changed the offline board and schematic readers to refuse a file saved by
   KiCad 7 or earlier, with a message naming the file and its format version
   and asking for a save from a current KiCad. The hybrid DC engine then falls

@@ -127,13 +127,15 @@ def measure_project(pro, max_pcb_mb):
         keys = {}
         for inst in schematic.instances:
             keys[inst.footprint_path] = keys.get(inst.footprint_path, 0) + 1
-        refs = {inst.reference for inst in schematic.instances if inst.reference}
         exact = sum(1 for fp in with_path if keys.get(fp.sch_path) == 1)
         row["I1_matched_by_path"] = f"{exact}/{len(with_path)}"
         row["I1_ok"] = exact == len(with_path)
-        row["reference_only_fallback"] = sum(
-            1 for fp in with_path if keys.get(fp.sch_path) != 1 and fp.reference in refs
-        )
+        # What the netlist builder did with them: linked by path, or not at all.
+        links = {}
+        for component in netlist.components:
+            links[component.schematic_link] = links.get(component.schematic_link, 0) + 1
+        row["schematic_links"] = links
+        row["link_issues"] = [f"{issue.kind}: {' '.join(issue.references)}" for issue in netlist.link_issues]
 
     findings = DEFAULT_REGISTRY.evaluate_domain(
         "SCHEMATIC", schematic_rules.SchematicRuleContext(netlist=netlist, schematic=schematic),

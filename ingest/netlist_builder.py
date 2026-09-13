@@ -3,6 +3,12 @@
 Resolves pin electrical types from schematic lib_symbols, classifies power
 rails deterministically (broche power_out = source), and populates cross-board
 net aliases from the MBS module_block topology.
+
+A footprint meets its symbol by the path it records, and by nothing else. A
+reference is a label: two sheet instances can hold the same one until they are
+annotated, a board not updated since the last annotation holds old ones, and a
+logo placed on the board carries whatever it was typed with. Joining on it
+attached symbols to footprints they have nothing to do with.
 """
 
 from __future__ import annotations
@@ -36,6 +42,17 @@ class NetInfo:
     aliases: set[str] = field(default_factory=set)
 
 
+# How a footprint relates to the schematic. Absence is a state, not a gap.
+LINKED = "linked"                  # its path names a symbol of the schematic
+PCB_ONLY = "pcb_only"              # no path: placed on the board, never from a symbol
+SYMBOL_MISSING = "symbol_missing"  # its path names a symbol the schematic no longer holds
+NO_SCHEMATIC = "no_schematic"      # no schematic was read
+
+# Link issue kinds.
+DUPLICATE_REFERENCE = "duplicate_reference"  # several footprints carry one reference
+REFERENCE_MISMATCH = "reference_mismatch"    # a linked footprint and its symbol disagree
+
+
 @dataclass
 class ComponentInfo:
     reference: str
@@ -46,6 +63,14 @@ class ComponentInfo:
     position: tuple[float, float]
     nets_by_pad: dict[str, str]
     pin_types_by_pad: dict[str, str]
+    schematic_link: str = NO_SCHEMATIC
+
+
+@dataclass
+class LinkIssue:
+    kind: str
+    references: list[str]
+    detail: str
 
 
 @dataclass
@@ -56,6 +81,7 @@ class BoardNetlist:
     nets: list[NetInfo]
     stackup: Stackup
     bounds: BoardBounds
+    link_issues: list[LinkIssue] = field(default_factory=list)
 
 
 # Power-bearing pin types — a net with any of these carries power.
@@ -71,16 +97,14 @@ def build_netlist(
 ) -> BoardNetlist:
     """Fuse PCB and schematic data into a BoardNetlist."""
 
-    # Build sch_path → SymbolInstance map for O(1) lookup
+    # The path a footprint records -> the symbol placement it came from. Every
+    # unit of a multi-unit symbol has its own uuid, so each is indexed.
     sch_by_path: dict[str, SymbolInstance] = {}
-    # Also index by reference for fallback
-    sch_by_ref: dict[str, SymbolInstance] = {}
     if schematic:
         for inst in schematic.instances:
-            if inst.sheet_path:
-                sch_by_path[inst.sheet_path] = inst
-            if inst.reference:
-                sch_by_ref[inst.reference] = inst
+            if inst.footprint_path:
+                sch_by_path.setdefault(inst.footprint_path, inst)
+    link_issues: list[LinkIssue] = []
 
     # Accumulate nets: net_name → NetInfo
     nets_map: dict[str, NetInfo] = {}
@@ -99,8 +123,19 @@ def build_netlist(
     components: list[ComponentInfo] = []
 
     for fp in board.footprints:
-        # Resolve schematic symbol
-        sch_inst = sch_by_path.get(fp.sch_path) or sch_by_ref.get(fp.reference)
+        sch_inst = sch_by_path.get(fp.sch_path) if schematic and fp.sch_path else None
+        if schematic is None:
+            link = NO_SCHEMATIC
+        elif not fp.sch_path:
+            link = PCB_ONLY
+        else:
+            link = LINKED if sch_inst else SYMBOL_MISSING
+        if sch_inst and sch_inst.reference and fp.reference and sch_inst.reference != fp.reference:
+            link_issues.append(LinkIssue(
+                REFERENCE_MISMATCH, [fp.reference, sch_inst.reference],
+                f"Footprint {fp.reference} comes from symbol {sch_inst.reference}: "
+                "the board was not updated since the schematic was annotated.",
+            ))
         pin_type_map: dict[str, str] = {}
         if sch_inst:
             for pin_def in sch_inst.pins:
@@ -139,7 +174,19 @@ def build_netlist(
             position=fp.position,
             nets_by_pad=nets_by_pad,
             pin_types_by_pad=dict(pin_type_map),
+            schematic_link=link,
         ))
+
+    footprints_by_reference: dict[str, int] = {}
+    for fp in board.footprints:
+        if fp.reference:
+            footprints_by_reference[fp.reference] = footprints_by_reference.get(fp.reference, 0) + 1
+    for reference, count in sorted(footprints_by_reference.items()):
+        if count > 1:
+            link_issues.append(LinkIssue(
+                DUPLICATE_REFERENCE, [reference],
+                f"{count} footprints carry the reference {reference}.",
+            ))
 
     # Also capture nets from segments and zones (no pin type info available)
     for seg in board.segments:
@@ -176,6 +223,7 @@ def build_netlist(
         nets=nets,
         stackup=board.stackup,
         bounds=board.bounds,
+        link_issues=link_issues,
     )
 
 
