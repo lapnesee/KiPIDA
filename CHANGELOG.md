@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Fixed the DC advisor anchoring a surface pad on whatever node lay nearest on
+  any layer, typically the plane directly beneath it, which fed the load past
+  the vias that really carry it. Pads are now located on their own copper
+  layers, a through-hole pad on every layer it reaches, through a spatial index
+  instead of a scan of every node per pad.
+- Changed planar current density to use the copper section a branch records --
+  a track's width, a cut cell's copper fraction -- when there is one, and its
+  recorded material (track or pour) over the geometric guess; raster edges,
+  which record none, keep thickness times grid step. Hybrid barrels count as
+  vias and through-hole pads, with their plating flagged as estimated.
 - Fixed via barrel resistance in both DC meshers. The hybrid mesher took half
   of the via size minus its drill -- the annular ring -- for the plating wall,
   making a 0.6/0.3 mm via ten times too conductive; the raster mesher sized the

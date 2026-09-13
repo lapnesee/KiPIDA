@@ -195,6 +195,87 @@ class PadToNodeTests(unittest.TestCase):
         self.assertEqual([number for number, _ in found], ["7", "8"])
 
 
+@dataclass
+class _LayeredPad(_Pad):
+    pad_type: str = "smd"
+    layers: tuple = ()
+
+
+@dataclass
+class _CopperLayer:
+    name: str
+    layer_id: int
+
+
+@dataclass
+class _Stackup:
+    layers: list
+
+
+@dataclass
+class _LayeredBoard(_Board):
+    stackup: _Stackup = None
+
+
+def _four_layer_board(*footprints):
+    return _LayeredBoard(
+        footprints=list(footprints),
+        stackup=_Stackup([
+            _CopperLayer("F.Cu", 0), _CopperLayer("In1.Cu", 4),
+            _CopperLayer("In2.Cu", 6), _CopperLayer("B.Cu", 2),
+        ]),
+    )
+
+
+class LayerAwarePadTests(unittest.TestCase):
+    def test_a_surface_pad_does_not_anchor_on_the_plane_beneath_it(self):
+        # The plane node on In2.Cu sits exactly under the pad; the pad's own
+        # copper on F.Cu is 0.15 mm away. Any-layer search picked the plane and
+        # fed the load straight into it, past the vias that really carry it.
+        board = _four_layer_board(_Footprint("U1", [
+            _LayeredPad("1", "+5V", "power_in", (10.0, 10.0), "smd", ("F.Cu", "F.Mask")),
+        ]))
+        mesh = _Mesh({20: (10.0, 10.0, 6), 21: (10.15, 10.0, 0)})
+        nodes, unlocated = map_pads_to_nodes(mesh, board, "U1", ["1"], net_name="+5V")
+        self.assertEqual((nodes, unlocated), ([21], []))
+
+    def test_a_surface_pad_with_copper_only_on_other_layers_is_unlocated(self):
+        board = _four_layer_board(_Footprint("U1", [
+            _LayeredPad("1", "+5V", "power_in", (10.0, 10.0), "smd", ("B.Cu",)),
+        ]))
+        mesh = _Mesh({20: (10.0, 10.0, 6), 21: (10.0, 10.0, 0)})
+        self.assertEqual(
+            map_pads_to_nodes(mesh, board, "U1", ["1"], net_name="+5V"), ([], ["1"]),
+        )
+
+    def test_a_through_hole_pad_feeds_every_layer_it_reaches(self):
+        board = _four_layer_board(_Footprint("J1", [
+            _LayeredPad("1", "+5V", "passive", (5.0, 5.0), "thru_hole", ("*.Cu", "*.Mask")),
+        ]))
+        mesh = _Mesh({1: (5.0, 5.0, 0), 2: (5.0, 5.0, 4), 3: (5.02, 5.0, 2), 9: (7.0, 7.0, 6)})
+        nodes, unlocated = map_pads_to_nodes(mesh, board, "J1", [], net_name="+5V")
+        self.assertEqual((sorted(nodes), unlocated), ([1, 2, 3], []))
+
+    def test_the_index_agrees_with_a_full_scan(self):
+        import random
+
+        from advisor.dc_advisor import find_node_at
+        from advisor.rail_sources import NodeIndex
+
+        rng = random.Random(7)
+        coords = {
+            node_id: (rng.uniform(0, 20), rng.uniform(0, 20), rng.choice((0, 2)))
+            for node_id in range(3000)
+        }
+        mesh = _Mesh(coords)
+        index = NodeIndex(mesh, 0.2)
+        for _ in range(400):
+            x, y = rng.uniform(0, 20), rng.uniform(0, 20)
+            for layer in (None, 0, 2):
+                expected = find_node_at(mesh, x, y, layer_id=layer, tolerance_mm=0.5)
+                self.assertEqual(index.nearest(x, y, 0.5, layer), expected)
+
+
 class SolverLoadTests(unittest.TestCase):
     def test_current_is_split_evenly_across_located_pads(self):
         board = _board_with(_Footprint("J6", [

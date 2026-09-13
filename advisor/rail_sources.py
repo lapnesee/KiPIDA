@@ -16,12 +16,8 @@ that produced it so the log can show the pick was derived rather than guessed.
 
 from __future__ import annotations
 
+import math
 from typing import Callable, Optional
-
-try:
-    from .dc_advisor import find_node_at
-except (ImportError, ValueError):
-    from advisor.dc_advisor import find_node_at
 
 
 # A pad centre rarely coincides with a mesh node: zone cut-cell nodes sit on
@@ -31,6 +27,57 @@ except (ImportError, ValueError):
 # attach a pad to unrelated copper millimetres away.
 NODE_MATCH_GRID_FACTOR = 2.0
 NODE_MATCH_FLOOR_MM = 0.2
+
+
+class NodeIndex:
+    """Nearest mesh node to a point, optionally on one layer, without a scan.
+
+    A rail's mesh holds up to 400,000 nodes and a run locates every source,
+    load and regulator pad on it; a linear search per pad made placing the
+    injections cost more than building the mesh.
+    """
+
+    def __init__(self, mesh, cell_mm: float):
+        self._cell = max(float(cell_mm), 1e-6)
+        self._buckets: dict = {}
+        for node_id, coord in getattr(mesh, "node_coords", {}).items():
+            key = (math.floor(coord[0] / self._cell), math.floor(coord[1] / self._cell))
+            self._buckets.setdefault(key, []).append((node_id, coord))
+
+    def nearest(self, x_mm: float, y_mm: float, tolerance_mm: float,
+                layer_id=None) -> Optional[int]:
+        reach = int(math.ceil(tolerance_mm / self._cell))
+        cx, cy = math.floor(x_mm / self._cell), math.floor(y_mm / self._cell)
+        best_id, best_d2 = None, tolerance_mm * tolerance_mm
+        for ix in range(cx - reach, cx + reach + 1):
+            for iy in range(cy - reach, cy + reach + 1):
+                for node_id, coord in self._buckets.get((ix, iy), ()):
+                    if layer_id is not None and len(coord) > 2 and coord[2] != layer_id:
+                        continue
+                    d2 = (coord[0] - x_mm) ** 2 + (coord[1] - y_mm) ** 2
+                    if d2 < best_d2 or (d2 == best_d2 and (best_id is None or node_id < best_id)):
+                        best_id, best_d2 = node_id, d2
+        return best_id
+
+
+def pad_layer_ids(parsed_board, pad) -> list:
+    """Copper layer ids a pad occupies, in the board file's numbering.
+
+    Empty when the board or pad does not say, which callers take as "any
+    layer" rather than as "none".
+    """
+    stackup = getattr(parsed_board, "stackup", None)
+    order = [
+        (layer.name, layer.layer_id)
+        for layer in (getattr(stackup, "layers", ()) or ())
+    ]
+    declared = {str(name) for name in (getattr(pad, "layers", ()) or ())}
+    through = str(getattr(pad, "pad_type", "")).lower() in {"thru_hole", "np_thru_hole"}
+    if not order or not (declared or through):
+        return []
+    if through or "*.Cu" in declared:
+        return [layer_id for _name, layer_id in order]
+    return [layer_id for name, layer_id in order if name in declared]
 
 
 def pad_pin_type(pad) -> str:
@@ -123,8 +170,8 @@ def resolve_rail_source(parsed_board, rail, all_rails=None):
     )
 
 
-def pad_positions(parsed_board, ref_des, pad_names, net_name=""):
-    """``[(pad_number, (x_mm, y_mm)), ...]`` for the named pads of *ref_des*.
+def component_pads(parsed_board, ref_des, pad_names, net_name=""):
+    """The named pads of *ref_des* that sit on *net_name*.
 
     An empty *pad_names* means every pad of the footprint on *net_name*, which
     is how a regulator entry with no explicit pad list should behave. A
@@ -136,38 +183,58 @@ def pad_positions(parsed_board, ref_des, pad_names, net_name=""):
     for footprint in getattr(parsed_board, "footprints", ()) or ():
         if footprint.reference != ref_des:
             continue
-        found = []
-        for pad in getattr(footprint, "pads", ()) or ():
-            if net_name and pad.net_name != net_name:
-                continue
-            if wanted and str(pad.number) not in wanted:
-                continue
-            found.append((str(pad.number), pad.position))
-        return found
+        return [
+            pad for pad in getattr(footprint, "pads", ()) or ()
+            if (not net_name or pad.net_name == net_name)
+            and (not wanted or str(pad.number) in wanted)
+        ]
     return []
 
 
+def pad_positions(parsed_board, ref_des, pad_names, net_name=""):
+    """``[(pad_number, (x_mm, y_mm)), ...]`` for :func:`component_pads`."""
+    return [
+        (str(pad.number), pad.position)
+        for pad in component_pads(parsed_board, ref_des, pad_names, net_name)
+    ]
+
+
 def map_pads_to_nodes(mesh, parsed_board, ref_des, pad_names, *,
-                      net_name="", grid_step_mm=0.1, tolerance_mm=None):
-    """Locate a component's pads in *mesh*.
+                      net_name="", grid_step_mm=0.1, tolerance_mm=None,
+                      index=None):
+    """Locate a component's pads in *mesh*, on the layers each pad occupies.
 
     Returns ``(node_ids, unlocated)``, where *unlocated* lists the pad numbers
     that had no mesh node within tolerance. Those are reported rather than
     snapped to whatever happened to be nearest: attaching a pad to unrelated
     copper would move current somewhere it does not flow, and a quietly wrong
     anchor is worse than a refused one.
+
+    The search stays on the pad's own copper layers. Searching every layer let
+    a surface pad on F.Cu anchor on the plane node directly beneath it on an
+    inner layer, injecting the load past the vias that really carry it. A
+    through-hole pad yields one node per layer it reaches: its barrel shorts
+    them, and the pin feeds all of them.
     """
     if tolerance_mm is None:
         tolerance_mm = max(NODE_MATCH_GRID_FACTOR * grid_step_mm, NODE_MATCH_FLOOR_MM)
+    if index is None:
+        index = NodeIndex(mesh, tolerance_mm)
     node_ids, unlocated = [], []
-    for number, (x_mm, y_mm) in pad_positions(
-        parsed_board, ref_des, pad_names, net_name,
-    ):
-        node_id = find_node_at(mesh, x_mm, y_mm, tolerance_mm=tolerance_mm)
-        if node_id is None:
-            unlocated.append(number)
-        elif node_id not in node_ids:
-            node_ids.append(node_id)
+    for pad in component_pads(parsed_board, ref_des, pad_names, net_name):
+        x_mm, y_mm = pad.position
+        layers = pad_layer_ids(parsed_board, pad) or [None]
+        found = [
+            node_id for node_id in (
+                index.nearest(x_mm, y_mm, tolerance_mm, layer_id) for layer_id in layers
+            )
+            if node_id is not None
+        ]
+        if not found:
+            unlocated.append(str(pad.number))
+        for node_id in found:
+            if node_id not in node_ids:
+                node_ids.append(node_id)
     return node_ids, unlocated
 
 
@@ -197,7 +264,8 @@ def unreachable_nodes(mesh, seed_nodes, target_nodes):
 
 
 def solver_loads(mesh, parsed_board, rail, *, grid_step_mm=0.1,
-                 log_callback: Optional[Callable[[str], None]] = None):
+                 log_callback: Optional[Callable[[str], None]] = None,
+                 index=None):
     """Convert a rail's ``UnifiedLoad`` entries into solver current injections.
 
     Each load's current is split evenly across the pads that were located,
@@ -218,7 +286,7 @@ def solver_loads(mesh, parsed_board, rail, *, grid_step_mm=0.1,
             continue
         node_ids, unlocated = map_pads_to_nodes(
             mesh, parsed_board, ref, getattr(load, "pad_names", ()) or (),
-            net_name=net_name, grid_step_mm=grid_step_mm,
+            net_name=net_name, grid_step_mm=grid_step_mm, index=index,
         )
         if unlocated:
             _log(
@@ -229,5 +297,8 @@ def solver_loads(mesh, parsed_board, rail, *, grid_step_mm=0.1,
         if not node_ids:
             continue
         share = current / len(node_ids)
-        loads.extend({"node_id": node_id, "current": share} for node_id in node_ids)
+        loads.extend(
+            {"node_id": node_id, "current": share, "ref_des": ref}
+            for node_id in node_ids
+        )
     return loads

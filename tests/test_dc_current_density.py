@@ -89,6 +89,60 @@ class DCCurrentDensityTests(unittest.TestCase):
         self.assertAlmostEqual(result.maximum_via_a_per_mm2, 20.0)
         self.assertTrue(any("plating-thickness estimate" in item for item in result.warnings))
 
+    def test_a_track_branch_uses_its_own_width_not_the_grid_step(self):
+        # A 0.3 mm track meshed as one analytic branch on a 0.1 mm grid: the
+        # face is width x thickness. The grid step belongs to raster edges.
+        mesh = Mesh()
+        mesh.nodes = [0, 1]
+        mesh.node_coords = {0: (0.0, 0.0, 0), 1: (5.0, 0.0, 0)}
+        mesh.grid_step = 0.1
+        mesh.add_edge_direct(
+            0, 1, 10.0, kind="lateral", cross_section_mm2=0.3 * 0.035,
+            geometry_source="seg:F.Cu",
+        )
+        result = calculate_current_density(
+            mesh, DCSolveResult(branch_currents_a=[1.05]), self.stackup(),
+        )
+        self.assertAlmostEqual(result.maximum_planar_a_per_mm2, 100.0, places=9)
+        self.assertEqual(result.planar_samples[0].copper_kind, "TRACK")
+
+    def test_a_recorded_material_beats_the_geometric_guess(self):
+        mesh = Mesh()
+        mesh.nodes = [0, 1]
+        mesh.node_coords = {0: (0.0, 0.0, 0), 1: (0.1, 0.0, 0)}
+        mesh.grid_step = 0.1
+        mesh.add_edge_direct(
+            0, 1, 10.0, kind="lateral", cross_section_mm2=0.0021,
+            geometry_source="zone:F.Cu:h",
+        )
+        geometry = {
+            "track": {0: box(0.0, -0.1, 0.1, 0.1)},
+            "zone": {0: box(0.0, -0.1, 0.1, 0.1)},
+        }
+        result = calculate_current_density(
+            mesh, DCSolveResult(branch_currents_a=[0.21]), self.stackup(), geometry,
+        )
+        self.assertEqual(result.planar_samples[0].copper_kind, "ZONE")
+        self.assertAlmostEqual(result.maximum_planar_a_per_mm2, 100.0, places=9)
+
+    def test_hybrid_barrels_count_as_vias_and_through_hole_pads(self):
+        mesh = Mesh()
+        mesh.nodes = [0, 1, 2, 3]
+        mesh.node_coords = {
+            0: (2.0, 3.0, 0), 1: (2.0, 3.0, 2), 2: (6.0, 3.0, 0), 3: (6.0, 3.0, 2),
+        }
+        mesh.add_edge_direct(0, 1, 10.0, kind="vertical", cross_section_mm2=0.02,
+                             geometry_source="via:F.Cu-B.Cu")
+        mesh.add_edge_direct(2, 3, 10.0, kind="vertical", cross_section_mm2=0.05,
+                             geometry_source="pad:J1-1")
+        result = calculate_current_density(
+            mesh, DCSolveResult(branch_currents_a=[0.4, 1.0]), self.stackup(),
+        )
+        self.assertEqual([s.kind for s in result.vertical_samples], ["VIA", "PTH"])
+        self.assertAlmostEqual(result.maximum_via_current_a, 0.4)
+        self.assertAlmostEqual(result.maximum_via_a_per_mm2, 20.0)
+        self.assertTrue(any("plating-thickness estimate" in item for item in result.warnings))
+
     def test_disconnected_nodes_do_not_create_false_density(self):
         mesh, _detailed = self.planar_mesh()
         result = calculate_current_density(

@@ -82,13 +82,40 @@ def _prepared_layers(geometry_by_layer):
     }
 
 
+_VERTICAL_KINDS = ("via", "pth", "vertical")
+
+
+def _copper_kind_from_source(geometry_source):
+    """What a branch is made of, when the mesher recorded it.
+
+    The hybrid mesher builds a track branch from one segment and a pour branch
+    from one cut cell, so its label is exact; guessing from the midpoint would
+    call a track crossing its own pour ``TRACK+ZONE``.
+    """
+    source = str(geometry_source or "")
+    if source.startswith("seg:"):
+        return "TRACK"
+    if source.startswith("zone:"):
+        return "ZONE"
+    return None
+
+
+def _vertical_label(kind, geometry_source):
+    if kind != "vertical":
+        return kind.upper()
+    return "PTH" if str(geometry_source or "").startswith("pad:") else "VIA"
+
+
 def calculate_current_density(mesh, detailed_result, stackup, classification_geometry=None):
     """Convert exact solved branch currents to A/mm² samples.
 
-    Planar branches use ``copper thickness * effective mesh step``.  Via and
-    plated-through-hole branches use the barrel wall section captured by the
-    mesher.  Classification is geometric and non-exclusive at route/zone
-    overlaps, which are reported as ``TRACK+ZONE``.
+    A planar branch uses the copper section its mesher recorded -- a track's
+    width times thickness, a cut cell's copper fraction of the face -- and,
+    when none was recorded, ``copper thickness * effective mesh step``, which
+    is exact for a raster edge.  Via and plated-through-hole branches use the
+    barrel wall section captured by the mesher.  Without a recorded material,
+    classification is geometric and non-exclusive at route/zone overlaps,
+    which are reported as ``TRACK+ZONE``.
     """
     result = DCCurrentDensityResult()
     branches = list(getattr(mesh, "branches", ()) or ())
@@ -126,25 +153,30 @@ def calculate_current_density(mesh, detailed_result, stackup, classification_geo
         if kind == "lateral":
             layer_id = int(coord_a[2])
             copper = stackup.get("copper", {}).get(layer_id, {})
-            thickness_mm = float(copper.get("thickness_mm", 0.0) or 0.0)
-            face_width_mm = float(getattr(mesh, "grid_step", 0.0) or 0.0)
-            if thickness_mm <= 0.0 or face_width_mm <= 0.0:
-                invalid_thickness_layers.add(layer_id)
-                continue
-            density = abs(current) / (thickness_mm * face_width_mm)
-            point = Point(x_mm, y_mm) if Point is not None else None
-            on_track = bool(
-                point is not None and layer_id in tracks
-                and tracks[layer_id].intersects(point)
-            )
-            in_zone = bool(
-                point is not None and layer_id in zones
-                and zones[layer_id].intersects(point)
-            )
-            copper_kind = (
-                "TRACK+ZONE" if on_track and in_zone else
-                "TRACK" if on_track else "ZONE" if in_zone else "PAD_OR_OTHER"
-            )
+            section = float(getattr(branch, "cross_section_mm2", 0.0) or 0.0)
+            if section <= 0.0:
+                thickness_mm = float(copper.get("thickness_mm", 0.0) or 0.0)
+                face_width_mm = float(getattr(mesh, "grid_step", 0.0) or 0.0)
+                if thickness_mm <= 0.0 or face_width_mm <= 0.0:
+                    invalid_thickness_layers.add(layer_id)
+                    continue
+                section = thickness_mm * face_width_mm
+            density = abs(current) / section
+            copper_kind = _copper_kind_from_source(getattr(branch, "geometry_source", ""))
+            if copper_kind is None:
+                point = Point(x_mm, y_mm) if Point is not None else None
+                on_track = bool(
+                    point is not None and layer_id in tracks
+                    and tracks[layer_id].intersects(point)
+                )
+                in_zone = bool(
+                    point is not None and layer_id in zones
+                    and zones[layer_id].intersects(point)
+                )
+                copper_kind = (
+                    "TRACK+ZONE" if on_track and in_zone else
+                    "TRACK" if on_track else "ZONE" if in_zone else "PAD_OR_OTHER"
+                )
             sample = PlanarCurrentDensitySample(
                 index, x_mm, y_mm, layer_id,
                 str(copper.get("name", layer_id)), current, density, copper_kind,
@@ -156,7 +188,7 @@ def calculate_current_density(mesh, detailed_result, stackup, classification_geo
             # sqrt(2) peak at a simple 90-degree bend.
             for node_id in (branch.node_a, branch.node_b):
                 node_density[node_id] = max(node_density.get(node_id, 0.0), density)
-        elif kind in ("via", "pth"):
+        elif kind in _VERTICAL_KINDS:
             section = float(getattr(branch, "cross_section_mm2", 0.0) or 0.0)
             if section <= 0.0:
                 result.warnings.append(
@@ -165,10 +197,14 @@ def calculate_current_density(mesh, detailed_result, stackup, classification_geo
                 continue
             density = abs(current) / section
             source = str(getattr(branch, "geometry_source", "") or "UNKNOWN")
-            estimated_barrels = estimated_barrels or "ESTIMATED" in source
+            # A board file records no barrel plating, so every barrel the
+            # hybrid mesher builds from one ("via:", "pad:") uses the fallback.
+            estimated_barrels = estimated_barrels or "ESTIMATED" in source or (
+                kind == "vertical" and source.startswith(("via:", "pad:"))
+            )
             result.vertical_samples.append(VerticalCurrentDensitySample(
                 index, x_mm, y_mm, int(coord_a[2]), int(coord_b[2]), current,
-                density, kind.upper(), section, source,
+                density, _vertical_label(kind, source), section, source,
             ))
 
     if invalid_thickness_layers:
