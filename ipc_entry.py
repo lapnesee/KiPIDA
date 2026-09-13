@@ -160,10 +160,14 @@ def main():
     # the connection failed. Nothing is decided from it yet: the Zeo layer's
     # activation rule is chosen from these lines (docs/plan-universalite.md).
     try:
-        from host_probe import describe_host
+        from host_probe import append_host_report, describe_host
 
-        for line in describe_host(client, board, project):
+        host_lines = describe_host(client, board, project)
+        for line in host_lines:
             early_log(f"[HOST] {line}")
+        report_path = append_host_report(host_lines)
+        if report_path:
+            early_log(f"[HOST] Appended to {report_path}")
     except Exception as exc:  # pragma: no cover - never block startup
         early_log(f"[HOST] Host probe failed: {exc}")
 

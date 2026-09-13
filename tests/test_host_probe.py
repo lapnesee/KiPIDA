@@ -1,7 +1,9 @@
 import unittest
 from types import SimpleNamespace
 
-from host_probe import describe_host, host_environment_variable_names, process_ancestry
+from host_probe import (
+    append_host_report, describe_host, host_environment_variable_names, process_ancestry,
+)
 
 
 class HostProbeTests(unittest.TestCase):
@@ -55,6 +57,21 @@ class HostProbeTests(unittest.TestCase):
         self.assertIn(r"Host kicad-cli: C:\Program Files\Zeo\v0.3.0\bin\kicad-cli.exe", text)
         self.assertIn("board_filename=p02.kicad_pcb", text)
         self.assertIn(r"Zeo.exe", text)
+
+    def test_report_accumulates_across_launches(self):
+        # The entry log is rewritten on each start; the host report must keep
+        # every launch so KiCad and Zeo runs can be compared side by side.
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "probe.log")
+            self.assertEqual(append_host_report(["IPC version: A"], path), path)
+            append_host_report(["IPC version: B"], path)
+            with open(path, encoding="utf-8") as handle:
+                text = handle.read()
+        self.assertEqual(text.count("=== launch "), 2)
+        self.assertLess(text.index("IPC version: A"), text.index("IPC version: B"))
 
     def test_ancestry_walk_runs_on_this_platform(self):
         # The platform-specific walk is the part most likely to break silently,

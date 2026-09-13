@@ -90,6 +90,29 @@ def describe_host(client=None, board=None, project=None, environ=None, ancestry=
     return lines
 
 
+def append_host_report(lines, path=None):
+    """Append one timestamped block to a log that survives relaunches.
+
+    ``kipida_entry.log`` is rewritten on every start, so comparing the host's
+    answers across the launches the detection rule needs -- KiCad, Zeo from a
+    container, Zeo on a board opened directly, Zeo on a standalone project --
+    would mean copying it after each one. This file accumulates them instead.
+    Returns the path written, or None if it could not be.
+    """
+    import datetime
+    import tempfile
+
+    path = path or os.path.join(tempfile.gettempdir(), "kipida_host_probe.log")
+    stamp = datetime.datetime.now().isoformat(timespec="seconds")
+    try:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(f"=== launch {stamp} ===\n")
+            handle.writelines(f"{line}\n" for line in lines)
+        return path
+    except OSError:
+        return None
+
+
 def _call(obj, method, *args):
     function = getattr(obj, method, None)
     if function is None:
