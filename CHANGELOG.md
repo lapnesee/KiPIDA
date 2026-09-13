@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Changed a campaign to solve the DC once: the thermal and CFD runs that need
+  copper losses take them from the campaign's DC result instead of solving the
+  same DC again from their own capture. A coupled electro-thermal run keeps
+  its own solves, a run whose capture differs (rails, grid or board file)
+  solves its own and the log says why, and every thermal and CFD result names
+  where its copper losses came from.
+- Changed EMI/EMC sources discovered without a converter loss model -- clocks,
+  fast interfaces other than USB, name-matched switching nodes -- to swing to
+  the highest configured rail powering the parts on their net instead of a
+  flat 3.3 V; the source's notes name the rail and the parts, and still call
+  the 0.1 A current an assumed default.
 - Added the raster mesh's track error to every result that uses it: the AC
   sweep always, and a DC run that fell back to the raster engine. Each
   publishes its narrowest track in grid steps and its oblique tracks (arcs

@@ -248,6 +248,15 @@ pas, ×1,09 à dix). Sous un pas, rien n'a été mesuré et le texte le dit.
   alimente les composants reliés au net source, quand il existe ; la provenance du
   paramètre le dit, et le courant supposé reste marqué comme tel.
 
+**Fait.** Le résultat DC passe au thermique et à la CFD par
+`CampaignEngine._share_dc_results`, seulement si leur capture DC reproduit celle
+du domaine DC (rails, pas, fichier) et hors couplage électrothermique ; il reste
+hors du condensat du cache, que `dc_request` détermine déjà. Chaque résultat
+thermique et CFD publie une provenance `COPPER_LOSSES`. Côté EMC,
+`supply_voltages_by_net` retient, pour chaque net, le rail configuré le plus haut
+parmi ceux qui alimentent ses composants (choix conservateur quand une pièce a
+plusieurs alimentations) ; l'USB garde ses niveaux normalisés.
+
 ## Lot 8 — Barre d'erreur thermique (R7)
 
 Le thermique résout aussi à pas double et publie l'écart du point chaud ; au-delà

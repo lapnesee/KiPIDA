@@ -6,14 +6,14 @@ import wx
 from i18n import _
 
 try:
-    from emc_analyzer import EMCSourceDiscoverer
+    from emc_analyzer import EMCSourceDiscoverer, supply_voltages_by_net
     from extractor import GeometryExtractor
     from models import EMCAnalysisSettings, EMCSignalSource
     from palace_remote import (
         PalaceRemoteClient, PalaceRemoteConnection, bundled_palace_smoke_config,
     )
 except (ImportError, ValueError):
-    from ..emc_analyzer import EMCSourceDiscoverer
+    from ..emc_analyzer import EMCSourceDiscoverer, supply_voltages_by_net
     from ..extractor import GeometryExtractor
     from ..models import EMCAnalysisSettings, EMCSignalSource
     from ..palace_remote import (
@@ -532,8 +532,16 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
                         "voltage_swing_v": float(getattr(rail, "nominal_voltage", 0.0) or 0.0),
                         "current_a": rail_current(regulator.output_rail_name),
                     }
+        try:
+            from application.dc_controller import capture_dc_board
+
+            supply_voltages = supply_voltages_by_net(capture_dc_board(self.board).footprints, rails)
+        except Exception as exc:
+            self.log(f"EMI/EMC sources keep the default swing: the board's parts could not be read ({exc}).")
+            supply_voltages = {}
         self.settings.sources = EMCSourceDiscoverer.discover(
             self._net_names(), self.settings.sources, pairs, switching_frequencies,
+            supply_voltages=supply_voltages,
         )
         self._update_sources()
         self._update_inductors()

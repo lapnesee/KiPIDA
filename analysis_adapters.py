@@ -746,7 +746,18 @@ def _thermal_grid_limitations(domain_result: Any) -> list:
     ]
 
 
-def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seconds: float = 0.0) -> AnalysisResult:
+def _copper_loss_evidence(copper_loss_source: str) -> list:
+    if not copper_loss_source:
+        return []
+    return [AnalysisEvidence(
+        "COPPER_LOSSES",
+        f"DC copper-loss heat sources come from {copper_loss_source}.",
+        reference=copper_loss_source,
+    )]
+
+
+def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seconds: float = 0.0,
+                         *, copper_loss_source: str = "") -> AnalysisResult:
     findings = []
     components = list(getattr(domain_result, "component_results", ()) or ())
     for index, component in enumerate(components, start=1):
@@ -836,7 +847,7 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
                 "Heat sources use configured component losses and optional DC copper losses.",
                 reference="coupled DC" if coupled else "thermal inputs",
             ),
-        ],
+        ] + _copper_loss_evidence(copper_loss_source),
         compute_metadata={
             "backend": getattr(domain_result, "compute_backend", ""),
             "device": getattr(domain_result, "compute_device", ""),
@@ -848,7 +859,7 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
     ).finish()
 
 
-def adapt_cfd_result(mesh: Any, domain_result: Any) -> AnalysisResult:
+def adapt_cfd_result(mesh: Any, domain_result: Any, *, copper_loss_source: str = "") -> AnalysisResult:
     findings = []
     if not bool(getattr(domain_result, "converged", False)):
         # Report which residual fell short and by how much. A bare "did not
@@ -976,7 +987,7 @@ def adapt_cfd_result(mesh: Any, domain_result: Any) -> AnalysisResult:
                 "Solid heat sources use configured component and optional DC copper losses.",
                 reference="thermal inputs",
             ),
-        ],
+        ] + _copper_loss_evidence(copper_loss_source),
         compute_metadata={"backend": getattr(domain_result, "compute_backend", ""), "device": getattr(domain_result, "compute_device", "")},
         limitations=[
             "Laminar steady-state model; turbulence, fan blades, radiation, and transients are excluded.",

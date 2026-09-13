@@ -163,12 +163,14 @@ def _adapt_thermal(domain_result, request) -> AnalysisResult:
         domain_result.result,
         domain_result.coupled_result is not None,
         domain_result.elapsed_seconds,
+        copper_loss_source=getattr(domain_result, "copper_loss_source", ""),
     )
 
 
 def _adapt_cfd(domain_result, request) -> AnalysisResult:
     return analysis_adapters.adapt_cfd_result(
         domain_result.mesh, domain_result.result,
+        copper_loss_source=getattr(domain_result, "copper_loss_source", ""),
     )
 
 
@@ -528,8 +530,67 @@ class CampaignEngine:
     # Internals
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _dc_capture_mismatch(dc_request, other) -> str:
+        """Why *other*'s DC capture would not reproduce *dc_request*'s, or ''."""
+        if other is None:
+            return ""
+
+        def rails(req):
+            return tuple(
+                (
+                    str(rail.net_name), float(getattr(rail, "nominal_voltage", 0.0) or 0.0),
+                    round(sum(float(getattr(load, "total_current", 0.0) or 0.0) for load in rail.loads), 9),
+                )
+                for rail in getattr(req, "rails", ()) or ()
+            )
+
+        checks = (
+            ("its rails differ", rails(dc_request), rails(other)),
+            ("its DC grid differs", float(getattr(dc_request, "grid_size_mm", 0.0)),
+             float(getattr(other, "grid_size_mm", 0.0))),
+            ("it was captured from another board file", getattr(dc_request, "board_path", None),
+             getattr(other, "board_path", None)),
+        )
+        return next((reason for reason, ours, theirs in checks if ours != theirs), "")
+
+    def _share_dc_results(self, request, system_results, emit_log) -> None:
+        """Hand the DC result to the thermal and CFD runs that need copper losses.
+
+        Both used to solve the same DC again from their own capture of the same
+        board, in the same campaign, for the same losses. A coupled thermal run
+        keeps its own solves: it iterates the DC against the temperature field.
+        A run whose capture differs from the DC domain's -- other rails, grid
+        or board file -- solves its own, and the log says why.
+        """
+        if not system_results:
+            return
+        dc_request = request.domain_requests.get("DC")
+        for analysis_id in ("THERMAL", "CFD"):
+            pending = request.domain_requests.get(analysis_id)
+            settings = getattr(pending, "settings", None)
+            if (
+                pending is None or getattr(pending, "coupled", False)
+                or not getattr(settings, "include_dc_copper_losses", False)
+            ):
+                continue
+            mismatch = self._dc_capture_mismatch(dc_request, getattr(pending, "dc_request", None))
+            if mismatch:
+                emit_log(f"{analysis_id} solves its own DC for copper losses: {mismatch}.")
+                continue
+            request.domain_requests[analysis_id] = replace(
+                pending, _dc_results=system_results,
+                _dc_results_source="this campaign's DC result",
+            )
+            emit_log(
+                f"{analysis_id} will take its copper losses from this campaign's DC "
+                "result rather than solving the DC again."
+            )
+
     def _handover(self, analysis_id, request, domain_result, produced, emit_log) -> None:
         """Everything that has to happen with a raw outcome before it is dropped."""
+        if analysis_id == "DC":
+            self._share_dc_results(request, domain_result, emit_log)
         if analysis_id == "CFD":
             self._couple_cfd_into_thermal(request, domain_result, emit_log)
         if analysis_id in self._EMC_INPUT_DOMAINS and "EMC" in request.domain_requests:

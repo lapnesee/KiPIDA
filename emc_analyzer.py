@@ -360,6 +360,51 @@ class EMCGeometrySnapshot:
         )
 
 
+def supply_voltages_by_net(footprints, rails):
+    """``{net: (voltage, provenance)}`` from the configured rails powering its parts.
+
+    A discovered source with no converter loss model used to take a flat
+    3.3 V swing whatever the board. The components connected to the source net
+    are powered by configured rails; the highest of those rails is the swing a
+    logic output on that net can reach, and it is the conservative choice when
+    a part carries more than one supply. Nets that are rails themselves, and
+    nets whose parts touch no configured rail, get nothing.
+    """
+    voltages = {
+        str(rail.net_name): float(getattr(rail, "nominal_voltage", 0.0) or 0.0)
+        for rail in (rails or ())
+        if float(getattr(rail, "nominal_voltage", 0.0) or 0.0) > 0.0
+    }
+    candidates = {}
+    for footprint in footprints or ():
+        reference = str(getattr(footprint, "reference", "") or "")
+        nets = set()
+        for pad in getattr(footprint, "pads", ()) or ():
+            name = getattr(pad, "net_name", None)
+            if name is None:
+                name = getattr(getattr(pad, "net", None), "name", "")
+            if name:
+                nets.add(str(name))
+        supplies = sorted(((voltages[net], net) for net in nets if net in voltages), reverse=True)
+        if not supplies:
+            continue
+        voltage, rail_name = supplies[0]
+        for net in nets - set(voltages):
+            best = candidates.get(net)
+            if best is None or voltage > best[0]:
+                candidates[net] = (voltage, rail_name, {reference})
+            elif voltage == best[0] and rail_name == best[1]:
+                best[2].add(reference)
+    return {
+        net: (
+            voltage,
+            f"voltage from {rail_name} ({voltage:g} V), the highest configured rail "
+            f"powering {', '.join(sorted(refs))} on this net",
+        )
+        for net, (voltage, rail_name, refs) in candidates.items()
+    }
+
+
 class EMCSourceDiscoverer:
     """Name/evidence based source discovery with manual-setting preservation."""
     CLOCK_PATTERN = re.compile(r"(^|[_/])(CLK|CLOCK|MCLK|BCLK|SCLK|XTAL)([_/]|$)", re.I)
@@ -377,9 +422,26 @@ class EMCSourceDiscoverer:
             return 0.4, 0.008
         return 3.3, 0.1
 
+    @staticmethod
+    def _rail_swing(name, supply_voltages, default_notes):
+        """(voltage, notes) for a source with no converter loss model.
+
+        The configured rail powering the parts on the net when there is one,
+        said in the notes; otherwise the flat default, also said. The current
+        is never derived here, so the notes keep calling it assumed.
+        """
+        supplied = (supply_voltages or {}).get(name)
+        if supplied is None:
+            return 3.3, default_notes
+        voltage, provenance = supplied
+        return float(voltage), (
+            f"Swing {provenance}; the 0.1 A current and the remaining parameters are "
+            "assumed defaults to confirm."
+        )
+
     @classmethod
     def discover(cls, net_names, existing=None, differential_pairs=None,
-                 switching_frequencies=None):
+                 switching_frequencies=None, supply_voltages=None):
         retained = {source.net_name: source for source in (existing or []) if source.source == "manual"}
         switching_frequencies = switching_frequencies or {}
         enabled_pairs = [
@@ -395,7 +457,13 @@ class EMCSourceDiscoverer:
             if name in retained:
                 continue
             if cls.CLOCK_PATTERN.search(name):
-                discovered.append(EMCSignalSource(name, name, "CLOCK", 25e6, 2.0, source="auto"))
+                voltage, notes = cls._rail_swing(
+                    name, supply_voltages, "Name-based clock defaults; confirm all electrical parameters.",
+                )
+                discovered.append(EMCSignalSource(
+                    name, name, "CLOCK", 25e6, 2.0, source="auto",
+                    voltage_swing_v=voltage, parameter_notes=notes,
+                ))
             elif cls.is_switching_node(name):
                 ref_match = re.search(
                     r"(^|[^A-Z0-9])(U\d+)[_-]SW(?:[^A-Z0-9]|$)", name, re.I,
@@ -407,27 +475,34 @@ class EMCSourceDiscoverer:
                     voltage = float(parameters.get("voltage_swing_v", 3.3))
                     current = float(parameters.get("current_a", 0.1))
                     origin = "power-tree"
+                    notes = (
+                        "Frequency from converter loss model; voltage from input rail; "
+                        "current from downstream load; 10 ns rise time remains an editable estimate."
+                    )
                 else:
                     frequency = float(parameters)
-                    voltage, current, origin = 3.3, 0.1, "auto"
+                    current, origin = 0.1, "auto"
+                    voltage, notes = cls._rail_swing(
+                        name, supply_voltages,
+                        "Name-based switching-source defaults; confirm all electrical parameters.",
+                    )
                 discovered.append(EMCSignalSource(
                     name, name, "SWITCHING", frequency, 10.0, source=origin,
                     voltage_swing_v=voltage, current_a=current,
                     parameter_confidence="MEDIUM" if origin == "power-tree" else "LOW",
-                    parameter_notes=(
-                        "Frequency from converter loss model; voltage from input rail; "
-                        "current from downstream load; 10 ns rise time remains an editable estimate."
-                        if origin == "power-tree" else
-                        "Name-based switching-source defaults; confirm all electrical parameters."
-                    ),
+                    parameter_notes=notes,
                 ))
             elif cls.FAST_PATTERN.search(name) and name not in paired_nets:
                 voltage, current = cls._usb_levels(name)
+                notes = "Interface-name defaults; confirm activity rate and edge time."
+                if "USB" not in name.upper():
+                    # USB levels are set by the standard, not by a supply.
+                    voltage, notes = cls._rail_swing(name, supply_voltages, notes)
                 discovered.append(EMCSignalSource(
                     name, name, "DIGITAL", 100e6, 1.0, source="auto",
                     voltage_swing_v=voltage, current_a=current,
                     parameter_confidence="LOW",
-                    parameter_notes="Interface-name defaults; confirm activity rate and edge time.",
+                    parameter_notes=notes,
                 ))
         for pair in enabled_pairs:
             if pair.positive_net in retained or pair.negative_net in retained:

@@ -1604,13 +1604,14 @@ class KiPIDA_MainDialog(wx.Dialog):
             settings.resolved_color_scale_maximum_c(),
             settings.color_scale_maximum_mode,
             settings.show_internal_copper_layers,
+            copper_loss_source=getattr(outcome, "copper_loss_source", ""),
         )
 
     def _finish_thermal_worker(
         self, mesh, result, coupled, coupled_result, system_results, elapsed_seconds,
         color_map, color_scale_minimum_c, color_scale_minimum_mode,
         color_scale_maximum_c, color_scale_maximum_mode,
-        show_internal_copper_layers,
+        show_internal_copper_layers, copper_loss_source="",
     ):
         self.btn_run_thermal.Enable()
         self.btn_run_coupled.Enable()
@@ -1627,6 +1628,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             color_scale_maximum_c=color_scale_maximum_c,
             color_scale_maximum_mode=color_scale_maximum_mode,
             show_internal_copper_layers=show_internal_copper_layers,
+            copper_loss_source=copper_loss_source,
         )
         self.log(f"Thermal analysis completed in {elapsed_seconds:.3f} s.")
         self._set_interaction_status("Thermal analysis · complete")
@@ -1647,7 +1649,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self, mesh, result, coupled=False, elapsed_seconds=None, color_map="inferno",
         color_scale_minimum_c=None, color_scale_minimum_mode="AUTO",
         color_scale_maximum_c=None, color_scale_maximum_mode="AUTO",
-        show_internal_copper_layers=True,
+        show_internal_copper_layers=True, copper_loss_source="",
     ):
         report = format_thermal_report(
             mesh, result, coupled=coupled,
@@ -1666,7 +1668,9 @@ class KiPIDA_MainDialog(wx.Dialog):
         generation = self._thermal_result_generation
         page = self._publish_results(
             "THERMAL", report, [],
-            structured_result=adapt_thermal_result(result, coupled, elapsed_seconds or 0.0),
+            structured_result=adapt_thermal_result(
+                result, coupled, elapsed_seconds or 0.0, copper_loss_source=copper_loss_source,
+            ),
         )
         page.show_rendering("Rendering thermal plots in background...")
         self.log("Thermal solve complete; rendering plots in background.")
@@ -1843,9 +1847,12 @@ class KiPIDA_MainDialog(wx.Dialog):
             return
         if outcome.system_results:
             self.system_results = outcome.system_results
-        self._finish_cfd_analysis(outcome.mesh, outcome.result, outcome.plots)
+        self._finish_cfd_analysis(
+            outcome.mesh, outcome.result, outcome.plots,
+            copper_loss_source=getattr(outcome, "copper_loss_source", ""),
+        )
 
-    def _finish_cfd_analysis(self, mesh, result, rendered_plots=None):
+    def _finish_cfd_analysis(self, mesh, result, rendered_plots=None, copper_loss_source=""):
         self.btn_run_cfd.Enable()
         self.btn_run_cfd.SetLabel("Run Enclosure CFD")
         self.cfd_mesh = mesh
@@ -1855,7 +1862,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             f"Vmax={result.maximum_velocity_m_s:.4g} m/s."
         )
         self._set_interaction_status("Enclosure CFD · complete")
-        self._update_cfd_results_ui(mesh, result, rendered_plots)
+        self._update_cfd_results_ui(mesh, result, rendered_plots, copper_loss_source=copper_loss_source)
 
     def _fail_cfd_analysis(self, exc):
         if self._closing:
@@ -1872,7 +1879,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         if "cancelled" not in message.lower():
             wx.MessageBox(message, "Enclosure CFD Error", wx.OK | wx.ICON_ERROR)
 
-    def _update_cfd_results_ui(self, mesh, result, rendered_plots=None):
+    def _update_cfd_results_ui(self, mesh, result, rendered_plots=None, copper_loss_source=""):
         self._result_generation += 1
         if rendered_plots is None:
             plotter = Plotter(debug=self.chk_debug.GetValue())
@@ -1892,7 +1899,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         self._publish_results(
             "CFD", format_cfd_report(mesh, result),
             [(title, bitmap) for title, bitmap in plots if bitmap],
-            structured_result=adapt_cfd_result(mesh, result),
+            structured_result=adapt_cfd_result(mesh, result, copper_loss_source=copper_loss_source),
         )
 
     def _debug_plot_geo(self, extractor, geo):

@@ -181,6 +181,50 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertAlmostEqual(by_net["USB_HOST_D_+"].voltage_swing_v, 0.4)
         self.assertAlmostEqual(by_net["USB_HOST_D_+"].current_a, 0.008)
 
+    def test_a_source_without_a_loss_model_swings_to_the_rail_powering_its_parts(self):
+        # A flat 3.3 V used to stand in for every such source. The oscillator
+        # on MCLK is powered from +1V8; the MCU it drives carries +1V8 and
+        # +3V3, so the highest configured rail on the net is +3V3.
+        from emc_analyzer import supply_voltages_by_net
+
+        def part(reference, *nets):
+            return SimpleNamespace(reference=reference, pads=[SimpleNamespace(net_name=net) for net in nets])
+
+        rails = [
+            SimpleNamespace(net_name="+3V3", nominal_voltage=3.3),
+            SimpleNamespace(net_name="+1V8", nominal_voltage=1.8),
+            SimpleNamespace(net_name="+12V", nominal_voltage=12.0),
+        ]
+        footprints = [
+            part("X1", "+1V8", "GND", "MCLK"),
+            part("U1", "+3V3", "+1V8", "GND", "MCLK", "ETH_TX"),
+            part("U9", "+12V", "GND", "Net-(U9-SW)"),
+            part("R5", "NC_A", "NC_B"),
+        ]
+        supplies = supply_voltages_by_net(footprints, rails)
+        self.assertEqual(supplies["MCLK"][0], 3.3)
+        self.assertIn("+3V3", supplies["MCLK"][1])
+        self.assertIn("U1", supplies["MCLK"][1])
+        self.assertNotIn("+3V3", supplies)
+        self.assertNotIn("NC_A", supplies)
+
+        sources = {source.net_name: source for source in EMCSourceDiscoverer.discover(
+            {"MCLK", "ETH_TX", "Net-(U9-SW)", "USB_D_P", "SPI_CLK"},
+            switching_frequencies={"U9": 500e3}, supply_voltages=supplies,
+        )}
+        self.assertAlmostEqual(sources["MCLK"].voltage_swing_v, 3.3)
+        self.assertIn("+3V3", sources["MCLK"].parameter_notes)
+        self.assertAlmostEqual(sources["Net-(U9-SW)"].voltage_swing_v, 12.0)
+        self.assertIn("assumed", sources["Net-(U9-SW)"].parameter_notes)
+        self.assertAlmostEqual(sources["Net-(U9-SW)"].current_a, 0.1)
+        self.assertAlmostEqual(sources["ETH_TX"].voltage_swing_v, 3.3)
+        self.assertIn("+3V3", sources["ETH_TX"].parameter_notes)
+        # USB levels come from the standard, and a net no rail reaches keeps
+        # the default and says it is one.
+        self.assertAlmostEqual(sources["USB_D_P"].voltage_swing_v, 0.4)
+        self.assertAlmostEqual(sources["SPI_CLK"].voltage_swing_v, 3.3)
+        self.assertIn("defaults", sources["SPI_CLK"].parameter_notes)
+
     def test_source_scan_collapses_confirmed_differential_pair(self):
         pair = DifferentialPairCandidate(
             "USB_HOST_D", "USB_HOST_D_+", "USB_HOST_D_-", interface="USB_HS",

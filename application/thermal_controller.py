@@ -33,6 +33,13 @@ class ThermalRunRequest:
     # differ only by this number have genuinely different surface physics and
     # must not share a cached mesh.
     air_velocity_m_s: Optional[float] = None
+    # A DC result to take copper losses from instead of solving the DC again,
+    # and what it is -- a campaign hands over the one its DC domain produced
+    # on the same capture. Ignored by a coupled run, which iterates its own
+    # DC solves. Private: dc_request already determines it, so the campaign
+    # cache digest leaves it out rather than hashing meshes.
+    _dc_results: Optional[Dict[str, Any]] = None
+    _dc_results_source: str = ""
 
 
 @dataclass(frozen=True)
@@ -44,6 +51,16 @@ class ThermalRunOutcome:
     cache_key: Any
     cache_value: Any
     elapsed_seconds: float
+    # Where the copper-loss heat sources came from; empty when there were none.
+    copper_loss_source: str = ""
+
+
+def describe_dc_source(system_results, origin):
+    """``origin``, with the DC engine that produced *system_results* named."""
+    engines = sorted({
+        str(data.get("engine") or "raster") for data in (system_results or {}).values()
+    })
+    return f"{origin} ({', '.join(engines)} mesh)" if engines else origin
 
 
 @dataclass(frozen=True)
@@ -130,7 +147,15 @@ class ThermalSolverEngine:
             progress(completed, total, str(detail))
 
         system_results = {}
-        if request.coupled or request.settings.include_dc_copper_losses:
+        copper_loss_source = ""
+        handed_over = getattr(request, "_dc_results", None)
+        if not request.coupled and request.settings.include_dc_copper_losses and handed_over is not None:
+            system_results = handed_over
+            copper_loss_source = describe_dc_source(
+                system_results, request._dc_results_source or "a DC result handed to this run",
+            )
+            emit(f"Copper losses taken from {copper_loss_source}; the DC is not solved again.")
+        elif request.coupled or request.settings.include_dc_copper_losses:
             if request.dc_request is None:
                 raise ValueError("The thermal run is missing its captured DC request.")
             emit("Running fresh DC analysis from the captured live-PCB snapshot.")
@@ -139,6 +164,8 @@ class ThermalSolverEngine:
             )
             if request.coupled and not system_results:
                 raise ValueError("Coupled analysis requires a successful DC analysis.")
+            if not request.coupled:
+                copper_loss_source = describe_dc_source(system_results, "a DC solve run for this analysis")
         if cancelled():
             raise ThermalAnalysisCancelled("Thermal analysis cancelled.")
 
@@ -222,6 +249,7 @@ class ThermalSolverEngine:
             cache_key=key,
             cache_value=(mesh, thermal_solver),
             elapsed_seconds=time.perf_counter() - started,
+            copper_loss_source=copper_loss_source,
         )
 
 
