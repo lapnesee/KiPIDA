@@ -13,6 +13,47 @@ def pad(net_name, function=""):
     return Obj(net=Obj(name=net_name), pin_function=function)
 
 
+class KiCadConventionTests(unittest.TestCase):
+    """Pairs as KiCad's router pairs them, and as the project's netclasses declare them."""
+
+    def test_the_complement_follows_kicads_router(self):
+        from differential_discovery import kicad_pair_complement
+
+        self.assertEqual(kicad_pair_complement("USB_D+"), ("USB_D-", "P"))
+        self.assertEqual(kicad_pair_complement("LANE0_N"), ("LANE0_P", "N"))
+        self.assertEqual(kicad_pair_complement("TX_P_1"), ("TX_N_1", "P"))
+        self.assertEqual(kicad_pair_complement("CLKP"), ("CLKN", "P"))
+        self.assertIsNone(kicad_pair_complement("+5V"))
+        self.assertIsNone(kicad_pair_complement("USB_DM"))
+
+    def test_a_kicad_suffix_pair_is_likely_and_a_netclass_states_its_target(self):
+        import json
+        import os
+        import tempfile
+        from differential_discovery import netclass_membership
+
+        board = Obj(nets=[Obj(name=n) for n in ("/USB/D+", "/USB/D-", "LANE0_P", "LANE0_N")],
+                    tracks=[], zones=[], vias=[], footprints=[])
+        with tempfile.TemporaryDirectory() as tmp:
+            project = os.path.join(tmp, "board.kicad_pro")
+            with open(project, "w", encoding="utf-8") as handle:
+                json.dump({"net_settings": {
+                    "netclass_assignments": {"LANE0_P": ["Default"]},
+                    "netclass_patterns": [{"netclass": "90ohm", "pattern": "/*usb*"}],
+                }}, handle)
+            pairs = DifferentialPairDiscoverer(
+                board, netclasses=lambda nets: netclass_membership(project, nets),
+            ).discover()
+        by_positive = {pair.positive_net: pair for pair in pairs}
+        usb = by_positive["/USB/D+"]
+        self.assertEqual((usb.negative_net, usb.confidence, usb.target_impedance_ohm), ("/USB/D-", "LIKELY", 90.0))
+        self.assertIn("netclass:90ohm", usb.evidence)
+        lane = by_positive["LANE0_P"]
+        self.assertEqual((lane.confidence, lane.evidence), ("LIKELY", ["kicad_pair_suffix"]))
+        # Evidence labels are read by the interface classifier; one containing "D-" made this USB.
+        self.assertEqual(lane.interface, "GENERIC")
+
+
 class DifferentialDiscoveryTests(unittest.TestCase):
     def test_name_based_pairs_are_separate_candidates(self):
         board = Obj(

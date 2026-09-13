@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Changed the differential-pair scan to pair nets as KiCad's own router does
+  -- past trailing digits and underscores, "+"/"-" or "P"/"N" -- and to read
+  the project's netclasses: a pair whose nets share a netclass other than
+  Default says so, becomes likely, and takes its target impedance from a class
+  named for one ("90ohm", "85Ohm-diff_PCIE"). Other naming habits such as
+  USB_DP/USB_DM are still found, as suspected pairs.
 - Changed EMI/EMC source discovery to stop inventing frequencies. A source
   takes its frequency from the power tree's converter model, from the value of
   a crystal, oscillator or resonator on its net, from a Frequency or Fsw field
