@@ -356,10 +356,17 @@ def _parse_footprints(root: list, net_map: dict[str, str]) -> list[Footprint]:
             if pad_at and len(pad_at) >= 3:
                 try:
                     pad_dx, pad_dy = float(pad_at[1]), float(pad_at[2])
-                    # Rotate pad offset by footprint rotation
+                    # Rotate the pad offset by the footprint rotation, in KiCad's
+                    # frame: Y points down, so a positive angle turns a pad at
+                    # local +X towards -Y. The textbook (Y-up) matrix used here
+                    # mirrored every pad of a footprint turned by anything but
+                    # 0 or 180 degrees. Checked against track ends, which KiCad
+                    # lands on pad centres: at 90 degrees it matched 3 of 69 pads
+                    # on the reference board and 42 with this sign; on StickHub
+                    # at 225 degrees, 0 of 86 against 74.
                     rad = math.radians(rotation)
-                    abs_x = px + pad_dx * math.cos(rad) - pad_dy * math.sin(rad)
-                    abs_y = py + pad_dx * math.sin(rad) + pad_dy * math.cos(rad)
+                    abs_x = px + pad_dx * math.cos(rad) + pad_dy * math.sin(rad)
+                    abs_y = py - pad_dx * math.sin(rad) + pad_dy * math.cos(rad)
                 except (ValueError, IndexError):
                     abs_x, abs_y = px, py
             else:

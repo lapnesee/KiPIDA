@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed the offline board reader mirroring the pads of every footprint rotated
+  by anything but 0 or 180 degrees: it rotated pad offsets with a Y-up matrix in
+  KiCad's Y-down frame. The DC advisor located sources and loads on such parts at
+  the mirrored position. Checked against track ends, which land on pad centres.
 - Fixed the offline board reader dropping copper: a zone declared on several
   layers lost all its fills, and a zone split into islands kept only the largest.
   On the reference board 16 filled islands were read where the file holds 40;

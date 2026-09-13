@@ -328,6 +328,42 @@ class TestZoneIslandsAndLayers(unittest.TestCase):
         self.assertEqual(unfilled, ["B.Cu", "F.Cu"])
 
 
+class TestRotatedPadPositions(unittest.TestCase):
+    """A rotated footprint's pads sit where KiCad draws them.
+
+    KiCad's Y axis points down, so turning a footprint by +90 degrees moves a
+    pad at local +X to -Y. The reader applied the Y-up matrix and mirrored the
+    pads of every footprint turned by anything but 0 or 180 degrees; tracks,
+    which KiCad lands on pad centres, then missed them -- 3 of 69 pads at 90
+    degrees on the reference board matched a track end, 42 with the right sign.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.NamedTemporaryFile(
+            suffix=".kicad_pcb", mode="w", encoding="utf-8", delete=False
+        )
+        self.tmp.write(MINI_PCB)
+        self.tmp.close()
+        self.pcb_path = Path(self.tmp.name)
+        self.board = read_board(self.pcb_path)
+
+    def tearDown(self):
+        self.pcb_path.unlink(missing_ok=True)
+
+    def test_a_quarter_turn_moves_local_minus_x_to_plus_y(self):
+        # C1 sits at (20, 10) turned 90 degrees; its pad 1 is at local (-0.5, 0).
+        c1 = next(fp for fp in self.board.footprints if fp.reference == "C1")
+        pad = next(p for p in c1.pads if p.number == "1")
+        self.assertAlmostEqual(pad.position[0], 20.0, places=6)
+        self.assertAlmostEqual(pad.position[1], 10.5, places=6)
+
+    def test_an_unrotated_footprint_is_unchanged(self):
+        r1 = next(fp for fp in self.board.footprints if fp.reference == "R1")
+        pad = next(p for p in r1.pads if p.number == "1")
+        self.assertAlmostEqual(pad.position[0], 9.175, places=6)
+        self.assertAlmostEqual(pad.position[1], 10.0, places=6)
+
+
 class TestBoardMissingFile(unittest.TestCase):
     def test_missing_file_raises(self):
         with self.assertRaises((OSError, ValueError)):
