@@ -155,7 +155,18 @@ def main():
         early_log(f"Connection failed with error: {e}")
         import traceback
         early_log(traceback.format_exc())
-        
+
+    # Record what the launching application says about itself, including when
+    # the connection failed. Nothing is decided from it yet: the Zeo layer's
+    # activation rule is chosen from these lines (docs/plan-universalite.md).
+    try:
+        from host_probe import describe_host
+
+        for line in describe_host(client, board, project):
+            early_log(f"[HOST] {line}")
+    except Exception as exc:  # pragma: no cover - never block startup
+        early_log(f"[HOST] Host probe failed: {exc}")
+
     # 2. Initialize wx App
     app = wx.App()
 
