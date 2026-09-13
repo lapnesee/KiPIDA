@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Changed the offline board and schematic readers to refuse a file saved by
+  KiCad 7 or earlier, with a message naming the file and its format version
+  and asking for a save from a current KiCad. The hybrid DC engine then falls
+  back to the raster engine and logs that message. A sub-sheet of a current
+  project that KiCad 7 last saved is still read, and reported: KiCad leaves
+  unedited sheets as they are, and ships a demo with such a sheet.
 - Fixed the offline schematic reader reading a sheet placed several times only
   once, under whichever reference the symbol's own property held. The hierarchy
   is now walked by sheet instance: each placement contributes its symbols with

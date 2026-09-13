@@ -27,15 +27,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from .file_format import file_version, is_supported, require_supported
 from .sexpr import parse, find, find_all
 
-# Issue kinds. The first three leave the sheet's symbols out; the last two read
-# it, but name a reference that only resolves on some filesystems.
+# Issue kinds. The first three leave the sheet's symbols out; the next two read
+# it, but name a reference that only resolves on some filesystems; the last
+# reads a sheet KiCad 7 or earlier saved, which KiCad leaves as it is until
+# someone edits it.
 MISSING_SHEET = "missing_sheet"
 UNREADABLE_SHEET = "unreadable_sheet"
 RECURSIVE_SHEET = "recursive_sheet"
 SHEET_FILE_CASE = "sheet_file_case"
 SHEET_FILE_SEPARATOR = "sheet_file_separator"
+OLD_SHEET_FORMAT = "old_sheet_format"
 
 
 @dataclass
@@ -106,7 +110,12 @@ class ParsedSchematic:
 
 
 def read_schematic(root_sch_path: Path) -> ParsedSchematic:
-    """Parse the root schematic and every sheet instance below it."""
+    """Parse the root schematic and every sheet instance below it.
+
+    Raises :class:`~ingest.file_format.UnsupportedFileFormat` when the root
+    sheet was saved by KiCad 7 or earlier. KiCad rewrites the root on every
+    save, so its format is the project's.
+    """
     root_sch_path = Path(root_sch_path)
     symbol_defs: dict[str, SymbolDef] = {}
     instances: list[SymbolInstance] = []
@@ -135,6 +144,7 @@ def read_schematic(root_sch_path: Path) -> ParsedSchematic:
             return
         root = sheet_file.root
         if not segments:
+            require_supported(root, sch_path, "schematic")
             segments = (_uuid_of(root),)
         sheet_path = "/" + "/".join(segments)
 
@@ -168,10 +178,16 @@ def read_schematic(root_sch_path: Path) -> ParsedSchematic:
             issue(RECURSIVE_SHEET, f"{written} is already one of this sheet's parents; not followed.")
             return
         try:
-            _walk(child, segments, ancestry, attributes)
+            sheet_file = _load(child.resolve())
         except (OSError, UnicodeDecodeError) as exc:
             issue(UNREADABLE_SHEET, f"{written} could not be read ({exc}); "
                                     "the symbols of this sheet are not read.")
+            return
+        version = file_version(sheet_file.root) if sheet_file else None
+        if not is_supported(version, "schematic"):
+            issue(OLD_SHEET_FORMAT, f"{written} was last saved by KiCad 7 or earlier (format {version}); "
+                                    "it is read as written. Saving it from a current KiCad updates it.")
+        _walk(child, segments, ancestry, attributes)
 
     _walk(root_sch_path, (), (), _Attributes())
     return ParsedSchematic(

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from .file_format import require_supported
 from .sexpr import parse, find, find_all, get_str
 
 
@@ -185,13 +186,18 @@ class ParsedBoard:
 
 
 def read_board(pcb_path: Path) -> ParsedBoard:
-    """Parse a .kicad_pcb file and return a ParsedBoard."""
+    """Parse a .kicad_pcb file and return a ParsedBoard.
+
+    Raises :class:`~ingest.file_format.UnsupportedFileFormat` (a ValueError)
+    for a board saved by KiCad 7 or earlier.
+    """
     pcb_path = Path(pcb_path)
     text = pcb_path.read_text(encoding="utf-8")
     roots = parse(text)
     if not roots or not isinstance(roots[0], list):
         raise ValueError(f"Cannot parse {pcb_path}: no root node found")
     root = roots[0]
+    require_supported(root, pcb_path, "board")
 
     # Build net-code → net-name map for legacy integer net references
     net_name_map = _build_net_name_map(root)
