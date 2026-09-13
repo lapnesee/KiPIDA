@@ -118,28 +118,40 @@ class TestResolveFromDirectory(unittest.TestCase):
         self.assertIsInstance(result, BoardProject)
 
 
+def _connector_board(directory, stem, reference, pads):
+    directory.mkdir(parents=True)
+    pad_text = " ".join(f'(pad "{n}" smd rect (at {n} 0 0) (size 1 1) (layers "F.Cu") (net "{net}"))' for n, net in pads)
+    (directory / f"{stem}.kicad_pcb").write_text(
+        f'(kicad_pcb (version 20260206) (layers (0 "F.Cu" signal)) (footprint "Conn" (layer "F.Cu") '
+        f'(at 0 0 0) (property "Reference" "{reference}") {pad_text}))', encoding="utf-8")
+    (directory / f"{stem}.kicad_sch").write_text("(kicad_sch)", encoding="utf-8")
+    (directory / f"{stem}.kicad_pro").write_text(json.dumps({
+        "sheets": [["r", "Root"]],
+        "multi_board": {"container": False, "container_project_relative_path": "../../container.kicad_pro"},
+    }), encoding="utf-8")
+
+
 class TestResolveFromMbs(unittest.TestCase):
+    """Boards and links come from the container project, never from pin names in the drawing."""
+
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        # Create directory structure
-        self.mbs_path = Path(self.tmpdir) / "container.kicad_mbs"
+        root = Path(self.tmpdir)
+        # The drawing labels a pin GND on a connector of each board.
+        self.mbs_path = root / "container.kicad_mbs"
         self.mbs_path.write_text(MINI_MBS, encoding="utf-8")
-
-        # Create sub-project directories and files
-        p02_dir = Path(self.tmpdir) / "boards" / "p02"
-        main_dir = Path(self.tmpdir) / "boards" / "main"
-        p02_dir.mkdir(parents=True)
-        main_dir.mkdir(parents=True)
-
-        p02_pro = {"meta": {"filename": "p02.kicad_pro"}, "sheets": [["r1", "Root"]]}
-        main_pro = {"meta": {"filename": "main.kicad_pro"}, "sheets": [["r2", "Root"]]}
-
-        (p02_dir / "p02.kicad_pro").write_text(json.dumps(p02_pro), encoding="utf-8")
-        (p02_dir / "p02.kicad_pcb").write_text("(kicad_pcb)", encoding="utf-8")
-        (p02_dir / "p02.kicad_sch").write_text("(kicad_sch)", encoding="utf-8")
-        (main_dir / "main.kicad_pro").write_text(json.dumps(main_pro), encoding="utf-8")
-        (main_dir / "main.kicad_pcb").write_text("(kicad_pcb)", encoding="utf-8")
-        (main_dir / "main.kicad_sch").write_text("(kicad_sch)", encoding="utf-8")
+        _connector_board(root / "boards" / "p02", "p02", "J1", [("1", "GND"), ("2", "+5V")])
+        _connector_board(root / "boards" / "main", "main", "J2", [("1", "GND"), ("2", "VIN")])
+        # The container declares one link, joining nets named differently on each board.
+        (root / "container.kicad_pro").write_text(json.dumps({"multi_board": {
+            "container": True, "mbs_file": "container.kicad_mbs",
+            "sub_projects": [{"name": "p02", "path": "boards/p02/p02.kicad_pro", "uuid": "uuid-p02-x"},
+                             {"name": "main", "path": "boards/main/main.kicad_pro", "uuid": "uuid-main-x"}],
+            "cross_board_nets": [{"name": "+5V", "uuid": "l1", "endpoints": [
+                {"sub_project_uuid": "uuid-p02-x", "component": "J1", "pin": "2", "pin_name": "+5V"},
+                {"sub_project_uuid": "uuid-main-x", "component": "J2", "pin": "2", "pin_name": "VIN"},
+            ]}],
+        }}), encoding="utf-8")
 
     def tearDown(self):
         import shutil
@@ -151,12 +163,13 @@ class TestResolveFromMbs(unittest.TestCase):
 
     def test_two_boards_found(self):
         result = resolve_project(self.mbs_path)
-        self.assertEqual(len(result.boards), 2)
+        self.assertEqual(sorted((b.pro_path.name, b.sub_project_uuid) for b in result.boards),
+                         [("main.kicad_pro", "uuid-main-x"), ("p02.kicad_pro", "uuid-p02-x")])
 
-    def test_cross_board_gnd(self):
+    def test_cross_board_nets_are_the_declared_links_only(self):
         result = resolve_project(self.mbs_path)
-        net_names = {n.net_name for n in result.cross_board_nets}
-        self.assertIn("GND", net_names)
+        self.assertEqual([n.net_name for n in result.cross_board_nets], ["+5V"])
+        self.assertEqual(result.cross_board_nets[0].members, [("uuid-main-x", "VIN"), ("uuid-p02-x", "+5V")])
 
     def test_boards_are_multiboard(self):
         result = resolve_project(self.mbs_path)

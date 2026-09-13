@@ -18,7 +18,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .multiboard import CrossBoardNet, MbsModuleBlock, extract_cross_board_nets, parse_mbs
+from .multiboard import CrossBoardNet
 
 
 @dataclass
@@ -152,61 +152,37 @@ def _resolve_pro(pro_path: Path) -> BoardProject:
 
 
 def _resolve_mbs(mbs_path: Path) -> MultiboardProject:
+    """The container a .kicad_mbs belongs to: its boards and its validated links.
+
+    Boards come from the container project's sub_projects and links from its
+    cross_board_nets, checked against each board's PCB. They used to be
+    derived from the drawing, pairing module-block pins by name across boards,
+    which joined any two connectors that happened to share a pin label and
+    missed any link whose ends were named differently.
+    """
+    from .zeo_container import cross_board_nets, listed_boards, read_zeo_container, validate_links, OK
+
     mbs_path = mbs_path.resolve()
-    mbs_dir = mbs_path.parent
+    notes: list[str] = []
+    container_pro = None
+    for candidate in sorted(mbs_path.parent.glob("*.kicad_pro")):
+        settings = _load_pro(candidate, notes).get("multi_board") or {}
+        if isinstance(settings, dict) and settings.get("container") and (settings.get("mbs_file") or mbs_path.name) == mbs_path.name:
+            container_pro = candidate
+            break
+    if container_pro is None:
+        notes.append(f"No container project beside {mbs_path.name} names it; its boards and links are unknown.")
+        return MultiboardProject(mbs_path, None, [], [], notes)
 
-    # Try to find a companion .kicad_pro
-    container_pro: Path | None = None
-    pro_stem = mbs_path.stem
-    candidate = mbs_dir / f"{pro_stem}.kicad_pro"
-    if candidate.exists():
-        container_pro = candidate
-    else:
-        # Some Zeo projects use a different name
-        pros = list(mbs_dir.glob("*.kicad_pro"))
-        if pros:
-            container_pro = pros[0]
-
-    blocks: list[MbsModuleBlock] = parse_mbs(mbs_path)
-    cross_nets: list[CrossBoardNet] = extract_cross_board_nets(blocks)
-
-    boards: list[BoardProject] = []
-    container_notes: list[str] = []
-    seen_sub_paths: set[str] = set()
-    for block in blocks:
-        sub_rel = block.sub_project_path
-        if sub_rel in seen_sub_paths:
-            continue
-        seen_sub_paths.add(sub_rel)
-        sub_pro_path = (mbs_dir / sub_rel).resolve()
-        if not sub_pro_path.exists():
-            container_notes.append(f"Board project {sub_rel} named by {mbs_path.name} does not exist.")
-            continue
-        board_notes: list[str] = []
-        pro_data = _load_pro(sub_pro_path, board_notes)
-        stem = sub_pro_path.stem
-        pcb_path = sub_pro_path.with_suffix(".kicad_pcb")
-        sch_path = sub_pro_path.with_suffix(".kicad_sch")
-        raw_sheets = pro_data.get("sheets", [])
-        sch_sheets: list[tuple[str, str]] = [
-            (str(e[0]), str(e[1]))
-            for e in raw_sheets
-            if isinstance(e, (list, tuple)) and len(e) >= 2
-        ]
-        boards.append(BoardProject(
-            pro_path=sub_pro_path,
-            pcb_path=pcb_path,
-            sch_root_path=sch_path,
-            sch_sheets=sch_sheets,
-            is_part_of_multiboard=True,
-            sub_project_uuid=block.sub_project_uuid,
-            notes=board_notes,
-        ))
-
+    boards, board_notes = listed_boards(container_pro, settings)
+    zeo = validate_links(read_zeo_container(container_pro, boards))
+    notes.extend(board_notes + zeo.notes + zeo.diff_pair_issues)
+    notes.extend(f"link {link.name}: {endpoint.state}, {endpoint.detail}"
+                 for link in zeo.links for endpoint in link.endpoints if endpoint.state != OK)
     return MultiboardProject(
         mbs_path=mbs_path,
         container_pro_path=container_pro,
         boards=boards,
-        cross_board_nets=cross_nets,
-        notes=container_notes,
+        cross_board_nets=cross_board_nets(zeo),
+        notes=notes,
     )

@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ingest.multiboard import parse_mbs, extract_cross_board_nets, MbsPin, MbsModuleBlock, CrossBoardNet
+from ingest.multiboard import parse_mbs
 
 MINI_MBS = """\
 (kicad_sch
@@ -122,57 +122,6 @@ class TestParseMbs(unittest.TestCase):
         blocks = parse_mbs(Path(tmp2.name))
         self.assertEqual(blocks, [])
         Path(tmp2.name).unlink(missing_ok=True)
-
-
-class TestExtractCrossBoardNets(unittest.TestCase):
-    def _blocks(self):
-        return [
-            MbsModuleBlock(
-                sub_project_path="boards/p02/p02.kicad_pro",
-                sub_project_uuid="uuid-p02",
-                component="J6",
-                mbs_reference="B5",
-                name="P02",
-                pins=[
-                    MbsPin("6", "+5V_RAIL", "passive"),
-                    MbsPin("7", "GND", "passive"),
-                ],
-            ),
-            MbsModuleBlock(
-                sub_project_path="boards/main/main.kicad_pro",
-                sub_project_uuid="uuid-main",
-                component="J1",
-                mbs_reference="B13",
-                name="Main",
-                pins=[
-                    MbsPin("6", "+5V_RAIL", "passive"),
-                    MbsPin("7", "GND", "passive"),
-                    MbsPin("4", "J1.4", "passive"),  # auto-name → excluded
-                ],
-            ),
-        ]
-
-    def test_cross_nets_found(self):
-        nets = extract_cross_board_nets(self._blocks())
-        names = {n.net_name for n in nets}
-        self.assertIn("+5V_RAIL", names)
-        self.assertIn("GND", names)
-
-    def test_auto_name_excluded(self):
-        nets = extract_cross_board_nets(self._blocks())
-        names = {n.net_name for n in nets}
-        self.assertNotIn("J1.4", names)
-
-    def test_boards_list(self):
-        nets = extract_cross_board_nets(self._blocks())
-        rail = next(n for n in nets if n.net_name == "+5V_RAIL")
-        self.assertIn("uuid-p02", rail.boards)
-        self.assertIn("uuid-main", rail.boards)
-
-    def test_single_board_net_not_cross(self):
-        # Only one block → no cross-board nets
-        nets = extract_cross_board_nets([self._blocks()[0]])
-        self.assertEqual(nets, [])
 
 
 if __name__ == "__main__":

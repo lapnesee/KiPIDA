@@ -192,10 +192,12 @@ class TestCrossBoardAliases(unittest.TestCase):
             pads=[Pad("1", "GND", "passive", (5, 5))],
         )
         board = _make_board(footprints=[fp])
-        cross = [CrossBoardNet(net_name="GND", boards=["uuid-p02", "uuid-main"])]
+        cross = [CrossBoardNet(net_name="GND", boards=["uuid-main", "uuid-p02"],
+                               members=[("uuid-main", "GND_MAIN"), ("uuid-p02", "GND")])]
         nl = build_netlist(board, None, "uuid-p02", cross_board_nets=cross)
         gnd = next(n for n in nl.nets if n.name == "GND")
-        self.assertTrue(any("uuid-main" in a for a in gnd.aliases))
+        # Aliased under the other board's own net name, which a link can make differ.
+        self.assertEqual(gnd.aliases, {"uuid-main:GND_MAIN"})
 
     def test_no_alias_for_same_board(self):
         fp = Footprint(
@@ -205,7 +207,8 @@ class TestCrossBoardAliases(unittest.TestCase):
             pads=[Pad("1", "GND", "passive", (5, 5))],
         )
         board = _make_board(footprints=[fp])
-        cross = [CrossBoardNet(net_name="GND", boards=["uuid-p02", "uuid-main"])]
+        cross = [CrossBoardNet(net_name="GND", boards=["uuid-main", "uuid-p02"],
+                               members=[("uuid-main", "GND"), ("uuid-p02", "GND")])]
         nl = build_netlist(board, None, "uuid-p02", cross_board_nets=cross)
         gnd = next(n for n in nl.nets if n.name == "GND")
         self.assertFalse(any("uuid-p02" in a for a in gnd.aliases))

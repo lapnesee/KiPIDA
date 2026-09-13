@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .project_resolver import BoardProject, resolve_project
-from .zeo_container import ZeoContainer, read_zeo_container
+from .zeo_container import ZeoContainer, listed_boards as _listed_boards, read_zeo_container
 
 KICAD = "kicad"
 ZEO = "zeo"
@@ -158,20 +158,6 @@ def _container_context(detection, project, container_path, settings) -> ProjectC
         detection, ZEO_CONTAINER, project, boards, container_path=container_path, notes=notes,
         zeo=read_zeo_container(container_path, boards),
     )
-
-
-def _listed_boards(container_path: Path, settings: dict):
-    """The boards a container lists in sub_projects, with their uuids, and those that do not exist."""
-    boards, notes = [], []
-    for entry in settings.get("sub_projects") or ():
-        path = (container_path.parent / str(entry.get("path") or "")).resolve()
-        if not path.is_file():
-            notes.append(f"board {entry.get('name') or entry.get('path')} listed by the container does not exist")
-            continue
-        board = resolve_project(path)
-        board.sub_project_uuid = str(entry.get("uuid") or board.sub_project_uuid)
-        boards.append(board)
-    return boards, notes
 
 
 def _multi_board(pro_path: Path) -> dict:

@@ -80,7 +80,7 @@ def _from_multiboard(mp: MultiboardProject) -> DesignModel:
     source_hash = _hash_files(source_paths)
 
     cross_dicts = [
-        {"net_name": c.net_name, "boards": list(c.boards)}
+        {"net_name": c.net_name, "boards": list(c.boards), "members": [list(member) for member in c.members]}
         for c in mp.cross_board_nets
     ]
 

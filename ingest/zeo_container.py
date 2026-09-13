@@ -26,8 +26,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
 
-from .multiboard import MbsModuleBlock, parse_mbs
-from .project_resolver import BoardProject
+from .multiboard import CrossBoardNet, MbsModuleBlock, parse_mbs
+from .project_resolver import BoardProject, resolve_project
 
 OK = "ok"
 STALE = "stale"
@@ -72,6 +72,39 @@ class ZeoContainer:
     notes: list[str] = field(default_factory=list)
     system_nets: list[set[tuple[str, str]]] = field(default_factory=list)  # after validate_links
     diff_pair_issues: list[str] = field(default_factory=list)              # after validate_links
+
+
+def listed_boards(container_path: Path, settings: dict):
+    """The boards a container lists in sub_projects, with their uuids, and notes on those that do not exist."""
+    boards, notes = [], []
+    for entry in settings.get("sub_projects") or ():
+        path = (Path(container_path).parent / str(entry.get("path") or "")).resolve()
+        if not path.is_file():
+            notes.append(f"board {entry.get('name') or entry.get('path')} listed by the container does not exist")
+            continue
+        board = resolve_project(path)
+        board.sub_project_uuid = str(entry.get("uuid") or board.sub_project_uuid)
+        boards.append(board)
+    return boards, notes
+
+
+def cross_board_nets(container: ZeoContainer) -> list[CrossBoardNet]:
+    """The system nets of a validated container, each named by the links that join it."""
+    names_by_member: dict[tuple[str, str], list[str]] = {}
+    for link in container.links:
+        for endpoint in link.endpoints:
+            if endpoint.net:
+                names_by_member.setdefault((endpoint.board_uuid, endpoint.net), []).append(link.name)
+    nets = []
+    for members in container.system_nets:
+        ordered = sorted(members)
+        names = sorted({name for member in ordered for name in names_by_member.get(member, ())})
+        nets.append(CrossBoardNet(
+            net_name=" / ".join(names) or ordered[0][1],
+            boards=sorted({uuid for uuid, _net in ordered}),
+            members=ordered,
+        ))
+    return nets
 
 
 def read_zeo_container(container_path, boards: list[BoardProject]) -> ZeoContainer:

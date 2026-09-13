@@ -200,15 +200,13 @@ def build_netlist(
             _ensure_net(zone.net_name)
 
     # Apply cross-board aliases
-    if cross_board_nets:
-        cb_lookup: dict[str, list[str]] = {}  # net_name → [uuid1, uuid2]
-        for cbn in cross_board_nets:
-            cb_lookup[cbn.net_name] = cbn.boards
-        for net_name, net_info in nets_map.items():
-            if net_name in cb_lookup:
-                for uuid in cb_lookup[net_name]:
-                    if uuid != board_uuid:
-                        net_info.aliases.add(f"{uuid}:{net_name}")
+    # Each local net a link joins is aliased to the nets it joins on the other
+    # boards, under their own names.
+    for cbn in cross_board_nets or ():
+        others = {f"{uuid}:{name}" for uuid, name in cbn.members if uuid != board_uuid}
+        for uuid, name in cbn.members:
+            if uuid == board_uuid and name in nets_map:
+                nets_map[name].aliases.update(others)
 
     # Global nets from schematic (mark as known even if no pad on this board)
     if schematic:

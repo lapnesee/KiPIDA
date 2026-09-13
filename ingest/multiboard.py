@@ -31,8 +31,14 @@ class MbsModuleBlock:
 
 @dataclass
 class CrossBoardNet:
+    """One system net: local nets of several boards that a container's links join.
+
+    The same name on two boards is not enough; only a declared link joins
+    nets, and it can join nets named differently on each board.
+    """
     net_name: str
     boards: list[str]  # sub_project_uuid list
+    members: list[tuple[str, str]] = field(default_factory=list)  # (sub_project_uuid, local net name)
 
 
 def parse_mbs(mbs_path: Path) -> list[MbsModuleBlock]:
@@ -70,34 +76,3 @@ def parse_mbs(mbs_path: Path) -> list[MbsModuleBlock]:
             pins=pins,
         ))
     return blocks
-
-
-def extract_cross_board_nets(blocks: list[MbsModuleBlock]) -> list[CrossBoardNet]:
-    """Derive cross-board nets from module_block pin names.
-
-    A net is cross-board when the same pin name appears on blocks belonging to
-    different sub-projects.  Uninteresting internal names (empty, numeric-only,
-    ``J*.N`` auto-names) are excluded.
-    """
-    import re
-    # net_name → set of sub_project_uuid
-    net_boards: dict[str, set[str]] = {}
-
-    # Pattern for KiCad auto-generated pin names like "J700.3" → skip
-    auto_name_re = re.compile(r"^[A-Z]\w*\.\w+$")
-
-    for block in blocks:
-        uuid = block.sub_project_uuid
-        for pin in block.pins:
-            name = pin.name.strip()
-            if not name:
-                continue
-            if auto_name_re.match(name):
-                continue
-            net_boards.setdefault(name, set()).add(uuid)
-
-    cross: list[CrossBoardNet] = []
-    for net_name, board_set in sorted(net_boards.items()):
-        if len(board_set) >= 2:
-            cross.append(CrossBoardNet(net_name=net_name, boards=sorted(board_set)))
-    return cross
