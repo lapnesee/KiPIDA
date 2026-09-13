@@ -256,6 +256,31 @@ class LayerAwarePadTests(unittest.TestCase):
         nodes, unlocated = map_pads_to_nodes(mesh, board, "J1", [], net_name="+5V")
         self.assertEqual((sorted(nodes), unlocated), ([1, 2, 3], []))
 
+    def test_a_pad_is_every_node_inside_its_outline(self):
+        # A soldered pin covers its pad; one node would force the current
+        # through a point and add a spreading resistance the copper lacks.
+        board = _four_layer_board(_Footprint("U1", [
+            _LayeredPad("1", "+5V", "power_out", (10.0, 10.0), "smd", ("F.Cu",)),
+        ]))
+        board.footprints[0].pads[0].shape = "rect"
+        board.footprints[0].pads[0].size_mm = (1.0, 0.5)
+        mesh = _Mesh({
+            1: (9.6, 10.0, 0), 2: (10.0, 10.0, 0), 3: (10.5, 10.25, 0),  # inside, edge included
+            4: (10.0, 10.4, 0),   # beside the pad
+            5: (10.0, 10.0, 6),   # beneath it on another layer
+        })
+        nodes, unlocated = map_pads_to_nodes(mesh, board, "U1", ["1"], net_name="+5V")
+        self.assertEqual((sorted(nodes), unlocated), ([1, 2, 3], []))
+
+    def test_a_pad_whose_outline_holds_no_node_takes_the_nearest(self):
+        board = _four_layer_board(_Footprint("U1", [
+            _LayeredPad("1", "+5V", "power_out", (10.0, 10.0), "smd", ("F.Cu",)),
+        ]))
+        board.footprints[0].pads[0].shape = "rect"
+        board.footprints[0].pads[0].size_mm = (0.05, 0.05)
+        mesh = _Mesh({1: (10.08, 10.0, 0), 2: (10.3, 10.0, 0)})
+        self.assertEqual(map_pads_to_nodes(mesh, board, "U1", ["1"], net_name="+5V"), ([1], []))
+
     def test_the_index_agrees_with_a_full_scan(self):
         import random
 

@@ -148,6 +148,52 @@ Si la porte échoue, le moteur hybride est livré comme moteur au choix, le
 rasterisé reste par défaut, et le lot 6 couvre l'écart sur le DC aussi. Le
 résultat de la porte est consigné, qu'il soit positif ou non.
 
+### Résultat de la porte (2026-09-13) — franchie
+
+Mesuré par `python validation/dc_engine_comparison.py --synthetic
+p02_alimentation.kicad_pcb p02_alimentation.kipida.json --step 0.1 --explain`
+(carte lue, jamais écrite).
+
+| Critère | Mesure | Verdict |
+|---|---|---|
+| 1. Pistes synthétiques | chute hybride / chute analytique = 1,0000 sur 0,15 ; 0,25 ; 0,5 et 1 mm, à 0° et 45° ; le rasterisé donne 0,75 à 2,09 sur les mêmes pistes | franchi |
+| 2. Rails sans charge isolée | 7 rails sur 7 | franchi |
+| 3. Durée | hybride 27 à 33 s, rasterisé 13 à 20 s selon les passages ; rapport 1,90 à 2,43 | franchi |
+| 4. Rails portés par les plans | VBUS_PD_SW +26,3 % et +3V3AO +45,6 % face au rasterisé de production ; −0,2 % et +0,7 % quand le maillage rasterisé localise les pastilles comme l'hybride. Sur les 7 rails, les deux maillages s'accordent à 5,8 % près à localisation égale | franchi, écarts expliqués |
+
+La porte n'a pas été franchie du premier coup, et ce qui l'a empêché est plus
+utile que le verdict. Au premier passage, 4 rails sur 7 avaient des charges
+isolées : ce n'était pas le moteur mais l'ingestion, et chaque défaut corrigé
+l'est pour tous les usages du lecteur hors ligne (conseiller compris) :
+
+* une carte sans bloc `(stackup)` n'avait aucune couche cuivre (4 démos KiCad 10
+  sur 19) ;
+* les fûts de via étaient dimensionnés sur l'anneau (hybride, ×10,5) ou sur le
+  diamètre du via (rasterisé, ×1,8) ;
+* les pastilles et les pastilles de via étaient des points : une piste finissant
+  ailleurs qu'au centre, les rayons thermiques d'une zone, une piste traversant
+  une pastille restaient disjoints ;
+* les pistes en arc n'étaient pas lues (2 316 sur la démo Jetson) ;
+* une source ou une charge était tenue sur un seul nœud, ce qui ajoute une
+  résistance d'épanouissement que le cuivre n'a pas.
+
+Le dernier point pèse le plus : sur +5V_U4, la chute au pire point de charge vaut
+2,94 mV avec un nœud par pastille et 1,20 mV avec toute la pastille. Sur ces
+rails à faible chute, **le modèle de contact aux pastilles domine le
+résultat** ; c'est une incertitude à publier (lot 6), pas un détail.
+
+Les écarts du critère 4 viennent du localiseur rasterisé de production : il
+prend un voisinage 3 × 3 autour du centre de la pastille **sur toutes les
+couches** (une pastille de surface alimente directement le plan situé dessous,
+sans ses vias) et, sans liste de pastilles, toutes les pastilles du composant
+quel que soit leur net.
+
+Limites de la mesure : une seule carte réelle configurée (la carte de référence,
+sans pistes en arc) ; la géométrie du rasterisé est construite depuis le fichier,
+alors qu'en production elle est capturée sur la carte vivante, ce qui ajoute au
+rasterisé un temps non mesuré ici ; le rapport de durée varie d'un passage à
+l'autre avec la charge de la machine.
+
 ### 5.4 Moteur DC hybride
 
 `HybridDCSolverEngine` respecte le contrat de `DCSolverEngine` (mêmes clés de

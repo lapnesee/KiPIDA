@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Changed how the DC advisor and the hybrid engine place a source or load on a
+  pad: on every node inside the pad's outline, on its layers, instead of the
+  single nearest node. Holding or loading one node forced the current through a
+  point, a spreading resistance the soldered pad does not have: on the
+  reference board's +5V_U4 the worst load drop was 2.94 mV that way and is
+  1.20 mV with the pad as contact.
+- Added `validation/dc_engine_comparison.py`, which solves the same board file
+  with both DC engines and judges the gate the plan fixed before measuring. On
+  the reference board all four criteria pass: exact synthetic tracks, no
+  isolated load on seven rails, 1.9 to 2.4 times the raster time, and pour
+  rails agreeing within 5.8 % once both engines locate pads the same way.
 - Fixed the offline board reader ignoring arc tracks, an open circuit wherever
   a board routes with them (3 of 4 boards checked, 2,316 arcs on the Jetson
   baseboard demo). Arcs are read as chords of at most 10 degrees, within

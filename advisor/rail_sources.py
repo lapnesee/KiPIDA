@@ -64,6 +64,36 @@ class NodeIndex:
                         best_id, best_d2 = node_id, d2
         return best_id
 
+    def within(self, geometry, layer_id=None) -> list:
+        """Ids of the nodes lying in *geometry* (its boundary included), sorted."""
+        import shapely
+
+        xmin, ymin, xmax, ymax = geometry.bounds
+        candidates = []
+        for ix in range(math.floor(xmin / self._cell), math.floor(xmax / self._cell) + 1):
+            for iy in range(math.floor(ymin / self._cell), math.floor(ymax / self._cell) + 1):
+                for node_id, coord in self._buckets.get((ix, iy), ()):
+                    if layer_id is None or len(coord) <= 2 or coord[2] == layer_id:
+                        candidates.append((node_id, coord[0], coord[1]))
+        if not candidates:
+            return []
+        shapely.prepare(geometry)
+        hits = shapely.intersects_xy(
+            geometry, [item[1] for item in candidates], [item[2] for item in candidates],
+        )
+        return sorted(item[0] for item, hit in zip(candidates, hits) if hit)
+
+
+def _outline_of(pad):
+    """The pad's copper outline, or ``None`` when its shape is not known."""
+    if not getattr(pad, "size_mm", None):
+        return None
+    try:
+        from ..mesh_hybrid import _pad_outline
+    except (ImportError, ValueError):
+        from mesh_hybrid import _pad_outline
+    return _pad_outline(pad)
+
 
 def pad_layer_ids(parsed_board, pad) -> list:
     """Copper layer ids a pad occupies, in the board file's numbering.
@@ -210,8 +240,15 @@ def map_pads_to_nodes(mesh, parsed_board, ref_des, pad_names, *,
     The search stays on the pad's own copper layers. Searching every layer let
     a surface pad on F.Cu anchor on the plane node directly beneath it on an
     inner layer, injecting the load past the vias that really carry it. A
-    through-hole pad yields one node per layer it reaches: its barrel shorts
+    through-hole pad is found on each layer it reaches: its barrel shorts
     them, and the pin feeds all of them.
+
+    On each layer the pad is every node inside its outline. A soldered pin
+    covers its pad, and holding or loading a single node instead forces the
+    current through a point, adding a spreading resistance the copper does not
+    have: about (rho/t)/(2 pi) ln(r_pad/r_node), 0.18 mohm per contact for a
+    1 mm pad on a 0.1 mm lattice in 35 um copper. Only a pad whose outline is
+    unknown or holds no node falls back to the nearest node.
     """
     if tolerance_mm is None:
         tolerance_mm = max(NODE_MATCH_GRID_FACTOR * grid_step_mm, NODE_MATCH_FLOOR_MM)
@@ -221,12 +258,16 @@ def map_pads_to_nodes(mesh, parsed_board, ref_des, pad_names, *,
     for pad in component_pads(parsed_board, ref_des, pad_names, net_name):
         x_mm, y_mm = pad.position
         layers = pad_layer_ids(parsed_board, pad) or [None]
-        found = [
-            node_id for node_id in (
-                index.nearest(x_mm, y_mm, tolerance_mm, layer_id) for layer_id in layers
-            )
-            if node_id is not None
-        ]
+        outline = _outline_of(pad)
+        found = []
+        for layer_id in layers:
+            inside = index.within(outline, layer_id) if outline is not None else []
+            if inside:
+                found.extend(inside)
+                continue
+            node_id = index.nearest(x_mm, y_mm, tolerance_mm, layer_id)
+            if node_id is not None:
+                found.append(node_id)
         if not found:
             unlocated.append(str(pad.number))
         for node_id in found:
