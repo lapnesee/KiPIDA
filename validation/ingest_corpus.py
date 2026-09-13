@@ -21,9 +21,10 @@ told to.
 The invariants, and what each one exposed when this harness was written:
 
 I1  every footprint that carries a schematic path resolves, by that path, to
-    exactly one symbol instance. Measured through the key the ingest layer
-    itself uses: ``SymbolInstance.footprint_path`` once phase 1 provides it,
-    ``sheet_path`` until then -- which is why the baseline is 0 % everywhere.
+    exactly one symbol instance, through ``SymbolInstance.footprint_path``.
+    The baseline was 0 % everywhere: the reader walked files rather than sheet
+    instances and offered only the sheet's path. A footprint can still miss
+    when the board holds a symbol the schematic has since deleted.
 I2  SCH-005 never reports a footprint that has no schematic path: such a
     footprint was placed on the PCB directly and never had a symbol.
 I3  no net is a power rail on open-collector/open-emitter pins alone.
@@ -124,8 +125,7 @@ def measure_project(pro, max_pcb_mb):
     if schematic is not None:
         keys = {}
         for inst in schematic.instances:
-            key = getattr(inst, "footprint_path", None) or inst.sheet_path
-            keys[key] = keys.get(key, 0) + 1
+            keys[inst.footprint_path] = keys.get(inst.footprint_path, 0) + 1
         refs = {inst.reference for inst in schematic.instances if inst.reference}
         exact = sum(1 for fp in with_path if keys.get(fp.sch_path) == 1)
         row["I1_matched_by_path"] = f"{exact}/{len(with_path)}"

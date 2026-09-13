@@ -1,7 +1,19 @@
 """Read KiCad schematic files (.kicad_sch) offline.
 
-Follows hierarchical sheet references recursively to collect all symbol
-instances and their pin electrical types from lib_symbols definitions.
+The hierarchy is walked by sheet *instance*, not by file. A sheet file placed
+twice is one file and two instances: its symbols exist twice, once under each
+instance path, and each copy carries the reference KiCad recorded for that
+path. Reading each file once kept one copy -- 73 of complex_hierarchy's 119
+symbols, 1,606 of vme-wren's 2,876 -- and gave it whichever reference the
+symbol's own property held.
+
+A symbol's instance block lists every path it is placed under:
+
+    (instances (project "name" (path "/root-uuid/sheet-uuid" (reference "R201") (unit 1))))
+
+The entry is chosen by its path alone. The project name written there is the
+one the sheet was annotated under, which is not the file's name once a project
+has been renamed or copied (nine of the KiCad 10 demos).
 """
 
 from __future__ import annotations
@@ -10,7 +22,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .sexpr import parse, find, find_all, get_str
+from .sexpr import parse, find, find_all
 
 
 @dataclass
@@ -35,8 +47,12 @@ class SymbolInstance:
     footprint: str
     datasheet: str
     extra_fields: dict[str, str]
-    sheet_path: str       # hierarchical path "/root_uuid/sheet_uuid"
+    sheet_path: str       # instance path of the sheet holding it: "/root_uuid/sheet_uuid"
     pins: list[PinDef]    # from lib definition
+    # The path a PCB footprint records for this symbol: the sheet instance path
+    # without the root sheet, then the symbol's own uuid ("/sheet_uuid/symbol_uuid").
+    footprint_path: str = ""
+    unit: int = 1
 
 
 @dataclass
@@ -48,130 +64,55 @@ class ParsedSchematic:
 
 
 def read_schematic(root_sch_path: Path) -> ParsedSchematic:
-    """Parse root schematic and all referenced sub-sheets recursively."""
+    """Parse the root schematic and every sheet instance below it."""
     root_sch_path = Path(root_sch_path)
     symbol_defs: dict[str, SymbolDef] = {}
     instances: list[SymbolInstance] = []
     global_nets: list[str] = []
-    visited: set[Path] = set()
-    is_root: list[bool] = [True]  # mutable flag to distinguish root from sub-sheets
+    parsed_files: dict[Path, list] = {}
 
-    def _process_sheet(sch_path: Path) -> None:
+    def _load(sch_path: Path):
+        """Parse a file once, however many instances use it."""
+        if sch_path not in parsed_files:
+            roots = parse(sch_path.read_text(encoding="utf-8"))
+            root = roots[0] if roots and isinstance(roots[0], list) else None
+            parsed_files[sch_path] = root
+            if root is not None:
+                _collect_file_data(root, symbol_defs, global_nets)
+        return parsed_files[sch_path]
+
+    def _walk(sch_path: Path, segments: tuple[str, ...], ancestry: tuple[Path, ...]) -> None:
         sch_path = sch_path.resolve()
-        if sch_path in visited:
-            return
-        visited.add(sch_path)
-
-        root_call = is_root[0]
-        is_root[0] = False
-
+        if sch_path in ancestry:
+            return  # a sheet cannot contain itself; KiCad refuses to load one that does
         try:
-            text = sch_path.read_text(encoding="utf-8")
+            root = _load(sch_path)
         except OSError:
-            if root_call:
+            if not ancestry:
                 raise  # propagate for the root file; silently skip sub-sheets
             return
-
-        roots = parse(text)
-        if not roots or not isinstance(roots[0], list):
+        if root is None:
             return
-        root = roots[0]
 
-        # Collect lib_symbols definitions (may be in any sheet)
-        lib_syms_node = find(root, "lib_symbols")
-        if lib_syms_node:
-            for sym_node in find_all(lib_syms_node, "symbol"):
-                if not sym_node or len(sym_node) < 2:
-                    continue
-                lib_id = sym_node[1] if isinstance(sym_node[1], str) else ""
-                if not lib_id or lib_id in symbol_defs:
-                    continue
-                symbol_defs[lib_id] = _parse_sym_def(lib_id, sym_node)
+        if not segments:
+            segments = (_uuid_of(root),)
+        sheet_path = "/" + "/".join(segments)
 
-        # Collect global_label names
-        for gl_node in find_all(root, "global_label"):
-            if len(gl_node) >= 2 and isinstance(gl_node[1], str):
-                name = gl_node[1]
-                if name and name not in global_nets:
-                    global_nets.append(name)
-
-        # Collect symbol instances
         for sym_node in find_all(root, "symbol"):
-            if not sym_node or len(sym_node) < 2:
-                continue
-            # Skip lib_symbols children — they sit inside lib_symbols, not at root
-            # but find_all only looks at direct children of root, so this is fine.
-            # Detect lib definition vs instance: lib defs have a string as second element
-            # that contains ":" (lib:name) and do NOT have an "instances" child.
-            second = sym_node[1] if len(sym_node) > 1 else ""
-            if isinstance(second, str) and ":" in second:
-                # Could be either lib_id atom (instance) or lib def name
-                # Instances always have (lib_id "...") as a sub-node
-                lib_id_node = find(sym_node, "lib_id")
-                if lib_id_node is None:
-                    continue  # bare lib def, skip
-                lib_id = lib_id_node[1] if len(lib_id_node) > 1 else ""
-            else:
-                lib_id_node = find(sym_node, "lib_id")
-                if lib_id_node is None:
-                    continue
-                lib_id = lib_id_node[1] if len(lib_id_node) > 1 else ""
+            instance = _symbol_instance(sym_node, sheet_path, segments, symbol_defs)
+            if instance is not None:
+                instances.append(instance)
 
-            uuid_node = find(sym_node, "uuid")
-            uuid = uuid_node[1] if uuid_node and len(uuid_node) > 1 else ""
-
-            props = _collect_properties(sym_node)
-            reference = props.get("Reference", "")
-            value = props.get("Value", "")
-            footprint = props.get("Footprint", "")
-            datasheet = props.get("Datasheet", "")
-            extra = {k: v for k, v in props.items()
-                     if k not in ("Reference", "Value", "Footprint", "Datasheet",
-                                  "ki_keywords", "ki_fp_filters", "Description",
-                                  "Description_1", "ki_description")}
-
-            # Sheet path from instances block
-            sheet_path = _extract_sheet_path(sym_node)
-
-            # Resolve pin defs from lib
-            pin_defs = _resolve_pins(lib_id, symbol_defs)
-
-            instances.append(SymbolInstance(
-                lib_id=lib_id,
-                uuid=uuid,
-                reference=reference,
-                value=value,
-                footprint=footprint,
-                datasheet=datasheet,
-                extra_fields=extra,
-                sheet_path=sheet_path,
-                pins=pin_defs,
-            ))
-
-        # Recurse into sub-sheets.
-        #
-        # KiCad 6+ names the child file in a property, not a node of its own:
-        #     (sheet ... (property "Sheetfile" "child.kicad_sch" ...) ...)
-        # Looking only for a bare (sheetfile ...) matched nothing, so no
-        # hierarchy was ever followed. On the reference project that meant
-        # reading the 11 symbols of the bridge sheet and missing the 114 in
-        # its child, after which SCH-005 reported 119 footprints as having no
-        # schematic symbol -- every one of them false. The node form is still
-        # accepted in case an older file uses it.
         for sheet_node in find_all(root, "sheet"):
-            sub_filename = ""
-            sheetfile_node = find(sheet_node, "sheetfile")
-            if sheetfile_node and len(sheetfile_node) > 1:
-                sub_filename = str(sheetfile_node[1])
-            else:
-                for prop in find_all(sheet_node, "property"):
-                    if len(prop) >= 3 and str(prop[1]).lower() == "sheetfile":
-                        sub_filename = str(prop[2])
-                        break
+            sub_filename = _sheet_filename(sheet_node)
             if sub_filename:
-                _process_sheet(sch_path.parent / sub_filename)
+                _walk(
+                    sch_path.parent / sub_filename,
+                    segments + (_uuid_of(sheet_node),),
+                    ancestry + (sch_path,),
+                )
 
-    _process_sheet(root_sch_path)
+    _walk(root_sch_path, (), ())
     return ParsedSchematic(
         root_sch_path=root_sch_path,
         symbol_defs=symbol_defs,
@@ -190,6 +131,107 @@ _PIN_TYPES = {
     "power_in", "power_out", "bidirectional", "passive", "input", "output",
     "open_collector", "open_emitter", "tri_state", "unspecified", "no_connect",
 }
+
+
+def _collect_file_data(root: list, symbol_defs: dict[str, SymbolDef], global_nets: list[str]) -> None:
+    """Library definitions and global labels, which do not depend on the instance."""
+    lib_syms_node = find(root, "lib_symbols")
+    if lib_syms_node:
+        for sym_node in find_all(lib_syms_node, "symbol"):
+            if not sym_node or len(sym_node) < 2:
+                continue
+            lib_id = sym_node[1] if isinstance(sym_node[1], str) else ""
+            if not lib_id or lib_id in symbol_defs:
+                continue
+            symbol_defs[lib_id] = _parse_sym_def(lib_id, sym_node)
+
+    for gl_node in find_all(root, "global_label"):
+        if len(gl_node) >= 2 and isinstance(gl_node[1], str):
+            name = gl_node[1]
+            if name and name not in global_nets:
+                global_nets.append(name)
+
+
+def _symbol_instance(sym_node: list, sheet_path: str, segments: tuple[str, ...],
+                     symbol_defs: dict[str, SymbolDef]):
+    """One placed symbol under one sheet instance, or None for a non-symbol node."""
+    if not sym_node or len(sym_node) < 2:
+        return None
+    lib_id_node = find(sym_node, "lib_id")
+    if lib_id_node is None:
+        return None  # a bare library definition, not a placed symbol
+    lib_id = lib_id_node[1] if len(lib_id_node) > 1 else ""
+
+    uuid = _uuid_of(sym_node)
+    props = _collect_properties(sym_node)
+    extra = {k: v for k, v in props.items()
+             if k not in ("Reference", "Value", "Footprint", "Datasheet",
+                          "ki_keywords", "ki_fp_filters", "Description",
+                          "Description_1", "ki_description")}
+
+    reference = props.get("Reference", "")
+    unit = _int_atom(find(sym_node, "unit"), 1)
+    entry = _instance_entry(sym_node, sheet_path)
+    if entry is not None:
+        reference = _str_atom(find(entry, "reference"), reference)
+        unit = _int_atom(find(entry, "unit"), unit)
+
+    return SymbolInstance(
+        lib_id=lib_id,
+        uuid=uuid,
+        reference=reference,
+        value=props.get("Value", ""),
+        footprint=props.get("Footprint", ""),
+        datasheet=props.get("Datasheet", ""),
+        extra_fields=extra,
+        sheet_path=sheet_path,
+        pins=_resolve_pins(lib_id, symbol_defs),
+        footprint_path="/" + "/".join(segments[1:] + (uuid,)),
+        unit=unit,
+    )
+
+
+def _instance_entry(sym_node: list, sheet_path: str):
+    """The (path ...) entry recorded for this sheet instance, whatever its project name."""
+    instances_node = find(sym_node, "instances")
+    if not instances_node:
+        return None
+    for project_node in find_all(instances_node, "project"):
+        for path_node in find_all(project_node, "path"):
+            if len(path_node) >= 2 and path_node[1] == sheet_path:
+                return path_node
+    return None
+
+
+def _sheet_filename(sheet_node: list) -> str:
+    # KiCad 6+ names the child file in a property, not a node of its own:
+    #     (sheet ... (property "Sheetfile" "child.kicad_sch" ...) ...)
+    # Looking only for a bare (sheetfile ...) matched nothing, so no hierarchy
+    # was ever followed. The node form is still accepted.
+    sheetfile_node = find(sheet_node, "sheetfile")
+    if sheetfile_node and len(sheetfile_node) > 1:
+        return str(sheetfile_node[1])
+    for prop in find_all(sheet_node, "property"):
+        if len(prop) >= 3 and str(prop[1]).lower() == "sheetfile":
+            return str(prop[2])
+    return ""
+
+
+def _uuid_of(node: list) -> str:
+    return _str_atom(find(node, "uuid"), "")
+
+
+def _str_atom(node, default: str) -> str:
+    if node is not None and len(node) > 1 and isinstance(node[1], str):
+        return node[1]
+    return default
+
+
+def _int_atom(node, default: int) -> int:
+    try:
+        return int(_str_atom(node, ""))
+    except ValueError:
+        return default
 
 
 def _parse_sym_def(lib_id: str, sym_node: list) -> SymbolDef:
@@ -224,17 +266,6 @@ def _collect_properties(sym_node: list) -> dict[str, str]:
             if isinstance(key, str) and isinstance(val, str):
                 props[key] = val
     return props
-
-
-def _extract_sheet_path(sym_node: list) -> str:
-    instances_node = find(sym_node, "instances")
-    if not instances_node:
-        return ""
-    for project_node in find_all(instances_node, "project"):
-        for path_node in find_all(project_node, "path"):
-            if len(path_node) >= 2 and isinstance(path_node[1], str):
-                return path_node[1]
-    return ""
 
 
 def _resolve_pins(lib_id: str, symbol_defs: dict[str, SymbolDef]) -> list[PinDef]:

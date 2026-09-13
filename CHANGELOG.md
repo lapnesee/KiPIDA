@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed the offline schematic reader reading a sheet placed several times only
+  once, under whichever reference the symbol's own property held. The hierarchy
+  is now walked by sheet instance: each placement contributes its symbols with
+  the reference recorded for its path, whatever project name that record
+  carries, and each symbol knows the path a PCB footprint uses for it. On the
+  KiCad 10 demos, complex_hierarchy reads 119 symbols instead of 73 and
+  multichannel 169 instead of 61; every footprint with a schematic path now
+  finds its symbol by that path on the 15 demo boards measured, where none did.
 - Added a mesh sensitivity check to the thermal analysis, on by default: the
   board is solved again at twice the grid step, the hotspot change is
   published, and above 2 C a TH-004 finding says the result is not converged
