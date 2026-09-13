@@ -41,6 +41,8 @@ class CampaignRunRequest:
     board_fingerprint: str = ""
     domain_requests: Dict[str, Any] = field(default_factory=dict)
     stop_on_error: bool = False
+    # ProjectContext.to_dict(): the host and the mode, rendered in the report.
+    project_context: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -513,6 +515,7 @@ class CampaignEngine:
             results,
             project_name=request.project_name,
             board_fingerprint=request.board_fingerprint,
+            project_context=request.project_context,
         )
         if was_cancelled:
             # recompute() derives the verdict from the domain scores, so the

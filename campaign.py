@@ -269,6 +269,9 @@ class CampaignResult:
     created_at: str = field(default_factory=_utc_now)
     board_fingerprint: str = ""
     project_name: str = ""
+    # Which host launched the run and the mode it put the project in
+    # (ingest.project_context.ProjectContext.to_dict()); empty when unknown.
+    project_context: Dict[str, Any] = field(default_factory=dict)
     results: List[AnalysisResult] = field(default_factory=list)
     domain_scores: List[DomainScore] = field(default_factory=list)
     actions: List[CampaignAction] = field(default_factory=list)
@@ -421,6 +424,7 @@ class CampaignResult:
             "created_at": self.created_at,
             "board_fingerprint": self.board_fingerprint,
             "project_name": self.project_name,
+            "project_context": _json_safe(dict(self.project_context)),
             "overall_status": self.overall_status.value,
             "results": [result.to_dict() for result in self.results],
             "domain_scores": [_json_safe(asdict(score)) for score in self.domain_scores],
@@ -442,6 +446,7 @@ class CampaignResult:
             created_at=str(payload.get("created_at", "")),
             board_fingerprint=str(payload.get("board_fingerprint", "")),
             project_name=str(payload.get("project_name", "")),
+            project_context=dict(payload.get("project_context") or {}),
             results=[AnalysisResult.from_dict(item) for item in payload.get("results", [])],
             domain_scores=[DomainScore.from_dict(item) for item in payload.get("domain_scores", [])],
             actions=[CampaignAction.from_dict(item) for item in payload.get("actions", [])],
@@ -459,6 +464,7 @@ class CampaignResult:
         *,
         project_name: str = "",
         board_fingerprint: str = "",
+        project_context: Optional[Dict[str, Any]] = None,
     ) -> "CampaignResult":
         """Build and immediately aggregate a campaign from analysis results."""
         fingerprint = board_fingerprint or next(
@@ -467,5 +473,6 @@ class CampaignResult:
         return cls(
             project_name=project_name,
             board_fingerprint=fingerprint,
+            project_context=dict(project_context or {}),
             results=list(results),
         ).recompute()

@@ -86,7 +86,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         ("Enclosure CFD", "cfd_controller"),
     )
 
-    def __init__(self, parent, board_adapter, project=None):
+    def __init__(self, parent, board_adapter, project=None, project_context=None):
         super(KiPIDA_MainDialog, self).__init__(
             parent,
             title="Ki-PIDA: Power Integrity Analyzer",
@@ -101,6 +101,8 @@ class KiPIDA_MainDialog(wx.Dialog):
         
         self.board = board_adapter
         self.project = project
+        # ingest.project_context.ProjectContext, or None when the host named no project.
+        self.project_context = project_context
         self.cfd_controller = CFDAnalysisController(
             dispatch=lambda callback, *args: wx.CallAfter(callback, *args),
         )
@@ -550,6 +552,9 @@ class KiPIDA_MainDialog(wx.Dialog):
             project_name=Path(board_path).stem if board_path else "KiPIDA",
             board_fingerprint=self._board_fingerprint(board_path),
             domain_requests=dict(domain_requests),
+            project_context=(
+                self.project_context.to_dict() if getattr(self, "project_context", None) else {}
+            ),
         )
         callbacks = CampaignCallbacks(
             on_log=self._batch_worker_log,

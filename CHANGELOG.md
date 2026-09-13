@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added the project context: at launch the plugin records which application
+  launched it, with the evidence, and the mode that makes of the project it
+  was given -- single-board, Zeo container or Zeo member -- and the campaign
+  report shows the host and the mode. No detection rule is chosen yet, so every
+  launch reads as an unknown host and runs in single-board mode, and the report
+  says the Zeo multi-board layer was not applied for that reason.
 - Fixed the design model's source hash ignoring every sheet but the root, so
   an edit below the root sheet left it unchanged. It now covers every file the
   model read. A board, schematic or project file that cannot be read, and a

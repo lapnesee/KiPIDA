@@ -233,11 +233,28 @@ def _render_top_actions(actions: List[CampaignAction]) -> str:
     )
 
 
+_MODE_LABELS = {"single_board": "single-board", "zeo_container": "Zeo container", "zeo_member": "Zeo member"}
+
+
+def _render_project_context(context) -> str:
+    if not context:
+        return ""
+    mode = _MODE_LABELS.get(str(context.get("mode", "")), str(context.get("mode", "")))
+    notes = "; ".join(str(note) for note in context.get("notes") or ())
+    return (
+        f"<tr><th>Host</th><td>{_esc(context.get('host', ''))}</td></tr>"
+        f"<tr><th>Project mode</th><td>{_esc(mode)}"
+        + (f" &mdash; {_esc(notes)}" if notes else "")
+        + "</td></tr>"
+    )
+
+
 def _render_synthesis(campaign: CampaignResult) -> str:
     status_class = _STATUS_CLASS.get(campaign.overall_status, "nodata")
     scope = (
         "<table><tbody>"
         f"<tr><th>Project</th><td>{_esc(campaign.project_name) or '&mdash;'}</td></tr>"
+        f"{_render_project_context(campaign.project_context)}"
         f"<tr><th>Board fingerprint</th><td><code>{_esc(campaign.board_fingerprint) or '&mdash;'}</code></td></tr>"
         f"<tr><th>Campaign</th><td><code>{_esc(campaign.campaign_id)}</code></td></tr>"
         f"<tr><th>Created</th><td>{_esc(campaign.created_at)}</td></tr>"

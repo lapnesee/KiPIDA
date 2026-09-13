@@ -171,6 +171,18 @@ def main():
     except Exception as exc:  # pragma: no cover - never block startup
         early_log(f"[HOST] Host probe failed: {exc}")
 
+    # The host and the project it named decide whether the Zeo multi-board
+    # layer applies (docs/plan-universalite.md, section 3).
+    project_context = None
+    if project is not None and getattr(project, "path", None):
+        try:
+            from ingest.project_context import build_project_context, detect_host
+
+            project_context = build_project_context(project.path, detect_host(client))
+            early_log(f"[HOST] Project context: {project_context.summary}")
+        except Exception as exc:  # pragma: no cover - never block startup
+            early_log(f"[HOST] Project context unavailable: {exc}")
+
     # 2. Initialize wx App
     app = wx.App()
 
@@ -193,7 +205,7 @@ def main():
     
     # 3. Create and Show Dialog
     try:
-        dlg = KiPIDA_MainDialog(None, board_adapter=board, project=project)
+        dlg = KiPIDA_MainDialog(None, board_adapter=board, project=project, project_context=project_context)
     except Exception as e:
         early_log(f"CRITICAL: Failed to create KiPIDA_MainDialog: {e}")
         import traceback
