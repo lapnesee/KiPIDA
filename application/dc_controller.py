@@ -319,7 +319,13 @@ def _sorted_rails(rails):
     return [by_name[name] for name in reversed(result)]
 
 
-def _mesh_nodes(mesh, board, ref_des, pad_names, debug=False, emit=lambda _message: None):
+def _mesh_layers(mesh):
+    """The copper layer ids the mesh holds nodes on, in the live board's numbering."""
+    return sorted({key[2] for key in mesh.node_map})
+
+
+def _mesh_nodes(mesh, board, ref_des, pad_names, debug=False, emit=lambda _message: None,
+                layers=None):
     if debug:
         emit(f"  Mapping {ref_des} pads={pad_names}")
     footprint = next((item for item in board.footprints if item.reference == ref_des), None)
@@ -329,6 +335,11 @@ def _mesh_nodes(mesh, board, ref_des, pad_names, debug=False, emit=lambda _messa
     selected = footprint.pads if not pad_names else tuple(
         pad for pad in footprint.pads if pad.number in pad_names or pad.name in pad_names
     )
+    # Every layer the mesh has, not a fixed id range: KiCad 10's IPC numbers
+    # B.Cu 34, past the 0-31 of the old pcbnew numbering, and a bottom-side
+    # pad was then only found through copper of another layer above it.
+    if layers is None:
+        layers = _mesh_layers(mesh)
     nodes = []
     for pad in selected:
         px, py = pad.position.x, pad.position.y
@@ -338,7 +349,7 @@ def _mesh_nodes(mesh, board, ref_des, pad_names, debug=False, emit=lambda _messa
         ty = int(round((py - mesh.grid_origin[1]) / mesh.grid_step))
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
-                for layer in range(32):
+                for layer in layers:
                     node = mesh.node_map.get((tx + dx, ty + dy, layer))
                     if node is not None:
                         nodes.append(node)
@@ -448,8 +459,9 @@ class DCSolverEngine:
         )
 
     def _locator(self, rail, mesh, request, context, emit):
+        layers = _mesh_layers(mesh)
         return lambda ref_des, pad_names: _mesh_nodes(
-            mesh, request.board, ref_des, pad_names, request.debug, emit,
+            mesh, request.board, ref_des, pad_names, request.debug, emit, layers=layers,
         )
 
     def _publish_mesh(self, mesh, context):

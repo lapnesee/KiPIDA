@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed the raster DC engine's pad locator skipping the bottom copper layer.
+  It looked for nodes on layer ids 0 to 31, the old pcbnew numbering, while
+  KiCad 10's IPC numbers B.Cu 34, so a bottom-side source or load was found
+  only through copper of another layer right above it. On the P02 Rev E power
+  board the raster engine left 6 of 17 rails unsolved (J1, F1, D3, U5 and U6
+  sit on B.Cu) and dropped the J2 load; all 17 now solve. The locator searches
+  every layer the mesh holds.
 - Changed how the project's saved files are read for its declarations: once
   per session while no file changes, and not at all without being asked for a
   board over 50 MB, where reading takes tens of seconds; the log gives the

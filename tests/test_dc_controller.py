@@ -5,8 +5,13 @@ import unittest
 from application.dc_controller import (
     DCAnalysisCancelled,
     DCAnalysisController,
+    DCBoardSnapshot,
     DCControllerCallbacks,
+    DCFootprintSnapshot,
+    DCNetSnapshot,
+    DCPadSnapshot,
     DCPointSnapshot,
+    _mesh_nodes,
     capture_dc_board,
 )
 
@@ -113,6 +118,16 @@ class DCControllerTests(unittest.TestCase):
         )
         snapshot = capture_dc_board(SimpleNamespace(footprints=[], vias=[via]))
         self.assertEqual(snapshot.vias[0].drill_size, DCPointSnapshot(320_000, 320_000))
+
+    def test_raster_locator_finds_a_pad_on_the_bottom_layer(self):
+        # KiCad 10's IPC numbers B.Cu 34. The locator stopped at id 31, which
+        # left the J1, F1 and U6 sources of the P02 Rev E board unlocated.
+        pad = DCPadSnapshot(
+            "A4", "A4", DCPointSnapshot(1_000_000, 2_000_000), DCNetSnapshot("VBUS"), layers=(34,),
+        )
+        board = DCBoardSnapshot((DCFootprintSnapshot("J1", (pad,)),), ())
+        mesh = SimpleNamespace(grid_origin=(0.0, 0.0), grid_step=0.1, node_map={(10, 20, 34): 7})
+        self.assertEqual(_mesh_nodes(mesh, board, "J1", ["A4"]), [7])
 
 
 if __name__ == "__main__":
