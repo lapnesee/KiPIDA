@@ -2,8 +2,18 @@ import re
 
 try:
     from .models import PowerRail, UnifiedSource, UnifiedLoad, ComponentRef
+    from .ingest.netlist_builder import is_ground_name
 except (ImportError, ValueError):
     from models import PowerRail, UnifiedSource, UnifiedLoad, ComponentRef
+    from ingest.netlist_builder import is_ground_name
+
+# A converter's internal node or a control line often carries its domain in
+# its name and is no rail: /MAIN_3V3_SW, /MAIN_3V3_FB, /J1_SAFE_PWR_EN,
+# /PWR_VALID2 on the P02 Rev E board. A token like these drops a name guess;
+# a rail the project declares is kept whatever it is called.
+_NOT_A_RAIL_TOKEN_RE = re.compile(
+    r"(?i)(^|[/_+\-.])(SW|LX|PH|FB|BOOT|BST|COMP|EN|PG|PGOOD|VALID|SENSE|GATE|ILIM|SS|SNUB)\d*([/_+\-.]|$)"
+)
 
 DISCOVERY_LABELS = {
     "power_symbol": "declared by a power symbol",
@@ -36,7 +46,8 @@ class NetDiscoverer:
     rail they propose says it was guessed. They are not dropped when the files
     declare some rails: the reference board p02_alimentation names only GND
     with a power symbol and carries +3V3_MAIN, +5V_RAIL and its other rails on
-    labels, which no declaration reaches.
+    labels, which no declaration reaches. A ground is never guessed a rail,
+    nor a net whose name says it is a converter node or a control line.
     """
     def __init__(self, board, log_callback=None, declared_rails=None):
         self.board = board
@@ -51,9 +62,10 @@ class NetDiscoverer:
             r'(\d+)V', # 5V -> 5.0
         ]
         
-        # Regex for likely power names to prioritize
+        # Regex for likely power names to prioritize. VBUS reaches a USB
+        # connector's supply, which carries no power pin (J1_VBUS_RAW).
         self.power_name_patterns = [
-            r'(?i)VCC', r'(?i)VDD', r'(?i)PWR', r'(?i)\+.*V', r'(?i)GND'
+            r'(?i)VCC', r'(?i)VDD', r'(?i)PWR', r'(?i)\+.*V', r'(?i)VBUS'
         ]
 
     def log(self, msg):
@@ -215,9 +227,13 @@ class NetDiscoverer:
             est_voltage = self._estimate_voltage(s_name)
             source = declared.get(s_name)
             if source is None:
-                # Last resort: the name looks like power, or carries a voltage.
+                # Last resort: the name looks like power, or carries a voltage,
+                # and says it is neither a ground nor a converter or control node.
                 is_power_name = any(re.search(p, s_name) for p in self.power_name_patterns)
-                source = "name" if (est_voltage is not None or is_power_name) else None
+                guessed = (est_voltage is not None or is_power_name) and not (
+                    is_ground_name(s_name) or _NOT_A_RAIL_TOKEN_RE.search(s_name)
+                )
+                source = "name" if guessed else None
             if source is None:
                 continue
             rail = PowerRail(net_name=s_name, discovery=source)

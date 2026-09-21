@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Changed the power tree's name guesses: a name that says it is a ground, a
+  converter node or a control line (SW, FB, BOOT, EN, PG, VALID, SENSE...)
+  is no longer guessed a rail, and a name with VBUS is, since a USB
+  connector's supply has no power pin. On P02 Rev E the scan guessed
+  /MAIN_3V3_SW, /MAIN_3V3_FB, /MAIN_3V3_BOOT, /PWR_VALID2 and /J1_SAFE_PWR_EN
+  and missed both VBUS inputs; it now proposes its 18 declared rails, and
+  /+3V3_MAIN, /J1_VBUS_RAW, /J2_VBUS_PORT and /J2_VBUS_FUSED from their names.
 - Changed ground detection by name to recognise AGND, DGND, PGND and SGND
   wherever they stand in a net's name (/SYS_5V_AGND), and the project's
   declared rails to leave every ground out. A ground symbol's net and a

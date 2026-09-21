@@ -22,20 +22,31 @@ def _board(net_names):
 
 
 class RailDiscoveryTests(unittest.TestCase):
-    NETS = ["GND", "VBAT", "VCC_SENSE", "SDA"]
+    NETS = ["GND", "+3V3", "VBAT", "VCC_IO", "SDA"]
 
     def test_declared_rails_come_first_and_a_name_guess_comes_last(self):
-        declared = {"GND": "power_symbol", "VBAT": "power_pin"}
+        declared = {"+3V3": "power_symbol", "VBAT": "power_pin"}
         rails = NetDiscoverer(_board(self.NETS), log_callback=lambda _m: None,
                               declared_rails=lambda: declared).discover_power_nets()
-        # VBAT has no power-looking name; VCC_SENSE has one and no declaration.
+        # VBAT has no power-looking name; VCC_IO has one and no declaration;
+        # GND is a ground, which no source feeds.
         self.assertEqual([(r.net_name, r.discovery) for r in rails],
-                         [("GND", "power_symbol"), ("VBAT", "power_pin"), ("VCC_SENSE", "name")])
+                         [("+3V3", "power_symbol"), ("VBAT", "power_pin"), ("VCC_IO", "name")])
 
     def test_without_declarations_a_name_guess_says_it_is_one(self):
         rails = NetDiscoverer(_board(self.NETS), log_callback=lambda _m: None).discover_power_nets()
-        self.assertEqual({r.net_name: r.discovery for r in rails}, {"GND": "name", "VCC_SENSE": "name"})
-        self.assertEqual(rail_label(rails[0]), f"{rails[0].net_name} [guessed from its name]")
+        self.assertEqual({r.net_name: r.discovery for r in rails}, {"+3V3": "name", "VCC_IO": "name"})
+        vcc_io = next(rail for rail in rails if rail.net_name == "VCC_IO")
+        self.assertEqual(rail_label(vcc_io), "VCC_IO [guessed from its name]")
+
+    def test_grounds_and_converter_or_control_nodes_are_not_guessed_rails(self):
+        # Undeclared nets of the P02 Rev E power board. Its rails there were
+        # buried under grounds, switch/feedback/boot nodes and enables, while
+        # the USB-C connectors' VBUS, on passive pins, was missing.
+        nets = ["GND", "/SYS_5V_AGND", "/MAIN_3V3_SW", "/MAIN_3V3_FB", "/MAIN_3V3_BOOT",
+                "/PWR_VALID2", "/J1_SAFE_PWR_EN", "/J1_VBUS_SENSE", "/J1_VBUS_RAW", "/+3V3_MAIN"]
+        rails = NetDiscoverer(_board(nets), log_callback=lambda _m: None).discover_power_nets()
+        self.assertEqual({rail.net_name for rail in rails}, {"/J1_VBUS_RAW", "/+3V3_MAIN"})
 
     def test_the_dc_result_names_the_rails_it_took_from_the_scan(self):
         from analysis_adapters import adapt_dc_run
