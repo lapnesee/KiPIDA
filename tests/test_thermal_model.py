@@ -114,6 +114,8 @@ class TestPowerLossEstimator(unittest.TestCase):
             ref_des="U4", power_w=1.07, width_mm=3.0, depth_mm=2.0,
             height_mm=1.0, theta_jb_c_per_w=18.7, max_junction_c=125.0,
             enabled=False, model_source="regulator-loss",
+            thermal_source="datasheet", thermal_condition="JEDEC 2s2p",
+            parameter_provenance={"theta_jb_c_per_w": "TPS552882 SLVSFC5 6.4"},
         )]
 
         merged = merge_component_heat_sources(estimated, saved)
@@ -128,6 +130,10 @@ class TestPowerLossEstimator(unittest.TestCase):
         self.assertAlmostEqual(merged[0].theta_jb_c_per_w, 18.7)
         self.assertEqual(merged[0].max_junction_c, 125.0)
         self.assertFalse(merged[0].enabled)
+        # The P02 Rev E sidecar's datasheet thetaJB came back as an estimate.
+        self.assertEqual(merged[0].thermal_source, "datasheet")
+        self.assertEqual(merged[0].thermal_condition, "JEDEC 2s2p")
+        self.assertEqual(merged[0].parameter_provenance, {"theta_jb_c_per_w": "TPS552882 SLVSFC5 6.4"})
 
     def test_refresh_keeps_fully_manual_heat_source(self):
         estimated = [ThermalComponentModel(

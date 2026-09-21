@@ -191,6 +191,13 @@ def merge_component_heat_sources(estimated, saved_components, preserve_user=True
                 theta_jb_c_per_w=prior.theta_jb_c_per_w,
                 max_junction_c=prior.max_junction_c,
                 enabled=prior.enabled,
+                # The evidence goes with the numbers it backs: a datasheet
+                # thetaJB must not come back as an estimate, which TH-001
+                # reports as assumed and grades one step lower.
+                geometry_source=prior.geometry_source,
+                thermal_source=prior.thermal_source,
+                thermal_condition=prior.thermal_condition,
+                parameter_provenance=dict(prior.parameter_provenance or {}),
             ))
     return merged
 

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed a heat source's thermal evidence being dropped on every refresh. An
+  automatic heat source kept the package and junction values saved for it,
+  but its thermal source, condition and provenance went back to "estimate":
+  a datasheet thetaJB was then reported as assumed, and TH-001 graded one
+  step lower.
 - Fixed EMI/EMC source discovery missing converter switch nodes whose name
   carries no Ux_SW, PH or LX token, and taking unconnected pins for sources.
   On the P02 Rev E power board it found none of the four switch nodes
