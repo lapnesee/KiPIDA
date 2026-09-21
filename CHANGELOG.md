@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed a finding that surveys the design gluing unrelated findings into
+  one campaign action. Findings sharing a part are one problem, and
+  SCH-003 names every resistor it lists: on P02 Rev E its 49 parts included
+  C11, which DE-001 named beside U18, and the pair became the first
+  priority action, ranked above every HIGH for spanning two domains, with
+  50 parts attached. A finding naming more than six parts no longer ties
+  others to it through a part.
 - Fixed SCH-003 taking ceramic capacitors for resistors. A value read as a
   resistance wherever a number met an R, so the dielectric code of
   "47u 16V X5R" made C56 a 5-ohm part: on P02 Rev E 22 of the 49

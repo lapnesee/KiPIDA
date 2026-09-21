@@ -91,6 +91,11 @@ _EFFORT_ORDER: List[RemediationEffort] = [
 # treated as the same physical location.
 COLOCATION_TOLERANCE_MM = 2.0
 
+# A finding naming more parts than this surveys the design ("49 resistors lack
+# a power rating") rather than blaming a part, so it ties no other finding to
+# it through a part they share.
+GROUPING_MAX_COMPONENTS = 6
+
 
 @dataclass
 class DomainScore:
@@ -230,7 +235,12 @@ def _group_findings(tagged: List[tuple]) -> List[List[tuple]]:
     by_component: Dict[str, List[int]] = {}
     by_net: Dict[str, List[int]] = {}
     for index, (_domain, finding) in enumerate(tagged):
-        for component in set(finding.components):
+        components = set(finding.components)
+        if len(components) > GROUPING_MAX_COMPONENTS:
+            # On P02 Rev E SCH-003's 49 parts included C11, which DE-001 named
+            # beside U18, and the two made one action ranked first.
+            components = set()
+        for component in components:
             by_component.setdefault(component, []).append(index)
         for net in set(finding.nets):
             by_net.setdefault(net, []).append(index)

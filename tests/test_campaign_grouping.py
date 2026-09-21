@@ -56,6 +56,16 @@ class CampaignGroupingTests(unittest.TestCase):
         ])
         self.assertEqual(groups(campaign), [["GP-001", "SI-DIFF-001"]])
 
+    def test_a_finding_about_many_parts_ties_no_other_to_it(self):
+        # P02 Rev E: SCH-003 named 49 parts, C11 among them, and DE-001 named
+        # U18 and C11; joined through C11 they made the first priority action.
+        survey = [f"R{index}" for index in range(1, 49)] + ["C11"]
+        campaign = CampaignResult.from_results([
+            result("SCHEMATIC", [finding("SCH-003", components=survey, severity=FindingSeverity.INFO)]),
+            result("EMC", [finding("DE-001", components=["U18", "C11"])]),
+        ])
+        self.assertEqual(groups(campaign), [["DE-001"], ["SCH-003"]])
+
     def test_grouping_is_transitive_and_independent_of_order(self):
         entries = [
             ("THERMAL", finding("TH-001", components=["U7"])),
