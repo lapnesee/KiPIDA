@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Changed AC capacitor discovery to derate a class II ceramic for DC bias when
+  its value states its rating and dielectric ("47u 16V X5R"): at the rail's
+  voltage V it keeps 1 / (1 + (V / 0.6 Vr)^1.5) of its nominal value, 32 % at
+  its rating Vr and 71 % at a third of it, inside the 50-80 % loss at rating
+  that docs/audit-si-pdn.md records. Its model source gives both values and
+  calls them an estimate. On the P02 Rev E power board C56, 47u 16V X5R on
+  the 5.08 V +5V_RAIL, enters the sweep at 33.9 uF instead of 47. C0G,
+  polymer and unrated parts keep their nominal value; the ESR stays the
+  10 mOhm estimate until part data replace it.
 - Changed the power tree's name guesses: a name that says it is a ground, a
   converter node or a control line (SW, FB, BOOT, EN, PG, VALID, SENSE...)
   is no longer guessed a rail, and a name with VBUS is, since a USB

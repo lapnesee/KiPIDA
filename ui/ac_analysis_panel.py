@@ -331,7 +331,10 @@ class ACAnalysisPanel(wx.Panel):
 
             ground_name = self._selected_text(self.choice_ground)
             if force_discovery or not profile.capacitors:
-                discovered = self.builder.discover_capacitors(rail.net_name, ground_name)
+                discovered = self.builder.discover_capacitors(
+                    rail.net_name, ground_name,
+                    rail_voltage_v=float(getattr(rail, "nominal_voltage", 0.0) or 0.0),
+                )
                 existing = {cap.ref_des: cap for cap in profile.capacitors}
                 for capacitor in discovered:
                     if capacitor.ref_des in existing:

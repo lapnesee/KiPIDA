@@ -66,6 +66,26 @@ class TestCapacitorDiscovery(unittest.TestCase):
         self.assertLess(capacitors[0].esl_h, capacitors[1].esl_h)
         self.assertEqual(builder.discover_ground_nets(), ["GND"])
 
+    def test_a_class_ii_capacitor_is_derated_at_the_rail_voltage(self):
+        # C56 of the P02 Rev E board, 47u 16V X5R on the 5.08 V +5V_RAIL,
+        # entered the sweep at its nominal 47 uF: an optimistic Z(f).
+        def part(reference, value):
+            return SimpleNamespace(reference=reference, value=value, footprint_name="Capacitor_SMD:C_1210",
+                                   pads=[pad("1", "+5V_RAIL"), pad("2", "GND")], dnp=False)
+
+        builder = ACModelBuilder(SimpleNamespace(footprints=[
+            part("C56", "47u 16V X5R"), part("C60", "330p 50V C0G"), part("C81", "68u / 35V 20% hybride"),
+        ]))
+        capacitors = {cap.ref_des: cap for cap in builder.discover_capacitors("+5V_RAIL", "GND", rail_voltage_v=5.08)}
+
+        retained = 1.0 / (1.0 + ((5.08 / 16.0) / 0.6) ** 1.5)
+        self.assertAlmostEqual(capacitors["C56"].capacitance_f, 47e-6 * retained)
+        self.assertIn("DC bias X5R 16 V at 5.08 V", capacitors["C56"].model_source)
+        self.assertIn("estimate", capacitors["C56"].model_source)
+        # Class I and non-ceramic parts keep their nominal value.
+        self.assertAlmostEqual(capacitors["C60"].capacitance_f, 330e-12)
+        self.assertAlmostEqual(capacitors["C81"].capacitance_f, 68e-6)
+
 
 if __name__ == "__main__":
     unittest.main()

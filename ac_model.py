@@ -241,6 +241,42 @@ def parse_capacitance(value) -> Optional[float]:
     return capacitance if capacitance > 0 else None
 
 
+_RATED_VOLTAGE_RE = re.compile(r"(?i)(?<![\w.])(\d+(?:\.\d+)?)\s*V\b")
+# EIA class II ceramics (X5R, X7R, X6S, Y5V...) lose capacitance under DC
+# bias; class I (C0G/NP0) and non-ceramic parts do not, to first order.
+_CLASS_II_DIELECTRIC_RE = re.compile(r"(?i)(?<![A-Z0-9])([XYZ][4-9][P-V])(?![A-Z0-9])")
+# Generic class II retention under a DC bias at a fraction r of the rating:
+# 1 / (1 + (r / 0.6) ** 1.5). It keeps 32 % at the rated voltage, inside the
+# 50-80 % loss docs/audit-si-pdn.md records, 52 % at 0.57 and 71 % at a third.
+# Small, high-capacitance parts lose more and thick-dielectric ones less; the
+# curve is an estimate, said so on each capacitor it changes.
+_CLASS_II_BIAS_KNEE = 0.6
+_CLASS_II_BIAS_EXPONENT = 1.5
+
+
+def parse_capacitor_rating(value) -> Tuple[Optional[float], str]:
+    """``(rated voltage, class II dielectric)`` a BOM value states, each possibly absent.
+
+    Read after the capacitance: "47u 16V X5R" gives (16.0, "X5R"),
+    "15n 50V C0G" gives (50.0, "") since C0G is class I.
+    """
+    text = str(value or "")
+    voltage = _RATED_VOLTAGE_RE.search(text)
+    dielectric = _CLASS_II_DIELECTRIC_RE.search(text)
+    return (
+        float(voltage.group(1)) if voltage else None,
+        dielectric.group(1).upper() if dielectric else "",
+    )
+
+
+def dc_bias_retention(dielectric: str, rated_voltage_v: Optional[float], bias_v: float) -> float:
+    """The share of a capacitor's nominal value left at *bias_v*: 1.0 when nothing says it drops."""
+    if not dielectric or not rated_voltage_v or rated_voltage_v <= 0.0 or bias_v <= 0.0:
+        return 1.0
+    ratio = min(1.0, abs(float(bias_v)) / float(rated_voltage_v))
+    return 1.0 / (1.0 + (ratio / _CLASS_II_BIAS_KNEE) ** _CLASS_II_BIAS_EXPONENT)
+
+
 def format_capacitance(value_f: float) -> str:
     for scale, suffix in ((1e-3, "mF"), (1e-6, "uF"), (1e-9, "nF"), (1e-12, "pF")):
         if value_f >= scale:
@@ -444,7 +480,13 @@ class ACModelBuilder:
                 return esl
         return 0.8e-9
 
-    def discover_capacitors(self, rail_name, ground_name):
+    def discover_capacitors(self, rail_name, ground_name, rail_voltage_v=0.0):
+        """The rail-to-return capacitors, at their value under the rail's DC bias.
+
+        A class II ceramic whose value states its rating is derated with the
+        generic curve of dc_bias_retention at *rail_voltage_v*, and its model
+        source says from what to what; any other keeps its nominal value.
+        """
         capacitors = []
         for footprint in self._get_board_items("footprints"):
             reference = self._get_footprint_reference(footprint)
@@ -469,6 +511,17 @@ class ACModelBuilder:
                 continue
 
             candidate = self._is_dnp(footprint) or capacitance is None
+            model_source = "value-and-package-estimate"
+            if capacitance is not None:
+                rated_v, dielectric = parse_capacitor_rating(value_text)
+                retention = dc_bias_retention(dielectric, rated_v, float(rail_voltage_v or 0.0))
+                if retention < 1.0:
+                    model_source += (
+                        f"; DC bias {dielectric} {rated_v:g} V at {float(rail_voltage_v):g} V: "
+                        f"{format_capacitance(capacitance)} -> {format_capacitance(capacitance * retention)} "
+                        "(generic class II curve, estimate)"
+                    )
+                    capacitance *= retention
             capacitors.append(CapacitorModel(
                 ref_des=reference,
                 rail_pad_names=rail_pads,
@@ -478,7 +531,7 @@ class ACModelBuilder:
                 esl_h=self._default_esl(self._get_footprint_name(footprint)),
                 enabled=not candidate,
                 candidate=candidate,
-                model_source="value-and-package-estimate",
+                model_source=model_source,
             ))
 
         capacitors.sort(key=lambda cap: cap.ref_des)
