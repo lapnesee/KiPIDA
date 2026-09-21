@@ -196,6 +196,23 @@ class TestGroundEvidence(unittest.TestCase):
         # C1 decouples +3V3 to that ground; a name test alone did not see it.
         self.assertEqual(_check_undecoupled_power_pins(SchematicRuleContext(netlist=netlist)), [])
 
+    def test_a_ground_is_no_supply_rail_whatever_declares_it(self):
+        # P02 Rev E: GND through its symbol, and U4's analog ground through a
+        # power_in pin, were both proposed to the power tree as rails.
+        from ingest.declarations import supply_rails
+
+        footprints = [Footprint(
+            reference="U4", value="TPS552882", lib_id="Package:QFN", position=(0, 0), rotation=0,
+            layer="F.Cu", sch_path="/u4", sch_sheet_file="",
+            pads=[Pad("3", "/VBUS_SYS", "power_in", (0, 0)), Pad("7", "/SYS_5V_AGND", "power_in", (1, 0)),
+                  Pad("9", "GND", "power_in", (2, 0))],
+        )]
+        ground = SymbolInstance(lib_id="power:GND", uuid="g", reference="#PWR01", value="GND", footprint="",
+                                datasheet="", extra_fields={}, sheet_path="/r", pins=[], power="global")
+        netlist = build_netlist(_make_board(footprints=footprints), _make_schematic([ground]), "b")
+        self.assertEqual(next(net for net in netlist.nets if net.name == "/SYS_5V_AGND").ground_source, "name")
+        self.assertEqual(supply_rails(netlist), {"/VBUS_SYS": "power_pin"})
+
 
 class TestSchematicLink(unittest.TestCase):
     """A footprint meets its symbol by path; a reference is never a join key."""

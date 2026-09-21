@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Changed ground detection by name to recognise AGND, DGND, PGND and SGND
+  wherever they stand in a net's name (/SYS_5V_AGND), and the project's
+  declared rails to leave every ground out. A ground symbol's net and a
+  converter's analog ground are rails to the netlist -- a power symbol, power
+  pins -- but no source feeds them, and meshing GND, the widest copper of
+  most boards, bought nothing: on the P02 Rev E power board GND and two
+  converter analog grounds were proposed to the power tree. SCH-001 now
+  counts a capacitor to such a ground as decoupling.
 - Changed an enclosure CFD run whose enclosure was never entered to fit the
   board: the 120 x 100 x 50 mm default grows to the board plus 20 mm on each
   side when the board is larger, and the log and the CFD tab say so. The

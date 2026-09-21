@@ -59,8 +59,16 @@ GROUND_NAME = "name"
 # power:Earth, power:VSS...): the symbol a designer placed, whatever the net
 # it names is called.
 _GROUND_SYMBOL_RE = re.compile(r"^(GND\w*|Earth\w*|Chassis\w*|VSS\w*|0V)$", re.IGNORECASE)
-# The last resort, a net's own name.
-_GROUND_NAME_RE = re.compile(r"(?i)(^|[/_+\-])(gnd|vss|ground)(\d*|$)|^(A|D|P)?GND$")
+# The last resort, a net's own name: GND, VSS or GROUND as a token, AGND,
+# DGND, PGND and SGND included wherever they stand (/SYS_5V_AGND, a
+# converter's analog ground on the P02 Rev E board).
+_GROUND_NAME_RE = re.compile(r"(?i)(^|[/_+\-])([adps]?gnd|vss|ground)(\d*|$)")
+
+
+def is_ground_name(name):
+    """True when a net's name alone says ground; a synthesised unconnected-(...) never does."""
+    name = str(name or "")
+    return not name.startswith("unconnected-") and bool(_GROUND_NAME_RE.search(name))
 
 
 # How a footprint relates to the schematic. Absence is a state, not a gap.
@@ -260,7 +268,7 @@ def build_netlist(
                 net.ground_source = GROUND_POWER_SYMBOL
     for net in nets_map.values():
         # A synthesised "unconnected-(BUS1-GND-Pad10)" names a pin, not a ground.
-        if not net.ground_source and not net.name.startswith("unconnected-") and _GROUND_NAME_RE.search(net.name):
+        if not net.ground_source and is_ground_name(net.name):
             net.ground_source = GROUND_NAME
 
     # Each local net a link joins is aliased to the nets it joins on the other

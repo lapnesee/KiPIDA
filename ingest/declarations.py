@@ -124,12 +124,25 @@ def with_declared_grounds(reference_net_names, netlist) -> list[str]:
     return names
 
 
+def supply_rails(netlist) -> dict[str, str]:
+    """``{net name: rail source}`` for every net the netlist makes a supply rail.
+
+    A ground is a rail to the netlist -- its symbol is a power symbol, its
+    pins power pins -- but not a supply: no DC source feeds it, and meshing
+    GND, the widest copper of most boards, bought nothing. On the P02 Rev E
+    board GND and two converter analog grounds were proposed as rails.
+    """
+    return {
+        net.name: net.rail_source for net in netlist.nets
+        if net.is_power_rail and not net.ground_source
+    }
+
+
 def rail_declarations(project: BoardProject) -> dict[str, str]:
-    """``{net name: rail source}`` for every net the saved files make a rail.
+    """``{net name: rail source}`` for every net the saved files make a supply rail.
 
     The source is ``power_symbol`` when a power symbol names the net and
     ``power_pin`` when only a power pin type does (ingest.netlist_builder).
     Reading errors propagate: the caller decides what a guess costs.
     """
-    netlist = design_netlist(project)
-    return {net.name: net.rail_source for net in netlist.nets if net.is_power_rail}
+    return supply_rails(design_netlist(project))
