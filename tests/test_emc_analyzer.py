@@ -397,6 +397,22 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertEqual(finding.confidence, "LOW")
         self.assertIn("rail-bypass", finding.title)
 
+    def test_a_tvs_is_no_part_to_decouple(self):
+        # P02 Rev E: the TVS2200 on VBUS_PD types its ground pin power_in, and
+        # DE-001 (HIGH) asked for C1, 24 mm away, to move closer to it.
+        snap = EMCGeometrySnapshot(
+            bounds_mm=(0.0, 0.0, 40.0, 20.0), stackup=stackup(), power_nets={"VBUS_PD"},
+            footprints=[
+                EMCFootprint("D1", "TVS2200DRVR", (5.0, 5.0), ("VBUS_PD", "GND"),
+                             (("VBUS_PD", 5.0, 5.0),)),
+                EMCFootprint("C1", "4.7u 50V X7R", (29.0, 5.0), ("VBUS_PD", "GND"),
+                             (("VBUS_PD", 29.0, 5.0),)),
+            ],
+            component_classes={"D1": {"powered"}},
+        )
+        findings = EMCAnalyzer(snap, EMCAnalysisSettings(sources=[])).analyze().findings
+        self.assertFalse([f.rule_id for f in findings if f.rule_id.startswith("DE-")])
+
     def test_parts_are_classified_by_what_the_project_files_say(self):
         from ingest.declarations import component_classes
         from ingest.netlist_builder import ComponentInfo

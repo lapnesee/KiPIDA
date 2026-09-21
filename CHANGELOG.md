@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed DE-001 asking for a decoupling capacitor beside a TVS. A part with
+  a power_in pin needs decoupling, and TVS and diode symbols often type
+  their ground pin power_in: on P02 Rev E the TVS2200 on VBUS_PD drew a
+  HIGH "distant decoupling capacitor" for C1, 24 mm away. A diode, TVS or
+  ESD part is no longer checked.
 - Fixed a finding that surveys the design gluing unrelated findings into
   one campaign action. Findings sharing a part are one problem, and
   SCH-003 names every resistor it lists: on P02 Rev E its 49 parts included

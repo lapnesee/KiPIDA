@@ -90,6 +90,12 @@ CONTEXTUAL_SW_PATTERN = re.compile(
 SW_NAME_PATTERN = re.compile(r"(^|[_/])SW\d*([_/]|$)", re.I)
 _INDUCTOR_REF_RE = re.compile(r"^L\d", re.I)
 _IC_REF_RE = re.compile(r"^(U|IC)\d", re.I)
+# A part that clamps a line to ground: a diode's annotation, or a value that
+# names a TVS or ESD part.
+_PROTECTION_REF_RE = re.compile(r"^(D\d|TVS|ESD)", re.I)
+_ESD_PROTECTOR_VALUE_RE = re.compile(
+    r"(?:USBLC|PESD|TPD\d|ESD|TVS|TRANSIL|SMBJ|SMAJ|SMCJ|SRV05|PRTR)", re.I,
+)
 
 
 def is_unconnected_pin_net(name):
@@ -1103,6 +1109,11 @@ class EMCAnalyzer:
             # A connector's VBUS pin is often typed power_in, and connectors
             # from private libraries carry no Connector library name.
             return False
+        if _PROTECTION_REF_RE.match(item.reference) or _ESD_PROTECTOR_VALUE_RE.search(item.value or ""):
+            # A diode or TVS clamps its line and draws no supply current. P02
+            # Rev E's TVS2200 on VBUS_PD types its ground pin power_in, and
+            # DE-001 (HIGH) asked for the capacitor 24 mm away to move closer.
+            return False
         return "powered" in (self._classes(item) or ()) or item.reference.upper().startswith(("U", "IC"))
 
     def _signal_rules(self):
@@ -1265,7 +1276,7 @@ class EMCAnalyzer:
         def is_esd_protector(item):
             return bool(
                 re.match(r"^(TVS|ESD)", item.reference, re.I)
-                or re.search(r"(?:USBLC|PESD|TPD\d|ESD|TVS|TRANSIL|SMBJ|SMAJ|SMCJ|SRV05|PRTR)", item.value, re.I)
+                or _ESD_PROTECTOR_VALUE_RE.search(item.value)
             )
 
         filters = [item for item in self.snapshot.footprints if is_filter(item)]
