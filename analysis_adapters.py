@@ -1191,9 +1191,14 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
             # alone it flagged rails whose loads were well within budget.
             drop_v = float(data["load_drop_v"])
             drop_pct = drop_v / source_voltage * 100.0
+            detailed_result = data.get("detailed_result")
+            # Loads on copper no source reaches were left out of the solve, so
+            # a drop within budget says nothing about them: P02 Rev E's /+3V3AO,
+            # every load excluded, read "0.0 % PASS".
+            incomplete = detailed_result is not None and not getattr(detailed_result, "valid", True)
             metrics.append(AnalysisMetric(
                 f"rail_{index}_drop", f"{rail} voltage drop at the worst load", drop_pct, "%",
-                "WARN" if drop_pct > float(maximum_drop_pct) else "PASS",
+                "WARN" if drop_pct > float(maximum_drop_pct) else ("INCOMPLETE" if incomplete else "PASS"),
             ))
             metrics.append(AnalysisMetric(
                 f"rail_{index}_spread", f"{rail} voltage spread across the net",
@@ -1284,11 +1289,19 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
                     " connected at that step, so the island may be the mesh's rather than the board's."
                     if step > 0.0 else ""
                 )
+            excluded = ", ".join(getattr(detailed, "excluded_load_references", ()) or ())
             findings.append(_finding(
                 "DC-001", index, "CONNECTIVITY", FindingSeverity.HIGH,
                 f"{rail} contains source-free loads",
-                f"{getattr(detailed, 'excluded_load_node_count', 0)} load node(s) were excluded."
-                + step_text,
+                f"{getattr(detailed, 'excluded_load_node_count', 0)} load node(s) were excluded"
+                + (f" ({excluded})" if excluded else "") + "." + step_text,
+                # A finer grid cannot join what the hybrid mesh keeps apart:
+                # on P02 Rev E each such island was an unrouted connection in
+                # KiCad's DRC.
+                "Check the copper between the source and these loads: KiCad's DRC lists the "
+                "unconnected items. The hybrid mesh follows the saved copper exactly, so a finer "
+                "grid will not join them."
+                if data.get("engine") == "hybrid" else
                 "Check the copper between the source and these loads in the editor. If it "
                 "is continuous, rerun with a finer DC grid before editing the board.",
             ))

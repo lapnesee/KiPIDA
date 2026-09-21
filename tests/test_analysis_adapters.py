@@ -205,6 +205,21 @@ class AnalysisAdapterTests(unittest.TestCase):
         island = next(item for item in result.findings if item.rule_id == "DC-001")
         self.assertNotIn("1.4 grid steps", island.description)
         self.assertIn("saved board file", island.description)
+        self.assertNotIn("finer DC grid", island.recommendation)
+
+    def test_a_drop_with_loads_left_out_is_not_a_pass(self):
+        # P02 Rev E's /+3V3AO had every load on copper its source does not
+        # reach, and its drop metric read "0.0 % PASS".
+        detail = SimpleNamespace(valid=False, excluded_load_node_count=150,
+                                 excluded_load_references=("U13", "U7"))
+        result = adapt_dc_result({"/+3V3AO": {
+            "stats": (3.32, 3.32, 0.0), "detailed_result": detail, "engine": "hybrid",
+            "load_drop_v": 0.0, "source_voltage_v": 3.32,
+        }}, 5.0)
+        metrics = {metric.key: metric for metric in result.metrics}
+        self.assertEqual(metrics["rail_1_drop"].status, "INCOMPLETE")
+        island = next(item for item in result.findings if item.rule_id == "DC-001")
+        self.assertIn("(U13, U7)", island.description)
 
 
 if __name__ == "__main__":

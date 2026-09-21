@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed a rail with loads left out of its DC solve reading "PASS". Loads
+  on copper no source reaches are excluded, and the drop of those left was
+  judged against the budget: on P02 Rev E /+3V3AO, every load excluded,
+  read "0.0 % PASS". Its drop is now INCOMPLETE unless already over budget.
+  DC-001 names the loads left out and, for the hybrid mesh, points at
+  KiCad's unconnected items rather than a finer grid, which cannot join
+  copper the saved board keeps apart.
 - Fixed the EMC source scan dropping a saved frequency it could not find
   itself. Every scanned source is rebuilt on each scan, so P02 Rev E's
   /USB_J2_MUX_D pair, saved at 240 MHz, came back at 0 Hz, its interface
