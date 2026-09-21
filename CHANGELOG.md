@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed the hybrid DC mesh joining a track only to the pads and via lands its
+  axis reaches. A land the track's copper covers beside the axis -- vias sewn
+  along the edge of a wide track, a pad the track brushes -- reached it only
+  through whatever pad the track ended on. On the P02 Rev E power board the
+  3 A of J2_SRC_VBUS ran to the end of its 1 mm track and back through two
+  slivers of pad copper, for 73.7 mV of drop; it is 27.2 mV now, what the
+  raster mesh gives with the same pad locator. Such a land is joined from the
+  nearest point of the axis, across the track's own copper.
 - Changed AC capacitor discovery to derate a class II ceramic for DC bias when
   its value states its rating and dielectric ("47u 16V X5R"): at the rail's
   voltage V it keeps 1 / (1 + (V / 0.6 Vr)^1.5) of its nominal value, 32 % at

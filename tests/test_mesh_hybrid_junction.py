@@ -119,6 +119,25 @@ class CopperLandTests(unittest.TestCase):
         end = next(n for n, c in mesh.node_coords.items() if c[:2] == (9.0, 5.0) and c[2] == 2)
         self.assertTrue(self._connected(mesh, start, end))
 
+    def test_a_via_beside_the_axis_of_a_wide_track_is_joined_to_it(self):
+        # P02 Rev E: eight vias sewn along the edge of the 1 mm J2_SRC_VBUS
+        # track, 0.52 mm off its axis, reached it only through the pad at its
+        # end, and the 3 A load current ran there and back through slivers.
+        from ingest.board_reader import Segment, Via
+        from mesh_hybrid import HybridMesher
+
+        board = _board(
+            segments=[
+                Segment("VCC", 1.0, "F.Cu", (1.0, 5.0), (9.0, 5.0)),
+                Segment("VCC", 0.25, "B.Cu", (5.0, 5.52), (5.0, 9.0)),
+            ],
+            vias=[Via("VCC", (5.0, 5.52), 0.8, 0.4, ["F.Cu", "B.Cu"])],
+        )
+        mesh = HybridMesher(board, grid_step_mm=0.1).build_mesh("VCC")
+        start = next(n for n, c in mesh.node_coords.items() if c[:2] == (1.0, 5.0) and c[2] == 0)
+        end = next(n for n, c in mesh.node_coords.items() if c[:2] == (5.0, 9.0) and c[2] == 2)
+        self.assertTrue(self._connected(mesh, start, end))
+
     def test_a_track_running_through_a_pad_is_joined_to_it(self):
         # On +3V3AON a B.Cu track from C5 runs through C7's pad and ends beyond.
         from ingest.board_reader import Footprint, Pad, Segment

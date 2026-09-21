@@ -346,7 +346,11 @@ class HybridMesher:
             # meshed as one branch between its ends, it left both capacitors
             # on islands. The track is split where it crosses each land, and
             # the pieces' resistances add up to the whole track's.
-            stations = [0.0, *self._land_crossings(seg, length_mm, land_trees), length_mm]
+            contacts = self._land_contacts(seg, length_mm, width_mm, land_trees)
+            stations = sorted({
+                0.0, *self._land_crossings(seg, length_mm, land_trees),
+                *(station for station, _point, _extent in contacts), length_mm,
+            })
             added = False
             for start_mm, end_mm in zip(stations, stations[1:]):
                 piece_mm = end_mm - start_mm
@@ -363,6 +367,27 @@ class HybridMesher:
                     u, v, 1.0 / (R * piece_mm / length_mm),
                     kind="lateral",
                     cross_section_mm2=cs,
+                    geometry_source=f"seg:{seg.layer}",
+                )
+                added = True
+            # A land the track's copper covers beside its axis -- a via on the
+            # edge of a wide track, a pad the track brushes -- is joined from
+            # the axis across that copper: the track's own width, from the
+            # station to the land's node, over as much track as the land meets.
+            for station_mm, (cx, cy), extent_mm in contacts:
+                u = attach(x0 + (x1 - x0) * station_mm / length_mm,
+                           y0 + (y1 - y0) * station_mm / length_mm, layer_id)
+                v = probe(cx, cy, layer_id)
+                if v is None or v == u:
+                    continue
+                ux, uy, _ = mesh.node_coords[u]
+                vx, vy, _ = mesh.node_coords[v]
+                reach_mm = max(math.hypot(vx - ux, vy - uy), _SNAP)
+                span_mm = min(width_mm, max(extent_mm, self._effective_grid_step))
+                mesh.add_edge_direct(
+                    u, v, 1.0 / segment_resistance(reach_mm, span_mm, thickness_mm, self._rho),
+                    kind="lateral",
+                    cross_section_mm2=span_mm * thickness_mm,
                     geometry_source=f"seg:{seg.layer}",
                 )
                 added = True
@@ -548,6 +573,44 @@ class HybridMesher:
             if _SNAP < station < length_mm - _SNAP:
                 stations.add(round(station / _SNAP) * _SNAP)
         return sorted(stations)
+
+    @staticmethod
+    def _land_contacts(seg: Segment, length_mm: float, width_mm: float, land_trees: dict) -> list:
+        """Lands the track's copper touches but its axis does not reach.
+
+        ``[(station, point, extent)]``: the distance along the track nearest
+        the land, the point of the land's contact nearest the axis, and how
+        far along the track the contact runs. The axis alone decided which
+        lands a track met, which left the eight vias sewn along the edge of
+        the 1 mm J2_SRC_VBUS track of the P02 Rev E board, 0.52 mm off its
+        axis, joined to it only through the pad it ends on: the whole 3 A ran
+        to the end of the track and back through two slivers of pad copper.
+        """
+        entry = land_trees.get(seg.layer)
+        if entry is None:
+            return []
+        tree, polygons = entry
+        line = shapely.LineString([seg.start, seg.end])
+        body = line.buffer(width_mm / 2.0)
+        contacts = []
+        for index in tree.query(body, predicate="intersects"):
+            land = polygons[int(index)]
+            if line.intersects(land):
+                continue  # a crossing station or the track's end joins it
+            touch = body.intersection(land)
+            if touch.is_empty or touch.area <= 0.0:
+                continue
+            on_touch, on_line = shapely.shortest_line(touch, line).coords
+            station = min(max(line.project(shapely.Point(on_line)), 0.0), length_mm)
+            if station <= _SNAP:
+                station = 0.0
+            elif station >= length_mm - _SNAP:
+                station = length_mm
+            else:
+                station = round(station / _SNAP) * _SNAP
+            along = [line.project(shapely.Point(point)) for point in shapely.get_coordinates(touch)]
+            contacts.append((station, tuple(on_touch), max(along) - min(along)))
+        return contacts
 
     @staticmethod
     def _pad_layers(board: ParsedBoard, pad):
