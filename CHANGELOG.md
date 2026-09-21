@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed a component's heat going into the bare laminate between its pads.
+  The whole placement window took the power, and a laminate cell, which
+  cannot spread it, ran far hotter than the copper beside it: on P02 Rev E
+  cells between U14's pads read 128-130 C over copper at 98 C, at 0.5, 1
+  and 2 mm alike, and that was the board's hotspot, the one TE-001 quotes.
+  Heat now goes into the window's copper cells, the window growing a cell a
+  side, twice at most, while the grid samples fewer than four. The P02
+  hotspot is Q10, at 115-116 C at all three grid steps.
 - Fixed DC-004 calling a pad or via on a half micrometre moved. Positions
   were rounded to the micrometre on both sides and compared exactly, so a
   coordinate the file reader places a hair below the half fell on the other

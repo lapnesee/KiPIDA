@@ -61,6 +61,28 @@ class TestThermalSolver(unittest.TestCase):
             ),
         )
 
+    def test_a_package_heats_its_copper_not_the_bare_laminate(self):
+        # P02 Rev E: spread over every cell of its window, U14's 1.26 W heated
+        # the laminate between its pads to 128 C over copper at 98 C, at every
+        # grid step, and that was the board's reported hotspot.
+        model = self._model()
+        model.copper_by_layer[0] = box(3.0, 4.0, 4.0, 6.0).union(box(6.0, 4.0, 7.0, 6.0))
+        model.placements["U1"] = ThermalPlacement("U1", 5.0, 5.0, 4.0, 2.0, "TOP")
+        settings = self._settings()
+        settings.grid_size_mm = 1.0
+        mesh = ThermalMesher().generate_mesh(model, settings)
+        heated = {round(mesh.node_coords[node][0], 1) for node in mesh.heat_sources_w}
+        self.assertEqual(heated, {3.5, 6.5})
+        self.assertAlmostEqual(sum(mesh.heat_sources_w.values()), 1.0)
+
+    def test_a_package_the_grid_barely_resolves_is_spread_over_nearby_copper(self):
+        # At 2 mm one sampled copper cell held all of U14 and read 158 C.
+        model = self._model()
+        model.copper_by_layer[0] = box(4.5, 4.5, 5.5, 5.5).union(
+            box(0.0, 0.0, 10.0, 3.9)).union(box(0.0, 6.1, 10.0, 10.0))
+        mesh = ThermalMesher().generate_mesh(model, self._settings())
+        self.assertGreaterEqual(len(mesh.heat_sources_w), ThermalMesher.COMPONENT_HEAT_MIN_CELLS)
+
     def test_zero_heat_settles_at_ambient(self):
         mesh = ThermalMesher().generate_mesh(self._model(power_w=0.0), self._settings())
         result = ThermalSolver().solve(mesh, ambient_c=25.0)

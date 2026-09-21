@@ -371,6 +371,11 @@ class ThermalMesher:
     # exists to measure one from.  ThermalSolver refines it; this only has to
     # be close enough to start the iteration in the right basin.
     NOMINAL_SURFACE_RISE_K = 30.0
+    # A component's heat goes into at least this many copper cells of its
+    # outer slice, the placement window growing a cell a side at most this
+    # many times to find them (see generate_mesh).
+    COMPONENT_HEAT_MIN_CELLS = 4
+    COMPONENT_HEAT_MAX_GROWTH = 2
     HOST_PEAK_BYTES_PER_NODE = 1280
 
     def __init__(self, debug=False, log_callback=None, compute_settings=None):
@@ -929,24 +934,24 @@ class ThermalMesher:
             f"in {time.perf_counter() - connectivity_started:.3f} s using vectorized arrays."
         )
 
-        for component in model.components:
-            if not component.enabled or component.power_w <= 0:
-                continue
-            placement = model.placements.get(component.ref_des)
-            if placement is None:
-                continue
-            # Stackup order is F.Cu -> B.Cu; component heat must therefore be
-            # injected into the first slice for Top and the last for Bottom.
-            iz = len(specs) - 1 if placement.side == "BOTTOM" else 0
-            nodes = []
+        # The copper cells of each outer slice, where a package's heat enters.
+        # The copper cells of each outer slice, where a package's heat enters.
+        copper_cells = {
+            iz: layer_grids[iz][1] >= self.COPPER_K
+            for iz in {0, len(specs) - 1} if specs[iz].material == "copper-layer"
+        }
+
+        def window_cells(placement, iz, copper, margin_mm):
+            """The slice's cells centred in the placement, grown by *margin_mm*: (all, copper)."""
+            nodes, on_copper = [], []
             # The former implementation scanned every node in the complete
             # 3D mesh for every component.  On a 0.01 mm 11-layer board that
             # is millions of dictionary entries per component.  Restrict the
             # exact same centre-point test to the component's grid window.
-            left = float(placement.x_mm) - float(placement.width_mm) / 2.0
-            right = float(placement.x_mm) + float(placement.width_mm) / 2.0
-            bottom = float(placement.y_mm) - float(placement.depth_mm) / 2.0
-            top = float(placement.y_mm) + float(placement.depth_mm) / 2.0
+            left = float(placement.x_mm) - float(placement.width_mm) / 2.0 - margin_mm
+            right = float(placement.x_mm) + float(placement.width_mm) / 2.0 + margin_mm
+            bottom = float(placement.y_mm) - float(placement.depth_mm) / 2.0 - margin_mm
+            top = float(placement.y_mm) + float(placement.depth_mm) / 2.0 + margin_mm
             ix_start = max(0, int(math.ceil((left - min_x) / grid - 0.5)))
             ix_stop = min(nx - 1, int(math.floor((right - min_x) / grid - 0.5)))
             iy_start = max(0, int(math.ceil((bottom - min_y) / grid - 0.5)))
@@ -959,6 +964,35 @@ class ThermalMesher:
                         candidate = mesh.node_map.get((ix, iy, iz))
                         if candidate is not None and left <= x <= right and bottom <= y <= top:
                             nodes.append(candidate)
+                            if copper is not None and copper[iy, ix]:
+                                on_copper.append(candidate)
+            return nodes, on_copper
+
+        for component in model.components:
+            if not component.enabled or component.power_w <= 0:
+                continue
+            placement = model.placements.get(component.ref_des)
+            if placement is None:
+                continue
+            # Stackup order is F.Cu -> B.Cu; component heat must therefore be
+            # injected into the first slice for Top and the last for Bottom.
+            iz = len(specs) - 1 if placement.side == "BOTTOM" else 0
+            copper = copper_cells.get(iz)
+            nodes, on_copper = window_cells(placement, iz, copper, 0.0)
+            # A package's heat enters the board through the copper it is
+            # soldered to, not the bare laminate between its pads. Spread over
+            # every cell of its window, U14 on P02 Rev E heated laminate cells
+            # to 128 C over copper at 98 C, at any grid step. A window whose
+            # copper the grid samples in fewer than COMPONENT_HEAT_MIN_CELLS
+            # cells grows by a cell a side, twice at most: at 2 mm one cell held
+            # all of U14 and read 158 C.
+            growth = 0
+            while (copper is not None and len(on_copper) < self.COMPONENT_HEAT_MIN_CELLS
+                   and growth < self.COMPONENT_HEAT_MAX_GROWTH):
+                growth += 1
+                _grown, on_copper = window_cells(placement, iz, copper, growth * grid)
+            if on_copper:
+                nodes = on_copper
             if not nodes:
                 nearest = mesh.nearest_node(placement.x_mm, placement.y_mm, specs[iz].layer_id)
                 nodes = [nearest] if nearest is not None else []
