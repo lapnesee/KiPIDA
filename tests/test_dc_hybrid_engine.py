@@ -334,6 +334,28 @@ class OneEngineForEveryAnalysis(unittest.TestCase):
         self.assertEqual(results["VCC"]["saved_board_differences"], [])
         self.assertNotIn("DC-004", {item.rule_id for item in analysis_adapters.adapt_dc_result(results, 50.0).findings})
 
+    def test_a_pad_on_a_half_micrometre_is_not_called_moved(self):
+        # P02 Rev E: D2 pad 4 sits at x = 169.3075 mm, 169307500 nm on the
+        # open board and 169.30749999999998 once the file reader places it.
+        # Rounded to the micrometre the two fell apart, and DC-004 reported
+        # ten untouched pads as moved.
+        from types import SimpleNamespace
+
+        from application.dc_controller import (
+            DCBoardSnapshot, DCFootprintSnapshot, DCNetSnapshot, DCPadSnapshot, DCPointSnapshot,
+            saved_board_differences,
+        )
+
+        live = DCPadSnapshot("4", "4", DCPointSnapshot(169307500, 78390000), DCNetSnapshot("VCC"))
+        request = SimpleNamespace(
+            board=DCBoardSnapshot((DCFootprintSnapshot("D2", (live,)),), ()),
+            classification_geometry_by_rail={},
+        )
+        saved = SimpleNamespace(vias=[], footprints=[SimpleNamespace(reference="D2", pads=[
+            SimpleNamespace(number="4", net_name="VCC", position=(169.30749999999998, 78.39)),
+        ])])
+        self.assertEqual(saved_board_differences(saved, "VCC", request, {}), [])
+
 
 class LiveLayerPairing(unittest.TestCase):
     @staticmethod

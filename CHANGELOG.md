@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed DC-004 calling a pad or via on a half micrometre moved. Positions
+  were rounded to the micrometre on both sides and compared exactly, so a
+  coordinate the file reader places a hair below the half fell on the other
+  side of the live one: on P02 Rev E, D1, D2, U8, R65 and C53 put ten
+  untouched pads in six DC-004 findings. Pads and vias now pair within the
+  10 um the footprint comparison already allows.
 - Fixed DC-004 calling every pour of a board with renamed copper layers
   edited since the last save. The saved fills merged into the live zone
   copper were paired with live layers by canonical name only, and the live

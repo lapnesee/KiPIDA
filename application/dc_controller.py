@@ -769,13 +769,38 @@ def _snapshot_mm(value):
     return value / 1e6 if abs(value) > 10000 else value
 
 
-def _position_key(x_mm, y_mm):
-    return (round(x_mm, 3), round(y_mm, 3))
+def _unmatched_positions(live, saved):
+    """``(only live, only saved)`` counts of ``(key, x, y)`` items paired within tolerance.
+
+    Items pair when their keys are equal and their positions lie within
+    FOOTPRINT_POSITION_TOLERANCE_MM. Both sides used to be rounded to the
+    micrometre and compared exactly, which split any coordinate on a half
+    micrometre: P02 Rev E's D2 pads sit at x = 169.3075 mm, 169307500 nm live
+    and 169.30749999999998 once the file reader has placed them, and ten
+    untouched pads were reported moved (DC-004).
+    """
+    from collections import defaultdict
+
+    pending = defaultdict(list)
+    for key, x_mm, y_mm in saved:
+        pending[key].append((x_mm, y_mm))
+    only_live = 0
+    for key, x_mm, y_mm in live:
+        candidates = pending.get(key, [])
+        match = next((
+            index for index, (other_x, other_y) in enumerate(candidates)
+            if abs(other_x - x_mm) <= FOOTPRINT_POSITION_TOLERANCE_MM
+            and abs(other_y - y_mm) <= FOOTPRINT_POSITION_TOLERANCE_MM
+        ), None)
+        if match is None:
+            only_live += 1
+        else:
+            candidates.pop(match)
+    return only_live, sum(len(items) for items in pending.values())
 
 
 def _count_mismatch(live, saved, noun):
-    only_live = sum((live - saved).values())
-    only_saved = sum((saved - live).values())
+    only_live, only_saved = _unmatched_positions(live, saved)
     if not (only_live or only_saved):
         return None
     return f"{only_live} {noun}(s) only on the open board and {only_saved} only in the saved file"
@@ -798,26 +823,25 @@ def saved_board_differences(board, net_name, request, layer_mapping):
     live classification geometry) by the area of their symmetric difference.
     Whatever the request did not capture is not compared.
     """
-    from collections import Counter
-
     differences = []
     snapshot = request.board
     if snapshot.vias or snapshot.footprints:
-        live_vias = Counter(
-            _position_key(_snapshot_mm(via.position.x), _snapshot_mm(via.position.y))
+        live_vias = [
+            (None, _snapshot_mm(via.position.x), _snapshot_mm(via.position.y))
             for via in snapshot.vias if via.net.name == net_name
-        )
-        saved_vias = Counter(
-            _position_key(*via.position) for via in board.vias if via.net_name == net_name
-        )
-        live_pads = Counter(
-            (footprint.reference, str(pad.number), *_position_key(_snapshot_mm(pad.position.x), _snapshot_mm(pad.position.y)))
+        ]
+        saved_vias = [
+            (None, float(via.position[0]), float(via.position[1]))
+            for via in board.vias if via.net_name == net_name
+        ]
+        live_pads = [
+            ((footprint.reference, str(pad.number)), _snapshot_mm(pad.position.x), _snapshot_mm(pad.position.y))
             for footprint in snapshot.footprints for pad in footprint.pads if pad.net.name == net_name
-        )
-        saved_pads = Counter(
-            (footprint.reference, str(pad.number), *_position_key(*pad.position))
+        ]
+        saved_pads = [
+            ((footprint.reference, str(pad.number)), float(pad.position[0]), float(pad.position[1]))
             for footprint in board.footprints for pad in footprint.pads if pad.net_name == net_name
-        )
+        ]
         for message in (
             _count_mismatch(live_vias, saved_vias, "via"),
             # A snapshot without footprints captured none, which says nothing
