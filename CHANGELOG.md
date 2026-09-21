@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed the connector ESD rules on cable headers and far ESD filters. A
+  wire-to-board header whose value says USB was taken for a port: P02 Rev
+  E's J8, a Pico-Clasp "USB HOST" header to the main board, drew ES-001,
+  IO-001 (both HIGH) and SH-001, and now draws one LOW IO-002 saying it
+  was taken as internal. ECMF, EMIF and RClamp parts count as ESD
+  protection, and a protector found on a connector's lines but more than
+  10 mm away is named in a MEDIUM ES-001 instead of reported missing: J1's
+  lines pass U2, an ECMF02, 17 mm away.
 - Fixed SU-001 and SU-002 calling power planes signal layers. Every copper
   layer without a ground pour counted as a signal layer, so P02 Rev E's
   PWR.L3 and PWR.L4, which hold its rails' pours and no track, drew a HIGH

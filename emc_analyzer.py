@@ -94,7 +94,14 @@ _IC_REF_RE = re.compile(r"^(U|IC)\d", re.I)
 # names a TVS or ESD part.
 _PROTECTION_REF_RE = re.compile(r"^(D\d|TVS|ESD)", re.I)
 _ESD_PROTECTOR_VALUE_RE = re.compile(
-    r"(?:USBLC|PESD|TPD\d|ESD|TVS|TRANSIL|SMBJ|SMAJ|SMCJ|SRV05|PRTR)", re.I,
+    r"(?:USBLC|PESD|TPD\d|ESD|TVS|TRANSIL|SMBJ|SMAJ|SMCJ|SRV05|PRTR|ECMF|EMIF|RCLAMP)", re.I,
+)
+# A wire-to-board connector: its cable goes to another board or a panel part,
+# and what it carries is not taken for a port the user plugs into.
+_HARNESS_CONNECTOR_RE = re.compile(
+    r"PICO.?CLASP|PICO.?BLADE|PICO.?LOCK|MICRO.?LOCK|CLIK.?MATE|JST|DF\d{2}|"
+    r"WIRE.?TO.?BOARD|HARNESS",
+    re.I,
 )
 
 
@@ -1343,6 +1350,20 @@ class EMCAnalyzer:
             for connector in [item for item in self.snapshot.footprints if self._is_connector(item)]:
                 self._check()
                 likely_external = bool(re.search(r"USB|HDMI|RJ|ETH|CAN|EXT", connector.value, re.I))
+                if likely_external and _HARNESS_CONNECTOR_RE.search(connector.value):
+                    # P02 Rev E's J8, a Pico-Clasp header labelled "USB HOST",
+                    # drew ES-001, IO-001 and SH-001 (two HIGH) for a cable to
+                    # the main board, while the port the user plugs into, J2,
+                    # has its ESD filter. One note says what was assumed.
+                    if self._enabled("IO"):
+                        self._add("IO-002", "IO", "LOW", "Interface on a cable connector",
+                                  f"{connector.reference} ({connector.value}) carries an external-type "
+                                  "interface on a wire-to-board connector, taken as internal.",
+                                  "If its cable leaves the enclosure, protect the lines where it does, "
+                                  "at the panel connector or next to this one.",
+                                  "LOW", components=[connector.reference],
+                                  location=(*connector.position, None))
+                    continue
                 connector_signals = (
                     set(connector.nets)
                     - set(self.settings.reference_net_names)
@@ -1369,12 +1390,22 @@ class EMCAnalyzer:
                     protector_distance = (
                         math.dist(connector.position, protector.position) if protector else float("inf")
                     )
-                    if protector_distance > 10.0:
+                    if protector is None:
                         self._add("ES-001", "ESD", "HIGH", "ESD path is missing or too long",
-                                  f"No TVS/diode protection was detected within 10 mm of {connector.reference}.",
+                                  f"No TVS/diode protection was detected on the lines of {connector.reference}.",
                                   "Place the TVS at the connector and route the discharge path directly to chassis/ground.",
                                   "LOW", components=[connector.reference], location=(*connector.position, None))
-                    elif protector is not None:
+                    elif protector_distance > 10.0:
+                        # Protected, but far: P02 Rev E's J1 has its USB lines
+                        # through U2, an ECMF02 filter with ESD, 17 mm away.
+                        self._add("ES-001", "ESD", "MEDIUM", "ESD path is missing or too long",
+                                  f"{protector.reference} ({protector.value}) protects lines of "
+                                  f"{connector.reference} but sits {protector_distance:.1f} mm from it.",
+                                  "Move the protection next to the connector, or keep the line to it short "
+                                  "and clear of other nets.",
+                                  "MEDIUM", components=[connector.reference, protector.reference],
+                                  location=(*connector.position, None))
+                    else:
                         nearby_ground_vias = sum(
                             math.dist(protector.position, via.position) <= 3.0
                             for via in self.snapshot.vias

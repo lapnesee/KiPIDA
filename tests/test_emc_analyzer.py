@@ -486,6 +486,35 @@ class TestEMCAnalyzer(unittest.TestCase):
         result = EMCAnalyzer(snap, EMCAnalysisSettings(sources=[])).analyze()
         self.assertFalse(any(item.rule_id in {"ES-001", "IO-001"} for item in result.findings))
 
+    def test_a_cable_header_is_not_taken_for_an_external_port(self):
+        # P02 Rev E: J8, a Pico-Clasp header labelled "USB HOST", takes USB
+        # through a mux to the main board; it drew ES-001, IO-001 and SH-001.
+        snap = EMCGeometrySnapshot(
+            bounds_mm=(0.0, 0.0, 40.0, 20.0), stackup=stackup(),
+            footprints=[
+                EMCFootprint("J8", "MOLEX PICO-CLASP 1x04 USB HOST", (2.0, 10.0),
+                             ("USB_HOST_D+", "USB_HOST_D-", "GND")),
+                EMCFootprint("U10", "TS3USB221ARSER", (8.0, 10.0),
+                             ("USB_HOST_D+", "USB_HOST_D-", "GND")),
+            ],
+        )
+        findings = EMCAnalyzer(snap, EMCAnalysisSettings(sources=[])).analyze().findings
+        self.assertEqual(sorted(f.rule_id for f in findings if f.rule_id[:2] in {"ES", "IO", "SH"}), ["IO-002"])
+
+    def test_a_far_esd_filter_is_named_rather_than_called_missing(self):
+        # P02 Rev E: J1's USB lines pass U2, an ECMF02 filter with ESD, 17 mm away.
+        snap = EMCGeometrySnapshot(
+            bounds_mm=(0.0, 0.0, 40.0, 20.0), stackup=stackup(),
+            footprints=[
+                EMCFootprint("J1", "USB4730-GF-A-KIT", (2.0, 10.0), ("USB_D+", "USB_D-", "GND")),
+                EMCFootprint("U2", "ECMF02-2AMX6", (19.0, 10.0), ("USB_D+", "USB_D-", "GND")),
+            ],
+        )
+        findings = EMCAnalyzer(snap, EMCAnalysisSettings(sources=[])).analyze().findings
+        esd = next(f for f in findings if f.rule_id == "ES-001")
+        self.assertEqual(esd.severity, "MEDIUM")
+        self.assertIn("U2 (ECMF02-2AMX6)", esd.description)
+
     def test_unconnected_nearby_protector_does_not_hide_missing_esd_path(self):
         snap = EMCGeometrySnapshot(
             bounds_mm=(0.0, 0.0, 30.0, 20.0), stackup=stackup(),
