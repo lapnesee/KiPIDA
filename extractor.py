@@ -37,6 +37,43 @@ except (ImportError, ValueError):
 def to_mm(val_nm):
     return val_nm / 1e6
 
+
+def file_layers_to_live(file_layers, live_copper, layer_order=None):
+    """``{canonical name: live layer id}`` for a board file's copper layers.
+
+    *file_layers* lists ``(ordinal, canonical name, designer name)`` top to
+    bottom. Paired by canonical name, then by the designer's name, which is
+    all the live stackup knows a renamed layer by, then by position when both
+    stacks hold as many copper layers. A layer nothing pairs is left out
+    rather than kept under its file ordinal, which in KiCad 10 can be another
+    live layer's id: on P02 Rev E the file's In2.Cu is 6, the IPC id of In3.Cu,
+    so the In2 VBUS_SYS pour was read as In3 copper and every saved pour looked
+    edited. With no live stackup at all the file ordinals are all there is.
+    """
+    if not live_copper:
+        return {name: identifier for identifier, name, _user in file_layers}
+    by_name = {}
+    for layer_id, properties in live_copper.items():
+        name = str((properties or {}).get('name', '') or '')
+        if name:
+            by_name.setdefault(name, int(layer_id))
+    paired = {}
+    for _identifier, name, user_name in file_layers:
+        live_id = by_name.get(name)
+        if live_id is None and user_name:
+            live_id = by_name.get(user_name)
+        if live_id is not None and live_id not in paired.values():
+            paired[name] = live_id
+    order = [int(layer_id) for layer_id in (layer_order or live_copper.keys())]
+    if len(paired) < len(file_layers) and len(order) == len(file_layers):
+        used = set(paired.values())
+        for (_identifier, name, _user), live_id in zip(file_layers, order):
+            if name not in paired and live_id not in used:
+                paired[name] = live_id
+                used.add(live_id)
+    return paired
+
+
 class GeometryExtractor:
     def __init__(self, board, debug=False, log_callback=None, board_path=None):
         self.board = board
@@ -735,30 +772,26 @@ class GeometryExtractor:
         except (OSError, UnicodeDecodeError):
             return self._file_zone_geometry_cache
 
-        file_layer_ids = {
-            name: int(identifier)
-            for identifier, name in re.findall(
-                r'^\s*\((\d+)\s+"([^"]+)"\s+(?:signal|power|mixed|jumper)',
+        # The file's copper layers, top to bottom: ordinal, canonical name and
+        # the designer's name when one was given ("PWR.L3" for In2.Cu).
+        file_layers = [
+            (int(identifier), name, user_name)
+            for identifier, name, user_name in re.findall(
+                r'^\s*\((\d+)\s+"([^"]+)"\s+(?:signal|power|mixed|jumper)(?:\s+"([^"]*)")?',
                 text, flags=re.MULTILINE,
             )
-        }
+        ]
         # KiCad 10's IPC API exposes protobuf layer enum values which do not
         # necessarily equal the numeric IDs serialized in the .kicad_pcb file
         # (for example B.Cu can be 8 live but 2 on disk).  Differential tracks
-        # and stackup use the live IDs, so remap saved-zone layers by name.
+        # and stackup use the live IDs, so remap saved-zone layers to them.
         try:
-            live_copper = self.get_board_stackup().get('copper', {})
+            stackup = self.get_board_stackup() or {}
         except Exception:
-            live_copper = {}
-        live_layer_ids = {
-            str(properties.get('name', '')): int(layer_id)
-            for layer_id, properties in live_copper.items()
-            if properties.get('name')
-        }
-        layer_ids = {
-            name: live_layer_ids.get(name, identifier)
-            for name, identifier in file_layer_ids.items()
-        }
+            stackup = {}
+        layer_ids = file_layers_to_live(
+            file_layers, stackup.get('copper', {}) or {}, stackup.get('layer_order'),
+        )
         by_net = {}
         for zone in self._balanced_blocks(text, "(zone"):
             net_match = re.search(r'\(net\s+"((?:\\.|[^"])*)"\)', zone)

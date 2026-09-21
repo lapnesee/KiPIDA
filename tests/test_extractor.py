@@ -222,5 +222,43 @@ class TestGeometryExtractor(unittest.TestCase):
         self.assertNotIn(10, geometry)
         self.assertAlmostEqual(geometry[7].area, 50.0)
 
+    def test_saved_zone_layers_pair_with_renamed_live_layers(self):
+        # P02 Rev E names In2.Cu "PWR.L3", and the live stackup knows it only
+        # by that name. Kept under its file ordinal 6 -- the IPC id of In3.Cu --
+        # the In2 VBUS_SYS pour was read as In3 copper, and DC-004 reported
+        # every pour of the board edited since the last save.
+        board_text = """
+(kicad_pcb
+  (layers
+    (0 "F.Cu" signal "F.Signal")
+    (4 "In1.Cu" power "GND.L2")
+    (6 "In2.Cu" power "PWR.L3")
+    (8 "In3.Cu" power "PWR.L4")
+    (2 "B.Cu" signal "B.Signal")
+  )
+  (zone
+    (net "VBUS_SYS")
+    (layer "In2.Cu")
+    (filled_polygon
+      (layer "In2.Cu")
+      (pts (xy 0 0) (xy 10 0) (xy 10 5) (xy 0 5))
+    )
+  )
+)
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            board_path = Path(directory) / "renamed-layers.kicad_pcb"
+            board_path.write_text(board_text, encoding="utf-8")
+            extractor = GeometryExtractor(self.board, board_path=board_path)
+            names = ("F.Signal", "GND.L2", "PWR.L3", "PWR.L4", "B.Signal")
+            extractor._stackup_cache = {
+                'copper': {live_id: {'name': name, 'thickness_mm': 0.035}
+                           for live_id, name in zip((3, 4, 5, 6, 34), names)},
+                'layer_order': [3, 4, 5, 6, 34], 'substrate': [],
+                'source': 'KICAD_IPC', 'trustworthy': True, 'warnings': [],
+            }
+            geometry = extractor.get_zone_geometry("VBUS_SYS")
+        self.assertEqual(set(geometry), {5})
+
 if __name__ == '__main__':
     unittest.main()

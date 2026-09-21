@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Fixed DC-004 calling every pour of a board with renamed copper layers
+  edited since the last save. The saved fills merged into the live zone
+  copper were paired with live layers by canonical name only, and the live
+  stackup knows a renamed layer ("PWR.L3" for In2.Cu) by the designer's
+  name, so they kept their file ordinal, which in KiCad 10 is another
+  layer's IPC id. On P02 Rev E the In2 VBUS_SYS pour was read as In3 copper
+  and ten DC-004 findings said 100 % of each pour differed. Saved layers now
+  pair by name, designer name, then position, and one nothing pairs is left
+  out. The EMC return-path checks read the same zone copper.
 - Added a grid check to the DC analysis, on by default ("Check Grid at Half
   Step", beside the mesh resolution). The worst-load drop had no error bar:
   each rail whose drop reaches a tenth of the budget is solved again at half
