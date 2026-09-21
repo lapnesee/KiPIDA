@@ -197,7 +197,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             },
         )
         for name in (
-            "tab_config", "power_tree", "txt_grid_size", "txt_drop_pct", "chk_debug",
+            "tab_config", "power_tree", "txt_grid_size", "txt_drop_pct",
+            "chk_dc_grid_check", "chk_debug",
             "tab_ac", "ac_panel", "tab_differential", "differential_panel",
             "tab_emc", "emc_panel", "tab_thermal", "thermal_panel",
             "tab_cfd", "cfd_panel", "tab_runtime", "runtime_panel",
@@ -870,6 +871,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             log_callback=self.log,
             board_path=self._board_file_path(),
             maximum_drop_pct=self._dc_drop_target_pct(),
+            grid_sensitivity_check=self.chk_dc_grid_check.GetValue(),
         )
 
     def on_run(self, event, update_results=True):

@@ -118,6 +118,18 @@ def format_dc_report(system_results):
             lines.append(f"  DC grid: {actual_grid:.4g} mm{suffix}")
             if data.get("adaptive_grid"):
                 lines.append(f"  Requested DC grid: {requested_grid:.4g} mm")
+        grid_check = data.get("grid_sensitivity") or {}
+        if "delta_pct" in grid_check:
+            lines.append(
+                f"  Grid check: worst load drop {float(grid_check['check_drop_v']):.4f} V at "
+                f"{float(grid_check['check_grid_mm']):.4g} mm, {float(grid_check['delta_pct']):.1f}% "
+                f"from the {float(grid_check['grid_mm']):.4g} mm solve"
+            )
+        elif "below_budget_share" in grid_check:
+            lines.append(
+                f"  Grid check: not refined, the drop being under "
+                f"{float(grid_check['below_budget_share']):.0%} of the budget"
+            )
         detailed = data.get("detailed_result")
         if detailed is not None and not getattr(detailed, "valid", True):
             excluded = ", ".join(getattr(detailed, "excluded_load_references", []))

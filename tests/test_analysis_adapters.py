@@ -176,6 +176,26 @@ class AnalysisAdapterTests(unittest.TestCase):
             [("DC-001", ("+5V",)), ("DC-003", ("+3V3",)), ("DC-003", ("+5V",))],
         )
 
+    def test_a_drop_that_moves_at_half_the_grid_step_raises_dc_005(self):
+        # P02 Rev E +5V_U4 at 4.4 A: 40.8 mV at 0.1 mm, 49.7 mV at 0.05 mm.
+        rail = {
+            "stats": (5.03, 5.08, 0.05), "load_drop_v": 0.0408, "source_voltage_v": 5.08,
+            "grid_sensitivity": {
+                "grid_mm": 0.1, "check_grid_mm": 0.05, "drop_v": 0.0408,
+                "check_drop_v": 0.0497, "delta_pct": 21.8,
+            },
+        }
+        result = adapt_dc_result({"+5V_U4": rail}, 5.0)
+        finding = next(item for item in result.findings if item.rule_id == "DC-005")
+        self.assertEqual(finding.severity, FindingSeverity.MEDIUM)
+        self.assertIn("49.7 mV at 0.05 mm", finding.description)
+        self.assertEqual(finding.nets, ["+5V_U4"])
+        # At a 0.9% budget (45.7 mV) the finer solve turns the verdict.
+        flipped = adapt_dc_result({"+5V_U4": rail}, 0.9)
+        finding = next(item for item in flipped.findings if item.rule_id == "DC-005")
+        self.assertEqual(finding.severity, FindingSeverity.HIGH)
+        self.assertIn("exceeds the 0.9% budget", finding.description)
+
     def test_a_hybrid_island_is_not_blamed_on_the_grid_step(self):
         detail = SimpleNamespace(valid=False, excluded_load_node_count=1)
         result = adapt_dc_result({"+5V": {

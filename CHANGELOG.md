@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Added a grid check to the DC analysis, on by default ("Check Grid at Half
+  Step", beside the mesh resolution). The worst-load drop had no error bar:
+  each rail whose drop reaches a tenth of the budget is solved again at half
+  the grid step, and a drop that moves by more than 10 % raises DC-005, HIGH
+  when the finer solve lands on the other side of the budget. On the P02
+  Rev E power board /+5V_U4 reads 40.8 mV at 0.1 mm and 49.7 mV at 0.05 mm,
+  /J2_PD_HV 30.7 and 36.4 mV; at twice the step, as the thermal check goes,
+  /+5V_U4 reads 39.1 mV and would have passed. The other 14 rails, under a
+  tenth of the 5 % budget, are not refined, and the result lists them; the
+  check added 42 s to the 73 s run. The DC solves the thermal and CFD runs
+  make for their copper losses skip it.
 - Fixed the hybrid DC mesh joining a track only to the pads and via lands its
   axis reaches. A land the track's copper covers beside the axis -- vias sewn
   along the edge of a wide track, a pad the track brushes -- reached it only

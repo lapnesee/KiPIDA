@@ -182,6 +182,25 @@ class HybridEngineOnARoute(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "saved board file"):
             _solve(HybridDCSolverEngine(), _request(None, [_rail()]))
 
+    def test_the_grid_check_refines_only_a_drop_that_can_decide_the_verdict(self):
+        # P02 Rev E: +5V_U4 read 40.8 mV at 0.1 mm, 49.7 mV at 0.05 mm, and
+        # 39.1 mV at 0.2 mm -- a coarser check would have agreed with the run.
+        from dataclasses import replace
+
+        from application.dc_controller import HybridDCSolverEngine
+
+        request = replace(_request(self.path, [_rail(1.0)]), grid_sensitivity_check=True)
+        # The route drops about 20 mV of 5 V: over a tenth of a 1% budget...
+        results, _logs = _solve(HybridDCSolverEngine(), replace(request, maximum_drop_pct=1.0))
+        check = results["VCC"]["grid_sensitivity"]
+        self.assertAlmostEqual(check["check_grid_mm"], check["grid_mm"] / 2.0)
+        self.assertAlmostEqual(check["drop_v"], results["VCC"]["load_drop_v"])
+        self.assertLess(check["delta_pct"], 1.0)  # tracks are analytic
+        # ...and under a tenth of a 5% one, where no finer solve is spent.
+        results, logs = _solve(HybridDCSolverEngine(), replace(request, maximum_drop_pct=5.0))
+        self.assertNotIn("delta_pct", results["VCC"]["grid_sensitivity"])
+        self.assertTrue(any("not refined" in line for line in logs))
+
 
 @unittest.skipUnless(_DEPS, "numpy/scipy/shapely not available")
 class OneEngineForEveryAnalysis(unittest.TestCase):

@@ -53,6 +53,13 @@ class DialogPages:
                      0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
         self.txt_drop_pct = wx.TextCtrl(self.tab_config, value="5", size=(60, -1))
         settings.Add(self.txt_drop_pct, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 20)
+        self.chk_dc_grid_check = wx.CheckBox(self.tab_config, label="Check Grid at Half Step")
+        self.chk_dc_grid_check.SetValue(True)
+        self.chk_dc_grid_check.SetToolTip(
+            "Solve every rail whose drop is at least a tenth of the budget again at half "
+            "the mesh resolution, and flag a drop that moves by more than 10% (DC-005)."
+        )
+        settings.Add(self.chk_dc_grid_check, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 20)
         self.chk_debug = wx.CheckBox(self.tab_config, label="Enable Debug Log")
         settings.Add(self.chk_debug, 0, wx.ALIGN_CENTER_VERTICAL)
         config_sizer.Add(settings, 0, wx.EXPAND | wx.ALL, 5)

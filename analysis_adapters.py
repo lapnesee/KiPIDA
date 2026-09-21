@@ -1125,11 +1125,60 @@ def _state_rail_discovery(result: AnalysisResult, rails: Any) -> None:
         )
 
 
+# A worst-load drop that moves by more than this when the grid step is halved
+# is not converged in mesh. On the P02 Rev E board +5V_U4 read 40.8 mV at 0.1
+# mm and 49.7 mV at 0.05 mm, 22 % apart -- while 0.2 mm read 39.1 mV, which
+# is why the DC check refines rather than coarsens.
+DC_GRID_SENSITIVITY_LIMIT_PCT = 10.0
+
+
+def _dc_grid_sensitivity(rail, index, check, maximum_drop_pct, source_voltage):
+    """(metrics, findings) for a rail's worst-load drop solved again at half the grid step."""
+    data = dict(check or {})
+    if "delta_pct" not in data:
+        return [], []
+    delta = float(data["delta_pct"])
+    grid, check_grid = float(data.get("grid_mm", 0.0)), float(data.get("check_grid_mm", 0.0))
+    exceeded = delta > DC_GRID_SENSITIVITY_LIMIT_PCT
+    metrics = [AnalysisMetric(
+        f"rail_{index}_grid_sensitivity",
+        f"{rail} worst-load drop change at half the grid step ({check_grid:g} mm)",
+        delta, "%", "WARN" if exceeded else "INFO",
+    )]
+    if not exceeded:
+        return metrics, []
+    drop, check_drop = float(data.get("drop_v", 0.0)), float(data.get("check_drop_v", 0.0))
+    budget_v = float(maximum_drop_pct) / 100.0 * float(source_voltage or 0.0)
+    # A finer solve on the other side of the budget turns the verdict itself.
+    flips = budget_v > 0.0 and (drop > budget_v) != (check_drop > budget_v)
+    verdict = ""
+    if flips:
+        verdict = (
+            f" At {check_grid:g} mm the drop "
+            + ("exceeds" if check_drop > budget_v else "is within")
+            + f" the {float(maximum_drop_pct):g}% budget the {grid:g} mm solve "
+            + ("met." if check_drop > budget_v else "exceeded.")
+        )
+    return metrics, [_finding(
+        "DC-005", index, "NUMERICS", FindingSeverity.HIGH if flips else FindingSeverity.MEDIUM,
+        f"{rail} voltage drop is not converged in mesh",
+        f"The worst load sees {drop * 1000.0:.1f} mV at {grid:g} mm and "
+        f"{check_drop * 1000.0:.1f} mV at {check_grid:g} mm, {delta:.1f}% apart, more than the "
+        f"{DC_GRID_SENSITIVITY_LIMIT_PCT:g}% a converged drop may move." + verdict,
+        f"Rerun at {check_grid:g} mm or finer until the check stays under "
+        f"{DC_GRID_SENSITIVITY_LIMIT_PCT:g}%; until then read the drop as uncertain by at least "
+        f"{abs(check_drop - drop) * 1000.0:.1f} mV. A drop that grows as the grid is refined "
+        "usually runs through a neck of copper narrower than a few grid steps.",
+        confidence=EvidenceConfidence.DETERMINISTIC,
+    )]
+
+
 def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisResult:
     findings = []
     metrics = []
     raster_limitations = []
     density_hotspots = {}
+    grid_checked, grid_not_refined = [], []
     for index, (rail, data) in enumerate((system_results or {}).items(), start=1):
         first_finding = len(findings)
         vmin, vmax, drop = data.get("stats", (0.0, 0.0, 0.0))
@@ -1268,6 +1317,16 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
                 f"{drop_text} versus {maximum_drop_pct:.3f}% allowed.",
                 "Increase copper cross-section or reduce path/load resistance.",
             ))
+        grid_check = data.get("grid_sensitivity") or {}
+        if "delta_pct" in grid_check:
+            check_metrics, check_findings = _dc_grid_sensitivity(
+                rail, index, grid_check, maximum_drop_pct, source_voltage,
+            )
+            metrics.extend(check_metrics)
+            findings.extend(check_findings)
+            grid_checked.append(float(grid_check["delta_pct"]))
+        elif "below_budget_share" in grid_check:
+            grid_not_refined.append((str(rail), float(grid_check["below_budget_share"])))
         # Every DC finding is about its rail, and says so. The findings carried
         # no net: attach_dc_remediations finds a finding's rail by its nets, so
         # no voltage-drop finding the adapter produced was ever given a sized
@@ -1320,5 +1379,24 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
             "which the coupled electro-thermal analysis does.",
             "Connector and contact resistances are included only when explicitly modeled.",
             "Current density is a DC mesh diagnostic, not an IPC ampacity certification; AC skin/proximity effects, contact details, and measured copper temperature are excluded.",
-        ] + raster_limitations,
+        ] + raster_limitations + _dc_grid_check_limitations(grid_checked, grid_not_refined),
     ).finish()
+
+
+def _dc_grid_check_limitations(checked_deltas_pct, not_refined):
+    """What the grid check covered, for a result whose rails it did not all refine."""
+    limitations = []
+    if checked_deltas_pct:
+        limitations.append(
+            f"The worst-load drop of {len(checked_deltas_pct)} rail(s) was solved again at half the "
+            f"grid step and moved by at most {max(checked_deltas_pct):.1f}%."
+        )
+    if not_refined:
+        share = max(item[1] for item in not_refined)
+        names = [item[0] for item in not_refined]
+        limitations.append(
+            f"{len(names)} rail(s) were not solved at half the grid step, their drop being under "
+            f"{share:.0%} of the budget, where no plausible grid error changes the verdict: "
+            + ", ".join(names[:8]) + (", ..." if len(names) > 8 else "") + "."
+        )
+    return limitations

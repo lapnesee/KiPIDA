@@ -6,7 +6,7 @@ geometries, so it never calls the live KiCad board API.
 """
 
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 import time
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -96,6 +96,10 @@ class DCRunRequest:
     # Per rail, the tracks as the raster error depends on them (count,
     # narrowest width, oblique count), so a raster result can state its error.
     track_summary_by_rail: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    # Solve the rails whose drop can decide a verdict again at half the grid
+    # step and record how far their worst-load drop moves (_grid_sensitivity).
+    # Off for the DC solves a thermal or CFD run makes for its copper losses.
+    grid_sensitivity_check: bool = False
 
 
 @dataclass(frozen=True)
@@ -254,6 +258,7 @@ def capture_dc_board(board) -> DCBoardSnapshot:
 def prepare_dc_request(
     board, rails, grid_size_mm, compute_settings=None, debug=False,
     log_callback=None, board_path=None, maximum_drop_pct=None,
+    grid_sensitivity_check=False,
 ) -> DCRunRequest:
     """Capture every live-board dependency before starting a worker thread."""
     emit = log_callback or (lambda _message: None)
@@ -292,6 +297,7 @@ def prepare_dc_request(
         ),
         board_path=(None if board_path is None else str(board_path)),
         track_summary_by_rail=track_summary_by_rail,
+        grid_sensitivity_check=bool(grid_sensitivity_check),
     )
 
 
@@ -317,6 +323,12 @@ def _sorted_rails(rails):
     for rail in rails: visit(rail.net_name)
     by_name = {rail.net_name: rail for rail in rails}
     return [by_name[name] for name in reversed(result)]
+
+
+# Share of the drop budget a rail's worst-load drop must reach for the grid
+# check to refine it: a tenth, below which even a 50 % grid error leaves the
+# drop within half its budget.
+GRID_CHECK_BUDGET_SHARE = 0.10
 
 
 def rails_without_supply(rails):
@@ -521,12 +533,15 @@ class DCSolverEngine:
         context = self._begin(request, emit)
         results = {}
         rail_current = {rail.net_name: 0.0 for rail in rails}
-        total = max(1, len(sorted_rails) * 3)
+        demands_by_rail = {}
+        check_grid = bool(getattr(request, "grid_sensitivity_check", False))
+        total = max(1, len(sorted_rails) * (4 if check_grid else 3))
         completed = 0
         for rail in sorted_rails:
             if cancelled(): raise DCAnalysisCancelled("DC analysis cancelled.")
             emit(f"Processing Rail: {rail.net_name} (Sources: {len(rail.sources)}, Loads: {len(rail.loads)})")
             demands = _regulator_input_currents(rail, rails, rail_current)
+            demands_by_rail[rail.net_name] = demands
             completed += 1
             progress(completed, total, f"{rail.net_name}: geometry")
             mesh = self._build_mesh(rail, request, context, emit)
@@ -606,7 +621,86 @@ class DCSolverEngine:
             progress(completed, total, f"{rail.net_name}: solved")
         if rails and not results:
             emit(f"No rail was solved. {unsolved_rails_reason(rails)}")
+        if check_grid and results:
+            done = [completed]
+
+            def advance(detail):
+                done[0] += 1
+                progress(min(done[0], total), total, detail)
+
+            self._grid_sensitivity(request, rails, results, demands_by_rail, context, emit, advance, cancelled)
+            progress(total, total, "grid check done")
         return results
+
+    def _grid_sensitivity(self, request, rails, results, demands_by_rail, context, emit, advance, cancelled):
+        """The worst-load drop again at half the grid step, on the rails where it counts.
+
+        The drop had no error bar. Solved at twice the step instead, the P02
+        Rev E +5V_U4 read 39.1 mV at 0.2 mm against 40.8 mV at 0.1 mm, while
+        0.05 mm gave 49.7 mV: a coarser mesh agreeing proves nothing, so the
+        check goes finer. That costs about four times the rail's solve, and is
+        spent only on rails whose drop is at least GRID_CHECK_BUDGET_SHARE of
+        the drop budget, below which no plausible grid error changes the
+        verdict -- on every rail when the run carries no budget. Either way
+        the rail's entry says so under ``grid_sensitivity``; the refined mesh
+        and its solver stay out of the log.
+        """
+        by_name = {rail.net_name: rail for rail in rails}
+        budget_pct = getattr(request, "maximum_drop_pct", None)
+        below_budget = []
+
+        def quiet(*_args):
+            if cancelled():
+                raise DCAnalysisCancelled("DC analysis cancelled.")
+
+        for name, data in list(results.items()):
+            if cancelled(): raise DCAnalysisCancelled("DC analysis cancelled.")
+            rail = by_name.get(name)
+            step = float(data.get("grid_size_mm", 0.0) or 0.0) or float(request.grid_size_mm)
+            if rail is None or step <= 0.0:
+                continue
+            drop = float(data.get("load_drop_v", 0.0) or 0.0)
+            source_v = float(data.get("source_voltage_v", 0.0) or 0.0) or float(rail.nominal_voltage or 0.0)
+            if budget_pct is not None and source_v > 0.0 and (
+                drop < GRID_CHECK_BUDGET_SHARE * float(budget_pct) / 100.0 * source_v
+            ):
+                data["grid_sensitivity"] = {"grid_mm": step, "below_budget_share": GRID_CHECK_BUDGET_SHARE}
+                below_budget.append(name)
+                continue
+            advance(f"{name}: grid check at {step / 2.0:g} mm")
+            fine_request = replace(request, grid_size_mm=step / 2.0)
+            mesh = self._build_mesh(rail, fine_request, context, quiet)
+            if mesh is None or not mesh.nodes or float(mesh.grid_step) >= step:
+                emit(f"[grid check] {name}: no finer mesh than {step:g} mm could be built; not checked.")
+                continue
+            sources, loads = _rail_injections(
+                rail, rails, demands_by_rail.get(name, []),
+                self._locator(rail, mesh, fine_request, context, quiet), quiet,
+            )
+            if not sources:
+                continue
+            solver = self._solver_factory(
+                debug=False, log_callback=quiet, compute_settings=request.compute_settings,
+            )
+            detailed = solver.solve_detailed(mesh, sources, loads)
+            if not detailed.voltages:
+                continue
+            fine_drop, _source_v = _load_point_drop(detailed.voltages, sources, loads)
+            delta_pct = abs(fine_drop - drop) / drop * 100.0 if drop > 0.0 else 0.0
+            data["grid_sensitivity"] = {
+                "grid_mm": step, "check_grid_mm": float(mesh.grid_step),
+                "drop_v": drop, "check_drop_v": float(fine_drop), "delta_pct": delta_pct,
+            }
+            emit(
+                f"[grid check] {name}: worst load drop {drop * 1e3:.3f} mV at {step:g} mm, "
+                f"{fine_drop * 1e3:.3f} mV at {float(mesh.grid_step):g} mm ({delta_pct:.1f} % apart)."
+            )
+        if below_budget:
+            emit(
+                f"[grid check] {len(below_budget)} rail(s) not refined, their drop under "
+                f"{GRID_CHECK_BUDGET_SHARE:.0%} of the budget: "
+                + ", ".join(below_budget[:8]) + (", ..." if len(below_budget) > 8 else "") + "."
+            )
 
 
 def live_layer_ids(file_stackup, live_stackup):
