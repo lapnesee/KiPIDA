@@ -319,6 +319,41 @@ def _sorted_rails(rails):
     return [by_name[name] for name in reversed(result)]
 
 
+def rails_without_supply(rails):
+    """Names of the rails nothing drives: no declared source, no regulator output."""
+    fed = {
+        regulator.output_rail_name
+        for rail in rails for regulator in (getattr(rail, "child_regulators", None) or ())
+    }
+    return [rail.net_name for rail in rails if not rail.sources and rail.net_name not in fed]
+
+
+def unsolved_rails_reason(rails, shown=8):
+    """Why a DC run over *rails* solved none of them, in terms the Power Tree can act on.
+
+    A rail is solved only from a source or a regulator output: a power tree
+    discovered from the board and never filled in has neither, and every rail
+    is then skipped one log line at a time.
+    """
+    rails = list(rails)
+    unsupplied = rails_without_supply(rails)
+    names = ", ".join(unsupplied[:shown]) + (", ..." if len(unsupplied) > shown else "")
+    if rails and len(unsupplied) == len(rails):
+        return (
+            f"None of the {len(rails)} rails has a source or a regulator output feeding it "
+            f"({names}); declare them in the Power Tree."
+        )
+    if unsupplied:
+        return (
+            f"{len(unsupplied)} of the {len(rails)} rails have no source or regulator output "
+            f"({names}); the others found no copper under their sources, see the DC log."
+        )
+    return (
+        f"All {len(rails)} rails have a source, but none was found on copper; "
+        "see the DC log for the sources and rails concerned."
+    )
+
+
 def _mesh_layers(mesh):
     """The copper layer ids the mesh holds nodes on, in the live board's numbering."""
     return sorted({key[2] for key in mesh.node_map})
@@ -569,6 +604,8 @@ class DCSolverEngine:
                     )
             completed += 1
             progress(completed, total, f"{rail.net_name}: solved")
+        if rails and not results:
+            emit(f"No rail was solved. {unsolved_rails_reason(rails)}")
         return results
 
 

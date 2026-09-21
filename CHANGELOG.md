@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Changed the coupled analysis, and the DC log, to say why no rail was solved
+  when none was: the rails with neither a source nor a regulator output
+  feeding them, or else that their sources found no copper. A power tree
+  taken from the board scan and never filled in, as on P02 Rev E, stopped
+  with "Coupled analysis requires a successful DC analysis" after 18 rails
+  skipped one log line at a time.
 - Fixed a heat source's thermal evidence being dropped on every refresh. An
   automatic heat source kept the package and junction values saved for it,
   but its thermal source, condition and provenance went back to "estimate":

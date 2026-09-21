@@ -107,6 +107,28 @@ class ThermalControllerTests(unittest.TestCase):
         second = thermal_cache_key(settings, None, False, [])
         self.assertNotEqual(first, second)
 
+    def test_coupled_run_says_why_no_rail_was_solved(self):
+        # The P02 Rev E power tree came from a board scan and was never filled
+        # in; the run only said it "requires a successful DC analysis".
+        from application.thermal_controller import ThermalSolverEngine
+        from models import PowerRail
+
+        class NoRailSolved:
+            def solve(self, request, emit, progress, cancelled):
+                return {}
+
+        request = SimpleNamespace(
+            coupled=True, _dc_results=None,
+            settings=SimpleNamespace(include_dc_copper_losses=True),
+            dc_request=SimpleNamespace(rails=(PowerRail("/+5V_U4", 5.0), PowerRail("/+5V_RAIL", 5.0))),
+        )
+        with self.assertRaisesRegex(
+            ValueError, r"None of the 2 rails has a source or a regulator output .*/\+5V_U4, /\+5V_RAIL",
+        ):
+            ThermalSolverEngine(dc_engine_factory=NoRailSolved).solve(
+                request, lambda _message: None, lambda *_args: None, lambda: False,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 import time
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from application.dc_controller import DefaultDCSolverEngine
+from application.dc_controller import DefaultDCSolverEngine, unsolved_rails_reason
 from electrothermal import ElectroThermalSolver
 from thermal_mesh import ThermalMesher
 from thermal_model import CopperLossPoint
@@ -168,7 +168,10 @@ class ThermalSolverEngine:
                 request.dc_request, emit, checked_progress, cancelled,
             )
             if request.coupled and not system_results:
-                raise ValueError("Coupled analysis requires a successful DC analysis.")
+                raise ValueError(
+                    "Coupled analysis requires a successful DC analysis, and no rail was solved. "
+                    + unsolved_rails_reason(getattr(request.dc_request, "rails", ()) or ())
+                )
             if not request.coupled:
                 copper_loss_source = describe_dc_source(system_results, "a DC solve run for this analysis")
         if cancelled():
