@@ -99,6 +99,21 @@ class EMFieldSolverTests(unittest.TestCase):
         self.assertEqual(reading.unit, "V/m")
         self.assertGreater(reading.value, 0.0)
 
+    def test_a_source_of_unknown_frequency_is_left_out_of_the_map(self):
+        # P02 Rev E: the USB_HOST pair, frequency unknown, was solved at 0 Hz
+        # at full strength and made the map's strongest E field, 52 V/m.
+        snap = snapshot()
+        snap.tracks.append(EMCTrack("USB_D+", (2.0, 8.0), (18.0, 8.0), 0.2, 0, 16.0))
+        profile = settings()
+        profile.sources.append(EMCSignalSource(
+            "USB", "USB_D+", "DIFFERENTIAL", 0.0, 0.8, voltage_swing_v=0.4, current_a=0.008,
+        ))
+        result = EMNearFieldSolver(
+            snap, profile, runtime_settings=RuntimeComputeSettings(backend="CPU"),
+        ).solve()
+        self.assertEqual([item.source_name for item in result.source_contributions], ["Clock"])
+        self.assertTrue(any("USB" in warning for warning in result.warnings))
+
     def test_differential_pair_cancellation_reduces_far_field(self):
         snap = snapshot()
         snap.tracks.append(EMCTrack("CLK_N", (2.0, 5.3), (18.0, 5.3), 0.2, 0, 16.0))

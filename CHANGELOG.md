@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed the near-field map solving a source of unknown frequency at 0 Hz
+  and full strength. EE-003 says such a source is left out, yet the "first
+  in-band harmonic" mode gave it a weight of one: on P02 Rev E the USB_HOST
+  pair, frequency unknown, made the map's strongest E field, 52 V/m, an
+  electrostatic artefact. It is now left out, with a warning, until its
+  frequency is entered.
 - Fixed the connector ESD rules on cable headers and far ESD filters. A
   wire-to-board header whose value says USB was taken for a port: P02 Rev
   E's J8, a Pico-Clasp "USB HOST" header to the main board, drew ES-001,

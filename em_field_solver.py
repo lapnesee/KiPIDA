@@ -84,6 +84,12 @@ class EMNearFieldSolver:
     @staticmethod
     def _source_factor(source, requested_frequency_hz):
         fundamental = max(0.0, float(source.frequency_hz))
+        if fundamental <= 0.0:
+            # A source whose frequency nobody stated has no harmonic to place,
+            # as EE-003 tells the user. At 0 Hz it weighed in at full strength:
+            # on P02 Rev E the USB_HOST pair, frequency unknown, made the map's
+            # strongest E field, 52 V/m, all of it an electrostatic artefact.
+            return 0.0
         rise_s = max(1.0e-15, float(source.rise_time_ns) * 1.0e-9)
         if requested_frequency_hz <= 0.0:
             frequency = fundamental
