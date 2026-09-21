@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added a resistive loss model for pass stages -- current shunts, fuses, net
+  ties: `{"kind": "resistive", "resistors": [{"ref_des", "resistance_ohm"}]}`
+  dissipates I2R on each part, with the temperature models the other kinds
+  take, and the report gives R(T). A shunt had to be declared a MOSFET to
+  dissipate at all.
 - Changed the coupled analysis, and the DC log, to say why no rail was solved
   when none was: the rails with neither a source nor a regulator output
   feeding them, or else that their sources found no copper. A power tree

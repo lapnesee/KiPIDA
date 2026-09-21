@@ -172,6 +172,28 @@ def _mosfet_losses(models: Iterable[Dict[str, Any]], current_rms_a: float,
     return losses
 
 
+def _resistive_losses(models: Iterable[Dict[str, Any]], current_a: float,
+                      component_temperatures_c: Dict[str, float] | None = None
+                      ) -> List[LossContribution]:
+    """I2R of the parts a pass stage's current crosses: shunts, fuses, net ties."""
+    losses = []
+    for model in models:
+        ref_des = str(model.get("ref_des", "")).strip()
+        if not ref_des:
+            continue
+        resistance = model.get("resistance_ohm", 0.0)
+        temperature_c = _model_temperature(model, component_temperatures_c, ref_des)
+        effective = _number(resistance) * _temperature_multiplier(model, temperature_c)
+        losses.append(LossContribution(
+            ref_des=ref_des,
+            mechanism="resistive-i2r",
+            power_w=current_a * current_a * effective,
+            provenance={**_provenance(resistance), "temperature_c": temperature_c,
+                        "effective_resistance_ohm": effective},
+        ))
+    return losses
+
+
 def _inductor_losses(models: Iterable[Dict[str, Any]], current_rms_a: float,
                       component_temperatures_c: Dict[str, float] | None = None
                       ) -> List[LossContribution]:
@@ -218,6 +240,10 @@ def estimate_stage(regulator: VoltageRegulator, vin_v: float, vout_v: float,
     if kind == "mosfet":
         losses.extend(_mosfet_losses(
             model.get("mosfets", []), iout, component_temperatures_c
+        ))
+    elif kind == "resistive":
+        losses.extend(_resistive_losses(
+            model.get("resistors", []), iout, component_temperatures_c
         ))
     elif kind == "buck":
         ripple = max(0.0, _number(model.get("inductor_ripple_a")))
@@ -384,6 +410,8 @@ def format_power_stage_report(stage: PowerStageResult) -> List[str]:
             details.append(f"DCR(T)={float(loss.provenance['effective_dcr_ohm']):.5g} ohm")
         if "effective_rds_on_ohm" in loss.provenance:
             details.append(f"RDS(on,T)={float(loss.provenance['effective_rds_on_ohm']):.5g} ohm")
+        if "effective_resistance_ohm" in loss.provenance:
+            details.append(f"R(T)={float(loss.provenance['effective_resistance_ohm']):.5g} ohm")
         if "parallel_paths" in loss.provenance:
             details.append(f"parallel paths={int(loss.provenance['parallel_paths'])}")
         temperature_model = loss.provenance.get("temperature_model")

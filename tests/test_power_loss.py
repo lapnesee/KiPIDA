@@ -63,6 +63,22 @@ class PowerLossTests(unittest.TestCase):
         stage = estimate_stage(reg, 5.0, 5.0, 2.0)
         self.assertAlmostEqual(stage.losses[0].power_w, 2.0 ** 2 * 0.01 * 1.5 / 2)
 
+    def test_resistive_pass_stage_is_i2r_of_its_resistance(self):
+        # The P02 Rev E current shunt R49, 7.5 mOhm, at the 4.4 A of the Main
+        # 5 V path; it had to be declared as a MOSFET to get a loss at all.
+        reg = VoltageRegulator(
+            name="shunt", input_rail_name="PRE", input_ref_des="R49", input_pad_names=["1"],
+            output_rail_name="5V", output_ref_des="R49", output_pad_names=["2"], reg_type="LINEAR",
+            loss_model={"kind": "resistive", "resistors": [{
+                "ref_des": "R49", "resistance_ohm": parameter(0.0075),
+                "tempco_per_c": 0.0001, "temperature_c": 125,
+            }]},
+        )
+        stage = estimate_stage(reg, 5.08, 5.08, 4.4)
+        self.assertEqual([loss.mechanism for loss in stage.losses], ["resistive-i2r"])
+        self.assertAlmostEqual(stage.total_loss_w, 4.4 * 4.4 * 0.0075 * 1.01)
+        self.assertIn("R(T)=", "\n".join(format_power_stage_report(stage)))
+
     def test_efficiency_table_interpolation_is_deterministic(self):
         table = [
             {"vin_v": 12, "vout_v": 5, "iout_a": 1, "efficiency": 0.90},
