@@ -23,6 +23,14 @@ class TestCapacitorDiscovery(unittest.TestCase):
         self.assertIsNone(parse_capacitance("DNP"))
         self.assertIsNone(parse_capacitance("TPS7A0233PDBVR"))
 
+    def test_parses_bom_values_that_go_on_after_the_rating(self):
+        # Values from the P02 Rev E board, which the AC tab used to take for
+        # 100 nF candidates; a unitless leading number still reads as nothing.
+        self.assertAlmostEqual(parse_capacitance("47u 16V X5R"), 47e-6)
+        self.assertAlmostEqual(parse_capacitance("4.7u 50V X7R; Ceff>=1u"), 4.7e-6)
+        self.assertAlmostEqual(parse_capacitance("68u / 35V 20% hybride"), 68e-6)
+        self.assertIsNone(parse_capacitance("1206 X7R"))
+
     def test_formats_engineering_units(self):
         self.assertEqual(format_capacitance(4.7e-6), "4.7uF")
         self.assertEqual(format_capacitance(100e-9), "100nF")

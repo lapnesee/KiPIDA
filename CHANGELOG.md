@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed the AC tab reading no capacitance from a value that goes on after its
+  rating, such as "47u 16V X5R" or "4.7u 50V X7R; Ceff>=1u": every such
+  capacitor was taken for a 100 nF DNP candidate and left out of the sweep.
+  None of the 29 capacitor values on the P02 Rev E power board was read; all
+  are now. The value opening the text counts when a separator ends it and it
+  names its unit, so a bare number or a part number still reads as nothing.
 - Fixed the raster DC engine's pad locator skipping the bottom copper layer.
   It looked for nodes on layer ids 0 to 31, the old pcbnew numbering, while
   KiCad 10's IPC numbers B.Cu 34, so a bottom-side source or load was found

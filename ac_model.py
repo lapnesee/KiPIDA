@@ -221,9 +221,15 @@ def parse_capacitance(value) -> Optional[float]:
         text,
     )
     if not match:
-        return None
+        # BOM values often go on after the rating ("47u 16V X5R",
+        # "4.7u 50V X7R; Ceff>=1u"). The value that opens the text still
+        # counts when a separator ends it and it names its unit, so a bare
+        # number or a part number reads as nothing.
+        match = re.match(r"(?i)(\d+(?:\.\d+)?)([pnum]?)(\d*)\s*(f?)(?=[\s/,;(])", text)
+        if not match or not (match.group(2) or match.group(4)):
+            return None
 
-    major, prefix, fractional = match.groups()
+    major, prefix, fractional = match.groups()[:3]
     if fractional and "." not in major:
         major = f"{major}.{fractional}"
 
