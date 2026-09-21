@@ -6,7 +6,7 @@ or accredited measurements.
 """
 
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import math
 from pathlib import Path
 import re
@@ -728,6 +728,22 @@ class EMCSourceDiscoverer:
                     "Electrical levels, edge time and activity remain editable defaults."
                 ),
             ))
+        # A saved source keeps the frequency a fresh scan cannot supply. P02
+        # Rev E saved its /USB_J2_MUX_D pair at 240 MHz; rescanned, the pair's
+        # "USB" interface does not say which speed, the value was dropped, and
+        # EE-003 reported the frequency unknown.
+        saved = {
+            (source.net_name, source.kind.upper()): source for source in (existing or [])
+            if source.source != "manual" and float(source.frequency_hz or 0.0) > 0.0
+        }
+        for index, source in enumerate(discovered):
+            previous = saved.get((source.net_name, source.kind.upper()))
+            if previous is not None and float(source.frequency_hz or 0.0) <= 0.0:
+                discovered[index] = replace(
+                    source, frequency_hz=float(previous.frequency_hz),
+                    parameter_confidence=previous.parameter_confidence,
+                    parameter_notes=previous.parameter_notes,
+                )
         return list(retained.values()) + discovered
 
 

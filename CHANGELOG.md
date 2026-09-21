@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed the EMC source scan dropping a saved frequency it could not find
+  itself. Every scanned source is rebuilt on each scan, so P02 Rev E's
+  /USB_J2_MUX_D pair, saved at 240 MHz, came back at 0 Hz, its interface
+  saying only "USB", and EE-003 reported its frequency unknown. A rescanned
+  source whose frequency the scan cannot tell keeps the saved one.
 - Fixed the near-field map solving a source of unknown frequency at 0 Hz
   and full strength. EE-003 says such a source is left out, yet the "first
   in-band harmonic" mode gave it a weight of one: on P02 Rev E the USB_HOST

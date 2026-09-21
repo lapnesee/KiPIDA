@@ -181,6 +181,20 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertAlmostEqual(by_net["USB_HOST_D_+"].voltage_swing_v, 0.4)
         self.assertAlmostEqual(by_net["USB_HOST_D_+"].current_a, 0.008)
 
+    def test_a_rescan_keeps_the_frequency_a_saved_source_states(self):
+        # P02 Rev E saved /USB_J2_MUX_D at 240 MHz. The pair's interface says
+        # only "USB", the rescan dropped the value, and EE-003 then reported
+        # the frequency unknown.
+        saved = EMCSignalSource(
+            "/USB_J2_MUX_D", "/USB_J2_MUX_D+", "DIFFERENTIAL", 240e6, 0.8,
+            source="differential-scan", negative_net_name="/USB_J2_MUX_D-",
+        )
+        pair = DifferentialPairCandidate("/USB_J2_MUX_D", "/USB_J2_MUX_D+", "/USB_J2_MUX_D-", interface="USB")
+        sources = EMCSourceDiscoverer.discover(
+            {"/USB_J2_MUX_D+", "/USB_J2_MUX_D-"}, existing=[saved], differential_pairs=[pair],
+        )
+        self.assertEqual([(s.net_name, s.frequency_hz) for s in sources], [("/USB_J2_MUX_D+", 240e6)])
+
     def test_a_switch_node_is_known_by_its_parts_and_an_open_pin_is_not(self):
         # Nets of the P02 Rev E power board. Its switch nodes carry no Ux_SW
         # name, and the U6 module's internal SW pin, left open, is a net KiCad
