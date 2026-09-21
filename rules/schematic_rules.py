@@ -70,7 +70,10 @@ _CAPACITOR_REF_RE = re.compile(r"^C\d")
 _CAPACITOR_FOOTPRINT_RE = re.compile(r"capacitor|(^|:)CP?_", re.IGNORECASE)
 _GND_NET_RE = re.compile(r"gnd", re.IGNORECASE)
 _RESISTOR_REF_RE = re.compile(r"^R\d", re.IGNORECASE)
-_RESISTOR_VALUE_RE = re.compile(r"\d+\.?\d*\s*[kKmM]?\s*(ohm|Ω|r)\b", re.IGNORECASE)
+# A resistance written as a value: "10k", "4.7 ohm", "10R". The number must
+# stand on its own -- "47u 16V X5R" is no 5-ohm part, and on P02 Rev E the
+# dielectric code put 22 ceramic capacitors in SCH-003's list of resistors.
+_RESISTOR_VALUE_RE = re.compile(r"(?<![A-Za-z0-9.])\d+\.?\d*\s*[kKmM]?\s*(ohm|Ω|r)\b", re.IGNORECASE)
 _POWER_FIELD_RE = re.compile(r"power|watt", re.IGNORECASE)
 _UNCONNECTED_PREFIX = "unconnected-"
 

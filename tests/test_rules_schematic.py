@@ -163,6 +163,18 @@ class TestMissingPowerRating(unittest.TestCase):
         ctx = SchematicRuleContext(netlist=_netlist("b1", [self._resistor(True)], nets))
         self.assertEqual(_check_missing_power_rating(ctx), [])
 
+    def test_a_dielectric_code_does_not_make_a_capacitor_a_resistor(self):
+        # P02 Rev E: "5R" in "X5R" read as 5 ohms put 22 capacitors, C56 among
+        # them, in the list of resistors lacking a power rating.
+        nets = [NetInfo("+5V_RAIL", "b1", True, False, 5.0)]
+        capacitor = ComponentInfo(
+            reference="C56", value="47u 16V X5R", lib_id="Device:C", datasheet="",
+            extra_fields={}, position=(0, 0), nets_by_pad={"1": "+5V_RAIL"},
+            pin_types_by_pad={"1": "passive"},
+        )
+        ctx = SchematicRuleContext(netlist=_netlist("b1", [capacitor, self._resistor(False)], nets))
+        self.assertEqual([f.components for f in _check_missing_power_rating(ctx)], [["R5"]])
+
 
 class TestCrossBoardLinks(unittest.TestCase):
 

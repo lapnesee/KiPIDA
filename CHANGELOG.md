@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed SCH-003 taking ceramic capacitors for resistors. A value read as a
+  resistance wherever a number met an R, so the dielectric code of
+  "47u 16V X5R" made C56 a 5-ohm part: on P02 Rev E 22 of the 49
+  "resistors" lacking a power rating were X5R and X7R capacitors. The
+  number must now stand on its own.
 - Fixed a component's heat going into the bare laminate between its pads.
   The whole placement window took the power, and a laminate cell, which
   cannot spread it, ran far hotter than the copper beside it: on P02 Rev E
