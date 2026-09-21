@@ -6,14 +6,14 @@ import wx
 from i18n import _
 
 try:
-    from emc_analyzer import EMCSourceDiscoverer, supply_voltages_by_net
+    from emc_analyzer import EMCSourceDiscoverer, supply_voltages_by_net, switch_node_evidence
     from extractor import GeometryExtractor
     from models import EMCAnalysisSettings, EMCSignalSource
     from palace_remote import (
         PalaceRemoteClient, PalaceRemoteConnection, bundled_palace_smoke_config,
     )
 except (ImportError, ValueError):
-    from ..emc_analyzer import EMCSourceDiscoverer, supply_voltages_by_net
+    from ..emc_analyzer import EMCSourceDiscoverer, supply_voltages_by_net, switch_node_evidence
     from ..extractor import GeometryExtractor
     from ..models import EMCAnalysisSettings, EMCSignalSource
     from ..palace_remote import (
@@ -535,22 +535,24 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
                         "voltage_swing_v": float(getattr(rail, "nominal_voltage", 0.0) or 0.0),
                         "current_a": rail_current(regulator.output_rail_name),
                     }
+        footprints = ()
         try:
             from application.dc_controller import capture_dc_board
 
-            supply_voltages = supply_voltages_by_net(capture_dc_board(self.board).footprints, rails)
+            footprints = capture_dc_board(self.board).footprints
+            supply_voltages = supply_voltages_by_net(footprints, rails)
         except Exception as exc:
             self.log(f"EMI/EMC sources keep the default swing: the board's parts could not be read ({exc}).")
             supply_voltages = {}
         net_frequencies, part_frequencies = {}, {}
+        declared_rails = set()
         if self.design_provider is not None:
             try:
                 from emc_analyzer import declared_frequencies
 
                 design = self.design_provider()
-                net_frequencies, part_frequencies = declared_frequencies(
-                    design.components, {net.name for net in design.nets if net.is_power_rail},
-                )
+                declared_rails = {net.name for net in design.nets if net.is_power_rail}
+                net_frequencies, part_frequencies = declared_frequencies(design.components, declared_rails)
                 from ingest.declarations import with_declared_grounds
 
                 grounds = with_declared_grounds(self.settings.reference_net_names, design)
@@ -568,6 +570,7 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
             self._net_names(), self.settings.sources, pairs, switching_frequencies,
             supply_voltages=supply_voltages,
             net_frequencies=net_frequencies, part_frequencies=part_frequencies,
+            switch_nodes=switch_node_evidence(footprints, set(rails_by_name) | declared_rails),
         )
         unknown = [source.name for source in self.settings.sources if source.enabled and source.frequency_hz <= 0.0]
         if unknown:

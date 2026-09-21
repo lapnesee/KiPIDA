@@ -181,6 +181,31 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertAlmostEqual(by_net["USB_HOST_D_+"].voltage_swing_v, 0.4)
         self.assertAlmostEqual(by_net["USB_HOST_D_+"].current_a, 0.008)
 
+    def test_a_switch_node_is_known_by_its_parts_and_an_open_pin_is_not(self):
+        # Nets of the P02 Rev E power board. Its switch nodes carry no Ux_SW
+        # name, and the U6 module's internal SW pin, left open, is a net KiCad
+        # names unconnected-(U6-SW-Pad5). A switched rail joins no inductor.
+        from emc_analyzer import switch_node_evidence
+
+        def part(reference, *nets):
+            return SimpleNamespace(reference=reference, pads=[SimpleNamespace(net_name=net) for net in nets])
+
+        switch_nodes = switch_node_evidence([
+            part("U14", "/J2_SRC_SW", "/VBUS_SYS", "GND"),
+            part("L3", "/J2_SRC_SW", "/J2_SRC_VBUS"),
+            part("U3", "/VBUS_PD", "/VBUS_PD_SW"),
+            part("U6", "unconnected-(U6-SW-Pad5)", "/+3V3AO"),
+        ])
+        self.assertEqual(switch_nodes, {"/J2_SRC_SW": ("U14", "L3")})
+        sources = {source.net_name: source for source in EMCSourceDiscoverer.discover(
+            {"/J2_SRC_SW", "/VBUS_PD_SW", "unconnected-(U6-SW-Pad5)"},
+            switching_frequencies={"U14": {"frequency_hz": 500e3, "voltage_swing_v": 20.0, "current_a": 3.0}},
+            switch_nodes=switch_nodes,
+        )}
+        self.assertEqual(set(sources), {"/J2_SRC_SW"})
+        self.assertEqual(sources["/J2_SRC_SW"].frequency_hz, 500e3)
+        self.assertEqual(sources["/J2_SRC_SW"].source, "power-tree")
+
     def test_a_source_without_a_loss_model_swings_to_the_rail_powering_its_parts(self):
         # A flat 3.3 V used to stand in for every such source. The oscillator
         # on MCLK is powered from +1V8; the MCU it drives carries +1V8 and

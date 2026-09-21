@@ -85,11 +85,53 @@ SWITCH_TOKEN_PATTERN = re.compile(r"(^|[_/])(PH|LX)([_/]|$)", re.I)
 CONTEXTUAL_SW_PATTERN = re.compile(
     r"(^|[^A-Z0-9])(?:U\d+|BUCK\d*|REG\d*|CONVERTER|SWITCHER)[_-]SW(?:[^A-Z0-9]|$)", re.I,
 )
+# An SW token alone ("/SYS_5V_SW1", "/J2_SRC_SW") names switched DC rails
+# such as VBUS_PD_SW as often as switch nodes; switch_node_evidence decides.
+SW_NAME_PATTERN = re.compile(r"(^|[_/])SW\d*([_/]|$)", re.I)
+_INDUCTOR_REF_RE = re.compile(r"^L\d", re.I)
+_IC_REF_RE = re.compile(r"^(U|IC)\d", re.I)
+
+
+def is_unconnected_pin_net(name):
+    """KiCad's name for the net of a single pin connected to nothing."""
+    return str(name or "").startswith("unconnected-")
 
 
 def is_switching_node_name(name):
     """True for converter switch nodes, not generic switched DC rail suffixes."""
+    if is_unconnected_pin_net(name):
+        # unconnected-(U6-SW-Pad5): a module's internal SW pin, left open.
+        return False
     return bool(SWITCH_TOKEN_PATTERN.search(name) or CONTEXTUAL_SW_PATTERN.search(name))
+
+
+def switch_node_evidence(footprints, rail_nets=()):
+    """``{net: references}`` for SW-named nets that join an inductor to an IC.
+
+    A converter's switch node runs from the converter to its inductor, which
+    tells /J2_SRC_SW from a switched rail named the same way. Rails and
+    unconnected pins are never switch nodes. The references are every part on
+    the net, ICs first, so discovery finds the converter's frequency on
+    whichever part the power tree or a Fsw field gives it to.
+    """
+    rail_nets = set(rail_nets or ())
+    parts = defaultdict(set)
+    for footprint in footprints or ():
+        reference = str(getattr(footprint, "reference", "") or "")
+        for pad in getattr(footprint, "pads", ()) or ():
+            name = getattr(pad, "net_name", None)
+            if name is None:
+                name = getattr(getattr(pad, "net", None), "name", "")
+            name = str(name or "")
+            if (reference and SW_NAME_PATTERN.search(name) and name not in rail_nets
+                    and not is_unconnected_pin_net(name)):
+                parts[name].add(reference)
+    evidence = {}
+    for net, references in parts.items():
+        ics = sorted(reference for reference in references if _IC_REF_RE.match(reference))
+        if ics and any(_INDUCTOR_REF_RE.match(reference) for reference in references):
+            evidence[net] = tuple(ics) + tuple(sorted(references - set(ics)))
+    return evidence
 
 
 @dataclass(frozen=True)
@@ -533,10 +575,16 @@ class EMCSourceDiscoverer:
     @classmethod
     def discover(cls, net_names, existing=None, differential_pairs=None,
                  switching_frequencies=None, supply_voltages=None,
-                 net_frequencies=None, part_frequencies=None):
+                 net_frequencies=None, part_frequencies=None, switch_nodes=None):
+        """Sources on *net_names*, keeping the user's manual ones.
+
+        *switch_nodes* is ``switch_node_evidence`` for the board: SW-named nets
+        that join an inductor to an IC, with the parts on them.
+        """
         retained = {source.net_name: source for source in (existing or []) if source.source == "manual"}
         switching_frequencies = switching_frequencies or {}
         part_frequencies = part_frequencies or {}
+        switch_nodes = switch_nodes or {}
         enabled_pairs = [
             pair for pair in (differential_pairs or [])
             if getattr(pair, "enabled", True)
@@ -547,7 +595,7 @@ class EMCSourceDiscoverer:
         }
         discovered = []
         for name in sorted(set(net_names)):
-            if name in retained:
+            if name in retained or is_unconnected_pin_net(name):
                 continue
             if cls.CLOCK_PATTERN.search(name):
                 frequency, frequency_note, confidence = cls._declared(net_frequencies, name)
@@ -559,11 +607,18 @@ class EMCSourceDiscoverer:
                     voltage_swing_v=voltage, parameter_confidence=confidence,
                     parameter_notes=f"{frequency_note} {notes}",
                 ))
-            elif cls.is_switching_node(name):
+            elif cls.is_switching_node(name) or name in switch_nodes:
                 ref_match = re.search(
                     r"(^|[^A-Z0-9])(U\d+)[_-]SW(?:[^A-Z0-9]|$)", name, re.I,
                 )
-                ref_des = ref_match.group(2).upper() if ref_match else ""
+                candidates = ([ref_match.group(2).upper()] if ref_match else []) + [
+                    reference.upper() for reference in switch_nodes.get(name, ())
+                ]
+                ref_des = next(
+                    (reference for reference in candidates if reference in switching_frequencies),
+                    next((reference for reference in candidates if reference in part_frequencies),
+                         candidates[0] if candidates else ""),
+                )
                 parameters = switching_frequencies.get(ref_des)
                 confidence = "LOW"
                 if isinstance(parameters, dict):
@@ -590,6 +645,11 @@ class EMCSourceDiscoverer:
                         "Name-based switching-source defaults; confirm all electrical parameters.",
                     )
                     notes = f"{frequency_note} {notes}"
+                if name in switch_nodes:
+                    parts = switch_nodes[name]
+                    inductors = ", ".join(part for part in parts if _INDUCTOR_REF_RE.match(part))
+                    ics = ", ".join(part for part in parts if _IC_REF_RE.match(part))
+                    notes = f"Switch node: the net joins {inductors} to {ics}. {notes}"
                 discovered.append(EMCSignalSource(
                     name, name, "SWITCHING", frequency, 10.0, source=origin,
                     voltage_swing_v=voltage, current_a=current,

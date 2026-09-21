@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Fixed EMI/EMC source discovery missing converter switch nodes whose name
+  carries no Ux_SW, PH or LX token, and taking unconnected pins for sources.
+  On the P02 Rev E power board it found none of the four switch nodes
+  (/SYS_5V_SW1, /SYS_5V_SW2, /J2_SRC_SW, /MAIN_3V3_SW) and listed six
+  unconnected-(U6-SW-...) nets, the power module's internal SW pins left open,
+  as switching sources. A net named with an SW token is now a switch node when it
+  joins an inductor to an IC and is no rail, which a switched rail such as
+  VBUS_PD_SW does not; its frequency is looked up on every part of the net.
+  A net KiCad names unconnected-(...) is never a source.
 - Fixed the AC tab reading no capacitance from a value that goes on after its
   rating, such as "47u 16V X5R" or "4.7u 50V X7R; Ceff>=1u": every such
   capacitor was taken for a 100 nF DNP candidate and left out of the sweep.
