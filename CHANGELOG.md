@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed SU-001 and SU-002 calling power planes signal layers. Every copper
+  layer without a ground pour counted as a signal layer, so P02 Rev E's
+  PWR.L3 and PWR.L4, which hold its rails' pours and no track, drew a HIGH
+  "adjacent signal layers" and two "signal layer far from reference". The
+  stackup rules now look only at the layers that carry tracks.
 - Fixed DE-001 asking for a decoupling capacitor beside a TVS. A part with
   a power_in pin needs decoupling, and TVS and diode symbols often type
   their ground pin power_in: on P02 Rev E the TVS2200 on VBUS_PD drew a

@@ -397,6 +397,37 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertEqual(finding.confidence, "LOW")
         self.assertIn("rail-bypass", finding.title)
 
+    def test_power_planes_are_no_signal_layers(self):
+        # P02 Rev E: PWR.L3 and PWR.L4 carry the rails' pours and no track, and
+        # SU-001 (HIGH) called them adjacent signal layers, SU-002 twice far
+        # from a ground plane.
+        names = ("F.Signal", "GND.L2", "PWR.L3", "PWR.L4", "GND.L5", "B.Signal")
+        ids = (3, 4, 5, 6, 7, 34)
+        dielectrics = (0.0994, 0.35, 0.1088, 0.35, 0.0994)
+        layers = []
+        for index, (name, layer_id) in enumerate(zip(names, ids)):
+            layers.append(StackupLayerModel(name, "COPPER", 0.035, layer_id=layer_id))
+            if index < len(dielectrics):
+                layers.append(StackupLayerModel("FR4", "DIELECTRIC", dielectrics[index], epsilon_r=4.4))
+        plane = box(0.0, 0.0, 20.0, 20.0)
+
+        def stackup_findings(tracks):
+            snap = EMCGeometrySnapshot(
+                bounds_mm=(0.0, 0.0, 20.0, 20.0),
+                stackup=StackupProfile(layers=layers, source="TEST", trustworthy=True),
+                tracks=tracks,
+                zones_by_net={"GND": {4: plane, 7: plane}, "+5V": {5: plane, 6: plane}},
+            )
+            findings = EMCAnalyzer(snap, EMCAnalysisSettings(sources=[])).analyze().findings
+            return sorted(f.rule_id for f in findings if f.rule_id.startswith("SU-"))
+
+        outer = [EMCTrack("SDA", (1.0, 1.0), (9.0, 1.0), 0.2, 3, 8.0),
+                 EMCTrack("SCL", (1.0, 2.0), (9.0, 2.0), 0.2, 34, 8.0)]
+        self.assertEqual(stackup_findings(outer), [])
+        inner = [EMCTrack("CLK", (1.0, 3.0), (9.0, 3.0), 0.2, 5, 8.0),
+                 EMCTrack("DATA", (1.0, 4.0), (9.0, 4.0), 0.2, 6, 8.0)]
+        self.assertIn("SU-001", stackup_findings(outer + inner))
+
     def test_a_tvs_is_no_part_to_decouple(self):
         # P02 Rev E: the TVS2200 on VBUS_PD types its ground pin power_in, and
         # DE-001 (HIGH) asked for C1, 24 mm away, to move closer to it.

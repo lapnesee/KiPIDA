@@ -1057,15 +1057,20 @@ class EMCAnalyzer:
         if not self._copper_layers:
             return
         plane_layers = set(self._ground_zones)
+        # A signal layer carries tracks. One with pours alone is a plane --
+        # P02 Rev E's PWR.L3 and PWR.L4 hold its rails and no track at all --
+        # and has no signal to couple or to reference.
+        routed_layers = {track.layer_id for track in self.snapshot.tracks}
+        signal_layers = [layer for layer in self._copper_layers
+                         if layer.layer_id not in plane_layers and layer.layer_id in routed_layers]
+        signal_ids = {layer.layer_id for layer in signal_layers}
         for first, second in zip(self._copper_layers, self._copper_layers[1:]):
-            if first.layer_id not in plane_layers and second.layer_id not in plane_layers:
+            if first.layer_id in signal_ids and second.layer_id in signal_ids:
                 self._add("SU-001", "STACKUP", "HIGH", "Adjacent signal layers",
                           f"{first.name} and {second.name} have no detected reference plane between them.",
                           "Use an adjacent solid ground plane or route the layers in orthogonal directions.",
                           "MEDIUM")
-        for layer in self._copper_layers:
-            if layer.layer_id in plane_layers:
-                continue
+        for layer in signal_layers:
             reference, distance = self._nearest_ground_layer(layer.layer_id)
             if distance is not None and distance > 0.3:
                 self._add("SU-002", "STACKUP", "LOW", "Signal layer far from reference",
