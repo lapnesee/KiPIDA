@@ -1,6 +1,6 @@
 import unittest
 
-from cfd_model import EnclosureModelBuilder
+from cfd_model import EnclosureModelBuilder, fit_unset_enclosure
 from models import EnclosureCFDSettings, ThermalComponentModel
 from thermal_model import CopperLossPoint, ThermalBoardModel, ThermalPlacement
 
@@ -58,6 +58,22 @@ class TestEnclosureModelBuilder(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "does not fit"):
             EnclosureModelBuilder().build(self._board(), settings)
+
+    def test_an_enclosure_never_entered_grows_to_hold_a_longer_board(self):
+        # The P02 Rev E board is 125 x 45 mm: with the 120 mm default
+        # enclosure nobody had entered, the CFD refused to run at all.
+        board = self._board()
+        board.bounds_mm = (158.05, 48.86, 283.05, 93.86)
+        board.placements, board.components = {}, []
+
+        settings, note = fit_unset_enclosure(EnclosureCFDSettings(), board)
+
+        self.assertEqual((settings.geometry.width_mm, settings.geometry.depth_mm), (165.0, 100.0))
+        self.assertIn("never set", note)
+        EnclosureModelBuilder().build(board, settings)
+        entered = EnclosureCFDSettings()
+        entered.geometry.width_mm = 121.0
+        self.assertIs(fit_unset_enclosure(entered, board)[0], entered)
 
 
 if __name__ == "__main__":

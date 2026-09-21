@@ -1,12 +1,48 @@
 """Pure-data enclosure model built from the Phase 3 thermal board model."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import List, Tuple
 
 try:
+    from .models import EnclosureGeometrySettings
     from .physical_constants import DEFAULT_COPPER_THICKNESS_MM
 except (ImportError, ValueError):
+    from models import EnclosureGeometrySettings
     from physical_constants import DEFAULT_COPPER_THICKNESS_MM
+
+# Air kept around a board whose enclosure was never entered: four of the
+# default 5 mm CFD cells between each board edge and the wall.
+UNSET_ENCLOSURE_MARGIN_MM = 20.0
+
+
+def fit_unset_enclosure(settings, board_model, margin_mm=UNSET_ENCLOSURE_MARGIN_MM):
+    """``(settings, note)`` with an enclosure that holds the board if none was entered.
+
+    The enclosure is the user's to state. Until then its dataclass default,
+    120 x 100 x 50 mm, stands in, and a longer board made the CFD refuse to
+    run. Still at that default and too small, it grows to the board plus
+    *margin_mm* on each side, and *note* says so; otherwise *settings* is
+    returned as it is, with a None note.
+    """
+    geometry = settings.geometry
+    if geometry != EnclosureGeometrySettings():
+        return settings, None
+    min_x, min_y, max_x, max_y = board_model.bounds_mm
+    board_width, board_depth = max_x - min_x, max_y - min_y
+    if board_width <= geometry.width_mm and board_depth <= geometry.depth_mm:
+        return settings, None
+    fitted = replace(
+        geometry,
+        width_mm=max(geometry.width_mm, float(round(board_width + 2.0 * margin_mm))),
+        depth_mm=max(geometry.depth_mm, float(round(board_depth + 2.0 * margin_mm))),
+    )
+    note = (
+        f"The enclosure was never set and the default {geometry.width_mm:g} x "
+        f"{geometry.depth_mm:g} mm cannot hold the {board_width:.1f} x {board_depth:.1f} mm "
+        f"board: using {fitted.width_mm:g} x {fitted.depth_mm:g} x {fitted.height_mm:g} mm, "
+        f"the board plus {margin_mm:g} mm each side. Enter the real enclosure in Enclosure CFD."
+    )
+    return replace(settings, geometry=fitted), note
 
 
 @dataclass
@@ -131,7 +167,8 @@ class EnclosureModelBuilder:
             x0, y0, z0, x1, y1, z1 = obstacle.bounds_mm
             if x0 < 0 or y0 < 0 or z0 < 0 or x1 > width or y1 > depth or z1 > height:
                 raise ValueError(
-                    f"{obstacle.name} does not fit inside the configured enclosure."
+                    f"{obstacle.name} ({x1 - x0:.1f} x {y1 - y0:.1f} x {z1 - z0:.1f} mm) does not "
+                    f"fit inside the configured {width:g} x {depth:g} x {height:g} mm enclosure."
                 )
         self._log(
             f"Built {width:g} x {depth:g} x {height:g} mm enclosure with "

@@ -15,6 +15,7 @@ if plugin_dir not in sys.path:
 
 from extractor import GeometryExtractor
 from ac_model import ACModelBuilder, resolve_target_impedance
+from cfd_model import fit_unset_enclosure
 from differential_impedance import DifferentialGeometrySnapshot
 from emc_analyzer import EMCGeometrySnapshot
 from thermal_model import ThermalModelBuilder
@@ -1828,6 +1829,10 @@ class KiPIDA_MainDialog(wx.Dialog):
             rails=self.power_tree.rails,
             copper_losses=[],
         )
+        settings, note = fit_unset_enclosure(settings, board_model)
+        if note:
+            self.log(note)
+            self.cfd_panel.set_settings(settings)
         return settings, board_model, dc_request
 
     def _cfd_worker_log(self, message):

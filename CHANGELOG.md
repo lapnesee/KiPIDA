@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Changed an enclosure CFD run whose enclosure was never entered to fit the
+  board: the 120 x 100 x 50 mm default grows to the board plus 20 mm on each
+  side when the board is larger, and the log and the CFD tab say so. The
+  125 mm long P02 Rev E board made the CFD refuse to run. An enclosure that
+  does not hold the board now names both sizes.
 - Added a resistive loss model for pass stages -- current shunts, fuses, net
   ties: `{"kind": "resistive", "resistors": [{"ref_des", "resistance_ohm"}]}`
   dissipates I2R on each part, with the temperature models the other kinds
