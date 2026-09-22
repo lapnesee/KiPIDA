@@ -150,5 +150,43 @@ class TestPowerLossEstimator(unittest.TestCase):
         self.assertEqual(merged[0].model_source, "user")
 
 
+class EmptyLiveBoardTests(unittest.TestCase):
+    """A board whose IPC answers empty must not be solved as bare laminate."""
+
+    class _EmptyBoard:
+        def get_nets(self):
+            return []
+
+        def get_tracks(self):
+            return []
+
+        def get_vias(self):
+            return []
+
+        def get_zones(self):
+            return []
+
+        def get_footprints(self):
+            return []
+
+        def get_shapes(self):
+            return []
+
+    def test_a_board_without_copper_is_refused(self):
+        # P02 Rev E, 2026-09-22 21:35: KiCad returned 0 tracks, vias, pads and
+        # zones while the editor synchronised. AC and the differential pairs
+        # refused; the thermal built its mesh from the saved outline alone and
+        # reported a 145.8 C hotspot from 0.43 W of copper loss it had nowhere
+        # to spread, which the EMC domain then quoted as a fact.
+        from models import ThermalAnalysisSettings
+        from thermal_model import ThermalModelBuilder
+
+        with self.assertRaises(ValueError) as refusal:
+            ThermalModelBuilder(self._EmptyBoard()).build(ThermalAnalysisSettings())
+
+        self.assertIn("no copper geometry", str(refusal.exception))
+        self.assertIn("retry", str(refusal.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

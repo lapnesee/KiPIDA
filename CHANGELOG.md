@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Fixed a thermal run solving a board KiCad had not sent. While the PCB
+  editor synchronises, IPC answers every collection empty: on P02 Rev E at
+  21:35 the AC and differential domains refused, but the thermal model was
+  built from the saved outline alone, and the coupled run reported a
+  145.8 C hotspot produced by 0.43 W of copper loss it had nowhere to
+  spread, with no component heat at all, which EMC then quoted as a fact.
+  A board whose nets carry no copper on any layer is now refused, and the
+  empty answer is no longer cached; the campaign skips the domain and says
+  to retry after synchronisation, as the other two domains do.
 - Changed a campaign's coupled thermal run to start from the DC result the
   campaign has just solved. It solved the same rails again from its own
   capture of the same board file: on P02 Rev E, 17 rails and 87 s of a 349 s

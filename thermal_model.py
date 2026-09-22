@@ -405,7 +405,10 @@ class ThermalModelBuilder:
                 f"Merged {len(shapes):,} copper shapes on layer {layer} in "
                 f"{time.perf_counter() - layer_started:.3f} s."
             )
-        self._copper_cache[id(self.board)] = by_layer
+        if by_layer:
+            # An empty answer is not a board; caching it would keep serving it
+            # after the editor has caught up.
+            self._copper_cache[id(self.board)] = by_layer
         self._log(
             f"Built merged thermal copper for {len(by_layer)} layer(s) in "
             f"{time.perf_counter() - started:.3f} s."
@@ -486,6 +489,17 @@ class ThermalModelBuilder:
             )
 
         copper_by_layer = self._extract_copper(extractor)
+        if not copper_by_layer:
+            # KiCad's IPC answers with every collection empty while the PCB
+            # editor is still synchronising. The outline still comes from the
+            # saved file, so the mesh builds and solves -- as bare laminate.
+            # On P02 Rev E such a run reported a 145.8 C hotspot from 0.43 W of
+            # copper loss with nothing to spread it and no component heat at
+            # all, and the EMC domain then read that temperature as a fact.
+            raise ValueError(
+                "KiCad IPC returned no copper geometry on any layer, so the board would "
+                "be solved as bare laminate. Wait for PCB Editor synchronization and retry."
+            )
         outline, bounds = self._outline_and_bounds(copper_by_layer, placements)
         live_outline = extractor.get_board_outline(board_file_path=self.board_file_path)
         if live_outline is not None:
