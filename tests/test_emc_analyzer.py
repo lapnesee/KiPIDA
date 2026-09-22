@@ -383,6 +383,27 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertEqual(finding.severity, "LOW")
         self.assertIn("Localized", finding.title)
 
+    def test_a_pair_s_return_gap_is_reported_once(self):
+        # P02 Rev E: USB_HOST_D+ drew GP-001 (HIGH, 78.7 % coverage) and its
+        # pair DP-004 (MEDIUM, 89.6 %) for the same gap by the board edge.
+        snap = EMCGeometrySnapshot(
+            bounds_mm=(0.0, 0.0, 10.0, 10.0), stackup=stackup(),
+            tracks=[
+                EMCTrack("USB_D+", (1.0, 4.0), (9.0, 4.0), 0.15, 0, 8.0),
+                EMCTrack("USB_D-", (1.0, 4.3), (9.0, 4.3), 0.15, 0, 8.0),
+            ],
+            zones_by_net={"GND": {1: box(0.0, 0.0, 3.0, 10.0).union(box(5.0, 0.0, 10.0, 10.0))}},
+        )
+        settings = EMCAnalysisSettings(sources=[EMCSignalSource(
+            "USB", "USB_D+", "DIFFERENTIAL", 240e6, 0.8, negative_net_name="USB_D-",
+        )])
+        pair = DifferentialPairCandidate("USB", "USB_D+", "USB_D-", interface="USB_HS")
+        rules = {f.rule_id for f in EMCAnalyzer(snap, settings, differential_pairs=[pair]).analyze().findings}
+        self.assertIn("DP-004", rules)
+        self.assertNotIn("GP-001", rules)
+        alone = {f.rule_id for f in EMCAnalyzer(snap, settings).analyze().findings}
+        self.assertIn("GP-001", alone)
+
     def test_high_order_low_drive_switching_harmonic_is_low_severity(self):
         settings = EMCAnalysisSettings(sources=[
             EMCSignalSource(

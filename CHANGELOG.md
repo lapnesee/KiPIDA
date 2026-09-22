@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Fixed the EMC risk score counting one gap twice and an estimate as a
+  fact. GP-001 measured one line of a differential pair against its plane,
+  repeating DP-004, which judges the pair with its coplanar ground, a level
+  higher: on P02 Rev E one 2.3 mm gap under USB_HOST_D drew a HIGH and a
+  MEDIUM. GP-001 now leaves an analysed pair's nets to DP-004. SW-001 was
+  of HIGH confidence whenever its source was entered by hand, though its
+  harmonic level is an uncalibrated edge model; it is MEDIUM now. On P02's
+  saved files the EMC rule fixes of this series take the score from 33 to
+  65.
 - Fixed a rail with loads left out of its DC solve reading "PASS". Loads
   on copper no source reaches are excluded, and the drop of those left was
   judged against the budget: on P02 Rev E /+3V3AO, every load excluded,

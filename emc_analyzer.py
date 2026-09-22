@@ -1149,6 +1149,14 @@ class EMCAnalyzer:
         connectors = [item for item in self.snapshot.footprints if self._is_connector(item)]
         bounds = self.snapshot.bounds_mm
         reference_names = set(self.settings.reference_net_names)
+        # A pair's return path is DP-004's to judge, both lines together and
+        # with the coplanar ground. GP-001 measured one line of it again, a
+        # level higher: P02 Rev E's USB_HOST_D+ drew a HIGH GP-001 at 78.7 %
+        # coverage and the pair a MEDIUM DP-004 at 89.6 % for one 2.3 mm gap.
+        pair_nets = {
+            net for pair in self.differential_pairs if getattr(pair, "enabled", True)
+            for net in (pair.positive_net, pair.negative_net)
+        } if self._enabled("DIFFERENTIAL") else set()
         if self.snapshot.ignored_offboard_items:
             nets = list(self.snapshot.ignored_offboard_nets)
             counts = self.snapshot.ignored_offboard_counts
@@ -1172,7 +1180,7 @@ class EMCAnalyzer:
                 continue
             source = source_by_net.get(net)
             total_length = sum(item.length_mm for item in tracks)
-            if (net in self._fast_nets and self._enabled("GROUND")
+            if (net in self._fast_nets and net not in pair_nets and self._enabled("GROUND")
                     and LineString is not None and self._ground_zones):
                 self._check()
                 covered_length = 0.0
@@ -1522,8 +1530,10 @@ class EMCAnalyzer:
                               f"the configured edge model estimates {relative_db:.1f} dB relative "
                               f"to its low-frequency square-wave envelope (drive index {drive_index:.3g} V*A).",
                               "Minimise hot-loop area and verify this band with a near-field probe.",
-                              "HIGH" if source.source == "manual" else
-                              "MEDIUM" if source.source == "power-tree" else "LOW",
+                              # A stated frequency places the harmonic; its level
+                              # is still an uncalibrated edge model (+/-10-20 dB),
+                              # however the source was entered.
+                              "MEDIUM" if source.source in ("manual", "power-tree") else "LOW",
                               [source.net_name], location=source_location)
 
     def _inductor_rules(self):
