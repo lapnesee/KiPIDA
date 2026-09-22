@@ -85,6 +85,23 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertEqual(result.status, AnalysisStatus.FAIL)
         self.assertEqual(result.metrics[0].unit, "ohm")
 
+    def test_a_failing_pair_states_its_impedance_and_the_geometry_that_fixes_it(self):
+        # P02 Rev E's /USB_DEVICE_D: 76.7 ohm for 90, and the recommender's
+        # 0.155 mm was nowhere in the finding.
+        pair_result = SimpleNamespace(
+            pair=SimpleNamespace(name="/USB_DEVICE_D", target_impedance_ohm=90.0), status="FAIL",
+            weighted_impedance_ohm=76.74, error_pct=-14.7, estimated_skew_ps=0.1,
+            length_symmetry_status="PASS",
+            warnings=["Targeted 3-D quasi-static refinement: 2-D impedance 14.6% from the target."],
+            recommendations=[SimpleNamespace(
+                action="SET_PRIMARY_ROUTE", recommended_width_mm=0.155, recommended_gap_mm=0.25,
+                predicted_impedance_ohm=90.6, layer_name="B.Signal",
+            )],
+        )
+        finding = adapt_differential_result([pair_result], None, 10.0).findings[0]
+        self.assertTrue(finding.description.startswith("Zdiff 76.7 ohm against a 90 ohm target (-14.7%)."))
+        self.assertIn("0.155 mm wide with a 0.250 mm gap on B.Signal", finding.recommendation)
+
     def test_thermal_adapter_reports_over_limit_component(self):
         thermal = ThermalResult(
             hotspot=ThermalHotspot(1, 2.0, 3.0, 0.1, 130.0),

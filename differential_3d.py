@@ -28,7 +28,10 @@ class Targeted3DRefiner:
         if section.reference_coverage_pct < 95.0:
             return f"reference coverage {section.reference_coverage_pct:.1f}%"
         if error >= self.settings.targeted_3d_error_threshold_pct:
-            return f"2-D impedance error {error:.1f}%"
+            # The distance to the target, not an error of the 2-D model: on
+            # P02 Rev E "2-D impedance error 14.6%" read as the model being
+            # 14.6 % off, beside a pair measured 14.6 % below its 90 ohm.
+            return f"2-D impedance {error:.1f}% from the target"
         if section.length_mm <= max(1.0, 8.0 * section.width_mm):
             return "short finite section"
         return ""

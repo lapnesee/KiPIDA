@@ -444,11 +444,34 @@ def adapt_differential_result(results: Any, stackup: Any, tolerance_pct: float) 
         ])
         if status != "PASS":
             severity = FindingSeverity.HIGH if status == "FAIL" else FindingSeverity.MEDIUM
+            # The pair's impedance against its target leads, and the geometry
+            # the recommender solved for is the recommendation: on P02 Rev E
+            # the finding gave the refinement's notes alone and a generic
+            # "review width and gap", while 0.155 mm was computed for 90 ohm.
+            impedance = float(getattr(item, "weighted_impedance_ohm", 0.0) or 0.0)
+            target = float(getattr(pair, "target_impedance_ohm", 0.0) or 0.0)
+            lead = (
+                f"Zdiff {impedance:.1f} ohm against a {target:g} ohm target "
+                f"({getattr(item, 'error_pct', 0.0):+.1f}%)."
+                if impedance > 0.0 and target > 0.0 else ""
+            )
+            notes = "; ".join(getattr(item, "warnings", ()) or ())
+            primary = next((
+                rec for rec in (getattr(item, "recommendations", ()) or ())
+                if getattr(rec, "action", "") == "SET_PRIMARY_ROUTE"
+                and float(getattr(rec, "recommended_width_mm", 0.0) or 0.0) > 0.0
+            ), None)
             findings.append(_finding(
                 "SI-DIFF-001", index, "DIFFERENTIAL", severity,
                 f"{prefix}: {status.replace('_', ' ').title()}",
-                "; ".join(getattr(item, "warnings", ()) or ()) or
+                " ".join(part for part in (lead, notes) if part) or
                 f"Impedance error is {getattr(item, 'error_pct', 0.0):+.2f}%.",
+                (
+                    f"Route the pair {primary.recommended_width_mm:.3f} mm wide with a "
+                    f"{primary.recommended_gap_mm:.3f} mm gap on {primary.layer_name}: the model "
+                    f"predicts {primary.predicted_impedance_ohm:.1f} ohm. Then check reference "
+                    "continuity and length matching."
+                ) if primary is not None else
                 "Review stackup, reference continuity, width, gap, and length matching.",
             ))
     stackup_warnings = list(getattr(stackup, "warnings", ()) or ())

@@ -15,7 +15,7 @@ class Targeted3DRefinerTests(unittest.TestCase):
     def test_only_problem_sections_are_selected(self):
         refiner = Targeted3DRefiner(DifferentialAnalysisSettings())
         self.assertEqual(refiner.select(self._section(92.0), 90.0), "")
-        self.assertIn("impedance error", refiner.select(self._section(110.0), 90.0))
+        self.assertIn("from the target", refiner.select(self._section(110.0), 90.0))
 
     def test_refinement_is_bounded_and_traceable(self):
         refined = Targeted3DRefiner(DifferentialAnalysisSettings()).refine(

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Changed SI-DIFF-001 to state the pair's impedance against its target and
+  to recommend the geometry the recommender solved for. It gave the 3-D
+  refinement's notes alone, whose "2-D impedance error 14.6%" read as the
+  model being 14.6 % off, and a generic "review width and gap": on P02 Rev E
+  it now reads "Zdiff 76.7 ohm against a 90 ohm target (-14.7%)" and
+  recommends 0.155 mm wide with a 0.250 mm gap on B.Signal, for 90.6 ohm.
 - Fixed the AC tab dropping a saved measurement port that is not a load. It
   offered the rail's loads only and saved what it showed, so a rail that
   feeds converters lost its port: P02 Rev E's /VBUS_SYS has none but the
