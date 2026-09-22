@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Changed the AC target of a rail that feeds converters to count their
+  input current. The target followed from the rail's own loads only, so a
+  rail that supplies converters and nothing else had none: P02 Rev E's
+  /VBUS_SYS, which feeds U4 and U14, was swept with no verdict. The current
+  now runs through the power tree, a switching regulator drawing its
+  output current times Vout / (Vin x efficiency) and a linear one passing
+  it through; /VBUS_SYS supplies 2.04 A and gets 0.392 ohm.
 - Fixed a campaign solving two versions of the saved board. The hybrid DC
   engine read the .kicad_pcb when it ran, not when the run was captured:
   on P02 Rev E, saved at 15:37 during a campaign captured at 15:29 whose AC

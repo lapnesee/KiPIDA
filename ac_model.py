@@ -34,9 +34,43 @@ RIPPLE_FRACTION_DEFAULT = 0.02
 TRANSIENT_FRACTION_DEFAULT = 0.5
 
 
+def converter_input_current(rail, all_rails):
+    """Current the regulators fed by *rail* draw from it, through the whole tree.
+
+    A regulator draws what its output rail supplies -- that rail's loads and,
+    in turn, its own regulators' inputs -- scaled by Vout / (Vin x efficiency)
+    when it switches and passed through unchanged when it is linear, as the DC
+    solve and the EMC source scan count it.
+    """
+    by_name = {item.net_name: item for item in (all_rails or ())}
+
+    def supplied(name, visiting):
+        item = by_name.get(name)
+        if item is None or name in visiting:
+            return 0.0
+        own = sum(float(getattr(load, "total_current", 0.0) or 0.0) for load in (item.loads or ()))
+        return own + drawn(item, visiting | {name})
+
+    def drawn(item, visiting):
+        total = 0.0
+        for regulator in getattr(item, "child_regulators", ()) or ():
+            downstream = supplied(regulator.output_rail_name, visiting)
+            if str(regulator.reg_type).upper() == "SWITCHING":
+                output = by_name.get(regulator.output_rail_name)
+                vout = float(getattr(output, "nominal_voltage", 0.0) or 0.0)
+                vin = float(getattr(item, "nominal_voltage", 0.0) or 0.0)
+                efficiency = max(float(getattr(regulator, "efficiency", 1.0) or 1.0), 1.0e-6)
+                total += downstream * vout / (vin * efficiency) if vin > 0.0 else downstream
+            else:
+                total += downstream
+        return total
+
+    return drawn(rail, {rail.net_name})
+
+
 def derive_target_impedance(
     rail, *, ripple_fraction=RIPPLE_FRACTION_DEFAULT,
-    transient_fraction=TRANSIENT_FRACTION_DEFAULT,
+    transient_fraction=TRANSIENT_FRACTION_DEFAULT, all_rails=None,
 ):
     """Z_target = (V_rail * ripple) / I_transient, from the rail's own data.
 
@@ -65,6 +99,11 @@ def derive_target_impedance(
             total_current += float(getattr(load, "total_current", 0.0) or 0.0)
         except (TypeError, ValueError):
             continue
+    # A rail that feeds converters supplies their input current too. P02 Rev
+    # E's /VBUS_SYS has no load of its own and feeds U4 and U14: its sweep ran
+    # with no target, though the tree says it supplies 2.04 A.
+    converters = converter_input_current(rail, all_rails) if all_rails else 0.0
+    total_current += converters
     if total_current <= 0.0:
         return None, "the rail has no configured load current"
 
@@ -81,7 +120,9 @@ def derive_target_impedance(
     provenance = (
         f"derived from {voltage:.2f} V x {ripple * 100.0:.1f} % ripple / "
         f"{transient_current:.3g} A transient "
-        f"({transient * 100.0:.0f} % of {total_current:.3g} A configured load)"
+        f"({transient * 100.0:.0f} % of {total_current:.3g} A configured load"
+        + (f", {converters:.3g} A of it drawn by the converters the rail feeds" if converters > 0.0 else "")
+        + ")"
     )
     return value, provenance
 
@@ -130,7 +171,7 @@ def network_span_mm(node_coords):
     return max(max(xs) - min(xs), max(ys) - min(ys))
 
 
-def resolve_target_impedance(rail, settings):
+def resolve_target_impedance(rail, settings, all_rails=None):
     """Return ``(target_ohm, provenance)`` for *settings* applied to *rail*.
 
     An explicitly configured target always wins: the user's number is a
@@ -147,6 +188,7 @@ def resolve_target_impedance(rail, settings):
         rail,
         ripple_fraction=getattr(settings, "ripple_fraction", RIPPLE_FRACTION_DEFAULT),
         transient_fraction=getattr(settings, "transient_fraction", TRANSIENT_FRACTION_DEFAULT),
+        all_rails=all_rails,
     )
     if value is None:
         return 0.0, f"not determinable: {detail}"

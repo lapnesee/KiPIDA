@@ -945,7 +945,9 @@ class KiPIDA_MainDialog(wx.Dialog):
         # The impedance target is resolved the same way: left blank it follows
         # from the rail's own voltage and configured load, so a board is never
         # judged against a number nobody chose.
-        target_ohm, target_provenance = resolve_target_impedance(rail, settings)
+        target_ohm, target_provenance = resolve_target_impedance(
+            rail, settings, all_rails=self.power_tree.rails,
+        )
         settings = replace(
             settings,
             target_impedance_ohm=target_ohm,

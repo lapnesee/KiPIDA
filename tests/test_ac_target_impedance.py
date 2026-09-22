@@ -49,6 +49,36 @@ class DeriveTargetImpedanceTests(unittest.TestCase):
         self.assertIsNone(value)
         self.assertIn("load current", reason)
 
+    def test_a_rail_feeding_converters_is_given_their_input_current(self):
+        # P02 Rev E: /VBUS_SYS has no load of its own and feeds two bucks, and
+        # its sweep ran with no target at all.
+        from models import VoltageRegulator
+
+        def regulator(name, vin_rail, vout_rail, kind, efficiency=1.0):
+            return VoltageRegulator(name, vin_rail, "U", ["1"], vout_rail, "U", ["2"],
+                                    reg_type=kind, efficiency=efficiency)
+
+        vbus = PowerRail(net_name="/VBUS_SYS", nominal_voltage=20.0)
+        pre = PowerRail(net_name="/SYS_5V_PRE_SENSE", nominal_voltage=5.08)
+        u4_out = PowerRail(net_name="/+5V_U4", nominal_voltage=5.08)
+        rail5 = _rail(5.08, (4.0,))
+        main33 = _rail(3.32, (0.5,))
+        main33.net_name = "/+3V3_MAIN"
+        j2 = _rail(5.2, (3.0,))
+        j2.net_name = "/J2_SRC_VBUS"
+        vbus.child_regulators += [regulator("U4", "/VBUS_SYS", "/SYS_5V_PRE_SENSE", "SWITCHING", 0.93),
+                                  regulator("U14", "/VBUS_SYS", "/J2_SRC_VBUS", "SWITCHING", 0.92)]
+        pre.child_regulators.append(regulator("R49", "/SYS_5V_PRE_SENSE", "/+5V_U4", "LINEAR"))
+        u4_out.child_regulators.append(regulator("U15", "/+5V_U4", "+5V_RAIL", "LINEAR"))
+        rail5.child_regulators.append(regulator("U5", "+5V_RAIL", "/+3V3_MAIN", "SWITCHING", 0.90))
+        rails = [vbus, pre, u4_out, rail5, main33, j2]
+
+        value, provenance = derive_target_impedance(vbus, all_rails=rails)
+        current = 5.08 * (4.0 + 3.32 * 0.5 / (5.08 * 0.90)) / (20.0 * 0.93) + 5.2 * 3.0 / (20.0 * 0.92)
+        self.assertAlmostEqual(value, (20.0 * 0.02) / (current * 0.5), places=12)
+        self.assertIn("drawn by the converters", provenance)
+        self.assertIsNone(derive_target_impedance(vbus)[0])  # the tree is what supplies it
+
     def test_a_rail_without_voltage_yields_no_target(self):
         value, reason = derive_target_impedance(_rail(0.0, (1.0,)))
         self.assertIsNone(value)
