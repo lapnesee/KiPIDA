@@ -1,4 +1,5 @@
 import math
+import time
 import unittest
 
 import numpy as np
@@ -56,6 +57,33 @@ class TestEnclosureCFDSolver(unittest.TestCase):
         self.assertGreater(result.maximum_velocity_m_s, 0.0)
         self.assertTrue(math.isfinite(result.mass_balance_error_pct))
         self.assertTrue(np.isfinite(np.asarray(result.velocity_u_m_s)).all())
+
+    def test_energy_operator_is_not_assembled_cell_by_cell(self):
+        # P02 Rev E, 2026-09-22 21:56: the 165 x 100 x 50 mm enclosure meshed to
+        # 33 x 20 x 10 cells and took 129 s for 435 iterations; assembling the
+        # energy equation one cell and face at a time cost 0.34-0.67 s per
+        # call, nine tenths of the run. Whole-array assembly takes ~3 ms.
+        settings = EnclosureCFDSettings()
+        settings.geometry.width_mm = 165.0
+        settings.geometry.depth_mm = 100.0
+        settings.geometry.height_mm = 50.0
+        settings.solver.cell_size_mm = 5.0
+        model = EnclosureModel(
+            dimensions_mm=(165.0, 100.0, 50.0),
+            obstacles=[CFDObstacle("PCB", (5, 5, 18, 160, 95, 19.6), 0.3, 1.0)],
+        )
+        mesh = CFDMeshGenerator().generate_mesh(model, settings)
+        self.assertEqual(mesh.shape, (33, 20, 10))
+        solver = EnclosureCFDSolver()
+        velocity = [np.zeros(mesh.shape) for _ in range(3)]
+        previous = np.full(mesh.shape, settings.ambient_c + 10.0)
+
+        started = time.perf_counter()
+        temperature, _ = solver._solve_energy(mesh, settings, velocity, previous)
+        elapsed = time.perf_counter() - started
+
+        self.assertGreater(float(np.max(temperature)), settings.ambient_c)
+        self.assertLess(elapsed, 0.15)
 
     def test_cancellation_stops_before_iteration(self):
         settings = self._settings()

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed the enclosure CFD spending nine tenths of its run assembling the
+  energy equation one cell and face at a time into a LIL matrix. On P02
+  Rev E at 21:56 the 33 x 20 x 10 mesh took 129 s for 435 iterations,
+  the longest domain of the campaign; each assembly cost 0.34-0.67 s and ran
+  every fifth iteration. It is now built with whole-array operations in
+  about 3 ms, to the same operator within 1e-16, and an iteration of the
+  same enclosure drops from 0.16 s to 0.024 s.
 - Fixed the coupled thermal loop iterating on its own relaxation. On P02
   Rev E at 21:56 the hotspot held at 114.68-114.71 C from the first pass,
   yet the deltas ran 69.68, 27.89, 11.17 ... 0.046 C, exactly 0.4^k of the

@@ -432,10 +432,6 @@ class EnclosureCFDSolver:
         return free
 
     @staticmethod
-    def _harmonic(a, b):
-        return 2.0 * a * b / max(a + b, 1e-30)
-
-    @staticmethod
     def _film_coefficient(delta_t_k, length_m, speed_m_s, ambient_c, emissivity):
         """Surface film at a solid-air face, W/m^2K.
 
@@ -481,15 +477,24 @@ class EnclosureCFDSolver:
         conductivity = np.where(
             fluid, props.conductivity_w_mk, mesh.solid_conductivity_w_mk
         )
-        matrix = scipy.sparse.lil_matrix((count, count), dtype=float)
-        rhs = mesh.heat_sources_w.reshape(-1).astype(float).copy()
-        inlet_values = {}
-        patch_lookup = {}
+        rhs = mesh.heat_sources_w.astype(float).copy()
+        # Patches as whole-grid masks. A later patch on the same cell and face
+        # overrides an earlier one, as the per-cell lookup it replaces did.
+        inlet = np.zeros(shape, dtype=bool)
+        inlet_temperature = np.zeros(shape, dtype=float)
+        face_patch = {}
         for mapped in mesh.patch_cells:
             face = str(mapped.patch.face).upper()
-            patch_lookup.update({(cell, face): mapped.patch for cell in mapped.cells})
-            if str(mapped.patch.kind).upper() in {"INLET", "FAN"}:
-                inlet_values.update({cell: float(mapped.patch.temperature_c) for cell in mapped.cells})
+            kind = str(mapped.patch.kind).upper()
+            outlet, outlet_temperature = face_patch.setdefault(
+                face, (np.zeros(shape, dtype=bool), np.zeros(shape, dtype=float))
+            )
+            for cell in mapped.cells:
+                outlet[cell] = kind in {"OUTLET", "VENT"}
+                outlet_temperature[cell] = float(mapped.patch.temperature_c)
+                if kind in {"INLET", "FAN"}:
+                    inlet[cell] = True
+                    inlet_temperature[cell] = float(mapped.patch.temperature_c)
         wall_h = max(0.0, float(settings.geometry.wall_heat_transfer_w_m2k))
         ambient = float(settings.ambient_c)
         # Length scale for the plate correlations at a solid-air face. The mean
@@ -502,92 +507,108 @@ class EnclosureCFDSolver:
         emissivity = max(0.0, min(1.0, float(
             getattr(settings.geometry, "emissivity", 0.0) or 0.0
         )))
-        directions = ((-1, 0, 0), (1, 0, 0), (0, -1, 0),
-                      (0, 1, 0), (0, 0, -1), (0, 0, 1))
-        for i in range(shape[0]):
-            for j in range(shape[1]):
-                for k in range(shape[2]):
-                    cell = (i, j, k)
-                    row = np.ravel_multi_index(cell, shape)
-                    if cell in inlet_values:
-                        matrix[row, row] = 1.0
-                        rhs[row] = inlet_values[cell]
-                        continue
-                    diagonal = 0.0
-                    for direction in directions:
-                        ni, nj, nk = i + direction[0], j + direction[1], k + direction[2]
-                        axis = 0 if direction[0] else (1 if direction[1] else 2)
-                        area = areas[axis]
-                        if not (0 <= ni < shape[0] and 0 <= nj < shape[1] and 0 <= nk < shape[2]):
-                            face = {
-                                (-1, 0, 0): "XMIN", (1, 0, 0): "XMAX",
-                                (0, -1, 0): "YMIN", (0, 1, 0): "YMAX",
-                                (0, 0, -1): "ZMIN", (0, 0, 1): "ZMAX",
-                            }[direction]
-                            patch = patch_lookup.get((cell, face))
-                            kind = str(patch.kind).upper() if patch else "WALL"
-                            if kind in {"OUTLET", "VENT"}:
-                                _, inward_sign = self._normal(face)
-                                outward = -inward_sign * velocity[axis][cell]
-                                capacity = (props.density_kg_m3 * props.heat_capacity_j_kgk *
-                                            area * abs(outward))
-                                diagonal += capacity
-                                if outward < 0.0:
-                                    rhs[row] += capacity * float(patch.temperature_c)
-                            else:
-                                conductance = wall_h * area
-                                diagonal += conductance
-                                rhs[row] += conductance * ambient
-                            continue
-                        neighbor = (ni, nj, nk)
-                        column = np.ravel_multi_index(neighbor, shape)
-                        diffusion = self._harmonic(
-                            float(conductivity[cell]), float(conductivity[neighbor])
-                        ) * area / spacings[axis]
-                        if fluid[cell] != fluid[neighbor]:
-                            # A solid-air face. The path is: conduct from the
-                            # solid cell centre to its surface, then cross the
-                            # boundary layer.
-                            #
-                            #   R = (spacing/2)/(k_solid * A) + 1/(h * A)
-                            #
-                            # The air-side cell-to-cell conduction is dropped
-                            # rather than kept in series, because it is not a
-                            # model of the interface at all -- it is what the
-                            # cell-centred scheme produces in the absence of
-                            # one, and adding the film in series with it only
-                            # made the solid hotter still (162.7 C -> 216.9 C
-                            # on the reproduction case), since series can only
-                            # lower a conductance.
-                            #
-                            # h is evaluated on the previous iterate, the same
-                            # lagging the electro-thermal loop already uses.
-                            solid = cell if not fluid[cell] else neighbor
-                            air = neighbor if solid is cell else cell
-                            delta_t = abs(float(previous[cell]) - float(previous[neighbor]))
-                            speed = float(np.sqrt(sum(
-                                component[air] ** 2 for component in velocity
-                            )))
-                            film = self._film_coefficient(
-                                delta_t, film_length_m, speed, ambient, emissivity,
-                            )
-                            k_solid = max(float(conductivity[solid]), 1e-9)
-                            resistance = (
-                                0.5 * spacings[axis] / (k_solid * area)
-                                + 1.0 / max(film * area, 1e-30)
-                            )
-                            diffusion = 1.0 / resistance
-                        outward_sign = direction[axis]
-                        face_velocity = 0.5 * (
-                            velocity[axis][cell] + velocity[axis][neighbor]
-                        ) if fluid[cell] and fluid[neighbor] else 0.0
-                        flux = props.density_kg_m3 * props.heat_capacity_j_kgk * area * (
-                            outward_sign * face_velocity
-                        )
-                        diagonal += diffusion + max(flux, 0.0)
-                        matrix[row, column] -= diffusion + max(-flux, 0.0)
-                    matrix[row, row] += max(diagonal, 1e-20)
-        csr = matrix.tocsr()
+        capacity_density = props.density_kg_m3 * props.heat_capacity_j_kgk
+        index = np.arange(count).reshape(shape)
+        diagonal = np.zeros(shape, dtype=float)
+        rows, columns, values = [], [], []
+        # The operator is assembled face by face with whole-array operations.
+        # It used to be one Python pass over every cell and each of its six
+        # faces into a LIL matrix: 0.67 s per energy solve on a 6,600-cell
+        # enclosure, called every fifth iteration, which made the energy
+        # equation nine tenths of the CFD's run time.
+        for axis in range(3):
+            area = areas[axis]
+            lower = [slice(None)] * 3
+            upper = [slice(None)] * 3
+            lower[axis] = slice(0, shape[axis] - 1)
+            upper[axis] = slice(1, shape[axis])
+            lower, upper = tuple(lower), tuple(upper)
+            fluid_lower, fluid_upper = fluid[lower], fluid[upper]
+            k_lower, k_upper = conductivity[lower], conductivity[upper]
+            diffusion = (
+                2.0 * k_lower * k_upper / np.maximum(k_lower + k_upper, 1e-30)
+                * area / spacings[axis]
+            )
+            # A solid-air face. The path is: conduct from the solid cell centre
+            # to its surface, then cross the boundary layer.
+            #
+            #   R = (spacing/2)/(k_solid * A) + 1/(h * A)
+            #
+            # The air-side cell-to-cell conduction is dropped rather than kept
+            # in series, because it is not a model of the interface at all --
+            # it is what the cell-centred scheme produces in the absence of
+            # one, and adding the film in series with it only made the solid
+            # hotter still (162.7 C -> 216.9 C on the reproduction case), since
+            # series can only lower a conductance.
+            #
+            # h is evaluated on the previous iterate, the same lagging the
+            # electro-thermal loop already uses. The correlations are scalar,
+            # so they run per interface face -- a small share of all faces.
+            interface = fluid_lower != fluid_upper
+            if np.any(interface):
+                speed = np.sqrt(sum(component ** 2 for component in velocity))
+                delta_t = np.abs(previous[lower] - previous[upper])[interface]
+                air_speed = np.where(fluid_lower, speed[lower], speed[upper])[interface]
+                k_solid = np.maximum(np.where(fluid_lower, k_upper, k_lower)[interface], 1e-9)
+                film = np.fromiter(
+                    (self._film_coefficient(float(dt), film_length_m, float(v),
+                                            ambient, emissivity)
+                     for dt, v in zip(delta_t, air_speed)),
+                    dtype=float, count=delta_t.size,
+                )
+                resistance = (
+                    0.5 * spacings[axis] / (k_solid * area)
+                    + 1.0 / np.maximum(film * area, 1e-30)
+                )
+                diffusion[interface] = 1.0 / resistance
+            face_velocity = np.where(
+                fluid_lower & fluid_upper,
+                0.5 * (velocity[axis][lower] + velocity[axis][upper]), 0.0,
+            )
+            # Flux leaving the lower cell through this face; the upper cell
+            # sees the same face with the opposite sign.
+            flux = capacity_density * area * face_velocity
+            diagonal[lower] += diffusion + np.maximum(flux, 0.0)
+            diagonal[upper] += diffusion + np.maximum(-flux, 0.0)
+            for row_cells, column_cells, coupling in (
+                (lower, upper, diffusion + np.maximum(-flux, 0.0)),
+                (upper, lower, diffusion + np.maximum(flux, 0.0)),
+            ):
+                keep = ~inlet[row_cells]
+                rows.append(index[row_cells][keep])
+                columns.append(index[column_cells][keep])
+                values.append(-coupling[keep])
+            for face, side in ((("XMIN", "YMIN", "ZMIN")[axis], 0),
+                               (("XMAX", "YMAX", "ZMAX")[axis], shape[axis] - 1)):
+                boundary = [slice(None)] * 3
+                boundary[axis] = side
+                boundary = tuple(boundary)
+                outlet, outlet_temperature = face_patch.get(
+                    face, (np.zeros(shape, dtype=bool), np.zeros(shape, dtype=float))
+                )
+                outlet = outlet[boundary]
+                _, inward_sign = self._normal(face)
+                outward = -inward_sign * velocity[axis][boundary]
+                capacity = capacity_density * area * np.abs(outward)
+                wall = wall_h * area
+                diagonal[boundary] += np.where(outlet, capacity, wall)
+                rhs[boundary] += np.where(
+                    outlet,
+                    np.where(outward < 0.0, capacity * outlet_temperature[boundary], 0.0),
+                    wall * ambient,
+                )
+        diagonal = np.maximum(diagonal, 1e-20)
+        diagonal[inlet] = 1.0
+        rhs[inlet] = inlet_temperature[inlet]
+        rows.append(index.reshape(-1))
+        columns.append(index.reshape(-1))
+        values.append(diagonal.reshape(-1))
+        csr = scipy.sparse.csr_matrix(
+            (np.concatenate(values), (np.concatenate(rows), np.concatenate(columns))),
+            shape=(count, count), dtype=float,
+        )
+        csr.sort_indices()
+        rhs = rhs.reshape(-1)
         compute = self.compute_backend.solve(csr, rhs, system_kind="GENERAL")
         self._last_compute = compute.metadata
         temperatures = compute.values.reshape(shape)
