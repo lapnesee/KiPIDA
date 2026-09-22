@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 import unittest
 from unittest.mock import patch
 
@@ -72,6 +73,29 @@ class ComputeBackendTests(unittest.TestCase):
             backend.solve(coo, self.rhs, cache_key="thermal", matrix_values_static=True)
         self.assertTrue(scipy.sparse.isspmatrix_coo(solve_cuda.call_args.args[0]))
 
+
+    def test_thread_limit_enumerates_native_libraries_once(self):
+        # P02 Rev E, 2026-09-22: threadpool_limits() re-enumerated the native
+        # libraries on every solve, 6.7 ms each, 3.5 s over the 523 sparse
+        # solves of the enclosure CFD.
+        import compute_backend
+
+        created = []
+
+        class FakeController:
+            def __init__(self):
+                created.append(self)
+
+            def limit(self, limits):
+                return nullcontext()
+
+        with patch.object(compute_backend, "ThreadpoolController", FakeController),                 patch.object(compute_backend, "_THREADPOOL_CONTROLLER", None):
+            for _ in range(3):
+                SparseComputeBackend(
+                    RuntimeComputeSettings(backend="CPU", cpu_multithread=True)
+                ).solve(self.matrix, self.rhs, "SPD")
+
+        self.assertEqual(len(created), 1)
 
 if __name__ == "__main__":
     unittest.main()

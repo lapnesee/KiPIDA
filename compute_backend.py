@@ -15,9 +15,28 @@ except ImportError:
     pypardiso = None
 
 try:
-    from threadpoolctl import threadpool_limits
+    from threadpoolctl import ThreadpoolController
 except ImportError:
-    threadpool_limits = None
+    ThreadpoolController = None
+
+_THREADPOOL_CONTROLLER = None
+
+
+def _thread_limit(threads):
+    """Cap native BLAS/OpenMP threads for one solve.
+
+    threadpool_limits() enumerates every loaded native library on each call,
+    6.7 ms on the plugin's interpreter: 523 sparse solves in P02's enclosure
+    CFD paid 3.5 s for it. The controller does that enumeration once, on the
+    first solve, when numpy, SciPy and Pardiso are already loaded, and each
+    limit then costs about 20 us.
+    """
+    global _THREADPOOL_CONTROLLER
+    if ThreadpoolController is None:
+        return nullcontext()
+    if _THREADPOOL_CONTROLLER is None:
+        _THREADPOOL_CONTROLLER = ThreadpoolController()
+    return _THREADPOOL_CONTROLLER.limit(limits=threads)
 
 try:
     from .runtime_config import RuntimeComputeSettings
@@ -208,7 +227,7 @@ class SparseComputeBackend:
     def _solve_many_cpu(self, matrix, right_hand_sides):
         """One splu factorisation applied to every right-hand side."""
         threads = self._cpu_threads()
-        context = threadpool_limits(limits=threads) if threadpool_limits else nullcontext()
+        context = _thread_limit(threads)
         started = time.perf_counter()
         with context:
             factorized = scipy.sparse.linalg.splu(matrix.tocsc())
@@ -314,7 +333,7 @@ class SparseComputeBackend:
         matrix = scipy.sparse.csr_matrix(matrix, dtype=matrix.dtype)
         matrix.sort_indices()
         threads = self._cpu_threads()
-        context = threadpool_limits(limits=threads) if threadpool_limits else nullcontext()
+        context = _thread_limit(threads)
         started = time.perf_counter()
         solver_method = "DIRECT"
         if matrix.shape[0] > self.DIRECT_SOLVE_MAX_NODES:

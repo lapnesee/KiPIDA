@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed every CPU sparse solve re-enumerating the loaded native libraries
+  to cap their threads: 6.7 ms a call, 3.5 s over the 523 solves of P02 Rev
+  E's enclosure CFD. One controller is now built on the first solve and
+  reused, about 20 us a call; a CFD iteration drops from 24 ms to 17 ms.
 - Fixed the enclosure CFD spending nine tenths of its run assembling the
   energy equation one cell and face at a time into a LIL matrix. On P02
   Rev E at 21:56 the 33 x 20 x 10 mesh took 129 s for 435 iterations,
