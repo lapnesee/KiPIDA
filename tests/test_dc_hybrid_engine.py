@@ -176,6 +176,19 @@ class HybridEngineOnARoute(unittest.TestCase):
         self.assertAlmostEqual(density.maximum_track_a_per_mm2, 1.0 / (0.5 * 0.035), places=6)
         self.assertAlmostEqual(density.maximum_via_current_a, 1.0, places=9)
 
+    def test_the_board_solved_is_the_one_captured_not_the_one_saved_since(self):
+        # P02 Rev E was saved at 15:37 during a campaign captured at 15:29: the
+        # DC domain solved the earlier file, the coupled thermal's DC the later.
+        from dataclasses import replace
+
+        from application.dc_controller import HybridDCSolverEngine
+
+        captured = TWO_LAYER_ROUTE.replace("PAD", "0").replace("VIA", "0")
+        request = replace(_request(self.path, [_rail(1.0)]), board_file_text=captured)
+        results, _logs = _solve(HybridDCSolverEngine(), request)
+        expected = 1.0 * _route_resistance(20.0)   # the bare route, not the landed one on disk
+        self.assertAlmostEqual(results["VCC"]["load_drop_v"], expected, delta=1e-6 * expected)
+
     def test_a_run_without_a_board_path_is_refused(self):
         from application.dc_controller import HybridDCSolverEngine
 

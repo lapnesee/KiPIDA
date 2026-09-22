@@ -100,6 +100,11 @@ class DCRunRequest:
     # step and record how far their worst-load drop moves (_grid_sensitivity).
     # Off for the DC solves a thermal or CFD run makes for its copper losses.
     grid_sensitivity_check: bool = False
+    # The saved board as it was when the live board was captured. The hybrid
+    # engine used to read the file when it ran: P02 Rev E was saved at 15:37
+    # during a campaign captured at 15:29, and its DC domain and the coupled
+    # thermal's DC solved two different boards.
+    board_file_text: Optional[str] = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -298,7 +303,18 @@ def prepare_dc_request(
         board_path=(None if board_path is None else str(board_path)),
         track_summary_by_rail=track_summary_by_rail,
         grid_sensitivity_check=bool(grid_sensitivity_check),
+        board_file_text=_saved_board_text(board_path),
     )
+
+
+def _saved_board_text(board_path):
+    """The saved board file's content now, or None when it cannot be read."""
+    if not board_path:
+        return None
+    try:
+        return Path(board_path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
 
 
 def _sorted_rails(rails):
@@ -995,8 +1011,12 @@ class HybridDCSolverEngine(DCSolverEngine):
                 "does not know where the board was loaded from."
             )
         started = time.perf_counter()
+        text = getattr(request, "board_file_text", None)
         try:
-            board = self._board_reader(Path(request.board_path))
+            board = (
+                self._board_reader(Path(request.board_path)) if text is None
+                else self._board_reader(Path(request.board_path), text=text)
+            )
         except (OSError, ValueError, UnicodeDecodeError) as exc:
             raise BoardFileUnreadable(
                 f"{Path(request.board_path).name} could not be read: {exc}"

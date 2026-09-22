@@ -185,14 +185,18 @@ class ParsedBoard:
         return nets
 
 
-def read_board(pcb_path: Path) -> ParsedBoard:
+def read_board(pcb_path: Path, text: str | None = None) -> ParsedBoard:
     """Parse a .kicad_pcb file and return a ParsedBoard.
+
+    *text* is the file's content when the caller read it earlier, so that a
+    board saved again since is not the one parsed.
 
     Raises :class:`~ingest.file_format.UnsupportedFileFormat` (a ValueError)
     for a board saved by KiCad 7 or earlier.
     """
     pcb_path = Path(pcb_path)
-    text = pcb_path.read_text(encoding="utf-8")
+    if text is None:
+        text = pcb_path.read_text(encoding="utf-8")
     roots = parse(text)
     if not roots or not isinstance(roots[0], list):
         raise ValueError(f"Cannot parse {pcb_path}: no root node found")

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed a campaign solving two versions of the saved board. The hybrid DC
+  engine read the .kicad_pcb when it ran, not when the run was captured:
+  on P02 Rev E, saved at 15:37 during a campaign captured at 15:29 whose AC
+  sweep took 12 minutes, the DC domain solved the earlier file and the
+  coupled thermal's DC the later one. The saved file is now read with the
+  live board, and every DC solve of the run parses that capture.
 - Changed SI-DIFF-001 to state the pair's impedance against its target and
   to recommend the geometry the recommender solved for. It gave the 3-D
   refinement's notes alone, whose "2-D impedance error 14.6%" read as the
