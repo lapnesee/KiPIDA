@@ -567,34 +567,43 @@ class CampaignEngine:
         return next((reason for reason, ours, theirs in checks if ours != theirs), "")
 
     def _share_dc_results(self, request, system_results, emit_log) -> None:
-        """Hand the DC result to the thermal and CFD runs that need copper losses.
+        """Hand the DC result to the thermal and CFD runs that need it.
 
         Both used to solve the same DC again from their own capture of the same
         board, in the same campaign, for the same losses. A coupled thermal run
-        keeps its own solves: it iterates the DC against the temperature field.
-        A run whose capture differs from the DC domain's -- other rails, grid
-        or board file -- solves its own, and the log says why.
+        takes it too: its first pass is the ambient DC this result already is,
+        and the iterations that follow re-solve against the temperature field
+        from the same meshes, which they only read. On P02 Rev E that pass was
+        87 s of a 349 s campaign. A run whose capture differs from the DC
+        domain's -- other rails, grid or board file -- solves its own, and the
+        log says why.
         """
         if not system_results:
             return
         dc_request = request.domain_requests.get("DC")
         for analysis_id in ("THERMAL", "CFD"):
             pending = request.domain_requests.get(analysis_id)
+            if pending is None:
+                continue
             settings = getattr(pending, "settings", None)
-            if (
-                pending is None or getattr(pending, "coupled", False)
-                or not getattr(settings, "include_dc_copper_losses", False)
+            # A coupled run needs the DC whatever its copper-loss setting says.
+            if not (
+                getattr(pending, "coupled", False)
+                or getattr(settings, "include_dc_copper_losses", False)
             ):
                 continue
             mismatch = self._dc_capture_mismatch(dc_request, getattr(pending, "dc_request", None))
             if mismatch:
-                emit_log(f"{analysis_id} solves its own DC for copper losses: {mismatch}.")
+                emit_log(f"{analysis_id} solves its own DC: {mismatch}.")
                 continue
             request.domain_requests[analysis_id] = replace(
                 pending, _dc_results=system_results,
                 _dc_results_source="this campaign's DC result",
             )
             emit_log(
+                f"{analysis_id} starts its coupling from this campaign's DC result "
+                "rather than solving the ambient DC again."
+                if getattr(pending, "coupled", False) else
                 f"{analysis_id} will take its copper losses from this campaign's DC "
                 "result rather than solving the DC again."
             )

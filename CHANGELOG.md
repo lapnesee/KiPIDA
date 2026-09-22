@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Changed a campaign's coupled thermal run to start from the DC result the
+  campaign has just solved. It solved the same rails again from its own
+  capture of the same board file: on P02 Rev E, 17 rails and 87 s of a 349 s
+  campaign, for meshes the coupling only reads before re-solving them against
+  the temperature field. The handover existed for an uncoupled run and
+  skipped the coupled one; a capture that differs -- other rails, another
+  grid or another board file -- still solves its own, and the log says which.
 - Changed the AC sweep to reuse one sparse LU factorisation across
   frequencies, and AUTO to keep sweeps on the CPU. On P02 Rev E (85,337
   nodes, 121 points) AUTO sent the sweep to CUDA, whose Jacobi-preconditioned

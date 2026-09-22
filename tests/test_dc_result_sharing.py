@@ -1,8 +1,9 @@
-"""A campaign solves the DC once; thermal and CFD take their copper losses from it.
+"""A campaign solves the DC once; thermal and CFD take it from there.
 
 Both used to solve the same DC again from their own capture of the same board
-in the same campaign, for the same losses (audit R8). The electro-thermal
-coupling keeps its own solves, and a capture that differs keeps its own.
+in the same campaign, for the same losses (audit R8). A coupled run takes it
+too, as the ambient pass its iterations start from -- 87 s of a 349 s campaign
+on P02 Rev E. A capture that differs keeps its own solve.
 """
 
 import os
@@ -62,7 +63,7 @@ class _NoDC:
 
 
 class ThermalTakesAHandedOverResult(unittest.TestCase):
-    def _engine(self, seen):
+    def _engine(self, seen, coupled=None):
         from application.thermal_controller import ThermalSolverEngine
 
         class Mesher:
@@ -81,7 +82,10 @@ class ThermalTakesAHandedOverResult(unittest.TestCase):
                 return "thermal result"
 
         _NoDC.calls = 0
-        return ThermalSolverEngine(dc_engine_factory=_NoDC, mesher_factory=Mesher, solver_factory=Solver)
+        factories = {"coupled_solver_factory": coupled} if coupled else {}
+        return ThermalSolverEngine(
+            dc_engine_factory=_NoDC, mesher_factory=Mesher, solver_factory=Solver, **factories,
+        )
 
     def test_the_handed_over_result_is_used_and_named(self):
         from application.thermal_controller import ThermalRunRequest
@@ -97,6 +101,32 @@ class ThermalTakesAHandedOverResult(unittest.TestCase):
         self.assertAlmostEqual(seen["losses"][0].power_w, 0.25)
         self.assertEqual(outcome.copper_loss_source, "this campaign's DC result (hybrid mesh)")
         self.assertTrue(any("not solved again" in line for line in logs))
+
+    def test_a_coupled_run_couples_from_the_handed_over_result(self):
+        from application.thermal_controller import ThermalRunRequest
+
+        seen, logs = {}, []
+
+        class Coupled:
+            def __init__(self, **_kwargs):
+                pass
+
+            def solve(self, _mesh, _settings, rail_contexts, progress_callback=None, rails=None):
+                seen["contexts"] = dict(rail_contexts)
+                return SimpleNamespace(thermal="coupled result")
+
+        request = ThermalRunRequest(
+            settings=_settings(include_losses=False), board_model=_BoardModel(),
+            dc_request=None, coupled=True,
+            _dc_results=_dc_results(), _dc_results_source="this campaign's DC result",
+        )
+        outcome = self._engine(seen, Coupled).solve(
+            request, logs.append, lambda *_: None, lambda: False,
+        )
+        self.assertEqual(_NoDC.calls, 0, "the ambient DC must not be solved twice")
+        self.assertEqual(list(seen["contexts"]), ["VCC"])
+        self.assertEqual(outcome.result, "coupled result")
+        self.assertTrue(any("coupling starts from" in line for line in logs))
 
     def test_without_one_the_run_solves_and_says_so(self):
         from application.thermal_controller import ThermalRunRequest
@@ -196,13 +226,27 @@ class CampaignHandsTheDCResultOver(unittest.TestCase):
         self.assertEqual(received._dc_results_source, "this campaign's DC result")
         self.assertTrue(any("THERMAL will take its copper losses" in line for line in logs))
 
-    def test_a_coupled_run_keeps_its_own_solves(self):
+    def test_a_coupled_run_starts_from_the_campaign_result(self):
+        # Its ambient pass is the solve the DC domain just ran on the same
+        # capture: 87 s of the 349 s P02 Rev E campaign, solved twice.
         from application.thermal_controller import ThermalRunRequest
 
-        _results, received, _logs = self._run(ThermalRunRequest(
-            settings=_settings(), board_model=_BoardModel(), dc_request=_dc_request(), coupled=True,
+        results, received, logs = self._run(ThermalRunRequest(
+            settings=_settings(include_losses=False), board_model=_BoardModel(),
+            dc_request=_dc_request(), coupled=True,
+        ))
+        self.assertIs(received._dc_results, results)
+        self.assertTrue(any("starts its coupling" in line for line in logs))
+
+    def test_a_coupled_run_whose_capture_differs_keeps_its_own_solve(self):
+        from application.thermal_controller import ThermalRunRequest
+
+        _results, received, logs = self._run(ThermalRunRequest(
+            settings=_settings(), board_model=_BoardModel(),
+            dc_request=_dc_request(grid=0.25), coupled=True,
         ))
         self.assertIsNone(received._dc_results)
+        self.assertTrue(any("solves its own DC" in line and "grid" in line for line in logs))
 
     def test_a_different_capture_solves_its_own_and_the_log_says_why(self):
         from application.thermal_controller import ThermalRunRequest

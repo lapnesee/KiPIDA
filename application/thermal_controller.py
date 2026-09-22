@@ -36,9 +36,9 @@ class ThermalRunRequest:
     air_velocity_m_s: Optional[float] = None
     # A DC result to take copper losses from instead of solving the DC again,
     # and what it is -- a campaign hands over the one its DC domain produced
-    # on the same capture. Ignored by a coupled run, which iterates its own
-    # DC solves. Private: dc_request already determines it, so the campaign
-    # cache digest leaves it out rather than hashing meshes.
+    # on the same capture. A coupled run takes it as the ambient pass its
+    # iterations start from. Private: dc_request already determines it, so the
+    # campaign cache digest leaves it out rather than hashing meshes.
     _dc_results: Optional[Dict[str, Any]] = None
     _dc_results_source: str = ""
 
@@ -154,13 +154,19 @@ class ThermalSolverEngine:
         system_results = {}
         copper_loss_source = ""
         handed_over = getattr(request, "_dc_results", None)
-        if not request.coupled and request.settings.include_dc_copper_losses and handed_over is not None:
+        needs_dc = request.coupled or request.settings.include_dc_copper_losses
+        if needs_dc and handed_over:
             system_results = handed_over
-            copper_loss_source = describe_dc_source(
-                system_results, request._dc_results_source or "a DC result handed to this run",
-            )
-            emit(f"Copper losses taken from {copper_loss_source}; the DC is not solved again.")
-        elif request.coupled or request.settings.include_dc_copper_losses:
+            source = request._dc_results_source or "a DC result handed to this run"
+            if request.coupled:
+                # The coupling's first pass is the ambient DC this result
+                # already is; every iteration after it re-solves the same
+                # meshes against the temperature field, reading them only.
+                emit(f"The coupling starts from {source}; the ambient DC is not solved again.")
+            else:
+                copper_loss_source = describe_dc_source(system_results, source)
+                emit(f"Copper losses taken from {copper_loss_source}; the DC is not solved again.")
+        elif needs_dc:
             if request.dc_request is None:
                 raise ValueError("The thermal run is missing its captured DC request.")
             emit("Running fresh DC analysis from the captured live-PCB snapshot.")
