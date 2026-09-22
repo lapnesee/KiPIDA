@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Changed the AC sweep to reuse one sparse LU factorisation across
+  frequencies, and AUTO to keep sweeps on the CPU. On P02 Rev E (85,337
+  nodes, 121 points) AUTO sent the sweep to CUDA, whose Jacobi-preconditioned
+  BiCGSTAB stopped at status=5000, and the fallback stamped and factorised
+  the network afresh at every point: 733 s. The matrix is now stamped from
+  index arrays, anchored symmetrically, and each point solved by GMRES
+  preconditioned by the LU of an earlier one, refactorised once GMRES needs
+  more than 12 iterations. On a 94,000-node network built like P02's the
+  sweep takes 42 s with 4 factorisations for 121 points and agrees with a
+  direct solve to 1e-10 where both ran; the GPU took 2.3 to 3.9 s a point.
+  Forcing CUDA still sweeps on the GPU; cuda_min_nodes_sweep is retired.
 - Changed the AC target of a rail that feeds converters to count their
   input current. The target followed from the rail's own loads only, so a
   rail that supplies converters and nothing else had none: P02 Rev E's

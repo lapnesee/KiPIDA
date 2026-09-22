@@ -1,10 +1,11 @@
 """The AC sweep may use the GPU only if it proves it agrees with the CPU.
 
-The CPU path is a direct factorisation; the CUDA path is iterative BiCGSTAB.
-They do not share an error profile, so the first frequency that genuinely
-runs on the GPU is solved both ways and compared before the remaining points
-inherit that trust. These tests drive that logic with stand-in backends --
-CuPy is absent here, so the real CUDA branch cannot be executed.
+The CPU path is a factorisation; the CUDA path is iterative BiCGSTAB. They
+do not share an error profile, so the first frequency that genuinely runs on
+the GPU is solved both ways and compared before the remaining points inherit
+that trust. Only a forced CUDA backend reaches the GPU. These tests drive
+that logic with stand-in backends -- CuPy is absent here, so the real CUDA
+branch cannot be executed.
 """
 
 import os
@@ -29,7 +30,7 @@ class _GpuBackend:
     """Reports CUDA and returns a rail voltage the test controls."""
 
     def __init__(self, rail_voltage, verify=True):
-        self.settings = SimpleNamespace(backend="AUTO", verify_gpu_accuracy=verify)
+        self.settings = SimpleNamespace(backend="CUDA", verify_gpu_accuracy=verify)
         self.rail_voltage = rail_voltage
         self.calls = 0
 
@@ -92,7 +93,7 @@ class GpuAccuracyGuardTests(unittest.TestCase):
 
         result = solver.solve_sweep(self._network(), self._settings())
 
-        self.assertEqual(gpu.settings.backend, "AUTO")
+        self.assertEqual(gpu.calls, 3, "every point stays on the GPU")
         self.assertEqual(cpu.calls, 1, "the audit must run exactly once")
         self.assertIn("passed", result.gpu_accuracy_check)
         self.assertEqual(result.compute_backend, "CUDA_CUPY")
@@ -105,11 +106,13 @@ class GpuAccuracyGuardTests(unittest.TestCase):
 
         result = solver.solve_sweep(self._network(), self._settings())
 
-        self.assertEqual(gpu.settings.backend, "CPU")
+        self.assertEqual(gpu.calls, 1, "the GPU must not be used after failing")
+        self.assertEqual(gpu.settings.backend, "CUDA", "the user's choice is not rewritten")
         self.assertIn("failed", result.gpu_accuracy_check)
         self.assertIn("disagree by", result.gpu_accuracy_check)
         # The direct solve is the reference, so its answer is the one kept.
-        self.assertAlmostEqual(abs(result.impedance_ohm[0]), 0.1, places=9)
+        for impedance in result.impedance_ohm:
+            self.assertAlmostEqual(abs(impedance), 0.1, places=9)
 
     def test_metadata_names_the_transition_rather_than_one_end_of_it(self):
         gpu = _GpuBackend(0.101 + 0.0j)
@@ -118,7 +121,7 @@ class GpuAccuracyGuardTests(unittest.TestCase):
 
         result = solver.solve_sweep(self._network(), self._settings())
 
-        self.assertEqual(result.compute_backend, "CUDA_CUPY -> CPU_SCIPY")
+        self.assertEqual(result.compute_backend, "CUDA_CUPY -> CPU_SCIPY_LU_GMRES")
 
     def test_disabling_verification_skips_the_second_solve(self):
         gpu = _GpuBackend(0.101 + 0.0j, verify=False)
@@ -128,7 +131,7 @@ class GpuAccuracyGuardTests(unittest.TestCase):
         result = solver.solve_sweep(self._network(), self._settings())
 
         self.assertEqual(cpu.calls, 0, "no audit means no reference solve")
-        self.assertEqual(gpu.settings.backend, "AUTO")
+        self.assertEqual(gpu.calls, 3)
         self.assertIn("skipped", result.gpu_accuracy_check)
 
     def test_a_cpu_only_sweep_is_never_audited(self):

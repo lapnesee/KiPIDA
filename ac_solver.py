@@ -14,10 +14,10 @@ except ImportError:
 
 try:
     from .models import ACAnalysisSettings, ImpedanceSweepResult
-    from .compute_backend import SparseComputeBackend
+    from .compute_backend import ComputeMetadata, SparseComputeBackend
 except (ImportError, ValueError):
     from models import ACAnalysisSettings, ImpedanceSweepResult
-    from compute_backend import SparseComputeBackend
+    from compute_backend import ComputeMetadata, SparseComputeBackend
 
 
 # Relative disagreement between the GPU and CPU solutions of the same system
@@ -26,16 +26,205 @@ except (ImportError, ValueError):
 # the part-per-million level is what "as accurate as CPU" has to mean here.
 GPU_ACCURACY_TOLERANCE = 1.0e-6
 
+# The CPU sweep: SciPy's SuperLU factorisation, reused as a GMRES
+# preconditioner across neighbouring frequencies.
+RECYCLED_LU_BACKEND = "CPU_SCIPY_LU_GMRES"
+# GMRES iterations past which a factorisation carried over from an earlier
+# frequency is replaced at the next point. Each iteration costs a pair of
+# triangular solves; a dozen of them approach the price of a fresh
+# factorisation spread over the points it then serves.
+LU_REFRESH_ITERATIONS = 12
+# Krylov space per GMRES restart, and the restarts allowed before a carried
+# factorisation is abandoned for the current point.
+GMRES_RESTART = 20
+GMRES_MAX_RESTARTS = 3
+
+
+class _NetworkStamps:
+    """The network's nodal admittance matrix, stamped at any frequency.
+
+    Stamping element by element into a LIL matrix took 2.8 s per frequency
+    on a 94,000-node network: a Python loop over 187,000 branches, repeated
+    at every point of the sweep. The topology does not depend on frequency,
+    so it is laid out once as index arrays and each point only evaluates
+    the admittances, which takes NumPy milliseconds.
+
+    An anchored node is pinned to zero volts by an identity row *and*
+    column. Its voltage is zero, so dropping the column changes no solution,
+    and it keeps the matrix complex symmetric, which the factorisation in
+    :class:`_RecycledLUSolver` relies on.
+    """
+
+    def __init__(self, network, lumped_elements, anchors):
+        branches = network.branches
+        count = len(branches)
+        self.node_count = int(network.node_count)
+        end_a = [np.fromiter((branch.node_a for branch in branches), dtype=np.int64, count=count)]
+        end_b = [np.fromiter((branch.node_b for branch in branches), dtype=np.int64, count=count)]
+        self.resistance = np.maximum(np.fromiter(
+            (float(branch.resistance_ohm) for branch in branches), dtype=float, count=count,
+        ), 1e-15)
+        self.inductance = np.maximum(np.fromiter(
+            (float(branch.inductance_h) for branch in branches), dtype=float, count=count,
+        ), 0.0)
+        # A lumped element (the source, a capacitor) spreads its admittance
+        # evenly over every rail/return node pair it connects.
+        self.impedances = []
+        owner, share = [], []
+        for connection, impedance in lumped_elements:
+            rail = np.asarray(connection.rail_nodes, dtype=np.int64)
+            ground = np.asarray(connection.ground_nodes, dtype=np.int64)
+            if rail.size == 0 or ground.size == 0:
+                continue
+            pairs = rail.size * ground.size
+            end_a.append(np.repeat(rail, ground.size))
+            end_b.append(np.tile(ground, rail.size))
+            owner.append(np.full(pairs, len(self.impedances), dtype=np.int64))
+            share.append(np.full(pairs, 1.0 / pairs))
+            self.impedances.append(impedance)
+        self.lumped_owner = np.concatenate(owner) if owner else np.zeros(0, dtype=np.int64)
+        self.lumped_share = np.concatenate(share) if share else np.zeros(0)
+
+        end_a = np.concatenate(end_a)
+        end_b = np.concatenate(end_b)
+        rows = np.concatenate([end_a, end_b, end_a, end_b])
+        cols = np.concatenate([end_a, end_b, end_b, end_a])
+        self.anchors = np.unique(np.asarray(list(anchors), dtype=np.int64))
+        pinned = np.zeros(self.node_count, dtype=bool)
+        pinned[self.anchors] = True
+        self.keep = ~(pinned[rows] | pinned[cols])
+        self.rows = np.concatenate([rows[self.keep], self.anchors])
+        self.cols = np.concatenate([cols[self.keep], self.anchors])
+
+    def matrix(self, frequency):
+        """The anchored admittance matrix at *frequency*, in CSC form."""
+        omega = 2.0 * np.pi * frequency
+        lumped = np.array(
+            [1.0 / impedance(frequency) for impedance in self.impedances],
+            dtype=np.complex128,
+        )
+        admittance = np.concatenate([
+            1.0 / (self.resistance + 1j * omega * self.inductance),
+            lumped[self.lumped_owner] * self.lumped_share,
+        ])
+        stamped = np.concatenate([admittance, admittance, -admittance, -admittance])
+        data = np.concatenate([
+            stamped[self.keep], np.ones(self.anchors.size, dtype=np.complex128),
+        ])
+        return scipy.sparse.coo_matrix(
+            (data, (self.rows, self.cols)), shape=(self.node_count, self.node_count),
+        ).tocsc()
+
+
+class _RecycledLUSolver:
+    """Solves the points of a sweep with one LU carried between frequencies.
+
+    Neighbouring points of a logarithmic sweep differ by a few percent, so
+    the LU of one is a near-inverse of the next: GMRES preconditioned by it
+    converges in a handful of iterations, each a pair of triangular solves,
+    where a fresh factorisation costs seconds. The LU is refreshed once GMRES
+    needs more than LU_REFRESH_ITERATIONS, and every answer, on a carried or
+    a fresh LU alike, is accepted only after GMRES has driven the true
+    residual under the solver tolerance: reuse changes the cost, never the
+    accuracy.
+    """
+
+    def __init__(self, rtol):
+        self.rtol = float(rtol)
+        self.factorizations = 0
+        self.iterations = 0
+        self._lu = None
+        self._refresh = False
+
+    @staticmethod
+    def _factorize(matrix, pivoting):
+        if pivoting:
+            return scipy.sparse.linalg.splu(matrix)
+        # The anchored matrix is complex symmetric, and its real part -- the
+        # conductances -- is positive definite once every element has some
+        # resistance, so no pivot can vanish: SuperLU may keep a symmetric
+        # fill-reducing order instead of pivoting across it. A pivot small
+        # enough to cost accuracy fails the residual test and sends the point
+        # to the pivoting factorisation.
+        return scipy.sparse.linalg.splu(
+            matrix, permc_spec="MMD_AT_PLUS_A", diag_pivot_thresh=0.0,
+            options={"SymmetricMode": True},
+        )
+
+    def _iterate(self, matrix, right_hand_sides):
+        """GMRES on every right-hand side against the current LU.
+
+        Returns ``(solutions or None, iterations spent, most one needed)``.
+        """
+        preconditioner = scipy.sparse.linalg.LinearOperator(
+            matrix.shape, matvec=self._lu.solve, dtype=matrix.dtype,
+        )
+        solutions, spent, most = [], 0, 0
+        for rhs in right_hand_sides:
+            count = [0]
+
+            def counted(_residual):
+                count[0] += 1
+
+            values, status = scipy.sparse.linalg.gmres(
+                matrix, rhs, M=preconditioner, rtol=self.rtol, atol=0.0,
+                restart=GMRES_RESTART, maxiter=GMRES_MAX_RESTARTS,
+                callback=counted, callback_type="pr_norm",
+            )
+            spent += count[0]
+            most = max(most, count[0])
+            if status != 0 or not np.all(np.isfinite(values)):
+                return None, spent, most
+            solutions.append(values)
+        return solutions, spent, most
+
+    def solve(self, matrix, right_hand_sides):
+        """Solutions for every right-hand side at one frequency, and metadata."""
+        started = time.perf_counter()
+        spent = 0
+        reused = False
+        solutions = None
+        if self._lu is not None and not self._refresh:
+            solutions, spent, most = self._iterate(matrix, right_hand_sides)
+            reused = solutions is not None
+            self._refresh = reused and most > LU_REFRESH_ITERATIONS
+        if solutions is None:
+            for pivoting in (False, True):
+                self._lu = self._factorize(matrix, pivoting)
+                self.factorizations += 1
+                self._refresh = False
+                solutions, extra, _most = self._iterate(matrix, right_hand_sides)
+                spent += extra
+                if solutions is not None:
+                    break
+            else:
+                raise RuntimeError(
+                    "the LU-preconditioned GMRES solve did not reach a relative "
+                    f"residual of {self.rtol:g}, even on a pivoting factorisation."
+                )
+        self.iterations += spent
+        residual = max(
+            float(np.linalg.norm(matrix.dot(values) - rhs))
+            / max(float(np.linalg.norm(rhs)), 1.0e-30)
+            for values, rhs in zip(solutions, right_hand_sides)
+        )
+        return solutions, ComputeMetadata(
+            backend=RECYCLED_LU_BACKEND,
+            solve_seconds=time.perf_counter() - started,
+            relative_residual=residual,
+            iterations=max(1, spent),
+            matrix_reused=reused,
+            solver_method="LU_GMRES",
+        )
+
 
 class ACSolver:
     def __init__(self, debug=False, log_callback=None, compute_settings=None):
         self.debug = debug
         self.log_callback = log_callback
-        # Every solve this class performs is part of a sweep, so the backend is
-        # built against the sweep threshold rather than the single-solve one.
-        self.compute_backend = SparseComputeBackend(
-            self.sweep_compute_settings(compute_settings), log_callback,
-        )
+        # Consulted only when CUDA is forced: every other sweep runs on the
+        # recycled CPU factorisation (see _cuda_forced).
+        self.compute_backend = SparseComputeBackend(compute_settings, log_callback)
         # Built on demand, and only to audit a GPU answer against a direct
         # factorisation. Exposed as an attribute so a test can inject one.
         self._cpu_reference_backend = None
@@ -63,32 +252,65 @@ class ACSolver:
             )
         return self._cpu_reference_backend
 
-    @staticmethod
-    def sweep_compute_settings(settings):
-        """Settings judging CUDA by the sweep threshold, on a copy.
+    def _cuda_forced(self):
+        """Whether this sweep runs on the GPU: only when CUDA is forced.
 
-        ``cuda_min_nodes`` is the single-solve bar. A frequency sweep solves a
-        same-sized system at every point against a resident matrix, so its
-        break-even node count is far lower and lives in
-        ``cuda_min_nodes_sweep``. Returning a copy matters: the caller's
-        settings object is shared with the DC and thermal paths, which are
-        single solves and must keep the stricter bar.
-
-        Returns *settings* unchanged when there is nothing to swap -- a
-        stand-in object without the field, or an explicit CPU/CUDA choice,
-        which is the user's to make and not ours to reinterpret.
+        AUTO used to send a sweep to CUDA above a node threshold. On P02 Rev E
+        (85,337 nodes) the GPU's Jacobi-preconditioned BiCGSTAB ran out of
+        iterations (status=5000) and the run fell back to one direct solve
+        per point: 733 s for 121 points. The recycled factorisation beats
+        the GPU even where the GPU converges: on a synthetic 94,000-node
+        network built like P02's, 0.35 s a point against 2.3-3.7 s for
+        BiCGSTAB and 3.9 s for GMRES preconditioned by the same LU on the
+        GPU, whose triangular solves are the slow part. AUTO therefore keeps
+        sweeps on the CPU.
         """
-        if settings is None or getattr(settings, "backend", "") != "AUTO":
-            return settings
-        sweep_minimum = getattr(settings, "cuda_min_nodes_sweep", None)
-        if sweep_minimum is None:
-            return settings
-        try:
-            return replace(settings, cuda_min_nodes=int(sweep_minimum))
-        except TypeError:
-            # Not a dataclass (tests use stand-ins); leave it alone rather
-            # than mutating an object we do not own.
-            return settings
+        settings = getattr(self.compute_backend, "settings", None)
+        return str(getattr(settings, "backend", "") or "").upper() == "CUDA"
+
+    def _solver_rtol(self):
+        settings = getattr(self.compute_backend, "settings", None)
+        return float(getattr(settings, "solver_rtol", 1.0e-8) or 1.0e-8)
+
+    @staticmethod
+    def _frequencies(settings):
+        return np.logspace(
+            np.log10(settings.frequency_start_hz),
+            np.log10(settings.frequency_stop_hz),
+            int(settings.frequency_points),
+        )
+
+    def _stamps(self, network, settings, capacitors, anchors):
+        """The network's stamps: its branches, source and enabled capacitors."""
+        source_resistance = max(float(settings.source.resistance_ohm), 1e-9)
+        source_inductance = max(0.0, float(settings.source.inductance_h))
+        lumped = [(
+            network.source,
+            lambda frequency: complex(
+                source_resistance, 2.0 * np.pi * frequency * source_inductance,
+            ),
+        )]
+        for capacitor in capacitors:
+            if not capacitor.enabled or capacitor.capacitance_f <= 0:
+                continue
+            connection = network.capacitor_nodes.get(capacitor.ref_des)
+            if connection is None:
+                continue
+            lumped.append((
+                connection,
+                lambda frequency, capacitor=capacitor: self.capacitor_impedance(
+                    capacitor, frequency,
+                ),
+            ))
+        return _NetworkStamps(network, lumped, anchors)
+
+    def _log_recycling(self, recycled, points, started):
+        if recycled.factorizations:
+            self._log(
+                f"{points} frequency point(s) solved with {recycled.factorizations} "
+                f"LU factorisation(s) and {recycled.iterations} GMRES iteration(s) "
+                f"in {time.perf_counter() - started:.1f} s."
+            )
 
     @staticmethod
     def _measured_impedance(network, voltage):
@@ -143,22 +365,6 @@ class ACSolver:
         omega = 2.0 * np.pi * frequency_hz
         capacitance = max(float(capacitor.capacitance_f), 1e-18)
         return complex(capacitor.esr_ohm, omega * capacitor.esl_h - 1.0 / (omega * capacitance))
-
-    @staticmethod
-    def _stamp_branch(matrix, node_a, node_b, admittance):
-        matrix[node_a, node_a] += admittance
-        matrix[node_b, node_b] += admittance
-        matrix[node_a, node_b] -= admittance
-        matrix[node_b, node_a] -= admittance
-
-    def _stamp_group_branch(self, matrix, connection, admittance):
-        if not connection.rail_nodes or not connection.ground_nodes:
-            return
-        pairs = len(connection.rail_nodes) * len(connection.ground_nodes)
-        distributed = admittance / pairs
-        for rail_node in connection.rail_nodes:
-            for ground_node in connection.ground_nodes:
-                self._stamp_branch(matrix, rail_node, ground_node, distributed)
 
     @staticmethod
     def _connectivity(network, capacitors):
@@ -245,33 +451,6 @@ class ACSolver:
             raise ValueError("The measurement port is not electrically connected to the AC source.")
         return anchors
 
-    def _assemble(self, network, settings, capacitors, frequency):
-        """Stamp the network at one frequency. Identical for every port."""
-        omega = 2.0 * np.pi * frequency
-        matrix = scipy.sparse.lil_matrix(
-            (network.node_count, network.node_count), dtype=np.complex128,
-        )
-        for branch in network.branches:
-            resistance = max(float(branch.resistance_ohm), 1e-15)
-            impedance = complex(resistance, omega * max(0.0, float(branch.inductance_h)))
-            self._stamp_branch(matrix, branch.node_a, branch.node_b, 1.0 / impedance)
-
-        source_impedance = complex(
-            max(float(settings.source.resistance_ohm), 1e-9),
-            omega * max(0.0, float(settings.source.inductance_h)),
-        )
-        self._stamp_group_branch(matrix, network.source, 1.0 / source_impedance)
-
-        for capacitor in capacitors:
-            if not capacitor.enabled or capacitor.capacitance_f <= 0:
-                continue
-            connection = network.capacitor_nodes.get(capacitor.ref_des)
-            if connection is None:
-                continue
-            impedance = self.capacitor_impedance(capacitor, frequency)
-            self._stamp_group_branch(matrix, connection, 1.0 / impedance)
-        return matrix
-
     @staticmethod
     def _injection(network, connection):
         """Unit current into the rail side of a port and out of its return."""
@@ -330,8 +509,8 @@ class ACSolver:
         the user try combinations by hand.
 
         At one frequency the matrix is the same for every port; only the
-        right-hand side changes. It is therefore factorised once per frequency
-        and applied to each port, rather than re-solving the system N times.
+        right-hand side changes. Every port is therefore solved against the
+        same factorisation, which is itself carried across frequencies.
 
         The returned result is the worst port's sweep, carrying every port's
         sweep in ``per_port_results``, so single-port consumers are unaffected.
@@ -379,47 +558,47 @@ class ACSolver:
                 + (f" ({detail})." if detail else ".")
             )
 
-        frequencies = np.logspace(
-            np.log10(settings.frequency_start_hz),
-            np.log10(settings.frequency_stop_hz),
-            int(settings.frequency_points),
-        )
+        frequencies = self._frequencies(settings)
+        sweep_started = time.perf_counter()
+        stamps = self._stamps(network, settings, capacitors, anchors)
+        order = list(usable)
+        injections = [self._injection(network, usable[ref]) for ref in order]
+        for current in injections:
+            current[stamps.anchors] = 0.0
+        recycled = _RecycledLUSolver(self._solver_rtol())
+        on_gpu = self._cuda_forced()
         per_port = {ref: [] for ref in usable}
         solve_seconds = 0.0
         compute_samples = []
 
         for index, frequency in enumerate(frequencies):
-            matrix = self._assemble(network, settings, capacitors, frequency)
-            injections = {ref: self._injection(network, connection)
-                          for ref, connection in usable.items()}
-            for anchor in anchors:
-                matrix.rows[anchor] = [anchor]
-                matrix.data[anchor] = [1.0 + 0.0j]
-                for current in injections.values():
-                    current[anchor] = 0.0
-
+            matrix = stamps.matrix(frequency)
             started = time.perf_counter()
-            order = list(usable)
             try:
-                solutions = self.compute_backend.solve_many(
-                    matrix.tocsr(), [injections[ref] for ref in order],
-                    system_kind="GENERAL", cache_key=("ac-multiport", id(network)),
-                )
+                if on_gpu:
+                    solved = self.compute_backend.solve_many(
+                        matrix.tocsr(), injections,
+                        system_kind="GENERAL", cache_key=("ac-multiport", id(network)),
+                    )
+                    voltages = [item.values for item in solved]
+                    compute_samples.extend(item.metadata for item in solved)
+                else:
+                    voltages, metadata = recycled.solve(matrix, injections)
+                    compute_samples.append(metadata)
             except Exception as exc:
                 raise ValueError(f"AC solve failed at {frequency:g} Hz: {exc}") from exc
-            for ref, solved in zip(order, solutions):
-                voltage = solved.values
+            for ref, voltage in zip(order, voltages):
                 if not np.all(np.isfinite(voltage)):
                     raise ValueError(f"AC solve produced non-finite values at {frequency:g} Hz.")
                 per_port[ref].append(self._port_voltage(usable[ref], voltage))
-                compute_samples.append(solved.metadata)
             solve_seconds += time.perf_counter() - started
 
             if progress_callback:
                 progress_callback(index + 1, len(frequencies), float(frequency))
+        self._log_recycling(recycled, len(frequencies), sweep_started)
 
-        # Report the backend that actually ran. solve_many falls back to CPU
-        # as a group, so the last sample describes every port at that point.
+        # Report the backend that actually ran. A forced-CUDA group raises
+        # rather than falling back, so the last sample describes every port.
         results = {
             ref: self._summarize(
                 frequencies, impedances, settings, network,
@@ -463,51 +642,35 @@ class ACSolver:
         if not network.source.rail_nodes or not network.source.ground_nodes:
             raise ValueError("AC source is not connected to the network.")
         anchors = self._topology_anchors(network, capacitors)
-        frequencies = np.logspace(
-            np.log10(settings.frequency_start_hz),
-            np.log10(settings.frequency_stop_hz),
-            int(settings.frequency_points),
-        )
+        frequencies = self._frequencies(settings)
+        sweep_started = time.perf_counter()
+        stamps = self._stamps(network, settings, capacitors, anchors)
+        # Anchored nodes sit at zero volts, removing the arbitrary common-mode
+        # potential of every island.
+        current = self._injection(network, network.measurement)
+        current[stamps.anchors] = 0.0
+        recycled = _RecycledLUSolver(self._solver_rtol())
+        on_gpu = self._cuda_forced()
         impedances = []
         compute_samples = []
         audited = False
         accuracy_note = ""
 
         for index, frequency in enumerate(frequencies):
-            matrix = self._assemble(network, settings, capacitors, frequency)
-            current = self._injection(network, network.measurement)
-
-            # Fix one return node to zero volts to remove the arbitrary common-mode potential.
-            for anchor in anchors:
-                matrix.rows[anchor] = [anchor]
-                matrix.data[anchor] = [1.0 + 0.0j]
-                current[anchor] = 0.0
-
+            matrix = stamps.matrix(frequency)
             with warnings.catch_warnings():
                 warnings.simplefilter("error", scipy.sparse.linalg.MatrixRankWarning)
                 try:
-                    solved = self.compute_backend.solve(
-                        matrix.tocsr(), current, system_kind="GENERAL",
-                        cache_key=("ac", id(network)), matrix_values_static=False,
-                    )
-                    voltage = solved.values
-                    compute_samples.append(solved.metadata)
-                    if (
-                        solved.metadata.fallback_reason and
-                        self.compute_backend.settings.backend == "AUTO"
-                    ):
-                        # A general complex AC matrix that exhausts the CUDA
-                        # iteration budget is unlikely to improve at the next
-                        # adjacent frequency.  Avoid paying that full failed
-                        # trial at every sweep point; CPU direct solve remains
-                        # the deterministic fallback for the rest of this run.
-                        self.compute_backend.settings.backend = "CPU"
-                        self._log(
-                            "CUDA did not converge for this AC network; continuing "
-                            "the remaining frequency points on CPU."
+                    if on_gpu:
+                        solved = self.compute_backend.solve(
+                            matrix.tocsr(), current, system_kind="GENERAL",
+                            cache_key=("ac", id(network)), matrix_values_static=False,
                         )
-                    elif not audited and str(
-                        getattr(solved.metadata, "backend", "")
+                        voltage, metadata = solved.values, solved.metadata
+                    else:
+                        (voltage,), metadata = recycled.solve(matrix, [current])
+                    if not audited and str(
+                        getattr(metadata, "backend", "")
                     ).upper().startswith("CUDA"):
                         # First point that genuinely ran on the GPU: audit it
                         # against a direct factorisation before letting the
@@ -525,16 +688,18 @@ class ACSolver:
                                 # answer here and drop to CPU for the rest.
                                 if cpu_voltage is not None:
                                     voltage = cpu_voltage
-                                self.compute_backend.settings.backend = "CPU"
+                                on_gpu = False
                         else:
                             accuracy_note = "skipped: verification disabled"
                 except Exception as exc:
                     raise ValueError(f"AC solve failed at {frequency:g} Hz: {exc}") from exc
 
+            compute_samples.append(metadata)
             impedances.append(self._measured_impedance(network, voltage))
 
             if progress_callback:
                 progress_callback(index + 1, len(frequencies), float(frequency))
+        self._log_recycling(recycled, len(frequencies), sweep_started)
 
         if self.debug:
             magnitudes = np.abs(np.asarray(impedances))

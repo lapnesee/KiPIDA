@@ -276,17 +276,16 @@ class UICompatibilityTests(unittest.TestCase):
         self.assertIn("Cancel AC Analysis", source)
         # AUTO used to be rewritten to CPU here before the solver was ever
         # consulted, which put the GPU out of reach for AC whatever the user
-        # selected. It now stays AUTO, guarded by the solver's first-point
-        # accuracy audit, so the rewrite must be gone rather than merely
-        # bypassed.
+        # selected. The solver now makes that choice and forcing CUDA still
+        # reaches the GPU, guarded by its first-point accuracy audit, so the
+        # rewrite must stay gone.
         self.assertNotIn('replace(compute_settings, backend="CPU")', source)
         self.assertIn("verified", source)
-        # The message must report the decision the backend will actually make.
-        # It once announced a CUDA attempt unconditionally, while AUTO silently
-        # stayed on CPU because the network sat below cuda_min_nodes -- a log
-        # asserting something the code was not doing.
-        self.assertIn("cuda_min_nodes", source)
-        self.assertIn("below the", source)
+        # The message must report the decision the solver will actually make.
+        # It once announced a CUDA attempt for any network above a node
+        # threshold; AUTO now sweeps on the recycled CPU factorisation.
+        self.assertIn("reused across neighbouring frequencies", source)
+        self.assertNotIn("cuda_min_nodes_sweep", source)
 
     def test_result_plots_fit_the_available_width_on_first_layout(self):
         source = (PLUGIN_ROOT / "ui" / "interactive_views.py").read_text(

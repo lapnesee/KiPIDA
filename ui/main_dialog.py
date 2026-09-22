@@ -1015,38 +1015,26 @@ class KiPIDA_MainDialog(wx.Dialog):
 
     def _log_ac_backend_decision(self, network, compute_settings):
         """Say which backend the sweep will really use, not which was asked for."""
-        if compute_settings.backend == "AUTO":
-            # AUTO used to be rewritten to CPU here, before the solver had
-            # any say. The backend already handles a complex non-Hermitian
-            # matrix with BiCGSTAB, and the sweep already falls back to CPU
-            # on non-convergence, so let it choose -- guarded by the
-            # first-point accuracy audit.
-            #
-            # Report the decision the backend will actually make rather
-            # than an intention: AUTO only reaches CUDA once the network
-            # clears the threshold, and announcing an attempt that the
-            # node count rules out is how a log starts lying.
-            #
-            # A sweep is judged by cuda_min_nodes_sweep, not the
-            # single-solve cuda_min_nodes, so quote the bar that applies.
-            nodes = int(getattr(network, "node_count", 0) or 0)
-            threshold = int(
-                getattr(compute_settings, "cuda_min_nodes_sweep", None)
-                or getattr(compute_settings, "cuda_min_nodes", 0) or 0
+        # The settings reach the solver unchanged and the solver decides.
+        # Report that decision rather than an intention: announcing a CUDA
+        # attempt the solver never makes is how a log starts lying.
+        nodes = int(getattr(network, "node_count", 0) or 0)
+        if compute_settings.backend == "CUDA":
+            self.log(
+                f"AC backend CUDA (forced): {nodes:,} nodes solved iteratively on the "
+                "GPU at every frequency; the first point is verified against a CPU "
+                "direct solve, and the sweep continues on CPU if they disagree."
             )
-            if nodes >= threshold:
-                self.log(
-                    f"AC backend AUTO: {nodes:,} nodes reaches the {threshold:,}-node "
-                    "CUDA threshold; the first frequency point will be verified "
-                    "against a CPU direct solve, falling back to CPU if they "
-                    "disagree or if CUDA fails to converge."
-                )
-            else:
-                self.log(
-                    f"AC backend AUTO: {nodes:,} nodes is below the {threshold:,}-node "
-                    "CUDA threshold, so this sweep runs on CPU. Force CUDA in Runtime "
-                    "settings to use the GPU and its accuracy audit anyway."
-                )
+            return
+        # AUTO once sent sweeps above a node threshold to the GPU, whose
+        # BiCGSTAB failed to converge on P02 Rev E and was slower than the
+        # recycled factorisation wherever it did converge (see ACSolver).
+        self.log(
+            f"AC backend {compute_settings.backend}: {nodes:,} nodes solved on CPU, "
+            "one sparse LU factorisation reused across neighbouring frequencies "
+            "and refined by GMRES, which is faster here than the GPU's iterative "
+            "solver. Force CUDA in Runtime settings to use the GPU anyway."
+        )
 
     def _start_ac_job(self, optimize=False):
         if not self._ensure_analysis_slot():

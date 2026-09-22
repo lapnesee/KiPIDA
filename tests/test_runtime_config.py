@@ -35,6 +35,19 @@ class RuntimeConfigTests(unittest.TestCase):
             self.assertEqual(loaded.memory_limit_gib, 48.0)
             self.assertEqual(json.loads(path.read_text())["version"], RUNTIME_CONFIG_VERSION)
 
+    def test_a_file_carrying_the_retired_sweep_threshold_still_loads(self):
+        # Files saved while AUTO sent AC sweeps to the GPU above
+        # cuda_min_nodes_sweep still carry that key; the setting is gone.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "runtime.json"
+            path.write_text(json.dumps({"version": "1.2", "compute": {
+                "backend": "AUTO", "cuda_enabled": True, "cuda_min_nodes": 1000,
+                "cuda_min_nodes_sweep": 10000,
+            }}), encoding="utf-8")
+            loaded = load_runtime_settings(path)
+        self.assertTrue(loaded.cuda_enabled)
+        self.assertEqual(loaded.cuda_min_nodes, 1000)
+
     def test_invalid_config_uses_defaults(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "runtime.json"
