@@ -173,6 +173,7 @@ class ElectroThermalSolver:
                     )
         branch_mappings, _, _ = self._prepare_branch_thermal_indices(thermal_mesh, rail_contexts)
         previous_temperatures = np.full(node_count, float(settings.ambient_c), dtype=float)
+        last_solved = None
         dc_results = {}
         converged = False
         thermal_result = None
@@ -251,8 +252,26 @@ class ElectroThermalSolver:
                     (thermal_result.temperatures_c[node] for node in thermal_mesh.nodes),
                     dtype=float, count=node_count,
                 )
-            max_delta = float(np.max(np.abs(current_temperatures - previous_temperatures)))
-            relaxation = max(0.05, min(1.0, float(settings.relaxation)))
+            # The ambient field the loop starts from is a guess, not an iterate:
+            # blending the first solution with it only makes every later delta
+            # measure the relaxation's own lag (0.4**k of the first rise at the
+            # default 0.6) instead of the coupling, so take the first one whole.
+            relaxation = (
+                1.0 if iteration == 0
+                else max(0.05, min(1.0, float(settings.relaxation)))
+            )
+            # Converge on how far the solved field moved, not on its gap to the
+            # relaxed input: that gap shrinks by (1 - relaxation) per iteration
+            # even when the coupling has long settled.  The input only moves by
+            # `relaxation` of the gap, so the solved change understates what is
+            # left by that factor and is scaled back up before the test.
+            if last_solved is None:
+                max_delta = float(np.max(np.abs(current_temperatures - previous_temperatures)))
+                convergence_delta = max_delta
+            else:
+                max_delta = float(np.max(np.abs(current_temperatures - last_solved)))
+                convergence_delta = max_delta / relaxation
+            last_solved = current_temperatures.copy()
             previous_temperatures += relaxation * (current_temperatures - previous_temperatures)
             self._log(
                 f"Iteration {iteration + 1}/{iterations}: max delta {max_delta:.4g} C, "
@@ -261,7 +280,7 @@ class ElectroThermalSolver:
             )
             if progress_callback:
                 progress_callback(iteration + 1, iterations, f"delta={max_delta:.3g} C")
-            if max_delta <= max(1e-6, float(settings.convergence_c)):
+            if convergence_delta <= max(1e-6, float(settings.convergence_c)):
                 converged = True
                 break
 

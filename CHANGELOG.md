@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed the coupled thermal loop iterating on its own relaxation. On P02
+  Rev E at 21:56 the hotspot held at 114.68-114.71 C from the first pass,
+  yet the deltas ran 69.68, 27.89, 11.17 ... 0.046 C, exactly 0.4^k of the
+  first rise over the 45 C ambient: 9 passes and about 18 s spent watching
+  the 0.6 relaxation close a gap the coupling had already closed. The first
+  solution now replaces the ambient guess whole, and convergence is judged
+  on how far the solved field moves between passes, scaled by the
+  relaxation, rather than on its distance to the relaxed input.
 - Fixed a thermal run solving a board KiCad had not sent. While the PCB
   editor synchronises, IPC answers every collection empty: on P02 Rev E at
   21:35 the AC and differential domains refused, but the thermal model was
