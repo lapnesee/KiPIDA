@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed the enclosure CFD never finding a free-stream sample over a flat
+  board. The sampling slab stopped at the board's own thickness along its
+  normal, one layer of cells solid wherever the board is, so no mesh could
+  offer one: P02 Rev E's report at 21:58 blamed a coarse mesh and showed
+  0 m/s. The slab now spans the enclosure above and below the footprint,
+  two cells clear of solids and of the no-slip walls; the same enclosure
+  yields 16 cells.
 - Fixed a buoyant campaign telling the user thermal "keeps its configured
   airflow" after CFD. On P02 Rev E at 21:58 the sealed enclosure ran CFD
   after THERMAL, as it must, so nothing could be handed over; the CFD speed

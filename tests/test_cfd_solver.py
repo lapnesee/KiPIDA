@@ -85,6 +85,28 @@ class TestEnclosureCFDSolver(unittest.TestCase):
         self.assertGreater(float(np.max(temperature)), settings.ambient_c)
         self.assertLess(elapsed, 0.15)
 
+    def test_free_stream_is_sampled_over_and_under_a_flat_board(self):
+        # P02 Rev E, 2026-09-22 21:58: a 1.6 mm board 15 mm up a 165 x 100 x
+        # 50 mm enclosure gave no sample at all -- the slab stopped at the
+        # board's own, solid, layer of cells -- and the report showed 0 m/s.
+        settings = EnclosureCFDSettings()
+        settings.solver.cell_size_mm = 5.0
+        obstacles = [CFDObstacle("PCB", (0, 0, 15, 160, 100, 16.6), 0.6, 0.4)]
+        obstacles += [
+            CFDObstacle(f"U{i}", (10 + 15 * i, 40, 16.6, 16 + 15 * i, 46, 20), 8.0, 0.2)
+            for i in range(10)
+        ]
+        mesh = CFDMeshGenerator().generate_mesh(
+            EnclosureModel((165.0, 100.0, 50.0), obstacles=obstacles), settings,
+        )
+        speed = np.ones(mesh.shape)
+        speed[:, :, -1] = 0.0  # the no-slip lid
+
+        velocity, cells = EnclosureCFDSolver._board_free_stream(mesh, speed)
+
+        self.assertGreater(cells, 0)
+        self.assertEqual(velocity, 1.0)
+
     def test_cancellation_stops_before_iteration(self):
         settings = self._settings()
         model = EnclosureModel((30.0, 30.0, 30.0))

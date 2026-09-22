@@ -672,10 +672,11 @@ class EnclosureCFDSolver:
         where a 5 mm cell is least reliable -- at six cells across a channel the
         solver produced no boundary layer at all.
 
-        So this samples fluid cells at a stand-off of two cells from any solid,
-        restricted to the slab the board occupies. It returns 0.0 rather than a
-        fabricated fallback when the mesh is too coarse to offer such cells,
-        which is the caller's signal to stay with natural convection.
+        So this samples fluid cells at a stand-off of two cells from any solid
+        and from the enclosure walls, over the board's footprint. It returns
+        0.0 rather than a fabricated fallback when the mesh is too coarse to
+        offer such cells, which is the caller's signal to stay with natural
+        convection.
         """
         names = getattr(mesh, "obstacle_names", None)
         if names is None:
@@ -683,21 +684,29 @@ class EnclosureCFDSolver:
         board = np.asarray(names) == "PCB"
         if not np.any(board):
             return 0.0, 0
-        # Dilate the solid mask by two cells; anything still fluid afterwards is
-        # at least two cells clear of every obstacle.
+        # Dilate the solid mask by two cells, the walls included (the True
+        # fill); anything still fluid afterwards is at least two cells clear of
+        # every obstacle and of the no-slip enclosure.
         near_solid = np.asarray(mesh.solid_mask, dtype=bool).copy()
         for _ in range(2):
             grown = near_solid.copy()
             for axis in range(3):
-                grown |= EnclosureCFDSolver._shift(near_solid, axis, 1, False)
-                grown |= EnclosureCFDSolver._shift(near_solid, axis, -1, False)
+                grown |= EnclosureCFDSolver._shift(near_solid, axis, 1, True)
+                grown |= EnclosureCFDSolver._shift(near_solid, axis, -1, True)
             near_solid = grown
-        # Restrict to the slab spanned by the board, so a fan blowing through an
-        # empty corner of a large enclosure cannot masquerade as flow over it.
+        # Restrict to the board's footprint, so a fan blowing through an empty
+        # corner of a large enclosure cannot masquerade as flow over it. Along
+        # the board's normal -- its thinnest extent -- the slab runs the full
+        # enclosure: the air to sample is above and below the board. It used
+        # to stop at the board's own thickness, one layer of cells that is
+        # solid wherever the board is, so no mesh could ever offer a sample:
+        # P02 Rev E's 33 x 20 x 10 enclosure returned none at 21:58.
         extent = np.argwhere(board)
         slab = np.zeros(mesh.shape, dtype=bool)
         lower = extent.min(axis=0)
         upper = extent.max(axis=0)
+        normal = int(np.argmin(upper - lower))
+        lower[normal], upper[normal] = 0, mesh.shape[normal] - 1
         slab[lower[0]:upper[0] + 1, lower[1]:upper[1] + 1, lower[2]:upper[2] + 1] = True
         sample = mesh.fluid_mask & ~near_solid & slab
         if not np.any(sample):
