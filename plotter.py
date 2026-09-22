@@ -53,18 +53,32 @@ class Plotter:
         width, height = max(bounds[2] - bounds[0], 1.0), max(bounds[3] - bounds[1], 1.0)
         return (base, max(4.8, min(8.0, base * height / width)))
 
+    def _board_map_figure(self, bounds, projection=None):
+        """Figure and axes for one DC board map, on fixed margins.
+
+        Constrained layout makes savefig draw every figure twice -- once to
+        measure, once to render -- and was 23 s of the 74 s P02 Rev E spent
+        on its 227 DC maps. A map is one axes and one colour bar, whose
+        margins do not need solving again for each rail and layer.
+        """
+        fig = plt.figure(figsize=self._figsize(bounds))
+        fig.subplots_adjust(left=0.09, right=0.97, bottom=0.08, top=0.93)
+        return fig, fig.add_subplot(111, projection=projection)
+
+    # Above this many nodes the 3D view shows an even subsample. mplot3d sorts
+    # and draws every marker itself: /VBUS_SYS on P02 Rev E (375,478 nodes)
+    # took 6.7 s for a view whose points overlap into a solid sheet long
+    # before that count.
+    MAX_3D_POINTS = 20000
+
     def plot_3d_mesh(self, mesh, stackup=None, vmin=None, vmax=None, board_bounds=None, as_png=False):
         """
         Generates a 3D scatter plot of the mesh nodes.
         Returns a wx.Bitmap.
         """
         try:
-            fig = plt.figure(figsize=self._figsize(board_bounds), constrained_layout=True)
-            ax = fig.add_subplot(111, projection='3d')
-            
-            xs, ys, zs, c = [], [], [], []
             has_results = hasattr(mesh, 'results') and mesh.results
-            
+
             layer_to_z = {}
             if stackup and 'layer_order' in stackup:
                 for idx, layer_id in enumerate(stackup['layer_order']):
@@ -73,30 +87,35 @@ class Plotter:
                 copper_layers = sorted(stackup['copper'].keys()) if stackup and 'copper' in stackup else []
                 for idx, layer_id in enumerate(copper_layers):
                     layer_to_z[layer_id] = 10.0 - idx
-            
+
             # If no node_coords populated yet (edge case), return None
             if not mesh.node_coords:
-                plt.close(fig)
                 return None
 
-            for nid, (x, y, layer) in mesh.node_coords.items():
-                if has_results and nid not in mesh.results:
-                    continue
-                xs.append(x)
-                ys.append(-y)  # Invert Y to match KiCad
-                zs.append(layer_to_z.get(layer, 10 - layer * 0.5))
-                c.append(mesh.results.get(nid, 0.0) if has_results else layer)
-
-            if not xs:
-                plt.close(fig)
+            points = [
+                (x, -y, layer_to_z.get(layer, 10 - layer * 0.5),  # Invert Y to match KiCad
+                 mesh.results.get(nid, 0.0) if has_results else layer)
+                for nid, (x, y, layer) in mesh.node_coords.items()
+                if not has_results or nid in mesh.results
+            ]
+            if not points:
                 return None
-                
+            points = np.asarray(points, dtype=float)
+            if len(points) > self.MAX_3D_POINTS:
+                keep = np.unique(np.append(
+                    np.linspace(0, len(points) - 1, self.MAX_3D_POINTS).astype(int),
+                    np.argmin(points[:, 3]),  # never drop the worst node
+                ))
+                points = points[keep]
+            xs, ys, zs, c = points.T
+
+            fig, ax = self._board_map_figure(board_bounds, projection='3d')
             sc = ax.scatter(xs, ys, zs, c=c, cmap='viridis', vmin=vmin, vmax=vmax)
             if has_results:
-                plt.colorbar(sc, label=_('Voltage (V)'), shrink=0.8)
-            
+                plt.colorbar(sc, label=_('Voltage (V)'), shrink=0.8, pad=0.12)
+
             ax.set_xlabel(_('X (mm)')); ax.set_ylabel(_('Y (mm)')); ax.set_zlabel(_('Layer (pseudo)'))
-            
+
             # Equal aspect ratio
             x_limits = (board_bounds[0], board_bounds[2]) if board_bounds else ax.get_xlim3d()
             y_limits = (-board_bounds[3], -board_bounds[1]) if board_bounds else ax.get_ylim3d()
@@ -107,7 +126,7 @@ class Plotter:
             y_mid = (y_limits[0] + y_limits[1]) / 2.0
             ax.set_xlim3d([x_mid - max_range/2, x_mid + max_range/2])
             ax.set_ylim3d([y_mid - max_range/2, y_mid + max_range/2])
-            
+
             return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
         except Exception as e:
             if self.debug: print(f"Plotter 3D Error: {e}")
@@ -117,57 +136,87 @@ class Plotter:
         """
         Generates a 2D plot (heatmap) for a specific layer.
         Returns a wx.Bitmap.
+
+        Nodes on the mesh's regular grid are drawn as one image, as the
+        current-density map already is; only nodes off the grid are drawn as
+        markers. Every node used to be a scatter marker: 46 s for the 97 layer
+        maps of P02 Rev E, up to 8.4 s for one layer of /VBUS_SYS, for markers
+        that overlapped into the copper's outline anyway.
         """
         try:
-            fig, ax = plt.subplots(figsize=self._figsize(board_bounds), constrained_layout=True)
-            
-            xs, ys, vs = [], [], []
             has_results = hasattr(mesh, 'results') and mesh.results
-            
-            # Filter nodes for this layer
-            nodes_on_layer = [
+
+            def valued(nid):
+                return not has_results or nid in mesh.results
+
+            def value(nid):
+                return mesh.results.get(nid, 0.0) if has_results else 0.0
+
+            gridded = []
+            node_map = getattr(mesh, 'node_map', None)
+            step = getattr(mesh, 'grid_step', None)
+            origin = getattr(mesh, 'grid_origin', None)
+            if node_map and step and origin is not None:
+                gridded = [
+                    (xi, yi, nid) for (xi, yi, node_layer), nid in node_map.items()
+                    if node_layer == layer_id and valued(nid)
+                ]
+            if gridded:
+                min_xi = min(item[0] for item in gridded)
+                max_xi = max(item[0] for item in gridded)
+                min_yi = min(item[1] for item in gridded)
+                max_yi = max(item[1] for item in gridded)
+                width, height = max_xi - min_xi + 1, max_yi - min_yi + 1
+                if width * height > 4_000_000:
+                    gridded = []
+            on_grid = {nid for _xi, _yi, nid in gridded}
+            loose = [
                 nid for nid in mesh.nodes
                 if mesh.node_coords[nid][2] == layer_id
-                and (not has_results or nid in mesh.results)
+                and valued(nid) and nid not in on_grid
             ]
-            
-            if not nodes_on_layer:
-                plt.close(fig)
+            if not gridded and not loose:
                 return None
 
-            for nid in nodes_on_layer:
-                coords = mesh.node_coords[nid]
-                xs.append(coords[0])
-                ys.append(-coords[1]) # Invert Y
-                val = mesh.results.get(nid, 0.0) if has_results else 0.0
-                vs.append(val)
-                
-            if not xs:
-                plt.close(fig)
-                return None
+            values = [value(nid) for _xi, _yi, nid in gridded] + [value(nid) for nid in loose]
+            vmin = min(values) if vmin is None else vmin
+            vmax = max(values) if vmax is None else vmax
+            fig, ax = self._board_map_figure(board_bounds)
+            mappable = None
+            if gridded:
+                image = np.full((height, width), np.nan, dtype=float)
+                for xi, yi, nid in gridded:
+                    image[yi - min_yi, xi - min_xi] = value(nid)
+                x0 = origin[0] + (min_xi - 0.5) * step
+                x1 = origin[0] + (max_xi + 0.5) * step
+                y0 = origin[1] + (min_yi - 0.5) * step
+                y1 = origin[1] + (max_yi + 0.5) * step
+                cmap = plt.get_cmap('viridis').with_extremes(bad=(0.0, 0.0, 0.0, 0.0))
+                mappable = ax.imshow(
+                    image, cmap=cmap, vmin=vmin, vmax=vmax, origin='upper',
+                    extent=(x0, x1, -y1, -y0), interpolation='nearest',
+                )
+            if loose:
+                sc = ax.scatter(
+                    [mesh.node_coords[nid][0] for nid in loose],
+                    [-mesh.node_coords[nid][1] for nid in loose],  # Invert Y
+                    c=[value(nid) for nid in loose], cmap='viridis',
+                    vmin=vmin, vmax=vmax, s=20,
+                )
+                mappable = mappable or sc
 
-            # Scatter plot for now - tripcolor or imshow is better if we have regular grid, 
-            # but scatter is robust for sparse nodes.
-            # Using a fixed marker size might be tricky, let's try a reasonable default.
-            # Ideally s should relate to grid_size, but scatter size is in points^2.
-            # Let's just use a standard size for visibility.
-            sc = ax.scatter(xs, ys, c=vs, cmap='viridis', vmin=vmin, vmax=vmax, s=20)
-            
             if has_results:
-                plt.colorbar(sc, label=_('Voltage (V)'))
-            
+                plt.colorbar(mappable, label=_('Voltage (V)'))
+
             if layer_name is None:
                 layer_name = str(layer_id)
-                if stackup and 'copper' in stackup and layer_id in stackup['copper']:
-                     # Try to get layer name? currently stackup dict structure in test is simple
-                     pass
 
             ax.set_title(_('Layer: {layer}').format(layer=layer_name))
             ax.set_xlabel(_('X (mm)'))
             ax.set_ylabel(_('Y (mm)'))
             ax.set_aspect('equal', 'box')
             self._fit_xy(ax, board_bounds, invert_y=True)
-            
+
             return self._fig_to_png(fig) if as_png else self._fig_to_bitmap(fig)
 
         except Exception as e:
@@ -207,7 +256,7 @@ class Plotter:
             x1 = mesh.grid_origin[0] + (max_xi + 0.5) * step
             y0 = mesh.grid_origin[1] + (min_yi - 0.5) * step
             y1 = mesh.grid_origin[1] + (max_yi + 0.5) * step
-            fig, axis = plt.subplots(figsize=self._figsize(board_bounds), constrained_layout=True)
+            fig, axis = self._board_map_figure(board_bounds)
             if width * height <= 4_000_000:
                 values = np.full((height, width), np.nan, dtype=float)
                 for xi, yi, node_id in entries:
@@ -258,7 +307,7 @@ class Plotter:
             actual_max = float(np.max(values)) if values.size else 0.0
             colour_max = float(np.percentile(values, 99.5)) if values.size else 1.0
             colour_max = colour_max or actual_max or 1.0
-            fig, axis = plt.subplots(figsize=self._figsize(board_bounds), constrained_layout=True)
+            fig, axis = self._board_map_figure(board_bounds)
             scatter = axis.scatter(
                 [sample.x_mm for sample in samples], [-sample.y_mm for sample in samples],
                 c=values, cmap="inferno", vmin=0.0, vmax=colour_max,

@@ -133,6 +133,51 @@ class TestPlotter(unittest.TestCase):
         self.assertIsNotNone(self.plotter.plot_3d_mesh(self.mesh, self.stackup))
         self.assertIsNone(self.plotter.plot_layer_2d(self.mesh, 1, self.stackup))
 
+    def _gridded_mesh(self, side):
+        mesh = Mesh()
+        mesh.grid_origin, mesh.grid_step = (0.0, 0.0), 0.1
+        mesh.node_map, mesh.node_coords, mesh.results = {}, {}, {}
+        for index in range(side * side):
+            xi, yi = divmod(index, side)
+            mesh.node_map[(xi, yi, 0)] = index
+            mesh.node_coords[index] = (xi * 0.1, yi * 0.1, 0)
+            mesh.results[index] = 5.0 - 1e-6 * index
+        mesh.nodes = list(mesh.node_coords)
+        return mesh
+
+    def test_dc_maps_do_not_draw_one_marker_per_node(self):
+        # P02 Rev E, 2026-09-22: 227 DC maps took 103 s after the DC finished,
+        # 8.4 s for one layer of /VBUS_SYS (375,478 nodes) drawn as markers.
+        from unittest.mock import patch
+        import matplotlib.axes
+
+        mesh = self._gridded_mesh(250)
+        drawn = []
+        original = matplotlib.axes.Axes.scatter
+
+        def counting(axis, xs, *args, **kwargs):
+            drawn.append(len(xs))
+            return original(axis, xs, *args, **kwargs)
+
+        with patch.object(matplotlib.axes.Axes, "scatter", counting):
+            layer = self.plotter.plot_layer_2d(mesh, 0, self.stackup, as_png=True)
+        self.assertTrue(layer.startswith(b"\x89PNG"))
+        self.assertEqual(drawn, [])
+
+        from mpl_toolkits.mplot3d import Axes3D
+        points = []
+        original_3d = Axes3D.scatter
+
+        def recording(axis, xs, ys, zs, *args, **kwargs):
+            points.append((len(xs), min(kwargs["c"])))
+            return original_3d(axis, xs, ys, zs, *args, **kwargs)
+
+        with patch.object(Axes3D, "scatter", recording):
+            self.plotter.plot_3d_mesh(mesh, self.stackup, as_png=True)
+        count, lowest = points[0]
+        self.assertLessEqual(count, Plotter.MAX_3D_POINTS + 1)
+        self.assertEqual(lowest, min(mesh.results.values()))
+
     def test_plot_impedance_sweep(self):
         baseline = SimpleNamespace(
             frequencies_hz=[1e3, 1e4, 1e5],

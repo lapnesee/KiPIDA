@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed the DC rail maps taking 103 s after P02 Rev E's DC had finished at
+  21:54, holding the plot lock and the GIL while AC and thermal ran. Each
+  layer map drew every node as a marker (8.4 s for one layer of /VBUS_SYS,
+  375,478 nodes); gridded nodes are now one image, as the current-density
+  map already was. The 3D view shows at most 20,000 nodes, always with the
+  lowest, and the maps use fixed margins: constrained layout drew every
+  figure twice. The 227 maps of the same result take 48 s instead of 101 s.
 - Changed a batch to share the DC domain's copper capture with thermal and
   CFD. On P02 Rev E at 21:52 the 17 rails were captured three times on
   KiCad's UI thread, about 3 s of frozen editor each, and the campaign then
