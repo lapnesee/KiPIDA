@@ -597,14 +597,32 @@ class LoadedProfileRailTests(unittest.TestCase):
         # P02 Rev E saved AC profiles for /VBUS_SYS, /+5V_U4 and /+5V_RAIL; the
         # tab stayed on /J1_VBUS_RAW, and the campaign's AC sweep failed there.
         try:
-            from ui.ac_analysis_panel import rail_to_show
+            import ui.ac_analysis_panel as panel
         except ImportError:
             self.skipTest("wxPython is not available")
+        rail_to_show = panel.rail_to_show
         rails = ["/J1_VBUS_RAW", "/VBUS_PD", "/VBUS_SYS", "/+5V_U4", "/+5V_RAIL"]
         profiles = {name: object() for name in ("/VBUS_SYS", "/+5V_U4", "/+5V_RAIL")}
         self.assertEqual(rail_to_show(rails, "/J1_VBUS_RAW", profiles), "/VBUS_SYS")
         self.assertEqual(rail_to_show(rails, "/+5V_U4", profiles), "/+5V_U4")
         self.assertEqual(rail_to_show(rails, "/J1_VBUS_RAW", {}), "/J1_VBUS_RAW")
+
+    def test_a_rail_feeding_converters_offers_their_inputs_as_ports(self):
+        # P02 Rev E: /VBUS_SYS has no load of its own. Its saved port, Q10, fell
+        # out of a list of loads only, the tab saved an empty port over it, and
+        # the campaign's AC sweep found no port.
+        try:
+            import ui.ac_analysis_panel as panel
+        except ImportError:
+            self.skipTest("wxPython is not available")
+        port_options = panel.port_options
+        pads = ["5", "6", "7", "8", "9"]
+        rail = PowerRail("/VBUS_SYS", 20.0, child_regulators=[VoltageRegulator(
+            "U4 buck", "/VBUS_SYS", "Q10", pads, "/SYS_5V_PRE_SENSE", "U4", ["11", "26"],
+        )])
+        saved = ACAnalysisSettings(rail_name="/VBUS_SYS", measurement_port=ACMeasurementPort("Q10", pads))
+        self.assertEqual(port_options(rail, saved), {"Q10": pads})
+        self.assertEqual(port_options(PowerRail("/VBUS_SYS", 20.0), saved), {"Q10": pads})
 
 
 if __name__ == "__main__":

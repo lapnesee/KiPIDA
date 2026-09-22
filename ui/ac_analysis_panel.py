@@ -10,7 +10,6 @@ except (ImportError, ValueError):
     from models import ACAnalysisSettings, ACMeasurementPort, ACSourceModel
 
 
-
 def rail_to_show(rail_names, shown, profiles):
     """The rail the AC tab shows once a project's profiles are loaded.
 
@@ -22,6 +21,28 @@ def rail_to_show(rail_names, shown, profiles):
     if not profiles or shown in profiles:
         return shown
     return next((name for name in rail_names if name in profiles), shown)
+
+
+def port_options(rail, profile=None):
+    """The rail's candidate measurement components, as {ref_des: rail pad names}.
+
+    Its loads, then the inputs of the regulators it feeds, then the port a
+    saved profile names. P02 Rev E's /VBUS_SYS feeds converters and has no
+    load of its own: its saved port, Q10, fell out of a list of loads only,
+    the tab saved an empty port over it, and the campaign's AC sweep found no
+    port to measure.
+    """
+    options = {
+        load.component_ref.ref_des: list(load.pad_names)
+        for load in (getattr(rail, "loads", ()) or ())
+    }
+    for regulator in getattr(rail, "child_regulators", ()) or ():
+        if regulator.input_ref_des:
+            options.setdefault(regulator.input_ref_des, list(regulator.input_pad_names))
+    saved = getattr(profile, "measurement_port", None)
+    if saved is not None and saved.ref_des:
+        options.setdefault(saved.ref_des, list(saved.rail_pad_names))
+    return options
 
 
 class CapacitorModelDialog(wx.Dialog):
@@ -321,9 +342,9 @@ class ACAnalysisPanel(wx.Panel):
                 ground = default_ground
             self._select_text(self.choice_ground, ground)
             source_refs = sorted(self._source_options(rail))
-            load_refs = sorted({load.component_ref.ref_des for load in rail.loads})
+            port_refs = sorted(port_options(rail, profile))
             self.choice_source.Set(source_refs)
-            self.choice_port.Set(load_refs)
+            self.choice_port.Set(port_refs)
             self._select_text(self.choice_source, profile.source.ref_des)
             self._select_text(self.choice_port, profile.measurement_port.ref_des)
 
@@ -447,10 +468,9 @@ class ACAnalysisPanel(wx.Panel):
         )
 
         port_ref = self._selected_text(self.choice_port)
-        load = next((item for item in rail.loads if item.component_ref.ref_des == port_ref), None)
         profile.measurement_port = ACMeasurementPort(
             ref_des=port_ref,
-            rail_pad_names=list(load.pad_names) if load else [],
+            rail_pad_names=port_options(rail, profile).get(port_ref, []),
             ground_pad_names=self.builder.pad_names_for_net(port_ref, profile.ground_net_name),
         )
         profile.capacitors = self.capacitors

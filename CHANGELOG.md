@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed the AC tab dropping a saved measurement port that is not a load. It
+  offered the rail's loads only and saved what it showed, so a rail that
+  feeds converters lost its port: P02 Rev E's /VBUS_SYS has none but the
+  converter inputs, its saved port Q10 was replaced by an empty one, and
+  the campaign skipped AC again. The tab now offers the loads, the inputs
+  of the regulators the rail feeds and the saved port.
 - Fixed the AC tab staying on a rail the project never configured for AC.
   Loading a project's profiles left the tab on the first rail of the tree,
   and the campaign sweeps the rail the tab shows: on P02 Rev E, profiles
