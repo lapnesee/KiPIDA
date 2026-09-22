@@ -373,6 +373,12 @@ class CampaignEngine:
         thermal = request.domain_requests.get("THERMAL")
         if thermal is None or getattr(thermal, "air_velocity_m_s", None) is not None:
             return
+        # Only forced flow is handed over, and only forced flow runs CFD ahead
+        # of THERMAL (_order_for_cfd_coupling). Under buoyancy THERMAL has
+        # already run by now: on P02 Rev E at 21:58 this still logged that
+        # thermal "keeps its configured airflow", as if it were yet to run.
+        if not self._forced_flow_patches(request.domain_requests.get("CFD")):
+            return
         result = getattr(domain_result, "result", domain_result)
         velocity = float(getattr(result, "board_free_stream_velocity_m_s", 0.0) or 0.0)
         cells = int(getattr(result, "board_free_stream_cells", 0) or 0)

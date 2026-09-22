@@ -173,6 +173,24 @@ class CFDFeedsThermalOnlyWhenTheFlowIsForced(unittest.TestCase):
         self.assertIsNone(request.domain_requests["THERMAL"].air_velocity_m_s)
 
 
+    def test_buoyant_flow_hands_nothing_to_a_thermal_run_already_done(self):
+        # P02 Rev E, 2026-09-22 21:58: sealed enclosure, CFD after THERMAL,
+        # and the log still said thermal "keeps its configured airflow".
+        from application.campaign_controller import CampaignEngine
+        from models import EnclosureCFDResult
+
+        request = self._request([])
+        logs = []
+        CampaignEngine(domain_engines={})._couple_cfd_into_thermal(
+            request,
+            EnclosureCFDResult(
+                board_free_stream_velocity_m_s=0.15, board_free_stream_cells=40,
+            ),
+            logs.append,
+        )
+        self.assertIsNone(request.domain_requests["THERMAL"].air_velocity_m_s)
+        self.assertEqual(logs, [])
+
 class TheDialogHandsTheVelocityToThermal(unittest.TestCase):
     """The coupling has to live on the path the user actually takes.
 

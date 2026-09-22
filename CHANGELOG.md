@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed a buoyant campaign telling the user thermal "keeps its configured
+  airflow" after CFD. On P02 Rev E at 21:58 the sealed enclosure ran CFD
+  after THERMAL, as it must, so nothing could be handed over; the CFD speed
+  is now offered to thermal only in forced flow, the one case run first.
 - Fixed the DC rail maps taking 103 s after P02 Rev E's DC had finished at
   21:54, holding the plot lock and the GIL while AC and thermal ran. Each
   layer map drew every node as a marker (8.4 s for one layer of /VBUS_SYS,
