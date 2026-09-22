@@ -9,6 +9,23 @@
   the temperature field. The handover existed for an uncoupled run and
   skipped the coupled one; a capture that differs -- other rails, another
   grid or another board file -- still solves its own, and the log says which.
+- Fixed the French catalog, where naive substring substitution had
+  rewritten English words inside longer words: "Phase (deg)" became
+  "Pae (deg)", "Use Phase 3 heat sources" became "Use Pae 3 heat
+  sources", "Airflow mode:" became "Airffaible mode:", "copied to
+  clipboard" became "copied to clipPCB", "CUDA driver/runtime" became
+  "CUDA pilote/runtemps", "Testing" became "Testering", and the code
+  identifier "[_get_mesh_nodes]" became "[_get_mesh_nœuds]".
+- Fixed half-translated findings that mixed French and English in the
+  UI, plots and reports, such as "Rail-to-ground impedance" rendered as
+  "Rail-to-masse impedance", "Fragmented ground plane" as "Fragmented
+  masse plan", "Low ground-plane coverage" as "Low masse-plan
+  couverture", and "TVS has insufficient nearby ground vias" as "TVS a
+  insufficient nearby masse vias".
+- Retranslated 371 catalog entries into consistent French, preserving
+  every placeholder and format spec, leading and trailing whitespace,
+  units, log tags such as [EM FIELD], and code identifiers such as
+  _get_mesh_nodes, layer_id and board.nets.
 - Changed the AC sweep to reuse one sparse LU factorisation across
   frequencies, and AUTO to keep sweeps on the CPU. On P02 Rev E (85,337
   nodes, 121 points) AUTO sent the sweep to CUDA, whose Jacobi-preconditioned
