@@ -278,5 +278,39 @@ class CampaignHandsTheDCResultOver(unittest.TestCase):
         )
 
 
+
+class BatchSharesTheDCCapture(unittest.TestCase):
+    """P02 Rev E, 2026-09-22 21:52: the batch captured the 17 rails' copper
+    three times on the UI thread -- DC, thermal, CFD -- about 3 s each, and the
+    campaign then found the three equal and used only the first."""
+
+    def _captured(self):
+        from application.dc_controller import DCRunRequest
+
+        rail = _dc_request().rails[0]
+        return DCRunRequest(
+            rails=(rail,), geometry_by_rail={"VCC": {3: "copper"}},
+            classification_geometry_by_rail={}, stackup={}, board=None,
+            grid_size_mm=0.1, maximum_drop_pct=5.0, board_path="board.kicad_pcb",
+            grid_sensitivity_check=True,
+        )
+
+    def test_a_matching_run_shares_the_capture_without_the_grid_check(self):
+        from application.campaign_controller import reuse_dc_capture
+
+        captured = self._captured()
+        shared = reuse_dc_capture(captured, captured.rails, 0.1, "board.kicad_pcb")
+
+        self.assertIs(shared.geometry_by_rail, captured.geometry_by_rail)
+        self.assertFalse(shared.grid_sensitivity_check)
+        self.assertIsNone(shared.maximum_drop_pct)
+        self.assertEqual(CampaignEngine._dc_capture_mismatch(captured, shared), "")
+
+    def test_another_grid_captures_its_own(self):
+        from application.campaign_controller import reuse_dc_capture
+
+        captured = self._captured()
+        self.assertIsNone(reuse_dc_capture(captured, captured.rails, 0.25, "board.kicad_pcb"))
+
 if __name__ == "__main__":
     unittest.main()

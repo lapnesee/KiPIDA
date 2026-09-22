@@ -56,6 +56,7 @@ from application.cfd_controller import (
 )
 from application.campaign_controller import (
     CampaignCallbacks, CampaignController, CampaignEngine, CampaignRunRequest,
+    reuse_dc_capture,
     default_domain_engines,
 )
 from application.report_presenters import (
@@ -591,16 +592,37 @@ class KiPIDA_MainDialog(wx.Dialog):
             f"Batch: capturing live board data for {len(selected)} analysis(es) "
             "before the run starts."
         )
-        for analysis_id in selected:
-            self.log(f"Batch: preparing {labels[analysis_id]}.")
-            try:
-                requests[analysis_id] = builders[analysis_id]()
-            except Exception as exc:
-                self.log(
-                    f"Batch: {labels[analysis_id]} was not prepared and will be "
-                    f"skipped -- {exc}"
-                )
+        try:
+            for analysis_id in selected:
+                self.log(f"Batch: preparing {labels[analysis_id]}.")
+                try:
+                    requests[analysis_id] = builders[analysis_id]()
+                except Exception as exc:
+                    self.log(
+                        f"Batch: {labels[analysis_id]} was not prepared and will be "
+                        f"skipped -- {exc}"
+                    )
+                if analysis_id == "DC":
+                    # Thermal and CFD, prepared next, share this capture.
+                    self._batch_dc_capture = requests.get("DC")
+        finally:
+            self._batch_dc_capture = None
         return requests
+
+    def _copper_loss_dc_request(self, rails, grid_size_mm, compute_settings,
+                                debug_mode, board_path, purpose="the enclosure CFD"):
+        """The DC capture a thermal or CFD run needs for its copper losses."""
+        shared = reuse_dc_capture(
+            getattr(self, "_batch_dc_capture", None), rails, grid_size_mm, board_path,
+        )
+        if shared is not None:
+            self.log(f"Reusing this batch's DC copper capture for {purpose}.")
+            return shared
+        self.log(f"Capturing live PCB data for {purpose} DC stage.")
+        return prepare_dc_request(
+            self.board, rails, grid_size_mm, compute_settings, debug_mode,
+            log_callback=self.log, board_path=board_path,
+        )
 
     def _cancel_batch(self):
         if not self.campaign_controller.cancel():
@@ -1566,10 +1588,9 @@ class KiPIDA_MainDialog(wx.Dialog):
             raise ValueError("Coupled analysis requires at least one configured power rail.")
         dc_request = None
         if coupled or settings.include_dc_copper_losses:
-            self.log("Capturing live PCB data for the thermal pipeline DC stage.")
-            dc_request = prepare_dc_request(
-                self.board, rails, dc_grid_size, compute_settings, debug_mode,
-                log_callback=self.log, board_path=board_file_path,
+            dc_request = self._copper_loss_dc_request(
+                rails, dc_grid_size, compute_settings, debug_mode, board_file_path,
+                purpose="the thermal pipeline",
             )
 
         self.log("Capturing the thermal board model on the KiCad UI thread.")
@@ -1804,11 +1825,10 @@ class KiPIDA_MainDialog(wx.Dialog):
                 grid_size = max(0.01, float(self.txt_grid_size.GetValue()))
             except ValueError:
                 grid_size = 0.1
-            dc_request = prepare_dc_request(
-                self.board, self.power_tree.rails, grid_size,
+            dc_request = self._copper_loss_dc_request(
+                self.power_tree.rails, grid_size,
                 self.runtime_panel.get_settings(persist=True),
-                self.chk_debug.GetValue(), log_callback=self.log,
-                board_path=self._board_file_path(),
+                self.chk_debug.GetValue(), self._board_file_path(),
             )
         builder = ThermalModelBuilder(
             self.board,

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Changed a batch to share the DC domain's copper capture with thermal and
+  CFD. On P02 Rev E at 21:52 the 17 rails were captured three times on
+  KiCad's UI thread, about 3 s of frozen editor each, and the campaign then
+  found the three equal and used only the first. A run whose rails, grid or
+  board file differ still captures its own.
 - Fixed every CPU sparse solve re-enumerating the loaded native libraries
   to cap their threads: 6.7 ms a call, 3.5 s over the 523 solves of P02 Rev
   E's enclosure CFD. One controller is now built on the first solve and

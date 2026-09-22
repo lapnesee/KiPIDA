@@ -700,6 +700,29 @@ class CampaignEngine:
             result.finish()
 
 
+def reuse_dc_capture(dc_request, rails, grid_size_mm, board_path):
+    """The DC domain's capture, fit for a thermal or CFD run, or None.
+
+    A batch prepares every domain on the UI thread before the first solve,
+    and the thermal and CFD builders each captured the DC copper again from
+    the same board a few seconds after the DC domain had: on P02 Rev E at
+    21:52, 17 rails three times, about 3 s of frozen editor each, for captures
+    _share_dc_results then compared equal and discarded. When the rails, grid
+    and board file match -- the same test that hands over the DC result --
+    the DC domain's capture is shared instead, without its drop budget or its
+    grid check, which a copper-loss solve does not make.
+    """
+    if dc_request is None:
+        return None
+    probe = type("DCCaptureProbe", (), {})()
+    probe.rails = tuple(rails)
+    probe.grid_size_mm = float(grid_size_mm)
+    probe.board_path = None if board_path is None else str(board_path)
+    if CampaignEngine._dc_capture_mismatch(dc_request, probe):
+        return None
+    return replace(dc_request, maximum_drop_pct=None, grid_sensitivity_check=False)
+
+
 class CampaignController(BackgroundAnalysisController):
     """Own one cancellable background campaign and marshal its callbacks."""
 
