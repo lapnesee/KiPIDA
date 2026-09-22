@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed the differential analysis failing on a thin outer dielectric. The
+  recommender searched the width meeting the target up to six times the
+  trace width, and IPC-2141's microstrip formula refuses a trace wider
+  than about 7.5 times its height: on P02 Rev E, 0.0994 mm above ground,
+  the search tried 1.2 mm and its ValueError failed the analysis after all
+  five USB pairs were solved at 74-78 ohm. A width the model refuses now
+  narrows the search; P02's pairs get 0.155 mm for 90 ohm.
 - Fixed the EMC risk score counting one gap twice and an estimate as a
   fact. GP-001 measured one line of a differential pair against its plane,
   repeating DP-004, which judges the pair with its coplanar ground, a level

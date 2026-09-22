@@ -39,6 +39,18 @@ class DifferentialRecommendationTests(unittest.TestCase):
         )
         self.assertAlmostEqual(recommendation.predicted_impedance_ohm, 90.0, delta=0.6)
 
+    def test_a_width_the_model_refuses_narrows_the_search(self):
+        # P02 Rev E: 0.2/0.25 mm USB pairs 0.0994 mm above ground read 76 ohm.
+        # The width search opened at 1.2 mm, past the 0.7 mm the microstrip
+        # formula accepts there, and its ValueError failed the whole analysis.
+        result = self._result(impedance=76.0)
+        section = result.sections[0]
+        section.width_mm, section.gap_mm = 0.20, 0.25
+        section.reference_distance_mm = section.reference_below_distance_mm = 0.0994
+        recommendation = DifferentialRecommendationEngine(self.settings).recommend_pair(result)[0]
+        self.assertLess(recommendation.recommended_width_mm, 0.20)
+        self.assertAlmostEqual(recommendation.predicted_impedance_ohm, 90.0, delta=1.5)
+
     def test_passing_pair_keeps_geometry(self):
         result = self._result(impedance=91.0)
         engine = DifferentialRecommendationEngine(self.settings)

@@ -20,13 +20,40 @@ class DifferentialRecommendationEngine:
 
     @staticmethod
     def _solve_dimension(function, target, low, high):
-        low_value, high_value = function(low), function(high)
+        """The dimension in [low, high] at which *function* meets *target*, or None.
+
+        A closed-form model holds over a range only: IPC-2141's microstrip
+        refuses a trace wider than about 7.5 times its height, with a
+        ValueError. A dimension the model refuses narrows the search. On P02
+        Rev E, whose 0.1 mm prepreg puts that limit at 0.7 mm, the width search
+        for the USB pairs opened at 1.2 mm, and the refusal failed the whole
+        differential analysis after all five pairs had been solved.
+        """
+        def evaluate(candidate):
+            try:
+                return function(candidate)
+            except ValueError:
+                return None
+
+        low_value, high_value = evaluate(low), evaluate(high)
+        if low_value is None:
+            return None
+        for _ in range(48):
+            if high_value is not None:
+                break
+            high = 0.5 * (low + high)
+            high_value = evaluate(high)
+        if high_value is None:
+            return None
         increasing = high_value > low_value
         if not min(low_value, high_value) <= target <= max(low_value, high_value):
             return None
         for _ in range(48):
             middle = 0.5 * (low + high)
-            value = function(middle)
+            value = evaluate(middle)
+            if value is None:
+                high = middle
+                continue
             if abs(value - target) <= 0.01:
                 return middle
             if increasing:
