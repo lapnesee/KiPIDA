@@ -592,5 +592,20 @@ class SolveManyTests(unittest.TestCase):
             self.assertEqual(port.compute_backend, result.compute_backend)
 
 
+class LoadedProfileRailTests(unittest.TestCase):
+    def test_a_loaded_project_opens_the_tab_on_a_rail_it_configured(self):
+        # P02 Rev E saved AC profiles for /VBUS_SYS, /+5V_U4 and /+5V_RAIL; the
+        # tab stayed on /J1_VBUS_RAW, and the campaign's AC sweep failed there.
+        try:
+            from ui.ac_analysis_panel import rail_to_show
+        except ImportError:
+            self.skipTest("wxPython is not available")
+        rails = ["/J1_VBUS_RAW", "/VBUS_PD", "/VBUS_SYS", "/+5V_U4", "/+5V_RAIL"]
+        profiles = {name: object() for name in ("/VBUS_SYS", "/+5V_U4", "/+5V_RAIL")}
+        self.assertEqual(rail_to_show(rails, "/J1_VBUS_RAW", profiles), "/VBUS_SYS")
+        self.assertEqual(rail_to_show(rails, "/+5V_U4", profiles), "/+5V_U4")
+        self.assertEqual(rail_to_show(rails, "/J1_VBUS_RAW", {}), "/J1_VBUS_RAW")
+
+
 if __name__ == "__main__":
     unittest.main()

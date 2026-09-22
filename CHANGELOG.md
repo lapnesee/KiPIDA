@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed the AC tab staying on a rail the project never configured for AC.
+  Loading a project's profiles left the tab on the first rail of the tree,
+  and the campaign sweeps the rail the tab shows: on P02 Rev E, profiles
+  saved for /VBUS_SYS, /+5V_U4 and /+5V_RAIL, the tab showed /J1_VBUS_RAW
+  and the campaign's AC sweep was skipped, no measurement port resolving
+  there. A loaded project now opens the tab on the first rail it
+  configured, unless the one shown is configured already.
 - Fixed the differential analysis failing on a thin outer dielectric. The
   recommender searched the width meeting the target up to six times the
   trace width, and IPC-2141's microstrip formula refuses a trace wider

@@ -10,6 +10,20 @@ except (ImportError, ValueError):
     from models import ACAnalysisSettings, ACMeasurementPort, ACSourceModel
 
 
+
+def rail_to_show(rail_names, shown, profiles):
+    """The rail the AC tab shows once a project's profiles are loaded.
+
+    The one on screen if the project configured it for AC, else the first
+    rail it did. P02 Rev E saved AC profiles for three rails; the tab stayed
+    on the first rail of the tree, /J1_VBUS_RAW, and the campaign's AC sweep
+    failed there for want of a measurement port.
+    """
+    if not profiles or shown in profiles:
+        return shown
+    return next((name for name in rail_names if name in profiles), shown)
+
+
 class CapacitorModelDialog(wx.Dialog):
     def __init__(self, parent, capacitor):
         super().__init__(parent, title=_("Capacitor Model: {reference}").format(reference=capacitor.ref_des))
@@ -452,4 +466,9 @@ class ACAnalysisPanel(wx.Panel):
 
     def set_profiles(self, profiles):
         self.profiles = dict(profiles or {})
+        rail_names = [rail.net_name for rail in self._rails()]
+        shown = rail_to_show(rail_names, self._selected_text(self.choice_rail), self.profiles)
+        if shown and shown != self._selected_text(self.choice_rail):
+            self.choice_rail.Set(rail_names)
+            self._select_text(self.choice_rail, shown)
         self.refresh(force_discovery=False)
