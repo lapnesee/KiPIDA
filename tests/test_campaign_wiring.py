@@ -14,6 +14,7 @@ production code at all.
 """
 
 import ast
+import functools
 import os
 import sys
 import unittest
@@ -368,7 +369,10 @@ class OrchestratorIsReachable(unittest.TestCase):
     )
 
     @staticmethod
+    @functools.lru_cache(maxsize=None)
     def _imports(path):
+        # Cached: each module in ALSO_REACHED walks every production file
+        # again, and parsing the repository six times was 3.5 s of the suite.
         # Some sources carry a UTF-8 BOM, which the import machinery strips
         # and ast.parse does not.
         with open(path, encoding="utf-8-sig") as handle:

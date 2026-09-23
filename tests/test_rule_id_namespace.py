@@ -12,6 +12,7 @@ adapters write ``_finding(`` on one line and the identifier on the next.
 """
 
 import ast
+import functools
 import os
 import re
 import unittest
@@ -39,7 +40,9 @@ def _domain_from_functions(stack):
     return None
 
 
+@functools.lru_cache(maxsize=None)
 def _rule_ids_by_domain():
+    # Both tests read the same scan of the repository; parse it once.
     found = {}
     for directory, subdirectories, files in os.walk(ROOT):
         subdirectories[:] = [name for name in subdirectories if name not in SKIPPED_DIRECTORIES]
