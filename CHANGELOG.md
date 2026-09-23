@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed SW-001, EE-002 and the near-field solver each modelling a
+  switching/clock source's harmonic rolloff differently: P02 Rev E's
+  U4 (400 kHz, tr 10 ns) read -44.1 dB from SW-001 and -94.8 dB from
+  the near-field solver at operating points where Paul's trapezoid
+  bound (which EE-002 already used correctly) gives -37.5 dB and
+  -77.0 dB. All three now call inductor_em.trapezoid_envelope_db(),
+  one function, instead of three disagreeing ones.
 - Fixed the near-field solver applying the image method across a
   reference plane that sits between the source and the observer
   instead of shielding it: P02 Rev E's /MAIN_3V3_SW (U5), on B.Cu

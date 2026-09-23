@@ -22,7 +22,7 @@ except ImportError:  # pragma: no cover - Ki-PIDA normally ships Shapely
 try:
     from .differential_length import protocol_skew_limit_ps
     from .extractor import GeometryExtractor, live_capture_has_no_copper, to_mm
-    from .inductor_em import resolve_inductor_models, TargetedInductorRefiner
+    from .inductor_em import resolve_inductor_models, trapezoid_envelope_db, TargetedInductorRefiner
     from .models import (
         EMCAnalysisResult, EMCEvidence, EMCFinding, EMCFrequencyRisk,
         EMCProbePoint, EMCSignalSource,
@@ -30,7 +30,7 @@ try:
 except (ImportError, ValueError):
     from differential_length import protocol_skew_limit_ps
     from extractor import GeometryExtractor, live_capture_has_no_copper, to_mm
-    from inductor_em import resolve_inductor_models, TargetedInductorRefiner
+    from inductor_em import resolve_inductor_models, trapezoid_envelope_db, TargetedInductorRefiner
     from models import (
         EMCAnalysisResult, EMCEvidence, EMCFinding, EMCFrequencyRisk,
         EMCProbePoint, EMCSignalSource,
@@ -1517,9 +1517,13 @@ class EMCAnalyzer:
                 harmonic = first * source.frequency_hz
                 if harmonic <= self.settings.frequency_stop_hz:
                     rise_time_s = max(float(source.rise_time_ns), 1e-6) * 1e-9
-                    rolloff = 1.0 / math.sqrt(1.0 + (2.0 * math.pi * harmonic * rise_time_s) ** 2)
-                    relative = rolloff / first
-                    relative_db = 20.0 * math.log10(max(relative, 1e-12))
+                    # Paul's trapezoid bound (EMC-3): shared with EE-002 and
+                    # the near-field solver so the same source no longer
+                    # gets three disagreeing envelopes (P02 Rev E audit,
+                    # 2026-09-23: this used to knee at 1/(2*pi*tr), -6.6 dB
+                    # for U4's 75th harmonic where Paul's bound gives -37.5).
+                    relative_db = trapezoid_envelope_db(first, source.frequency_hz, rise_time_s)
+                    relative = 10.0 ** (relative_db / 20.0)
                     drive_index = abs(float(source.voltage_swing_v) * float(source.current_a)) * relative
                     if first <= 10 or relative_db > -20.0:
                         severity = "HIGH"
@@ -1833,9 +1837,9 @@ class EMCAnalyzer:
             harmonic = max(1, int(math.ceil(self.settings.frequency_start_hz / source.frequency_hz)))
             while harmonic * source.frequency_hz <= stop and len(self.result.frequency_risks) < 500:
                 frequency = harmonic * source.frequency_hz
-                level = -20.0 * math.log10(max(harmonic, 1))
-                if frequency > 1.0 / (math.pi * rise_s):
-                    level -= 20.0 * math.log10(frequency * math.pi * rise_s)
+                # Paul's trapezoid bound (EMC-3), shared with SW-001 and the
+                # near-field solver.
+                level = trapezoid_envelope_db(harmonic, source.frequency_hz, rise_s)
                 self.result.frequency_risks.append(EMCFrequencyRisk(frequency, level, source.name))
                 harmonic += 1
         if self.result.frequency_risks:

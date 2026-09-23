@@ -20,14 +20,14 @@ except ImportError:  # pragma: no cover - field solve remains usable without Sha
     prepare_geometry = None
 
 try:
-    from .inductor_em import triangular_harmonic_peak, TargetedInductorRefiner
+    from .inductor_em import triangular_harmonic_peak, trapezoid_envelope_db, TargetedInductorRefiner
     from .models import (
         EMFieldSimulationResult, EMFieldSourceContribution,
         EMInductorFieldContribution,
     )
     from .runtime_config import load_runtime_settings
 except (ImportError, ValueError):
-    from inductor_em import triangular_harmonic_peak, TargetedInductorRefiner
+    from inductor_em import triangular_harmonic_peak, trapezoid_envelope_db, TargetedInductorRefiner
     from models import (
         EMFieldSimulationResult, EMFieldSourceContribution,
         EMInductorFieldContribution,
@@ -105,9 +105,14 @@ class EMNearFieldSolver:
             harmonic = max(1, int(round(frequency / fundamental)))
         else:
             return 0.0
-        edge_bandwidth = 0.35 / rise_s
-        rolloff = 1.0 / math.sqrt(1.0 + (frequency / edge_bandwidth) ** 4)
-        return rolloff / harmonic
+        # Paul's trapezoid bound (EMC-3), shared with SW-001 and EE-002: this
+        # used to roll off at -60 dB/decade past its own corner (cut at
+        # 0.35/tr) instead of Paul's -40. P02 Rev E audit, 2026-09-23: for
+        # U4 (400 kHz, tr 10 ns) at 300 MHz this read -94.8 dB, 17.8 dB below
+        # the -77.0 dB the shared model below gives -- the three envelopes
+        # disagreed with each other in both directions, not just SW-001's.
+        level_db = trapezoid_envelope_db(harmonic, fundamental, rise_s)
+        return 10.0 ** (level_db / 20.0)
 
     def _reference_planes(self, layer_z):
         planes = []

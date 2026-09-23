@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from emc_analyzer import EMCFootprint
 from inductor_em import (
     apply_catalog, buck_ripple_current_pp, resolve_inductor_models,
-    triangular_harmonic_peak, TargetedInductorRefiner,
+    trapezoid_envelope_db, triangular_harmonic_peak, TargetedInductorRefiner,
 )
 from models import EMCInductorModel, EMCSignalSource
 
@@ -19,6 +19,22 @@ class InductorEMTests(unittest.TestCase):
         fifth = triangular_harmonic_peak(2.0, 5, 0.42)
         self.assertGreater(first, fifth)
         self.assertEqual(first, triangular_harmonic_peak(2.0, 1, 0.42))
+
+    def test_trapezoid_envelope_matches_paul_at_p02_operating_points(self):
+        # EMC-3, P02 Rev E audit, 2026-09-23: SW-001, EE-002 and the near-field
+        # solver each had a different envelope for the same source. EE-002's
+        # formula was the correct one (audited); this is now the one function
+        # all three share, and it must reproduce EE-002's own audited numbers:
+        # U4 (400 kHz, tr 10 ns) at its 75th harmonic (30 MHz) read -37.5 dB,
+        # and at the 750th (300 MHz) the auditor's own Paul reference gives
+        # -77.0 dB -- both figures come straight from the audit's reproduction
+        # script (scratchpad/audit/emc/nearfield_check.py).
+        self.assertAlmostEqual(
+            trapezoid_envelope_db(75, 400e3, 10e-9), -37.5, places=1,
+        )
+        self.assertAlmostEqual(
+            trapezoid_envelope_db(750, 400e3, 10e-9), -77.0, places=1,
+        )
 
     def test_catalog_does_not_invent_shield_attenuation(self):
         model = apply_catalog(EMCInductorModel("L1", mpn="SPM6530T-2R2M"))
