@@ -174,6 +174,7 @@ def _adapt_cfd(domain_result, request) -> AnalysisResult:
     return analysis_adapters.adapt_cfd_result(
         domain_result.mesh, domain_result.result,
         copper_loss_source=getattr(domain_result, "copper_loss_source", ""),
+        settings=getattr(request, "settings", None),
     )
 
 

@@ -9,6 +9,7 @@ from analysis_contract import (
     AnalysisStatus, EvidenceConfidence, FindingSeverity,
     normalize_evidence_confidence,
 )
+from cfd_model import enclosure_air_rise_k
 from physical_constants import COPPER_RESISTIVITY_OHM_M, COPPER_RESISTIVITY_REFERENCE_C
 from raster_fidelity import DISCLOSE_BELOW_STEPS, track_limitation, width_in_steps
 
@@ -974,8 +975,10 @@ def _cfd_collapsed_obstacle_limitations(mesh: Any) -> list:
     ]
 
 
-def adapt_cfd_result(mesh: Any, domain_result: Any, *, copper_loss_source: str = "") -> AnalysisResult:
+def adapt_cfd_result(mesh: Any, domain_result: Any, *, copper_loss_source: str = "",
+                      settings: Any = None) -> AnalysisResult:
     findings = []
+    mesh_quality_limitations = []
     if not bool(getattr(domain_result, "converged", False)):
         # Report which residual fell short and by how much. A bare "did not
         # converge" was useless here: continuity is floored around 1e-2 by the
@@ -1010,64 +1013,50 @@ def adapt_cfd_result(mesh: Any, domain_result: Any, *, copper_loss_source: str =
             "than that the solution is wrong.",
             confidence=EvidenceConfidence.DETERMINISTIC,
         ))
-    # Resolution is the dominant error term and the user controls it directly,
-    # so it gets said out loud rather than buried in a limitation. The
-    # benchmark found the momentum discretisation accurate to 0.4% at 20 cells
-    # across a channel, 7% at 10, and at 6 cells it produced no boundary layer
-    # at all -- a plug profile with u_max/u_mean = 1.000.
-    # The threshold follows the measured error curve, not a round number:
-    # 20 cells -> 0.4%, 14 -> 3.5%, 10 -> 7.1%, 6 -> no boundary layer at all.
-    # An earlier version warned only below 10, which let the reference board
-    # through silently at exactly 10 cells -- the 7% case. Warning has to start
-    # where the error does.
+    # Resolution is a property of the mesh the user chose, not a defect this
+    # run discovered -- CFD-1 and CFD-2 were the defects, and both are fixed.
+    # It stays out of `findings` (and so out of the score and the action
+    # list, docs/audit-2026-09-23.md CFD-4/COH-9) as a "calculation quality"
+    # limitation instead: real information, never scored or ranked as if it
+    # were a design problem. The benchmark found the momentum discretisation
+    # accurate to 0.4% at 20 cells across a channel, 7% at 10, and at 6 cells
+    # it produced no boundary layer at all -- a plug profile with
+    # u_max/u_mean = 1.000. The threshold follows that measured error curve,
+    # not a round number: 20 -> 0.4%, 14 -> 3.5%, 10 -> 7.1%, 6 -> none.
     across = min(getattr(mesh, "shape", ()) or (0,))
-    if across and across < 14:
-        findings.append(_finding(
-            "CFD-003", 1, "RESOLUTION",
-            FindingSeverity.HIGH if across < 10 else FindingSeverity.MEDIUM,
-            "Enclosure mesh is too coarse for the velocity field to be trusted",
-            f"The narrowest enclosure direction spans {across} cells. Measured "
-            "profile error against laminar duct theory: 0.4% at 20 cells, 3.5% "
-            "at 14, 7.1% at 10, and at 6 cells no boundary layer formed at all.",
-            "Reduce the CFD cell size until the smallest dimension spans at "
-            "least 14 cells, or read the velocity as indicative only.",
-            confidence=EvidenceConfidence.DETERMINISTIC,
-        ))
-        # Solid temperature deserves its own warning, because it is the number
-        # a reader acts on and it fails harder than the velocity does.
-        #
-        # This text said the solver had no surface film coefficient, which was
-        # true when it was written and stopped being true when solid-air faces
-        # got one. It went on saying it for four commits, in a shipped report,
-        # about the solver's own physics -- because no test asserted on the
-        # wording, only on the rule id. The film is real: a solid-air face is
-        # conduction through the solid half-cell in series with natural, forced
-        # and radiation correlations. What is still unresolved is the step
-        # after it -- carrying that heat from the air beside the component to
-        # the enclosure wall through a buoyant plume at centimetres per second,
-        # which millimetre cells cannot do. That is A1 in
-        # docs/plan-ameliorations.md, and it is why the number is still not
-        # usable even though the interface is now modelled.
+    mesh_inadequate = bool(across and across < 14)
+    if mesh_inadequate:
+        mesh_quality_limitations.append(
+            f"Enclosure mesh resolution: the narrowest direction spans {across} cells. "
+            "Measured profile error against laminar duct theory: 0.4% at 20 cells, 3.5% "
+            "at 14, 7.1% at 10, and at 6 cells no boundary layer formed at all. Reduce "
+            "the CFD cell size until the smallest dimension spans at least 14 cells, or "
+            "read the velocity field as indicative only."
+        )
+        # This used to blame a specific mechanism -- an unresolved buoyant
+        # plume carrying heat from the air to the wall -- for why solid and
+        # air maxima are not usable at this mesh size. That diagnosis was
+        # wrong: the real causes were CFD-1 (an obstacle collapsing to an
+        # isolated cell with no conduction path) and CFD-2 (energy advected
+        # non-conservatively), both fixed above. What is left is ordinary
+        # mesh resolution error, the same one already stated for velocity,
+        # and it is why the maxima below are marked unusable rather than
+        # given a physical story they do not need.
         solid_c = float(getattr(domain_result, "maximum_solid_temperature_c", 0.0))
         air_c = float(getattr(domain_result, "maximum_air_temperature_c", 0.0))
         if solid_c > air_c > 0.0:
-            findings.append(_finding(
-                "CFD-004", 1, "THERMAL", FindingSeverity.HIGH,
-                "Enclosure CFD solid temperatures are not usable at this mesh size",
-                f"The hottest solid reads {solid_c:.1f} C against {air_c:.1f} C "
-                f"for the air, {solid_c - air_c:.1f} C apart. Solid-air faces do "
-                "carry a surface film, so the component's own interface is "
-                "modelled; what a millimetre mesh cannot resolve is the buoyant "
-                "plume that has to carry the heat onward from that air to the "
-                "enclosure wall. Heat accumulates in the air instead of leaving "
-                "it, and the closer the air comes to the solid the less "
-                "temperature difference the film has left to work against. The "
-                "figure reflects the cell size, not the design.",
-                "Take component temperatures from the 3D thermal analysis, "
-                "which applies a convective correlation and radiation at every "
-                "exposed face. Use this run for the flow field.",
-                confidence=EvidenceConfidence.DETERMINISTIC,
-            ))
+            mesh_quality_limitations.append(
+                f"Solid and air maxima are not usable at this mesh size: the hottest "
+                f"solid reads {solid_c:.1f} C against {air_c:.1f} C for the air, "
+                f"{solid_c - air_c:.1f} C apart. A solid-air face does carry a surface "
+                "film (conduction through the solid half-cell in series with natural, "
+                "forced and radiation correlations), so the component's own interface "
+                "is modelled; the resolution error above is what makes the local values "
+                "unreliable, not an unmodelled transport mechanism. Take component "
+                "temperatures from the 3D thermal analysis, which applies a convective "
+                "correlation and radiation at every exposed face. Use the mean internal "
+                "air rise below, or the flow field, from this run."
+            )
     mass_applicable = bool(getattr(domain_result, "mass_balance_applicable", True))
     for index, (key, label) in enumerate((("mass_balance_error_pct", "Mass"), ("energy_balance_error_pct", "Energy")), start=1):
         if key == "mass_balance_error_pct" and not mass_applicable:
@@ -1080,16 +1069,40 @@ def adapt_cfd_result(mesh: Any, domain_result: Any, *, copper_loss_source: str =
                 "Refine the mesh or boundary conditions.",
             ))
     overall_status = AnalysisStatus.WARN if findings else AnalysisStatus.PASS
+    # The one number a sealed box's coarse mesh does not need resolving to
+    # defend: Q / (h * A_walls). docs/audit-2026-09-23.md CFD-4 -- P02 Rev E
+    # published solid 573.9 C / air 404.7 C as its metrics and never this,
+    # even though it is the figure the thermal analysis's own ambient should
+    # use (COH-4). Requires settings (the enclosure geometry); older callers
+    # that do not pass it simply do not get the headline metrics.
+    headline_metrics = []
+    if settings is not None:
+        try:
+            air_rise_k = enclosure_air_rise_k(
+                settings, float(getattr(domain_result, "total_heat_w", 0.0))
+            )
+            headline_metrics = [
+                AnalysisMetric("mean_air_rise", "Mean internal air rise", air_rise_k, "K", "PASS"),
+                AnalysisMetric(
+                    "internal_ambient", "Internal ambient (ambient + mean air rise)",
+                    float(getattr(settings, "ambient_c", 0.0)) + air_rise_k, "°C", "PASS",
+                ),
+            ]
+        except (AttributeError, TypeError, ZeroDivisionError):
+            headline_metrics = []
+    # Hide/qualify, never silently trust: at this mesh size the maxima below
+    # are the numbers the mesh-quality limitation above says not to use.
+    maxima_status = "NOT_USABLE" if mesh_inadequate else overall_status.value
     return AnalysisResult(
         "CFD", "Enclosure CFD",
         status=overall_status,
         summary={"cell_count": int(getattr(mesh, "cell_count", 0)), "iterations": int(getattr(domain_result, "iterations", 0))},
         findings=findings,
-        metrics=[
+        metrics=headline_metrics + [
             AnalysisMetric("maximum_velocity", "Maximum velocity", float(getattr(domain_result, "maximum_velocity_m_s", 0.0)), "m/s", overall_status.value),
             AnalysisMetric("board_free_stream_velocity", "Free-stream velocity over the board", float(getattr(domain_result, "board_free_stream_velocity_m_s", 0.0)), "m/s", overall_status.value),
-            AnalysisMetric("maximum_air_temperature", "Maximum air temperature", float(getattr(domain_result, "maximum_air_temperature_c", 0.0)), "°C", overall_status.value),
-            AnalysisMetric("maximum_solid_temperature", "Maximum solid temperature", float(getattr(domain_result, "maximum_solid_temperature_c", 0.0)), "°C", overall_status.value),
+            AnalysisMetric("maximum_air_temperature", "Maximum air temperature", float(getattr(domain_result, "maximum_air_temperature_c", 0.0)), "°C", maxima_status),
+            AnalysisMetric("maximum_solid_temperature", "Maximum solid temperature", float(getattr(domain_result, "maximum_solid_temperature_c", 0.0)), "°C", maxima_status),
         ],
         provenance=[
             AnalysisEvidence(
@@ -1109,20 +1122,13 @@ def adapt_cfd_result(mesh: Any, domain_result: Any, *, copper_loss_source: str =
             "Momentum discretisation validated against laminar duct flow to 0.4% at 20 cells "
             "across the channel; at 6 cells it produced no boundary layer at all. "
             "See docs/validation-cfd.md.",
-            "Solid temperatures are limited by air-to-wall transport, not by the "
-            "component interface: a solid-air face is conduction through the solid "
-            "half-cell in series with a surface film (natural, forced and radiation "
-            "correlations), but a millimetre mesh cannot resolve the buoyant plume "
-            "that carries the heat from the air onward to the enclosure wall. The 3D "
-            "thermal analysis applies a Rayleigh correlation and radiation at each "
-            "exposed face and is the source to use for component temperatures.",
             "Sealed enclosure: no flow crosses a boundary, so mass balance is "
             "not applicable rather than perfect."
             if not mass_applicable else
             f"Mass balance is measured before the outlet fix-up: "
             f"{float(getattr(domain_result, 'mass_balance_error_pct', 0.0)):.3g}% of the inflow "
             "did not reach the outlet.",
-        ] + _cfd_collapsed_obstacle_limitations(mesh),
+        ] + mesh_quality_limitations + _cfd_collapsed_obstacle_limitations(mesh),
     ).finish()
 
 

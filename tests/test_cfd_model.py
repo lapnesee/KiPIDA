@@ -1,6 +1,6 @@
 import unittest
 
-from cfd_model import EnclosureModelBuilder, fit_unset_enclosure
+from cfd_model import EnclosureModelBuilder, enclosure_air_rise_k, fit_unset_enclosure
 from models import EnclosureCFDSettings, ThermalComponentModel
 from thermal_model import CopperLossPoint, ThermalBoardModel, ThermalPlacement
 
@@ -74,6 +74,21 @@ class TestEnclosureModelBuilder(unittest.TestCase):
         entered = EnclosureCFDSettings()
         entered.geometry.width_mm = 121.0
         self.assertIs(fit_unset_enclosure(entered, board)[0], entered)
+
+
+class TestEnclosureAirRise(unittest.TestCase):
+    def test_matches_p02_rev_e(self):
+        # docs/audit-2026-09-23.md CFD-4, scratchpad/audit/cfd/p02_inspect.py
+        # (2026-09-22): 4.755 W into P02 Rev E's 165 x 100 x 50 mm enclosure
+        # (A = 0.0595 m^2) at wall_heat_transfer_w_m2k = 5 -> 16.0 K, matching
+        # the solved wall-cell mean of 61.0 C - 45 C ambient.
+        settings = EnclosureCFDSettings()
+        settings.geometry.width_mm = 165.0
+        settings.geometry.depth_mm = 100.0
+        settings.geometry.height_mm = 50.0
+        settings.geometry.wall_heat_transfer_w_m2k = 5.0
+
+        self.assertAlmostEqual(enclosure_air_rise_k(settings, 4.755), 16.0, places=1)
 
 
 if __name__ == "__main__":

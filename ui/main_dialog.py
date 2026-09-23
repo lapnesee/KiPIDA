@@ -1899,6 +1899,9 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.log(f"Enclosure CFD setup error: {exc}")
             wx.MessageBox(str(exc), "Enclosure CFD Setup Error", wx.OK | wx.ICON_ERROR)
             return
+        # Kept for the report's headline air-rise metric (CFD-4); the
+        # request itself is not threaded through to _update_cfd_results_ui.
+        self._cfd_request_settings = request.settings
 
         self.btn_run_cfd.SetLabel("Cancel Enclosure CFD")
         callbacks = CFDControllerCallbacks(
@@ -1967,7 +1970,10 @@ class KiPIDA_MainDialog(wx.Dialog):
         self._publish_results(
             "CFD", format_cfd_report(mesh, result),
             [(title, bitmap) for title, bitmap in plots if bitmap],
-            structured_result=adapt_cfd_result(mesh, result, copper_loss_source=copper_loss_source),
+            structured_result=adapt_cfd_result(
+                mesh, result, copper_loss_source=copper_loss_source,
+                settings=getattr(self, "_cfd_request_settings", None),
+            ),
         )
 
     def _debug_plot_geo(self, extractor, geo):

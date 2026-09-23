@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Fixed the CFD report publishing unusable solid/air maxima as its headline
+  numbers while never publishing the one defensible quantity in a sealed
+  enclosure, the mean internal air rise (16.0 K on P02 Rev E, 4.755 W into
+  a 0.0595 m2 enclosure at 5 W/m2K). Added cfd_model.enclosure_air_rise_k
+  for thermal's internal ambient to share.
+- Fixed CFD mesh-resolution and solid/air-maxima-trust findings (CFD-003/
+  004) scoring and ranking like design defects; they are now limitations,
+  and CFD-004's text no longer blames a nonexistent "unresolved buoyant
+  plume" for what CFD-1/CFD-2 actually caused.
 - Fixed the campaign report's metric values to use significant-digit
   formatting instead of Python's raw float repr, collapsing
   floating-point noise under 1e-6 to "< 1e-6" (P02 Rev E printed

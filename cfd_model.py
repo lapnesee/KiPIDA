@@ -15,6 +15,32 @@ except (ImportError, ValueError):
 UNSET_ENCLOSURE_MARGIN_MM = 20.0
 
 
+def enclosure_air_rise_k(settings, heat_w: float) -> float:
+    """Mean internal air temperature rise above ambient, in a sealed box.
+
+    Q = h * A_walls * rise, so rise = Q / (h * A_walls): a lumped balance
+    between the injected power and the whole enclosure's own film, not a
+    local field value. It is the only enclosure-CFD quantity that does not
+    need the flow field resolved to be defensible (docs/audit-2026-09-23.md
+    CFD-4) -- unlike the solid/air maxima, which a millimetre mesh at these
+    cell counts cannot be trusted for (CFD-003).
+
+    On P02 Rev E (2026-09-22, ambient 45 C): 4.755 W into a 165 x 100 x 50 mm
+    enclosure (A = 0.0595 m^2) at wall_heat_transfer_w_m2k = 5 -> 16.0 K,
+    matching the solved wall-cell mean of 61.0 C - 45 C ambient
+    (scratchpad/audit/cfd/p02_inspect.py). Both the CFD report and the 3D
+    thermal analysis's internal ambient use this same function (see the
+    integrator note in docs/audit-2026-09-23.md CFD-4).
+    """
+    geometry = settings.geometry
+    width_m = float(geometry.width_mm) * 1e-3
+    depth_m = float(geometry.depth_mm) * 1e-3
+    height_m = float(geometry.height_mm) * 1e-3
+    area_m2 = 2.0 * (width_m * depth_m + width_m * height_m + depth_m * height_m)
+    wall_h = max(1e-9, float(geometry.wall_heat_transfer_w_m2k))
+    return max(0.0, float(heat_w)) / (wall_h * max(area_m2, 1e-9))
+
+
 def fit_unset_enclosure(settings, board_model, margin_mm=UNSET_ENCLOSURE_MARGIN_MM):
     """``(settings, note)`` with an enclosure that holds the board if none was entered.
 

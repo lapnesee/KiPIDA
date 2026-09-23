@@ -9,7 +9,7 @@ from analysis_contract import AnalysisStatus, EvidenceConfidence, FindingSeverit
 from models import (
     ACAnalysisSettings, ACMeasurementPort, ACSourceModel, CapacitorModel,
     EMCAnalysisResult, EMCAnalysisSettings, EMCEvidence, EMCFinding,
-    ThermalHotspot, ThermalResult,
+    EnclosureCFDSettings, ThermalHotspot, ThermalResult,
 )
 
 
@@ -156,6 +156,30 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertEqual(len(result.findings), 2)
         self.assertTrue(all(metric.status == "WARN" for metric in result.metrics))
         self.assertEqual(len(result.provenance), 2)
+
+    def test_cfd_adapter_publishes_the_mean_air_rise_when_settings_are_given(self):
+        # docs/audit-2026-09-23.md CFD-4: P02 Rev E's defensible headline
+        # number, 4.755 W / (5 W/m2K * 0.0595 m2) = 16.0 K, was never
+        # published; the report showed only the mesh-limited solid/air
+        # maxima.
+        mesh = SimpleNamespace(cell_count=1000)
+        cfd = SimpleNamespace(
+            converged=True, iterations=100, mass_balance_error_pct=0.0,
+            energy_balance_error_pct=0.0, maximum_velocity_m_s=0.1,
+            maximum_air_temperature_c=73.2, maximum_solid_temperature_c=90.0,
+            total_heat_w=4.755, compute_backend="CPU", compute_device="CPU",
+        )
+        settings = EnclosureCFDSettings(ambient_c=45.0)
+        settings.geometry.width_mm = 165.0
+        settings.geometry.depth_mm = 100.0
+        settings.geometry.height_mm = 50.0
+        settings.geometry.wall_heat_transfer_w_m2k = 5.0
+
+        result = adapt_cfd_result(mesh, cfd, settings=settings)
+
+        metrics = {metric.key: metric for metric in result.metrics}
+        self.assertAlmostEqual(metrics["mean_air_rise"].value, 16.0, places=1)
+        self.assertAlmostEqual(metrics["internal_ambient"].value, 61.0, places=1)
 
     def test_dc_adapter_combines_connectivity_and_drop_rules(self):
         detail = SimpleNamespace(valid=False, excluded_load_node_count=2)

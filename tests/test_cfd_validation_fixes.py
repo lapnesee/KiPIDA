@@ -260,53 +260,51 @@ class UnderResolvedMeshesAreReported(unittest.TestCase):
             maximum_air_temperature_c=186.994,
         ))
 
-    def test_a_coarse_enclosure_raises_a_resolution_finding(self):
-        findings = [f for f in self._adapt(6).findings if f.rule_id == "CFD-003"]
-        self.assertEqual(len(findings), 1)
+    def test_mesh_resolution_is_a_limitation_not_a_scored_finding(self):
+        # docs/audit-2026-09-23.md CFD-4/COH-9: mesh adequacy is not a defect
+        # this run discovered -- CFD-1 and CFD-2 were, and both are fixed --
+        # so it must not score or rank as one. Neither CFD-003 nor CFD-004
+        # exists as a finding at any resolution.
+        for cells_across in (6, 10, 14, 20):
+            rule_ids = {f.rule_id for f in self._adapt(cells_across).findings}
+            self.assertNotIn("CFD-003", rule_ids)
+            self.assertNotIn("CFD-004", rule_ids)
 
-    def test_a_resolved_enclosure_does_not(self):
-        findings = [f for f in self._adapt(20).findings if f.rule_id == "CFD-003"]
-        self.assertEqual(findings, [])
+    def test_a_coarse_enclosure_is_recorded_as_a_limitation(self):
+        limitations = " ".join(self._adapt(6).limitations).lower()
+        self.assertIn("mesh resolution", limitations)
 
-    def test_a_hot_solid_is_flagged_as_a_mesh_artefact(self):
-        # On the reference board this read 339 C against 72.6 C from the 3D
-        # thermal analysis of the same board at the same power. Both numbers
-        # reached the same report with nothing saying they disagreed.
-        from analysis_contract import FindingSeverity
+    def test_a_resolved_enclosure_is_not(self):
+        limitations = " ".join(self._adapt(20).limitations).lower()
+        self.assertNotIn("mesh resolution", limitations)
 
-        adapted = self._adapt(10)
-        findings = [f for f in adapted.findings if f.rule_id == "CFD-004"]
-        self.assertEqual(len(findings), 1)
-        self.assertEqual(findings[0].severity, FindingSeverity.HIGH)
+    def test_a_hot_solid_is_marked_not_usable_not_denied_its_surface_film(self):
+        """The claims that outlived the code, asserted on rather than assumed.
 
-    def test_the_finding_does_not_deny_the_surface_film_the_solver_has(self):
-        """The claim that outlived the code, asserted on rather than assumed.
-
-        This finding told readers the solver had "no surface film coefficient"
-        for four commits after solid-air faces got one, in a shipped report,
-        about the solver's own physics. Nothing caught it because the tests
-        above check the rule id and the severity and never read the sentence.
+        This used to say the solver had "no surface film coefficient" for
+        four commits after solid-air faces got one, then blamed an
+        "unresolved buoyant plume" for the same number -- both wrong; the
+        real causes were CFD-1 (an obstacle collapsing to an isolated cell)
+        and CFD-2 (non-conservative energy advection), both fixed above. On
+        the reference board this read 339 C against 72.6 C from the 3D
+        thermal analysis of the same board at the same power.
         """
         adapted = self._adapt(10)
-        text = " ".join(
-            f.description for f in adapted.findings if f.rule_id == "CFD-004"
-        ) + " " + " ".join(adapted.limitations)
-
+        metrics = {m.key: m for m in adapted.metrics}
+        self.assertEqual(metrics["maximum_solid_temperature"].status, "NOT_USABLE")
+        self.assertEqual(metrics["maximum_air_temperature"].status, "NOT_USABLE")
+        text = " ".join(adapted.limitations)
         self.assertNotIn("no surface film", text)
-        # And it must still say why the number is unusable, which is now the
-        # transport from the air to the wall rather than the interface.
+        self.assertNotIn("buoyant plume", text)
         self.assertIn("surface film", text)
-        self.assertIn("enclosure wall", text)
+        self.assertIn("not usable", text)
 
     def test_the_reference_board_resolution_is_flagged(self):
         # p02_alimentation meshes to 24 x 20 x 10. An earlier threshold warned
         # only below 10, so exactly 10 slipped through silently -- and 10 cells
         # is the 7.1% case. Warning has to start where the error does.
-        from analysis_contract import FindingSeverity
-
-        findings = [f for f in self._adapt(10).findings if f.rule_id == "CFD-003"]
-        self.assertEqual(len(findings), 1)
-        self.assertEqual(findings[0].severity, FindingSeverity.MEDIUM)
+        limitations = " ".join(self._adapt(10).limitations).lower()
+        self.assertIn("mesh resolution", limitations)
 
 
 class SealedEnclosuresReportNoMassBalance(unittest.TestCase):
