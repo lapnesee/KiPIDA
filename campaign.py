@@ -252,9 +252,16 @@ def score_findings(findings: List[AnalysisFinding]) -> float:
     ("missing a power rating"), not 159, and a component-per-finding rule is
     the survey case GROUPING_MAX_COMPONENTS already treats as one cause
     rather than 159 problems tied together.
+
+    A ``calculation_quality`` finding (COH-9: CFD-003/004, DC-004/005on P02
+    Rev E) never enters the sum at all: "the tool cannot resolve this at the
+    current mesh" is a fact about the run, and scoring it the same as a
+    board defect made CFD's 82/100 say nothing about the board it graded.
     """
     by_object: Dict[tuple, List[float]] = {}
     for finding in findings:
+        if finding.calculation_quality:
+            continue
         net_key = tuple(sorted(finding.nets))
         key = (finding.rule_id, net_key) if net_key else (finding.rule_id, None)
         by_object.setdefault(key, []).append(_finding_penalty(finding))
@@ -465,11 +472,16 @@ class CampaignResult:
 
     def _compute_actions(self) -> List[CampaignAction]:
         # (domain, finding) pairs across every result, then union-find style
-        # grouping by physical identity.
+        # grouping by physical identity. INFO findings are notes, not
+        # actions ("PDN remains within target", "cavity resonances
+        # estimated", FID "Nothing to do" -- COH-9, 8 of them on P02 Rev E):
+        # they stay out of the action list entirely, though they are still
+        # listed in their own domain's section (result.findings is untouched).
         tagged: List[tuple] = [
             (result.analysis_type, finding)
             for result in self.results
             for finding in result.findings
+            if finding.severity != FindingSeverity.INFO
         ]
         groups = _group_findings(tagged)
 

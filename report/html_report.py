@@ -126,7 +126,13 @@ def _join(values: List[str], empty: str = "&mdash;") -> str:
 
 
 def _confidence_badge(finding: AnalysisFinding) -> str:
-    return f'<span class="confidence">{_esc(finding.confidence)}</span>'
+    badge = f'<span class="confidence">{_esc(finding.confidence)}</span>'
+    if finding.calculation_quality:
+        # COH-9: a self-diagnostic about the analysis (mesh, solver limit),
+        # not a defect on the board; it still stays in this table -- the
+        # score just does not charge it (campaign.score_findings).
+        badge += ' <span class="confidence muted">CALCULATION QUALITY</span>'
+    return badge
 
 
 def _number(value: Optional[float], unit: str = "") -> str:

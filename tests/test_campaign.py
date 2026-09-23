@@ -93,6 +93,31 @@ class DomainScoreTests(unittest.TestCase):
         ])])
         self.assertAlmostEqual(systemic.domain_scores[0].score, 76.6)
 
+    def test_calculation_quality_finding_does_not_reduce_score(self):
+        # COH-9, P02 Rev E: CFD-003/004 and DC-004/005 are about the
+        # calculation itself ("the tool cannot resolve this"), not the
+        # board, but entered the score like any defect (CFD's 82/100 said
+        # nothing about the board it graded).
+        campaign = CampaignResult.from_results([result("CFD", findings=[
+            AnalysisFinding(
+                rule_id="CFD-004", category="NUMERICS", severity=FindingSeverity.HIGH,
+                title="Enclosure reduced to one cell", description="d",
+                calculation_quality=True,
+            ),
+        ])])
+        self.assertAlmostEqual(campaign.domain_scores[0].score, 100.0)
+
+    def test_info_findings_are_out_of_the_action_list(self):
+        # COH-9: 8 INFO "actions" on P02 Rev E are notes, not actions
+        # ("PDN remains within target", "cavity resonances estimated", FID
+        # "Nothing to do"). They must still show in the domain's own
+        # section (result.findings), just not in campaign.actions.
+        campaign = CampaignResult.from_results([result("EMC", findings=[
+            finding("PD-002", FindingSeverity.INFO, nets=["/VBUS_SYS"], title="PDN within target"),
+        ])])
+        self.assertEqual(campaign.actions, [])
+        self.assertEqual(len(campaign.results[0].findings), 1)
+
     def test_no_data_domain_is_not_scored_as_clean(self):
         campaign = CampaignResult.from_results([result("CFD", AnalysisStatus.NO_DATA)])
         score = campaign.domain_scores[0]
@@ -172,8 +197,12 @@ class IncompleteRailPropagationTests(unittest.TestCase):
             title="/VBUS_SYS contains source-free loads", description="d",
             nets=["/VBUS_SYS"], components=["U14"],
         )])
-        emc = result("EMC", AnalysisStatus.PASS, [
-            finding("PD-002", FindingSeverity.INFO, nets=["/VBUS_SYS"], title="PDN within target"),
+        # MEDIUM, not INFO: COH-9 takes INFO findings out of the action list
+        # entirely, so this exercises the net-sharing join on an action-list
+        # eligible finding rather than accidentally passing because the
+        # INFO one was never in `tagged` to begin with.
+        emc = result("EMC", AnalysisStatus.WARN, [
+            finding("PD-002", FindingSeverity.MEDIUM, nets=["/VBUS_SYS"], title="PDN margin low"),
         ])
         campaign = CampaignResult.from_results([dc, emc])
         self.assertEqual(len(campaign.actions), 1)

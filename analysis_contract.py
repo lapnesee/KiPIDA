@@ -182,6 +182,14 @@ class AnalysisFinding:
     finding_id: str = ""
     recommendation: str = ""
     confidence: EvidenceConfidence = EvidenceConfidence.HEURISTIC
+    # True for a finding about the analysis itself -- a mesh too coarse, a
+    # solver limit, a self-diagnostic -- rather than a defect on the board.
+    # CFD-004/CFD-003 and DC-004/DC-005 are this: real findings, but "the
+    # tool cannot resolve this" is not something the user's board did. Kept
+    # separate from severity (a calculation-quality finding can still be
+    # HIGH) so it can be excluded from the score and the action list without
+    # hiding it from its own domain's section.
+    calculation_quality: bool = False
     nets: List[str] = field(default_factory=list)
     components: List[str] = field(default_factory=list)
     evidence: List[AnalysisEvidence] = field(default_factory=list)

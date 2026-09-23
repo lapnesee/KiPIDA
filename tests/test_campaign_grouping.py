@@ -59,9 +59,11 @@ class CampaignGroupingTests(unittest.TestCase):
     def test_a_finding_about_many_parts_ties_no_other_to_it(self):
         # P02 Rev E: SCH-003 named 49 parts, C11 among them, and DE-001 named
         # U18 and C11; joined through C11 they made the first priority action.
+        # LOW, not INFO (COH-9 takes INFO out of the action list entirely --
+        # this test is about the >6-components exemption, not severity).
         survey = [f"R{index}" for index in range(1, 49)] + ["C11"]
         campaign = CampaignResult.from_results([
-            result("SCHEMATIC", [finding("SCH-003", components=survey, severity=FindingSeverity.INFO)]),
+            result("SCHEMATIC", [finding("SCH-003", components=survey, severity=FindingSeverity.LOW)]),
             result("EMC", [finding("DE-001", components=["U18", "C11"])]),
         ])
         self.assertEqual(groups(campaign), [["DE-001"], ["SCH-003"]])

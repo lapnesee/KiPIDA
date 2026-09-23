@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed the campaign score to exclude calculation_quality findings
+  (CFD-003/004, DC-004/005 on P02 Rev E) instead of scoring a tool
+  limitation like a board defect.
+- Fixed the action list to exclude INFO findings entirely (8 on P02
+  Rev E, e.g. "PDN remains within target"); they remain listed in
+  their own domain's section.
 - Fixed the campaign to propagate an INCOMPLETE DC rail (DC-001) as a
   stated limitation to every other domain reporting on the same net,
   and to group a DC-001 finding with anything else on that net --
