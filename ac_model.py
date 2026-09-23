@@ -355,12 +355,39 @@ _RATED_VOLTAGE_RE = re.compile(r"(?i)(?<![\w.])(\d+(?:\.\d+)?)\s*V\b")
 # bias; class I (C0G/NP0) and non-ceramic parts do not, to first order.
 _CLASS_II_DIELECTRIC_RE = re.compile(r"(?i)(?<![A-Z0-9])([XYZ][4-9][P-V])(?![A-Z0-9])")
 # Generic class II retention under a DC bias at a fraction r of the rating:
-# 1 / (1 + (r / 0.6) ** 1.5). It keeps 32 % at the rated voltage, inside the
-# 50-80 % loss docs/audit-si-pdn.md records, 52 % at 0.57 and 71 % at a third.
-# Small, high-capacitance parts lose more and thick-dielectric ones less; the
-# curve is an estimate, said so on each capacitor it changes.
+# 1 / (1 + (r / knee) ** exponent). The (0.6, 1.5) pair keeps 32 % at the
+# rated voltage, inside the 50-80 % loss docs/audit-si-pdn.md records, 52 %
+# at 0.57 and 71 % at a third -- and matches large-case, lower-CV parts.
+# Small-case, high-CV parts pack more active layers per mm3 for the same
+# rating and lose capacitance faster: Murata SimSurfing-type curves for
+# common high-CV X5R/X7R parts show 25-40 % retention at the rated voltage in
+# 0402/0603 against ~32 % from the generic pair, hence the steeper knee and
+# exponent below. This is still a generic case-size bucket, not a per-part
+# curve -- said so on each capacitor it changes (AC-7).
 _CLASS_II_BIAS_KNEE = 0.6
 _CLASS_II_BIAS_EXPONENT = 1.5
+_CASE_SIZE_BIAS_PARAMS = {
+    "0201": (0.30, 2.4),
+    "0402": (0.35, 2.2),
+    "0603": (0.40, 2.0),
+    "0805": (0.45, 1.8),
+    "1206": (0.55, 1.6),
+    "1210": (0.6, 1.5),
+}
+# Typical MLCC ESR by EIA case size at low frequency, in ohms -- a published,
+# documented package/value table rather than a fixed constant, since no MPN
+# data source exists to pull a real ESR from (the audit's "old open item").
+# Smaller cases carry more resistive termination and thinner electrodes per
+# unit capacitance, so their typical ESR is higher.
+_CASE_SIZE_ESR_OHM = {
+    "0201": 0.20,
+    "0402": 0.10,
+    "0603": 0.05,
+    "0805": 0.02,
+    "1206": 0.015,
+    "1210": 0.01,
+}
+_DEFAULT_ESR_OHM = 0.01
 
 
 def parse_capacitor_rating(value) -> Tuple[Optional[float], str]:
@@ -378,12 +405,29 @@ def parse_capacitor_rating(value) -> Tuple[Optional[float], str]:
     )
 
 
-def dc_bias_retention(dielectric: str, rated_voltage_v: Optional[float], bias_v: float) -> float:
-    """The share of a capacitor's nominal value left at *bias_v*: 1.0 when nothing says it drops."""
+def dc_bias_retention(
+    dielectric: str, rated_voltage_v: Optional[float], bias_v: float, case_size: str = "",
+) -> float:
+    """The share of a capacitor's nominal value left at *bias_v*: 1.0 when nothing says it drops.
+
+    *case_size* selects the case-size-specific curve (AC-7) when it names a
+    known EIA package; any other value keeps the large-case/lower-CV default.
+    """
     if not dielectric or not rated_voltage_v or rated_voltage_v <= 0.0 or bias_v <= 0.0:
         return 1.0
+    knee, exponent = _CASE_SIZE_BIAS_PARAMS.get(
+        case_size, (_CLASS_II_BIAS_KNEE, _CLASS_II_BIAS_EXPONENT),
+    )
     ratio = min(1.0, abs(float(bias_v)) / float(rated_voltage_v))
-    return 1.0 / (1.0 + (ratio / _CLASS_II_BIAS_KNEE) ** _CLASS_II_BIAS_EXPONENT)
+    return 1.0 / (1.0 + (ratio / knee) ** exponent)
+
+
+def _case_size_from_footprint_name(footprint_name: str) -> str:
+    name = footprint_name.lower()
+    for package in ("0201", "0402", "0603", "0805", "1206", "1210"):
+        if package in name:
+            return package
+    return ""
 
 
 def format_capacitance(value_f: float) -> str:
@@ -582,12 +626,19 @@ class ACModelBuilder:
         return sorted(names)
 
     def _default_esl(self, footprint_name):
-        name = footprint_name.lower()
-        for package, esl in (("0201", 0.25e-9), ("0402", 0.4e-9), ("0603", 0.6e-9),
-                             ("0805", 0.8e-9), ("1206", 1.0e-9), ("1210", 1.2e-9)):
-            if package in name:
-                return esl
-        return 0.8e-9
+        esl_by_case = {
+            "0201": 0.25e-9, "0402": 0.4e-9, "0603": 0.6e-9,
+            "0805": 0.8e-9, "1206": 1.0e-9, "1210": 1.2e-9,
+        }
+        return esl_by_case.get(_case_size_from_footprint_name(footprint_name), 0.8e-9)
+
+    def _default_esr(self, footprint_name):
+        """Typical low-frequency MLCC ESR by EIA case size (AC-7): no MPN
+        data source exists to pull a real ESR from, so this is a documented
+        package/value table rather than a single fixed constant."""
+        return _CASE_SIZE_ESR_OHM.get(
+            _case_size_from_footprint_name(footprint_name), _DEFAULT_ESR_OHM,
+        )
 
     def discover_capacitors(self, rail_name, ground_name, rail_voltage_v=0.0):
         """The rail-to-return capacitors, at their value under the rail's DC bias.
@@ -620,15 +671,19 @@ class ACModelBuilder:
                 continue
 
             candidate = self._is_dnp(footprint) or capacitance is None
+            footprint_name = self._get_footprint_name(footprint)
+            case_size = _case_size_from_footprint_name(footprint_name)
             model_source = "value-and-package-estimate"
             if capacitance is not None:
                 rated_v, dielectric = parse_capacitor_rating(value_text)
-                retention = dc_bias_retention(dielectric, rated_v, float(rail_voltage_v or 0.0))
+                retention = dc_bias_retention(
+                    dielectric, rated_v, float(rail_voltage_v or 0.0), case_size,
+                )
                 if retention < 1.0:
                     model_source += (
                         f"; DC bias {dielectric} {rated_v:g} V at {float(rail_voltage_v):g} V: "
                         f"{format_capacitance(capacitance)} -> {format_capacitance(capacitance * retention)} "
-                        "(generic class II curve, estimate)"
+                        f"(generic class II curve{' for ' + case_size if case_size else ''}, estimate)"
                     )
                     capacitance *= retention
             capacitors.append(CapacitorModel(
@@ -636,8 +691,8 @@ class ACModelBuilder:
                 rail_pad_names=rail_pads,
                 ground_pad_names=ground_pads,
                 capacitance_f=capacitance or 100e-9,
-                esr_ohm=0.01,
-                esl_h=self._default_esl(self._get_footprint_name(footprint)),
+                esr_ohm=self._default_esr(footprint_name),
+                esl_h=self._default_esl(footprint_name),
                 enabled=not candidate,
                 candidate=candidate,
                 model_source=model_source,

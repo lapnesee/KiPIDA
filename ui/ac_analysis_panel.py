@@ -47,6 +47,24 @@ def port_options(rail, profile=None):
     return options
 
 
+def apply_saved_capacitor(capacitor, saved):
+    """Carry a saved capacitor's state onto a freshly rediscovered one.
+
+    Enabled/disabled is always a user choice and always carries over. The
+    modelled values (capacitance, ESR, ESL, model_source) only carry over
+    when the user actually edited them -- CapacitorModelDialog.apply_to sets
+    model_source="user" -- otherwise a stale estimate from a previous
+    discovery would shadow a rediscovery's corrected derating or ESR (AC-7),
+    e.g. after the rail's voltage changes or a case-size fix lands.
+    """
+    capacitor.enabled = saved.enabled
+    if saved.model_source == "user":
+        capacitor.capacitance_f = saved.capacitance_f
+        capacitor.esr_ohm = saved.esr_ohm
+        capacitor.esl_h = saved.esl_h
+        capacitor.model_source = saved.model_source
+
+
 class CapacitorModelDialog(wx.Dialog):
     def __init__(self, parent, capacitor):
         super().__init__(parent, title=_("Capacitor Model: {reference}").format(reference=capacitor.ref_des))
@@ -430,13 +448,9 @@ class ACAnalysisPanel(wx.Panel):
                 )
                 existing = {cap.ref_des: cap for cap in profile.capacitors}
                 for capacitor in discovered:
-                    if capacitor.ref_des in existing:
-                        saved = existing[capacitor.ref_des]
-                        capacitor.enabled = saved.enabled
-                        capacitor.capacitance_f = saved.capacitance_f
-                        capacitor.esr_ohm = saved.esr_ohm
-                        capacitor.esl_h = saved.esl_h
-                        capacitor.model_source = saved.model_source
+                    saved = existing.get(capacitor.ref_des)
+                    if saved is not None:
+                        apply_saved_capacitor(capacitor, saved)
                 profile.capacitors = discovered
             self.capacitors = profile.capacitors
             self._profile_rail_name = rail.net_name

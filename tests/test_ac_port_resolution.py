@@ -643,6 +643,40 @@ class SourcePresetTests(unittest.TestCase):
         )
 
 
+class SavedCapacitorMergeTests(unittest.TestCase):
+    def test_a_stale_estimate_does_not_shadow_a_fresh_rediscovery(self):
+        # AC-7: reopening the AC tab (or the rail voltage changing) used to
+        # silently overwrite a freshly rediscovered capacitance/ESR/ESL with
+        # whatever was saved from a PRIOR discovery, even when that saved
+        # value was itself only an estimate -- so a corrected derating or
+        # ESR table never reached a saved project.
+        try:
+            from ui.ac_analysis_panel import apply_saved_capacitor
+        except ImportError:
+            self.skipTest("wxPython is not available")
+        from models import CapacitorModel
+
+        fresh = CapacitorModel(
+            "C1", capacitance_f=5.0e-6, esr_ohm=0.05, esl_h=0.6e-9,
+            enabled=True, model_source="value-and-package-estimate; DC bias...",
+        )
+        stale_estimate = CapacitorModel(
+            "C1", capacitance_f=7.0e-6, esr_ohm=0.01, esl_h=0.8e-9,
+            enabled=False, model_source="value-and-package-estimate",
+        )
+        apply_saved_capacitor(fresh, stale_estimate)
+        self.assertAlmostEqual(fresh.capacitance_f, 5.0e-6)  # fresh estimate kept
+        self.assertFalse(fresh.enabled)  # but the user's enable/disable carries over
+
+        user_edited = CapacitorModel(
+            "C1", capacitance_f=9.0e-6, esr_ohm=0.02, esl_h=0.7e-9,
+            enabled=True, model_source="user",
+        )
+        fresh2 = CapacitorModel("C1", capacitance_f=5.0e-6, esr_ohm=0.05, esl_h=0.6e-9)
+        apply_saved_capacitor(fresh2, user_edited)
+        self.assertAlmostEqual(fresh2.capacitance_f, 9.0e-6)  # explicit user edit kept
+
+
 class LoadedProfileRailTests(unittest.TestCase):
     def test_a_loaded_project_opens_the_tab_on_a_rail_it_configured(self):
         # P02 Rev E saved AC profiles for /VBUS_SYS, /+5V_U4 and /+5V_RAIL; the

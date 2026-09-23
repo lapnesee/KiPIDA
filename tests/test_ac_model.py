@@ -86,6 +86,26 @@ class TestCapacitorDiscovery(unittest.TestCase):
         self.assertAlmostEqual(capacitors["C60"].capacitance_f, 330e-12)
         self.assertAlmostEqual(capacitors["C81"].capacitance_f, 68e-6)
 
+    def test_esr_and_derating_come_from_case_size_not_a_fixed_constant(self):
+        # AC-7: a fixed 10 mOhm ESR and a single generic derating curve
+        # regardless of case size were both optimistic for small, high-CV
+        # parts. A 22uF/35V X5R in 0603 must derate MORE (lower retention,
+        # AC-7's "25-40% typical in small high-CV MLCC") and carry a HIGHER
+        # typical ESR than the same part in 1210.
+        def part(reference, footprint):
+            return SimpleNamespace(reference=reference, value="22u 35V X5R", footprint_name=footprint,
+                                   pads=[pad("1", "/VBUS_SYS"), pad("2", "GND")], dnp=False)
+
+        builder = ACModelBuilder(SimpleNamespace(footprints=[
+            part("C1", "Capacitor_SMD:C_0603"), part("C2", "Capacitor_SMD:C_1210"),
+        ]))
+        capacitors = {
+            cap.ref_des: cap for cap in
+            builder.discover_capacitors("/VBUS_SYS", "GND", rail_voltage_v=20.0)
+        }
+        self.assertLess(capacitors["C1"].capacitance_f, capacitors["C2"].capacitance_f)
+        self.assertGreater(capacitors["C1"].esr_ohm, capacitors["C2"].esr_ohm)
+
 
 if __name__ == "__main__":
     unittest.main()

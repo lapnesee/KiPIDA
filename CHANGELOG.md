@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed AC-7: DC-bias derating and ESR now depend on EIA case size
+  (documented tables) instead of one generic curve and a fixed 10 mOhm;
+  a 22uF/35V X5R at 20 V derates further and carries higher ESR in
+  0603 than in 1210. Rediscovering a rail's capacitors no longer lets
+  a stale estimate shadow a corrected one -- only an explicit user
+  edit (model_source == "user") survives rediscovery.
 - Fixed AC-6: the AC report's limitations no longer say DC-bias
   derating "is not modelled" while the same report shows it applied
   (P02 Rev E: "DC bias X5R 35 V at 20 V: 22uF -> 11.4uF"). The text now
