@@ -31,6 +31,10 @@ class EnclosureCFDSolver:
         self.log_callback = log_callback
         self.compute_backend = SparseComputeBackend(compute_settings, log_callback)
         self._last_compute = None
+        # The mass-conservative face velocities the last _pressure_projection
+        # call produced, for _solve_energy to advect with. See CFD-2 in
+        # docs/audit-2026-09-23.md: set only inside _pressure_projection.
+        self._face_velocity = None
         if np is None or scipy is None:
             raise ImportError("NumPy and SciPy are required for enclosure CFD.")
 
@@ -392,6 +396,16 @@ class EnclosureCFDSolver:
                     face_cell[axis] += 1
                 faces[axis][tuple(face_cell)] = velocity[axis][cell]
 
+        # Hand the divergence-free faces to _solve_energy. Re-averaging the
+        # *cell* velocities there -- the previous scheme -- discards the
+        # projection: on P02 Rev E it left Sum|rho cp div(V) T| = 21.5 W of
+        # spurious source/sink for 4.75 W injected, and moving the °C origin
+        # to K (same physics, frozen velocity) moved the reported peak air
+        # temperature from 404.7 to 1005.9 C -- a conservative scheme cannot
+        # do that. Storing the faces this projection actually solved for
+        # removes the re-averaging step instead of tuning it.
+        self._face_velocity = faces
+
         corrected = np.zeros(shape, dtype=float)
         for axis, face_velocity in enumerate(faces):
             lower = [slice(None)] * 3
@@ -561,10 +575,24 @@ class EnclosureCFDSolver:
                     + 1.0 / np.maximum(film * area, 1e-30)
                 )
                 diffusion[interface] = 1.0 / resistance
-            face_velocity = np.where(
-                fluid_lower & fluid_upper,
-                0.5 * (velocity[axis][lower] + velocity[axis][upper]), 0.0,
-            )
+            # Advect with the face velocity the pressure projection actually
+            # solved for, not a re-average of the cell values on either side.
+            # The two agree only where the field is already divergence-free;
+            # everywhere else the re-average reintroduces the divergence the
+            # projection just removed, and this face is exactly where
+            # div(V) is evaluated for the energy equation. See CFD-2.
+            projected = self._face_velocity
+            if projected is not None and projected[axis].shape == tuple(
+                s + (1 if a == axis else 0) for a, s in enumerate(shape)
+            ):
+                face_velocity = np.where(
+                    fluid_lower & fluid_upper, projected[axis][upper], 0.0,
+                )
+            else:
+                face_velocity = np.where(
+                    fluid_lower & fluid_upper,
+                    0.5 * (velocity[axis][lower] + velocity[axis][upper]), 0.0,
+                )
             # Flux leaving the lower cell through this face; the upper cell
             # sees the same face with the opposite sign.
             flux = capacity_density * area * face_velocity
@@ -780,6 +808,7 @@ class EnclosureCFDSolver:
         # operator onto a different mesh.
         self._poisson = None
         self._free_cells = None
+        self._face_velocity = None
         self._poisson_cache_key = f"cfd-poisson-{id(mesh)}-{mesh.shape}"
         residuals = CFDResidualHistory()
         converged = False

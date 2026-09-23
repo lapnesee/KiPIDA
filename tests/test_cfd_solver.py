@@ -85,6 +85,46 @@ class TestEnclosureCFDSolver(unittest.TestCase):
         self.assertGreater(float(np.max(temperature)), settings.ambient_c)
         self.assertLess(elapsed, 0.15)
 
+    def test_energy_advection_is_origin_invariant(self):
+        # docs/audit-2026-09-23.md CFD-2, P02 Rev E 2026-09-22 21:56:
+        # advecting with velocities re-averaged from cells instead of the
+        # pressure projection's own faces left the discrete energy row sums
+        # proportional to the field's *discrete* divergence -- a spurious
+        # term that scales with absolute temperature, not (T - ambient).
+        # Measured as Sum|rho cp div(V) T| = 21.5 W for 4.75 W injected, and
+        # it moved the reported peak air temperature from 404.7 to 1005.9 C
+        # when the origin shifted C -> K (scratchpad p02_inspect.py). Film
+        # coefficients are frozen to one ambient so only the advection
+        # operator -- not the legitimately absolute convection correlations
+        # -- is under test.
+        settings = self._settings()
+        model = EnclosureModel(
+            dimensions_mm=(30.0, 30.0, 30.0),
+            obstacles=[CFDObstacle("HOT", (12, 12, 12, 18, 18, 18), 5.0, 0.5)],
+        )
+        mesh = CFDMeshGenerator().generate_mesh(model, settings)
+
+        orig_film = EnclosureCFDSolver._film_coefficient
+        ambient0 = settings.ambient_c
+        frozen = staticmethod(
+            lambda dt, L, s, amb, e, _o=orig_film, _a=ambient0: _o(dt, L, s, _a, e)
+        )
+        EnclosureCFDSolver._film_coefficient = frozen
+        try:
+            result_c = EnclosureCFDSolver().solve(mesh, settings)
+            shifted_settings = self._settings()
+            shifted_settings.ambient_c = ambient0 + 273.15
+            mesh_k = CFDMeshGenerator().generate_mesh(model, shifted_settings)
+            result_k = EnclosureCFDSolver().solve(mesh_k, shifted_settings)
+        finally:
+            EnclosureCFDSolver._film_coefficient = staticmethod(orig_film)
+
+        self.assertLess(
+            abs(result_c.maximum_air_temperature_c
+                - (result_k.maximum_air_temperature_c - 273.15)),
+            1.0,
+        )
+
     def test_free_stream_is_sampled_over_and_under_a_flat_board(self):
         # P02 Rev E, 2026-09-22 21:58: a 1.6 mm board 15 mm up a 165 x 100 x
         # 50 mm enclosure gave no sample at all -- the slab stopped at the

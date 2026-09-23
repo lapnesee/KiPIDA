@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed non-conservative CFD energy advection: the energy equation now
+  advects with the pressure projection's own divergence-free face
+  velocities instead of re-averaging cell velocities, which had let a
+  21.5 W spurious source (for 4.75 W injected) leak into P02 Rev E's
+  solid/air temperatures and made the result depend on the Celsius/Kelvin
+  origin (404.7 C vs 1005.9 C for the same physics). Added an origin-
+  invariance regression test.
 - Fixed a CFD enclosure mesh bug where a board or component thinner than
   one cell on every axis collapsed to a single fallback cell instead of
   spanning its footprint on the axes where it is not thin. P02 Rev E's
