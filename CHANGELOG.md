@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed the campaign verdict to derive each domain's PASS/WARN/FAIL
+  from its findings' severity and confidence, one rule for every
+  domain, instead of trusting each adapter's own hard-coded status;
+  P02 Rev E's FAIL rested only on two HIGH ESTIMATED SI-DIFF-001
+  findings that now WARN like an equivalent DC-001 finding did.
 - Fixed the campaign cache so a cache-served domain still hands its
   raw outcome to the domains coupled to it (DC -> THERMAL/CFD,
   AC/DIFFERENTIAL/THERMAL -> EMC), instead of silently dropping every

@@ -91,6 +91,42 @@ _EFFORT_ORDER: List[RemediationEffort] = [
 # treated as the same physical location.
 COLOCATION_TOLERANCE_MM = 2.0
 
+# Confidence levels whose weight is 1.0 in CONFIDENCE_WEIGHT: a fact about the
+# run or the part, not a model's estimate.  A domain FAILs only on a CRITICAL
+# finding or a HIGH one resting on this tier -- the same test for every
+# domain, so a differential pair and a DC rail are judged the same way. Before
+# this rule each adapter hard-coded its own FAIL/WARN split: the differential
+# adapter FAILed its domain on any failed pair while DC/EMC/CFD/thermal only
+# ever WARNed on a HIGH finding, so P02 Rev E's global FAIL rested solely on
+# two SI-DIFF-001 HIGH ESTIMATED findings (-14.7 % / -15.9 %) while a DC-001
+# HIGH ESTIMATED finding on the same campaign only produced a WARN.
+_HARD_CONFIDENCE = frozenset((
+    EvidenceConfidence.DETERMINISTIC,
+    EvidenceConfidence.MEASURED,
+    EvidenceConfidence.DATASHEET_BACKED,
+))
+
+
+def domain_status_from_findings(findings: List[AnalysisFinding]) -> AnalysisStatus:
+    """Derive a domain's PASS/WARN/FAIL from its findings, the same rule for
+    every domain: FAIL on any CRITICAL finding, or a HIGH one whose confidence
+    is DETERMINISTIC/MEASURED/DATASHEET_BACKED (a fact, not an estimate); WARN
+    on any other HIGH, or a MEDIUM; PASS otherwise.
+    """
+    if any(finding.severity == FindingSeverity.CRITICAL for finding in findings):
+        return AnalysisStatus.FAIL
+    if any(
+        finding.severity == FindingSeverity.HIGH and finding.confidence in _HARD_CONFIDENCE
+        for finding in findings
+    ):
+        return AnalysisStatus.FAIL
+    if any(
+        finding.severity in (FindingSeverity.HIGH, FindingSeverity.MEDIUM)
+        for finding in findings
+    ):
+        return AnalysisStatus.WARN
+    return AnalysisStatus.PASS
+
 # A finding naming more parts than this surveys the design ("49 resistors lack
 # a power rating") rather than blaming a part, so it ties no other finding to
 # it through a part they share.
@@ -321,9 +357,20 @@ class CampaignResult:
                 max(0.0, min(100.0, float(own))) if own is not None
                 else score_findings(result.findings)
             )
+            # PASS/WARN/FAIL is derived centrally from the findings
+            # (domain_status_from_findings), not read off the adapter: an
+            # adapter's own status is a hint the rule may downgrade or
+            # upgrade, so every domain FAILs and WARNs on the same evidence
+            # bar. ERROR/CANCELLED are not about severity at all and pass
+            # through unchanged.
+            status = (
+                domain_status_from_findings(result.findings)
+                if result.status in (AnalysisStatus.PASS, AnalysisStatus.WARN, AnalysisStatus.FAIL)
+                else result.status
+            )
             scores.append(DomainScore(
                 domain=result.analysis_type,
-                status=result.status,
+                status=status,
                 score=score,
                 finding_counts=counts,
                 headline=self._headline(result),

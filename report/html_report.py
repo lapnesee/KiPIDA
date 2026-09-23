@@ -267,6 +267,10 @@ def _render_synthesis(campaign: CampaignResult) -> str:
         f'<p>Overall verdict: <span class="verdict {status_class}">'
         f"{_esc(campaign.overall_status)}</span></p>"
         "<h3>Domain scores</h3>"
+        '<p class="muted">Status rule, the same for every domain: FAIL on any '
+        "CRITICAL finding, or a HIGH one backed by a DETERMINISTIC, MEASURED "
+        "or DATASHEET_BACKED confidence (a fact, not an estimate); WARN on "
+        "any other HIGH, or a MEDIUM; PASS otherwise.</p>"
         f"{_render_scores(campaign.domain_scores)}"
         "<h3>Priority actions</h3>"
         f"{_render_top_actions(campaign.top_actions(10))}"

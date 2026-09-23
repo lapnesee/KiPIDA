@@ -28,11 +28,12 @@ from campaign import CampaignResult  # noqa: E402
 def finding(
     rule_id="R-1", severity=FindingSeverity.MEDIUM, title="Problem",
     nets=None, components=None, evidence=None, remediations=None,
+    confidence=EvidenceConfidence.DETERMINISTIC,
 ):
     return AnalysisFinding(
         rule_id=rule_id, category="TEST", severity=severity,
         title=title, description="d",
-        confidence=EvidenceConfidence.DETERMINISTIC,
+        confidence=confidence,
         nets=list(nets or []), components=list(components or []),
         evidence=list(evidence or []), remediations=list(remediations or []),
     )
@@ -79,11 +80,26 @@ class OverallStatusTests(unittest.TestCase):
         ])])
         self.assertEqual(campaign.overall_status, AnalysisStatus.FAIL)
 
-    def test_high_finding_gives_warn(self):
+    def test_high_estimated_finding_gives_warn(self):
+        # P02 Rev E, 2026-09-22 21:58: DC-001 is HIGH ESTIMATED (U14 isolated,
+        # 8.04 mV) and only ever produced a WARN. COH-2's central rule keeps
+        # that: a HIGH resting on an estimate, not a measured/deterministic
+        # fact, warrants a WARN, the same for every domain.
+        campaign = CampaignResult.from_results([result("DC", AnalysisStatus.PASS, [
+            finding("A", FindingSeverity.HIGH, nets=["N1"], confidence=EvidenceConfidence.ESTIMATED),
+        ])])
+        self.assertEqual(campaign.overall_status, AnalysisStatus.WARN)
+
+    def test_high_deterministic_finding_forces_fail(self):
+        # COH-2: verdict FAIL used to depend on which adapter reported it (the
+        # differential adapter FAILed on any failed pair, DC/EMC/CFD/thermal
+        # only ever WARNed on a HIGH). The central rule now FAILs any domain
+        # on a HIGH finding backed by a fact rather than an estimate, the
+        # `finding()` helper's default confidence -- regardless of domain.
         campaign = CampaignResult.from_results([result("DC", AnalysisStatus.PASS, [
             finding("A", FindingSeverity.HIGH, nets=["N1"]),
         ])])
-        self.assertEqual(campaign.overall_status, AnalysisStatus.WARN)
+        self.assertEqual(campaign.overall_status, AnalysisStatus.FAIL)
 
     def test_clean_domains_give_pass(self):
         campaign = CampaignResult.from_results([result("DC", AnalysisStatus.PASS, [
