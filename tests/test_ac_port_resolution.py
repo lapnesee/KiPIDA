@@ -427,6 +427,23 @@ class MultiPortSweepTests(unittest.TestCase):
         )
         self.assertEqual(swept.worst_port_ref_des, "NEAR")
 
+    def test_optimizer_baseline_uses_the_worst_port_not_just_measurement(self):
+        # AC-9: the optimizer scored with solve_sweep, which only ever looked
+        # at network.measurement (here NEAR, |Z| ~0.1 ohm, under the 0.11 ohm
+        # target). The published AC result is multiport (AC-4) and reads the
+        # FAR port's worse ~1.1 ohm. Before this fix the optimizer's baseline
+        # read a false PASS and returned immediately with no recommendations,
+        # disagreeing with the published FAIL.
+        from decoupling_optimizer import DecouplingOptimizer
+        from ac_solver import ACSolver
+
+        result = DecouplingOptimizer(ACSolver()).optimize(
+            self._network_two_ports(), self._settings(),
+        )
+
+        self.assertFalse(result.baseline.meets_target)
+        self.assertAlmostEqual(result.baseline.worst_impedance_ohm, 1.1, places=6)
+
 
 class DisconnectedPortTests(unittest.TestCase):
     """A port on isolated copper must be reported, never silently measured."""

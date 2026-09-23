@@ -46,11 +46,30 @@ class DecouplingOptimizer:
         return [replace(capacitor) for capacitor in capacitors]
 
     def optimize(self, network, settings, progress_callback=None):
+        # Every trial below still calls solve_sweep_multiport from scratch
+        # (fresh Python _connectivity, fresh stamps, a fresh LU
+        # factorisation per frequency point) rather than reusing the current
+        # LU as a preconditioner across trials, though adding one capacitor
+        # is a low-rank update to the network. AC-9 asked for that reuse;
+        # it is NOT implemented here -- it needs ACSolver's recycled-LU
+        # machinery to accept a factorisation carried across capacitor
+        # configurations, not just across frequency points, which is a
+        # solver-level change out of scope for this fix. Cost stays
+        # max_additions x N_DNP x N_values solve_sweep_multiport calls.
         if np is None:
             raise ImportError("NumPy is required for decoupling optimization.")
 
+        # solve_sweep_multiport sweeps every candidate observation point and
+        # scores the worst one, the same way the published AC result does
+        # (AC-4's multiport ports). solve_sweep only ever looked at
+        # network.measurement, so on a rail with several candidate ports the
+        # optimizer's baseline/score could read PASS while the published,
+        # worst-port result read FAIL (AC-9). A network with a single port
+        # equal to network.measurement (every rail before AC-4, and every
+        # existing caller here) delegates straight through to solve_sweep and
+        # returns identical numbers, so this is a no-op change for those.
         baseline_caps = self._clone_capacitors(settings.capacitors)
-        baseline = self.solver.solve_sweep(network, settings, baseline_caps)
+        baseline = self.solver.solve_sweep_multiport(network, settings, capacitors=baseline_caps)
         target = max(0.0, float(settings.target_impedance_ohm))
         if baseline.meets_target:
             return DecouplingOptimizationResult(
@@ -70,7 +89,7 @@ class DecouplingOptimizer:
         recommendations = []
 
         coarse_settings = replace(settings, frequency_points=min(41, settings.frequency_points))
-        current_result = self.solver.solve_sweep(network, coarse_settings, working)
+        current_result = self.solver.solve_sweep_multiport(network, coarse_settings, capacitors=working)
         current_score = self._score(current_result, target)
         total_trials = max(1, max_additions * max(1, len(available_refs)) * max(1, len(values)))
         completed_trials = 0
@@ -87,7 +106,7 @@ class DecouplingOptimizer:
                     selected.enabled = True
                     selected.candidate = False
                     selected.capacitance_f = capacitance
-                    result = self.solver.solve_sweep(network, coarse_settings, trial)
+                    result = self.solver.solve_sweep_multiport(network, coarse_settings, capacitors=trial)
                     score = self._score(result, target)
                     completed_trials += 1
                     if progress_callback:
@@ -119,7 +138,7 @@ class DecouplingOptimizer:
             if not available_refs:
                 break
 
-        optimized = self.solver.solve_sweep(network, settings, working)
+        optimized = self.solver.solve_sweep_multiport(network, settings, capacitors=working)
         return DecouplingOptimizationResult(
             baseline=baseline,
             optimized=optimized,

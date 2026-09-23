@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed AC-9 (partial, correctness half): the decoupling optimizer now
+  scores baseline/trials/result with solve_sweep_multiport, matching
+  the worst-port verdict AC-4 made the published AC result use,
+  instead of a single fixed measurement port that could disagree with
+  it. The per-trial full-resolve performance cost (no LU reuse across
+  capacitor configurations) is unchanged and stated as a known gap.
 - Documented AC-8 (limite publiee): via inductance
   (mesh.Mesher._calculate_vertical_l) is a self inductance with no
   mutual term against a nearby return via, overestimating a close
