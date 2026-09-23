@@ -27,6 +27,10 @@ class PlanarCurrentDensitySample:
     density_a_per_mm2: float
     copper_kind: str
     loss_w: float = 0.0
+    # Fraction of the cut cell this edge crosses that is actually copper (see
+    # MINIMUM_COPPER_FRACTION_FOR_HOTSPOT). 1.0 for a track or contact stitch,
+    # which are never partial cells.
+    copper_fraction: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -83,6 +87,20 @@ def _prepared_layers(geometry_by_layer):
 
 
 _VERTICAL_KINDS = ("via", "pth", "vertical")
+
+# A cut-cell edge's cross-section is frac * h * thickness (mesh_hybrid.py's
+# _mesh_copper_cutcell, lines 868 and 877): frac is the copper fraction of
+# the cell the edge crosses, and a cell that is mostly clearance still gets
+# one -- it carries whatever sliver of current reaches it. Dividing that
+# current by the sliver's own tiny section produces enormous, physically
+# meaningless densities: /J2_PD_HV's published 697 A/mm^2 maximum was a
+# pad-copper:In2.Cu:v cell 0.7% copper (1e-5 mm^2), 4.3 mm from any pad of
+# the net, carrying 4 mA -- the top 5 were all such slivers, all <= 0.12 A.
+# The first density any properly-filled cell reached was 393 A/mm^2, 1.38 A
+# through a full F.Cu cell near C16.1 (P02 Rev E, 2026-09-22 pdhv_density.py).
+# Cells this thin are excluded from the maximum and the hotspot; the P99.5
+# percentile already looks at the whole distribution and needs no filter.
+MINIMUM_COPPER_FRACTION_FOR_HOTSPOT = 0.25
 
 
 def _copper_kind_from_source(geometry_source):
@@ -155,9 +173,9 @@ def calculate_current_density(mesh, detailed_result, stackup, classification_geo
         if kind == "lateral":
             layer_id = int(coord_a[2])
             copper = stackup.get("copper", {}).get(layer_id, {})
+            thickness_mm = float(copper.get("thickness_mm", 0.0) or 0.0)
             section = float(getattr(branch, "cross_section_mm2", 0.0) or 0.0)
             if section <= 0.0:
-                thickness_mm = float(copper.get("thickness_mm", 0.0) or 0.0)
                 face_width_mm = float(getattr(mesh, "grid_step", 0.0) or 0.0)
                 if thickness_mm <= 0.0 or face_width_mm <= 0.0:
                     invalid_thickness_layers.add(layer_id)
@@ -165,6 +183,15 @@ def calculate_current_density(mesh, detailed_result, stackup, classification_geo
                 section = thickness_mm * face_width_mm
             density = abs(current) / section
             copper_kind = _copper_kind_from_source(getattr(branch, "geometry_source", ""))
+            # Only a cut-cell edge (zone/pad-copper) can be a partial cell; a
+            # track or a DC-1 contact stitch always reports its full copper
+            # section, so it is never penalised here.
+            source_prefix = str(getattr(branch, "geometry_source", "") or "").split(":", 1)[0]
+            grid_step_mm = float(getattr(mesh, "grid_step", 0.0) or 0.0)
+            if source_prefix in ("zone", "pad-copper") and thickness_mm > 0.0 and grid_step_mm > 0.0:
+                copper_fraction = min(1.0, section / (thickness_mm * grid_step_mm))
+            else:
+                copper_fraction = 1.0
             if copper_kind is None:
                 point = Point(x_mm, y_mm) if Point is not None else None
                 on_track = bool(
@@ -183,6 +210,7 @@ def calculate_current_density(mesh, detailed_result, stackup, classification_geo
                 index, x_mm, y_mm, layer_id,
                 str(copper.get("name", layer_id)), current, density, copper_kind,
                 float(losses[index]) if index < len(losses) else 0.0,
+                copper_fraction,
             )
             result.planar_samples.append(sample)
             # The displayed node map is the maximum of its solved adjacent
@@ -221,21 +249,29 @@ def calculate_current_density(mesh, detailed_result, stackup, classification_geo
     result.node_density_a_per_mm2 = node_density
     densities = [sample.density_a_per_mm2 for sample in result.planar_samples]
     if densities:
+        # The max and the hotspot ignore cells too thin to be a physical
+        # concentration of current (MINIMUM_COPPER_FRACTION_FOR_HOTSPOT); if
+        # every sample on the net happens to be that thin, report the true
+        # maximum anyway rather than silently going quiet about a real rail.
+        substantial = [
+            sample for sample in result.planar_samples
+            if sample.copper_fraction >= MINIMUM_COPPER_FRACTION_FOR_HOTSPOT
+        ] or result.planar_samples
         result.planar_hotspot = max(
-            result.planar_samples, key=lambda sample: sample.density_a_per_mm2,
+            substantial, key=lambda sample: sample.density_a_per_mm2,
         )
         result.maximum_planar_a_per_mm2 = result.planar_hotspot.density_a_per_mm2
         result.percentile_99_5_a_per_mm2 = _percentile(densities, 99.5)
         result.maximum_track_a_per_mm2 = max(
             (
-                sample.density_a_per_mm2 for sample in result.planar_samples
+                sample.density_a_per_mm2 for sample in substantial
                 if "TRACK" in sample.copper_kind
             ),
             default=0.0,
         )
         result.maximum_zone_a_per_mm2 = max(
             (
-                sample.density_a_per_mm2 for sample in result.planar_samples
+                sample.density_a_per_mm2 for sample in substantial
                 if "ZONE" in sample.copper_kind
             ),
             default=0.0,

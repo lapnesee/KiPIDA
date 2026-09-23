@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed DC-2: the DC current-density maximum and hotspot no longer pick
+  a near-empty cut cell carrying a trickle of current. P02 Rev E
+  /J2_PD_HV's published 697 A/mm2 maximum (0.7% copper, 4 mA, 4.3 mm
+  from any pad) is now excluded by a 25% copper-fraction floor; the
+  first physical hotspot was 393 A/mm2. Verified on /+5V_U4
+  (2026-09-23): 5,062 of 102,361 samples excluded, reported max
+  228.3 A/mm2 vs. 442.3 A/mm2 for the excluded slivers.
 - Fixed DC-1: a track end, via barrel or through-hole pad barrel now
   joins every plane/land lattice node under its own footprint instead
   of the single nearest one, removing a fictitious constriction

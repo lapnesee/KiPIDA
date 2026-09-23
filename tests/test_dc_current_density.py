@@ -63,6 +63,32 @@ class DCCurrentDensityTests(unittest.TestCase):
         self.assertEqual(result.maximum_track_a_per_mm2, result.maximum_planar_a_per_mm2)
         self.assertEqual(result.maximum_zone_a_per_mm2, result.maximum_planar_a_per_mm2)
 
+    def test_a_sliver_cell_does_not_win_the_hotspot(self):
+        # DC-2 regression. P02 Rev E, /J2_PD_HV (2026-09-22 pdhv_density.py):
+        # the published 697 A/mm^2 maximum was a pad-copper cut cell 0.7%
+        # copper (1e-5 mm^2 section) carrying 4 mA, 4.3 mm from any pad of
+        # the net; the first density any properly-filled cell reached was
+        # 393 A/mm^2 (1.38 A through a full F.Cu cell near C16.1). A tiny
+        # current through a tiny sliver must not outrank a real cell.
+        mesh = Mesh()
+        mesh.nodes = [0, 1, 2, 3]
+        mesh.node_coords = {0: (0.0, 0.0, 0), 1: (0.1, 0.0, 0), 2: (1.0, 0.0, 0), 3: (1.1, 0.0, 0)}
+        mesh.grid_step = 0.1
+        # A near-empty cell: 1% copper fraction, tiny section, tiny current --
+        # 4 mA / (0.01 * 0.1 * 0.035) mm^2 = 114.3 A/mm^2.
+        mesh.add_edge_direct(0, 1, 1.0, kind="lateral", cross_section_mm2=0.01 * 0.1 * 0.035,
+                              geometry_source="pad-copper:In2.Cu:v")
+        # A fully-covered cell: 1 A through the full 0.1 mm x 0.035 mm face --
+        # 1 / (0.1 * 0.035) = 285.7 A/mm^2, the real hotspot.
+        mesh.add_edge_direct(2, 3, 1.0, kind="lateral", cross_section_mm2=1.0 * 0.1 * 0.035,
+                              geometry_source="zone:F.Cu:h")
+        detailed = DCSolveResult(
+            branch_currents_a=[0.004, 1.0], branch_losses_w=[0.0, 0.0],
+        )
+        result = calculate_current_density(mesh, detailed, self.stackup())
+        self.assertAlmostEqual(result.maximum_planar_a_per_mm2, 1.0 / (0.1 * 0.035), places=6)
+        self.assertEqual(result.planar_hotspot.branch_index, 1)
+
     def test_missing_or_invalid_geometry_is_reported(self):
         mesh, detailed = self.planar_mesh()
         result = calculate_current_density(
