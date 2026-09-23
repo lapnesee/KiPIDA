@@ -882,6 +882,16 @@ def _thermal_mesh_sensitivity(mesh_sensitivity: Any):
     """(metrics, findings, limitations) for a hotspot solved at two grid steps."""
     data = dict(mesh_sensitivity or {})
     if "delta_c" not in data:
+        reason = data.get("not_verified_reason")
+        if reason:
+            # TH-3: a campaign always runs the coupled path, where the
+            # frozen-heat coarse re-solve can fail for reasons a plain
+            # thermal run never hits (a missing rail's DC result, for
+            # example). Silence would look identical to the check never
+            # having been requested; say plainly that it was not verified.
+            return [], [], [
+                f"Mesh sensitivity was not verified for this coupled result: {reason}"
+            ]
         return [], [], []
     delta = float(data["delta_c"])
     exceeded = delta > THERMAL_MESH_SENSITIVITY_LIMIT_C

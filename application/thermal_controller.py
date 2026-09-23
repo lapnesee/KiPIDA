@@ -256,8 +256,17 @@ class ThermalSolverEngine:
         if cancelled():
             raise ThermalAnalysisCancelled("Thermal analysis cancelled.")
         mesh_sensitivity = None
-        if not request.coupled and getattr(request.settings, "mesh_sensitivity_check", False):
-            mesh_sensitivity = self._mesh_sensitivity(model, request, result, emit, cancelled)
+        if getattr(request.settings, "mesh_sensitivity_check", False):
+            if request.coupled:
+                # A campaign always runs this path (ui/main_dialog.py:497), so
+                # the double-step error bar must not silently stop existing
+                # here -- it only used to run when a plain, non-campaign
+                # thermal analysis was requested (TH-3 / COH-6, old R7).
+                mesh_sensitivity = self._coupled_mesh_sensitivity(
+                    model, request, result, coupled_result, system_results, emit, cancelled,
+                )
+            else:
+                mesh_sensitivity = self._mesh_sensitivity(model, request, result, emit, cancelled)
         return ThermalRunOutcome(
             mesh=mesh,
             result=result,
@@ -269,6 +278,41 @@ class ThermalSolverEngine:
             copper_loss_source=copper_loss_source,
             mesh_sensitivity=mesh_sensitivity,
         )
+
+    def _coupled_mesh_sensitivity(
+        self, model, request, result, coupled_result, system_results, emit, cancelled,
+    ):
+        """The coupled equivalent of :meth:`_mesh_sensitivity`.
+
+        A coupled run does not end on the static model: component power was
+        redistributed by temperature (electrothermal.py's dynamic stages) and
+        copper losses came from the final per-rail DC solve, not the ambient
+        one the loop started from. Both are frozen from the converged
+        iteration -- component power is already mutated in place on
+        ``model.components`` by the coupled loop; copper losses are rebuilt
+        from ``coupled_result.dc_results`` -- and handed to the same coarse
+        re-solve the uncoupled path uses, so the check measures the run that
+        was actually reported rather than a plain thermal approximation of it.
+
+        Returns ``{"not_verified_reason": ...}`` instead of raising when the
+        frozen re-solve cannot be completed, so a campaign (which always runs
+        coupled) still publishes an honest "not verified" rather than either
+        crashing or silently dropping the error bar.
+        """
+        try:
+            dc_results = dict(getattr(coupled_result, "dc_results", {}) or {})
+            combined = {
+                name: {"mesh": data.get("mesh"), "detailed_result": dc_results.get(name)}
+                for name, data in (system_results or {}).items()
+                if dc_results.get(name) is not None
+            }
+            frozen_model = replace(model, copper_losses=dc_copper_loss_points(combined))
+            return self._mesh_sensitivity(frozen_model, request, result, emit, cancelled)
+        except ThermalAnalysisCancelled:
+            raise
+        except Exception as exc:
+            emit(f"Mesh sensitivity check not verified for the coupled result: {exc}")
+            return {"not_verified_reason": str(exc)}
 
     def _mesh_sensitivity(self, model, request, result, emit, cancelled):
         """Solve at twice the grid step and measure how far the hotspot moves.

@@ -73,6 +73,117 @@ class EngineSolvesTwice(unittest.TestCase):
         self.assertEqual((grids, outcome.mesh_sensitivity), ([1.0], None))
 
 
+class CoupledEngineAlsoSolvesTwice(unittest.TestCase):
+    """TH-3 / COH-6: a campaign always runs the coupled path
+    (ui/main_dialog.py:497), so the double-step check used to never run even
+    though the P02 sidecar carries mesh_sensitivity_check=true."""
+
+    def _request(self, **kwargs):
+        from dataclasses import dataclass, field
+        from application.thermal_controller import ThermalRunRequest
+
+        @dataclass
+        class Model:
+            copper_losses: list = field(default_factory=list)
+            components: list = field(default_factory=list)
+
+        return ThermalRunRequest(
+            settings=kwargs.pop("settings", _settings()), board_model=Model(), coupled=True,
+            _dc_results={"5V": {"mesh": SimpleNamespace(branches=[], node_coords={})}},
+            **kwargs,
+        )
+
+    def test_coupled_campaign_also_gets_the_double_step_check(self):
+        from application.thermal_controller import ThermalSolverEngine
+
+        grids = []
+
+        class Mesher:
+            def __init__(self, **_kwargs):
+                pass
+
+            def generate_mesh(self, model, settings, progress_callback=None, air_velocity_m_s=None):
+                grids.append(settings.grid_size_mm)
+                return SimpleNamespace(
+                    nodes=[0], grid=settings.grid_size_mm, surface_h_w_m2k={}, heat_sources_w={},
+                )
+
+        class Solver:
+            def __init__(self, **_kwargs):
+                pass
+
+            def solve_with_surface_refinement(self, mesh, settings, progress_callback=None):
+                hotspots = {1.0: 101.3, 2.0: 105.7}
+                return SimpleNamespace(
+                    hotspot=SimpleNamespace(temperature_c=hotspots[mesh.grid]),
+                    effective_grid_size_mm=mesh.grid,
+                )
+
+        class CoupledSolver:
+            def __init__(self, **_kwargs):
+                pass
+
+            def solve(self, mesh, settings, rail_contexts, progress_callback=None, rails=None):
+                thermal = SimpleNamespace(
+                    hotspot=SimpleNamespace(temperature_c=101.3), effective_grid_size_mm=mesh.grid,
+                )
+                return SimpleNamespace(thermal=thermal, dc_results={}, iterations=1, converged=True)
+
+        engine = ThermalSolverEngine(
+            mesher_factory=Mesher, solver_factory=Solver, coupled_solver_factory=CoupledSolver,
+        )
+        outcome = engine.solve(self._request(), lambda _m: None, lambda *_: None, lambda: False)
+
+        self.assertEqual(grids, [1.0, 2.0])
+        self.assertAlmostEqual(outcome.mesh_sensitivity["delta_c"], 4.4, places=6)
+
+    def test_a_failed_frozen_resolve_is_reported_not_verified(self):
+        from application.thermal_controller import ThermalSolverEngine
+
+        calls = {"n": 0}
+
+        class FlakyMesher:
+            def __init__(self, **_kwargs):
+                pass
+
+            def generate_mesh(self, model, settings, progress_callback=None, air_velocity_m_s=None):
+                calls["n"] += 1
+                # The fine mesh (call 1) must succeed for the coupled solve
+                # itself to run; only the coarse, sensitivity-only re-solve
+                # (call 2) fails here, mimicking a real solver error.
+                if calls["n"] > 1:
+                    raise RuntimeError("synthetic coarse-mesh failure")
+                return SimpleNamespace(
+                    nodes=[0], grid=settings.grid_size_mm, surface_h_w_m2k={}, heat_sources_w={},
+                )
+
+        class Solver:
+            def __init__(self, **_kwargs):
+                pass
+
+            def solve_with_surface_refinement(self, mesh, settings, progress_callback=None):
+                return SimpleNamespace(
+                    hotspot=SimpleNamespace(temperature_c=101.3), effective_grid_size_mm=mesh.grid,
+                )
+
+        class CoupledSolver:
+            def __init__(self, **_kwargs):
+                pass
+
+            def solve(self, mesh, settings, rail_contexts, progress_callback=None, rails=None):
+                thermal = SimpleNamespace(
+                    hotspot=SimpleNamespace(temperature_c=101.3), effective_grid_size_mm=mesh.grid,
+                )
+                return SimpleNamespace(thermal=thermal, dc_results={}, iterations=1, converged=True)
+
+        engine = ThermalSolverEngine(
+            mesher_factory=FlakyMesher, solver_factory=Solver, coupled_solver_factory=CoupledSolver,
+        )
+        outcome = engine.solve(self._request(), lambda _m: None, lambda *_: None, lambda: False)
+
+        self.assertIn("not_verified_reason", outcome.mesh_sensitivity)
+
+
 class AdapterStatesIt(unittest.TestCase):
     def _result(self, delta):
         from analysis_adapters import adapt_thermal_result
@@ -105,6 +216,16 @@ class AdapterStatesIt(unittest.TestCase):
 
         result = adapt_thermal_result(SimpleNamespace(converged=True, energy_balance_error_pct=0.0))
         self.assertFalse(any(item.key == "hotspot_mesh_sensitivity" for item in result.metrics))
+
+    def test_a_skipped_coupled_check_says_not_verified_not_silence(self):
+        from analysis_adapters import adapt_thermal_result
+
+        result = adapt_thermal_result(
+            SimpleNamespace(converged=True, energy_balance_error_pct=0.0),
+            mesh_sensitivity={"not_verified_reason": "synthetic coarse-mesh failure"},
+        )
+        self.assertFalse(any(item.key == "hotspot_mesh_sensitivity" for item in result.metrics))
+        self.assertTrue(any("not verified" in item for item in result.limitations))
 
 
 class SettingIsDeclaredOnce(unittest.TestCase):

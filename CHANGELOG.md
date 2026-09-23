@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed the mesh-resolution error bar (double-step hotspot check)
+  being silently skipped whenever the thermal run was coupled, which
+  is every campaign; the P02 Rev E sidecar's
+  mesh_sensitivity_check=true never took effect on a campaign report
+  before this. A frozen re-solve that cannot complete now publishes
+  "not verified" instead of nothing.
 - Fixed the coupled thermal path never refining surface h against the
   solved temperature (electrothermal.py, thermal_solver.py): it now
   runs the same correction the uncoupled path does, and the report's
