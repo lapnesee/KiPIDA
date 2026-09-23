@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed the campaign report's metric values to use significant-digit
+  formatting instead of Python's raw float repr, collapsing
+  floating-point noise under 1e-6 to "< 1e-6" (P02 Rev E printed
+  "8.074349270001136e-14 %" and "1.03e-09 A/mm2").
+- Fixed the report to show a Remediation's layer as "<given name>
+  (<canonical id>)" so a user stackup name (F.Signal) and the
+  canonical KiCad id (F.Cu) for the same layer read as one layer, not
+  two.
 - Fixed the consolidated report to carry each domain's completion time
   and board fingerprint, and to warn when domains in the same report
   do not share a fingerprint; standalone (non-batch) results are now

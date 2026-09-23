@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 import base64
 import html
 import json
+import re
 
 from analysis_contract import (
     AnalysisArtifact,
@@ -135,11 +136,51 @@ def _confidence_badge(finding: AnalysisFinding) -> str:
     return badge
 
 
-def _number(value: Optional[float], unit: str = "") -> str:
+def _number(value: Optional[float], unit: str = "", precision: Optional[int] = None) -> str:
+    """The one formatter for every value this report prints (COH-12).
+
+    An explicit precision is honoured as given. Otherwise a value under
+    1e-6 in magnitude prints as "< 1e-6" (or "0" when it is exactly zero)
+    rather than raw floating-point noise around zero -- P02 Rev E printed
+    "8.074349270001136e-14 %" and "1.03e-09 A/mm2" this way -- and
+    everything else prints to 4 significant digits instead of Python's
+    repr-length default.
+    """
     if value is None:
         return "&mdash;"
-    text = f"{value:g}"
+    if precision is not None:
+        text = f"{value:.{precision}f}"
+    elif value == 0.0:
+        text = "0"
+    elif abs(value) < 1e-6:
+        text = "< 1e-6" if value > 0 else "> -1e-6"
+    else:
+        text = f"{value:.4g}"
     return f"{_esc(text)}&nbsp;{_esc(unit)}" if unit else _esc(text)
+
+
+_LAYER_POSITION_RE = re.compile(r"^(F|B|In\d+)\.(.+)$", re.IGNORECASE)
+
+
+def _layer_name(raw: str) -> str:
+    """Show a copper layer the same way wherever this report names one.
+
+    DC-004 named a layer by its canonical KiCad id ("F.Cu") while other
+    domains read the board's stackup and reported the designer's own name
+    for the same physical layer ("F.Signal") -- COH-12. Preferring the given
+    name with the canonical id once in parentheses ("F.Signal (F.Cu)") keeps
+    both without duplicating a name that is already canonical, and lets a
+    reader tell whether two findings from different domains are the same
+    layer or not.
+    """
+    text = str(raw or "").strip()
+    match = _LAYER_POSITION_RE.match(text)
+    if not match:
+        return text
+    canonical = f"{match.group(1)}.Cu"
+    if match.group(2).lower() == "cu" or text == canonical:
+        return canonical
+    return f"{text} ({canonical})"
 
 
 def _resolve_artifact(raw_path: str, search_roots) -> Optional[Path]:
@@ -319,7 +360,7 @@ def _render_remediation(remediation: Remediation) -> str:
     if remediation.x_mm is not None and remediation.y_mm is not None:
         location = (f"<tr><th>Location</th><td>x={_number(remediation.x_mm, 'mm')}, "
                     f"y={_number(remediation.y_mm, 'mm')} "
-                    f"{_esc(remediation.layer)}</td></tr>")
+                    f"{_esc(_layer_name(remediation.layer))}</td></tr>")
     alternatives = ""
     if remediation.alternatives:
         items = "".join(f"<li>{_esc(item)}</li>" for item in remediation.alternatives)
@@ -392,12 +433,14 @@ def _render_metrics(result: AnalysisResult) -> str:
     rows = []
     for metric in result.metrics:
         value = metric.value
-        if isinstance(value, float) and metric.precision is not None:
-            value = f"{value:.{metric.precision}f}"
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            value_html = _number(float(value), precision=metric.precision)
+        else:
+            value_html = _esc(value)
         rows.append(
             f"<tr><td>{_esc(metric.label)}</td>"
             f"<td><code>{_esc(metric.key)}</code></td>"
-            f"<td>{_esc(value)}</td><td>{_esc(metric.unit)}</td>"
+            f"<td>{value_html}</td><td>{_esc(metric.unit)}</td>"
             f"<td>{_esc(metric.status)}</td></tr>"
         )
     return ("<table><thead><tr><th>Metric</th><th>Key</th><th>Value</th>"

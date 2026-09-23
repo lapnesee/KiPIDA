@@ -15,6 +15,7 @@ if _root not in sys.path:
 from analysis_contract import (  # noqa: E402
     AnalysisArtifact,
     AnalysisFinding,
+    AnalysisMetric,
     AnalysisResult,
     AnalysisStatus,
     EvidenceConfidence,
@@ -104,6 +105,52 @@ class RemediationMarkerTests(unittest.TestCase):
         document = render_campaign_html(campaign)
         self.assertIn("VERIFIED BY RE-SIMULATION", document)
         self.assertIn("NOT RE-SIMULATED", document)
+
+
+class NumberFormattingTests(unittest.TestCase):
+    def test_tiny_floating_point_noise_prints_as_below_threshold(self):
+        # COH-12, P02 Rev E raw metric values: "8.074349270001136e-14 %"
+        # and "1.03e-09 A/mm2".
+        from report.html_report import _number
+        self.assertEqual(_number(8.074349270001136e-14), "&lt; 1e-6")
+        self.assertEqual(_number(1.03e-09), "&lt; 1e-6")
+        self.assertEqual(_number(0.0), "0")
+
+    def test_ordinary_values_use_significant_digits_not_python_repr(self):
+        from report.html_report import _number
+        self.assertEqual(_number(0.1 + 0.2), "0.3")
+
+    def test_explicit_precision_is_still_honoured(self):
+        from report.html_report import _number
+        self.assertEqual(_number(4.44444, precision=1), "4.4")
+
+    def test_metric_table_shows_formatted_value_not_raw_repr(self):
+        campaign = campaign_with([])
+        campaign.results[0].metrics.append(AnalysisMetric(
+            key="usb_pair_impedance_error", label="USB pair impedance error",
+            value=8.074349270001136e-14, unit="%",
+        ))
+        document = render_campaign_html(campaign)
+        self.assertNotIn("8.074349270001136e-14", document)
+        self.assertIn("&lt; 1e-6", document)
+
+
+class LayerNameTests(unittest.TestCase):
+    def test_user_stackup_name_keeps_the_canonical_id(self):
+        # COH-12: DC-004 named the same physical layer "F.Cu" while other
+        # domains reported the stackup's user name, "F.Signal"/"B.Signal".
+        from report.html_report import _layer_name
+        self.assertEqual(_layer_name("F.Signal"), "F.Signal (F.Cu)")
+        self.assertEqual(_layer_name("B.Signal"), "B.Signal (B.Cu)")
+
+    def test_canonical_name_is_not_parenthesised_against_itself(self):
+        from report.html_report import _layer_name
+        self.assertEqual(_layer_name("F.Cu"), "F.Cu")
+        self.assertEqual(_layer_name("In2.Cu"), "In2.Cu")
+
+    def test_unrecognised_string_is_left_alone(self):
+        from report.html_report import _layer_name
+        self.assertEqual(_layer_name("Top Silkscreen"), "Top Silkscreen")
 
 
 class ProvenanceTests(unittest.TestCase):
