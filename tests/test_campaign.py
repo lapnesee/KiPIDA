@@ -142,6 +142,44 @@ class OverallStatusTests(unittest.TestCase):
         )
 
 
+class IncompleteRailPropagationTests(unittest.TestCase):
+    def test_incomplete_dc_rail_becomes_a_limitation_on_other_domains(self):
+        # COH-5, P02 Rev E: DC-001 marks /VBUS_SYS incomplete (U14 isolated,
+        # 81 load nodes excluded), while AC passes the same net counting
+        # U14's current and EMC's PD-002 says "PDN remains within target" on
+        # it -- neither said the model was incomplete.
+        dc = result("DC", findings=[AnalysisFinding(
+            rule_id="DC-001", category="CONNECTIVITY", severity=FindingSeverity.HIGH,
+            title="/VBUS_SYS contains source-free loads", description="d",
+            nets=["/VBUS_SYS"], components=["U14"],
+        )])
+        ac = result("AC", AnalysisStatus.PASS, [
+            finding("AC-001", FindingSeverity.INFO, nets=["/VBUS_SYS"], title="Target met"),
+        ])
+        emc = result("EMC", AnalysisStatus.PASS, [
+            finding("PD-002", FindingSeverity.INFO, nets=["/VBUS_SYS"], title="PDN within target"),
+        ])
+        campaign = CampaignResult.from_results([dc, ac, emc])
+        ac_result = next(r for r in campaign.results if r.analysis_type == "AC")
+        emc_result = next(r for r in campaign.results if r.analysis_type == "EMC")
+        expected = "/VBUS_SYS: DC model incomplete (U14 excluded from the solve)."
+        self.assertIn(expected, ac_result.limitations)
+        self.assertIn(expected, emc_result.limitations)
+
+    def test_incomplete_rail_findings_group_into_one_action(self):
+        dc = result("DC", findings=[AnalysisFinding(
+            rule_id="DC-001", category="CONNECTIVITY", severity=FindingSeverity.HIGH,
+            title="/VBUS_SYS contains source-free loads", description="d",
+            nets=["/VBUS_SYS"], components=["U14"],
+        )])
+        emc = result("EMC", AnalysisStatus.PASS, [
+            finding("PD-002", FindingSeverity.INFO, nets=["/VBUS_SYS"], title="PDN within target"),
+        ])
+        campaign = CampaignResult.from_results([dc, emc])
+        self.assertEqual(len(campaign.actions), 1)
+        self.assertEqual(sorted(campaign.actions[0].domains), ["DC", "EMC"])
+
+
 class DeduplicationTests(unittest.TestCase):
     def test_shared_component_merges_across_domains(self):
         campaign = CampaignResult.from_results([

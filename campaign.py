@@ -132,6 +132,12 @@ def domain_status_from_findings(findings: List[AnalysisFinding]) -> AnalysisStat
 # it through a part they share.
 GROUPING_MAX_COMPONENTS = 6
 
+# DC-001 marks a rail's DC model incomplete (some loads left unsolved). Any
+# other finding on that net is judging the same incomplete model -- a shared
+# net alone, without colocated evidence, is enough to join it there, unlike
+# the general net-sharing rule (COH-5).
+INCOMPLETE_RAIL_RULE_ID = "DC-001"
+
 
 @dataclass
 class DomainScore:
@@ -309,6 +315,17 @@ def _group_findings(tagged: List[tuple]) -> List[List[tuple]]:
             for right in members[position + 1:]:
                 if root(left) != root(right) and _colocated(tagged[left][1], tagged[right][1]):
                     join(left, right)
+    for members in by_net.values():
+        # An INCOMPLETE DC rail (DC-001) joins everything else on its net
+        # unconditionally: DC-001 on /VBUS_SYS (U14 isolated, 81 load nodes
+        # excluded, per docs/audit-2026-09-23.md COH-5) and an AC PASS or an
+        # EMC "PDN remains within target" on the same net are not two
+        # problems, they are one incomplete model judged two different ways.
+        incomplete = [i for i in members if tagged[i][1].rule_id == INCOMPLETE_RAIL_RULE_ID]
+        for left in incomplete:
+            for right in members:
+                if right != left and root(left) != root(right):
+                    join(left, right)
 
     groups: Dict[int, List[tuple]] = {}
     for index, entry in enumerate(tagged):
@@ -327,6 +344,45 @@ def _dedupe_remediations(remediations: List[Remediation]) -> List[Remediation]:
         if existing is None or (remediation.verified and not existing.verified):
             seen[key] = remediation
     return list(seen.values())
+
+
+def _propagate_incomplete_rails(results: List[AnalysisResult]) -> None:
+    """State an INCOMPLETE DC rail as a limitation everywhere else it is used.
+
+    DC-001 marks a rail's model incomplete when a load the source cannot
+    reach was excluded from the solve.  On P02 Rev E, /VBUS_SYS's DC-001 (U14
+    isolated, 81 load nodes excluded) says nothing to AC, which passed the
+    same net counting U14's current; to EMC, whose PD-002 says "PDN remains
+    within target" on it; or to the consolidated report, though thermal's own
+    report.txt separately marked the net INCOMPLETE.  Every other domain's
+    result that names the net now carries the same limitation, so a reader of
+    any one of them sees the DC model was incomplete for it.
+    """
+    excluded_by_net: Dict[str, List[str]] = {}
+    for result in results:
+        if result.analysis_type != "DC":
+            continue
+        for finding in result.findings:
+            if finding.rule_id != INCOMPLETE_RAIL_RULE_ID:
+                continue
+            for net in finding.nets:
+                loads = excluded_by_net.setdefault(net, [])
+                for component in finding.components:
+                    if component not in loads:
+                        loads.append(component)
+    if not excluded_by_net:
+        return
+    for result in results:
+        if result.analysis_type == "DC":
+            continue
+        nets_here = {net for finding in result.findings for net in finding.nets}
+        for net, loads in excluded_by_net.items():
+            if net not in nets_here:
+                continue
+            loads_text = ", ".join(loads) if loads else "some loads"
+            note = f"{net}: DC model incomplete ({loads_text} excluded from the solve)."
+            if note not in result.limitations:
+                result.limitations.append(note)
 
 
 @dataclass
@@ -350,6 +406,7 @@ class CampaignResult:
 
     def recompute(self) -> "CampaignResult":
         """Recalculate domain scores, deduplicated actions, and the verdict."""
+        _propagate_incomplete_rails(self.results)
         self.domain_scores = self._compute_domain_scores()
         self.actions = self._compute_actions()
         self.overall_status = self._compute_overall_status()

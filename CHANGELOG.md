@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed the campaign to propagate an INCOMPLETE DC rail (DC-001) as a
+  stated limitation to every other domain reporting on the same net,
+  and to group a DC-001 finding with anything else on that net --
+  P02 Rev E's /VBUS_SYS (U14, 81 load nodes excluded) no longer reads
+  as a clean PASS in AC/EMC while DC calls the same rail incomplete.
 - Fixed the campaign score's per-rule cap to charge every distinct net
   a per-net rule fires on (P02 Rev E: 5 failed differential pairs score
   61.0, not 76.6), while a component-only rule keeps the old cap.
