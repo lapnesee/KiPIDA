@@ -255,6 +255,41 @@ class EMFieldSolverTests(unittest.TestCase):
         self.assertIsNone(contribution.attenuation_applied_db)
         self.assertEqual(contribution.model_confidence, "LOW")
 
+    def test_switching_trace_current_follows_the_inductor_ripple_not_current_a(self):
+        # EMC-5, P02 Rev E: the SW trace's current used to scale with
+        # source.current_a / n (square), unrelated to any inductor -- U4's
+        # 75th harmonic read 58 mA (4.36 A / 75) on the trace against
+        # 3.0e-5 A for the same harmonic of the same inductor's own
+        # triangular ripple model, 66 dB apart. The trace and the inductor
+        # dipole must now derive from the same ripple current, so doubling
+        # the modelled ripple (source.current_a held fixed) doubles the
+        # trace's own field too.
+        def build(ripple_pp_a):
+            snap = snapshot()
+            snap.tracks = [EMCTrack("SW", (2.0, 5.0), (8.0, 5.0), 0.5, 0, 6.0)]
+            snap.footprints = [
+                EMCFootprint("L1", "2.2uH", (8.0, 5.0), ("SW",), (("SW", 8.0, 5.0),)),
+            ]
+            snap.inductors = [EMCInductorModel(
+                "L1", source_name="Buck", switching_net="SW",
+                inductance_h=2.2e-6, vin_v=12.0, vout_v=5.0,
+                switching_frequency_hz=600e3, ripple_current_pp_a=ripple_pp_a,
+                width_mm=7.1, depth_mm=6.5, height_mm=3.0,
+            )]
+            profile = settings(height=4.0)
+            profile.sources = [EMCSignalSource(
+                "Buck", "SW", "SWITCHING", 600e3, 10.0,
+                voltage_swing_v=12.0, current_a=4.0,
+            )]
+            return EMNearFieldSolver(
+                snap, profile, runtime_settings=RuntimeComputeSettings(backend="CPU"),
+            ).solve()
+
+        low = build(1.0).source_contributions[0].maximum_h_a_m
+        high = build(2.0).source_contributions[0].maximum_h_a_m
+        self.assertGreater(low, 0.0)
+        self.assertAlmostEqual(high / low, 2.0, places=2)
+
     def test_verified_shield_attenuation_reduces_inductor_field(self):
         snap = snapshot()
         snap.tracks = []

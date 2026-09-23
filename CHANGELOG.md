@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed the near-field solver exciting a switching trace's H-field
+  with source.current_a/n (a square-wave current) instead of the
+  linked inductor's own triangular ripple: P02 Rev E's U4 read 58 mA
+  on its 75th harmonic against 3.0e-5 A for the same harmonic of the
+  same inductor's own dipole model, 66 dB apart. The trace and the
+  inductor now share inductor_em.triangular_harmonic_peak(); U4's own
+  field dropped from 100% to 14.3% of the map's peak as a result.
 - Fixed buck MOSFETs receiving the full inductor RMS current with no
   duty-cycle weighting (power_loss.py). A declared role ("high"/"low")
   now weights conduction loss by D or 1-D; undeclared keeps the old

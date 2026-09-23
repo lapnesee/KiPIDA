@@ -303,7 +303,25 @@ class EMNearFieldSolver:
         source_e = xp.zeros(cell_count, dtype=xp.float64)
         source_h = xp.zeros(cell_count, dtype=xp.float64)
         voltage = max(0.0, float(source.voltage_swing_v)) * factor
-        current = max(0.0, float(source.current_a)) * factor
+        if source_inductors:
+            # EMC-5, P02 Rev E: this trace carries the inductor's own
+            # current, not an idealized square wave -- the pulsed
+            # switch/FET current belongs to the tight hot loop (EMC-4), not
+            # the general SW-to-inductor route. Modelling it as 1/n (square,
+            # via the same envelope as the voltage's dV/dt) gave U4's 75th
+            # harmonic 58 mA (4.36 A / 75) here against 3.0e-5 A for the
+            # SAME harmonic of the SAME inductor's own triangular ripple
+            # model just below -- 66 dB apart for what is one current.
+            primary_model, _primary_footprint = source_inductors[0]
+            trace_duty = (
+                primary_model.vout_v / primary_model.vin_v
+                if primary_model.vin_v > 0.0 else 0.5
+            )
+            current = triangular_harmonic_peak(
+                primary_model.ripple_current_pp_a, harmonic_number, trace_duty,
+            )
+        else:
+            current = max(0.0, float(source.current_a)) * factor
         midpoint = np.asarray([item.midpoint_m for item in elements], dtype=np.float64)
         dl = np.asarray([item.direction_length_m for item in elements], dtype=np.float64)
         lengths = np.asarray([item.length_m for item in elements], dtype=np.float64)
