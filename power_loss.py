@@ -148,9 +148,28 @@ def _model_temperature(model: Dict[str, Any], component_temperatures_c: Dict[str
 
 
 def _mosfet_losses(models: Iterable[Dict[str, Any]], current_rms_a: float,
-                    component_temperatures_c: Dict[str, float] | None = None
-                    ) -> List[LossContribution]:
+                    component_temperatures_c: Dict[str, float] | None = None,
+                    duty: float | None = None,
+                    ) -> Tuple[List[LossContribution], List[str]]:
+    """I2R of a MOSFET list, with an optional buck conduction weighting.
+
+    TH-7: a buck's two switches never conduct the full inductor RMS current
+    at once -- the high side only for D of the switching period, the low
+    side for 1-D -- but this list credited every entry the whole current_rms_a
+    regardless. P02 Rev E's sidecar worked around it by pre-multiplying
+    RDS(on) by D (0.00066 ohm = 2.6 mOhm x 0.254); a user who instead enters
+    the datasheet RDS(on) directly gets conduction loss overstated by 1/D
+    (x3.9 for Q10's 0.254 duty).
+
+    ``duty`` is None outside a buck stage (a discrete MOSFET pass device has
+    no switching duty cycle), in which case ``role`` is ignored and every
+    entry keeps the prior full-current behaviour with no warning: there is
+    nothing to weight against. Inside a buck stage, an entry without a
+    declared "high"/"low" ``role`` also keeps that behaviour, but a warning
+    is returned so the gap is visible instead of silently overstating loss.
+    """
     losses = []
+    warnings = []
     for model in models:
         ref_des = str(model.get("ref_des", "")).strip()
         if not ref_des:
@@ -159,17 +178,30 @@ def _mosfet_losses(models: Iterable[Dict[str, Any]], current_rms_a: float,
         temperature_c = _model_temperature(model, component_temperatures_c, ref_des)
         paths = max(1, int(_number(model.get("parallel_paths"), 1)))
         effective_rds = _number(rds) * _temperature_multiplier(model, temperature_c) / paths
+        role = str(model.get("role", "")).strip().lower()
+        if duty is not None and role in ("high", "low"):
+            weight = duty if role == "high" else (1.0 - duty)
+        else:
+            weight = 1.0
+            if duty is not None and role not in ("high", "low"):
+                warnings.append(
+                    f"{ref_des}: no conduction role (\"high\" or \"low\") declared for this "
+                    "buck MOSFET, so it is credited the full inductor RMS current instead of "
+                    "its duty-weighted share; a datasheet RDS(on) will overstate conduction "
+                    "loss by up to 1/D. Set loss_model.mosfets[].role."
+                )
         losses.append(LossContribution(
             ref_des=ref_des,
             mechanism="mosfet-conduction-i2r",
-            power_w=current_rms_a * current_rms_a * effective_rds,
+            power_w=current_rms_a * current_rms_a * effective_rds * weight,
             provenance={**_provenance(rds), "temperature_c": temperature_c,
                         "parallel_paths": paths, "effective_rds_on_ohm": effective_rds,
+                        "role": role or "undeclared", "duty_weight": weight,
                         "temperature_model": _provenance(
                             model.get("temperature_model_provenance", {}), "estimate"
                         )},
         ))
-    return losses
+    return losses, warnings
 
 
 def _resistive_losses(models: Iterable[Dict[str, Any]], current_a: float,
@@ -238,9 +270,11 @@ def estimate_stage(regulator: VoltageRegulator, vin_v: float, vout_v: float,
     efficiency_provenance = "analytic physical-loss model"
 
     if kind == "mosfet":
-        losses.extend(_mosfet_losses(
+        mosfet_losses, mosfet_warnings = _mosfet_losses(
             model.get("mosfets", []), iout, component_temperatures_c
-        ))
+        )
+        losses.extend(mosfet_losses)
+        warnings.extend(mosfet_warnings)
     elif kind == "resistive":
         losses.extend(_resistive_losses(
             model.get("resistors", []), iout, component_temperatures_c
@@ -311,9 +345,11 @@ def estimate_stage(regulator: VoltageRegulator, vin_v: float, vout_v: float,
         losses.extend(_inductor_losses(
             model.get("inductors", []), irms, component_temperatures_c
         ))
-        losses.extend(_mosfet_losses(
-            model.get("mosfets", []), irms, component_temperatures_c
-        ))
+        buck_mosfet_losses, buck_mosfet_warnings = _mosfet_losses(
+            model.get("mosfets", []), irms, component_temperatures_c, duty=duty,
+        )
+        losses.extend(buck_mosfet_losses)
+        warnings.extend(buck_mosfet_warnings)
     elif str(regulator.reg_type).upper() == "LINEAR":
         # Legacy LDO/pass-device behaviour stays intact when no physical model exists.
         losses.append(LossContribution(

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed buck MOSFETs receiving the full inductor RMS current with no
+  duty-cycle weighting (power_loss.py). A declared role ("high"/"low")
+  now weights conduction loss by D or 1-D; undeclared keeps the old
+  behaviour (P02 Rev E's sidecar pre-multiplies RDS(on) by D=0.254
+  for exactly this reason) but now warns that a datasheet value would
+  overstate loss by up to 1/D.
 - Fixed efficiency-closed stages dumping their entire residual on one
   component and holding total loss temperature-independent
   (power_loss.py). residual_split now distributes the residual across

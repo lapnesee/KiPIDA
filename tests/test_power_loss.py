@@ -171,6 +171,55 @@ class PowerLossTests(unittest.TestCase):
         self.assertIn("confidence=high", report)
         self.assertIn("balance error=", report)
 
+    def test_buck_mosfet_role_applies_duty_weighting(self):
+        # TH-7: P02 Rev E's sidecar worked around this by pre-multiplying
+        # RDS(on) by D (0.00066 ohm = 2.6 mOhm x 0.254 for Q10); a role lets
+        # the datasheet value be entered directly instead.
+        reg = VoltageRegulator(
+            name="buck", input_rail_name="12V", input_ref_des="U4", input_pad_names=[],
+            output_rail_name="6V", output_ref_des="L1", output_pad_names=[], reg_type="SWITCHING",
+            loss_model={"kind": "buck", "mosfets": [
+                {"ref_des": "Q10", "rds_on_ohm": parameter(0.0026), "role": "high"},
+                {"ref_des": "Q11", "rds_on_ohm": parameter(0.0026), "role": "low"},
+            ]},
+        )
+        stage = estimate_stage(reg, 12.0, 6.0, 2.0)  # duty = 6/12 = 0.5
+        high = next(loss for loss in stage.losses if loss.ref_des == "Q10")
+        low = next(loss for loss in stage.losses if loss.ref_des == "Q11")
+        self.assertAlmostEqual(high.power_w, 2.0 ** 2 * 0.0026 * 0.5)
+        self.assertAlmostEqual(low.power_w, 2.0 ** 2 * 0.0026 * 0.5)
+        self.assertFalse(any("role" in warning for warning in stage.warnings))
+
+    def test_buck_mosfet_without_a_role_keeps_full_current_and_warns(self):
+        # A user entering the datasheet RDS(on) with no role gets the old
+        # (full-inductor-RMS) behaviour, unchanged, but told about it: the
+        # x1/D overstatement (x3.9 for Q10's 0.254 duty) must not be silent.
+        reg = VoltageRegulator(
+            name="buck", input_rail_name="12V", input_ref_des="U4", input_pad_names=[],
+            output_rail_name="6V", output_ref_des="L1", output_pad_names=[], reg_type="SWITCHING",
+            loss_model={"kind": "buck", "mosfets": [
+                {"ref_des": "Q10", "rds_on_ohm": parameter(0.0026)},
+            ]},
+        )
+        stage = estimate_stage(reg, 12.0, 6.0, 2.0)
+        loss = next(loss for loss in stage.losses if loss.ref_des == "Q10")
+        self.assertAlmostEqual(loss.power_w, 2.0 ** 2 * 0.0026)
+        self.assertTrue(any("role" in warning for warning in stage.warnings))
+
+    def test_discrete_mosfet_stage_ignores_role_and_warns_nothing(self):
+        # kind="mosfet" is a pass device, not a switching duty cycle: role
+        # must not change its behaviour or trigger the buck-only warning.
+        reg = VoltageRegulator(
+            name="pass", input_rail_name="5V", input_ref_des="Q1", input_pad_names=[],
+            output_rail_name="5V_SW", output_ref_des="Q1", output_pad_names=[], reg_type="LINEAR",
+            loss_model={"kind": "mosfet", "mosfets": [
+                {"ref_des": "Q1", "rds_on_ohm": parameter(0.01)},
+            ]},
+        )
+        stage = estimate_stage(reg, 5.0, 5.0, 2.0)
+        self.assertAlmostEqual(stage.losses[0].power_w, 2.0 ** 2 * 0.01)
+        self.assertEqual(stage.warnings, [])
+
     def test_residual_split_distributes_across_declared_components(self):
         # TH-6: P02 Rev E's residual bundles gate drive (dissipated in the
         # controller's driver), inductor core loss and dead-time diode
