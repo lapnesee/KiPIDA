@@ -26,6 +26,10 @@ class CFDMesh:
     heat_sources_w: object
     patch_cells: list = field(default_factory=list)
     obstacle_names: object = None
+    # Names of obstacles thinner than one cell on *every* axis, still
+    # represented by a single fallback cell rather than a snapped sheet or
+    # footprint. See CFD-1 in docs/audit-2026-09-23.md.
+    collapsed_obstacles: list = field(default_factory=list)
 
     @property
     def cell_count(self):
@@ -97,24 +101,47 @@ class CFDMeshGenerator:
         xs = (np.arange(shape[0]) + 0.5) * spacing[0] * 1000.0
         ys = (np.arange(shape[1]) + 0.5) * spacing[1] * 1000.0
         zs = (np.arange(shape[2]) + 0.5) * spacing[2] * 1000.0
+        centers = (xs, ys, zs)
+        collapsed = []
         for obstacle in model.obstacles:
-            x0, y0, z0, x1, y1, z1 = obstacle.bounds_mm
-            mask = (
-                (xs[:, None, None] >= x0) & (xs[:, None, None] <= x1) &
-                (ys[None, :, None] >= y0) & (ys[None, :, None] <= y1) &
-                (zs[None, None, :] >= z0) & (zs[None, None, :] <= z1)
-            )
-            if not np.any(mask):
-                center = ((x0 + x1) / 2.0, (y0 + y1) / 2.0, (z0 + z1) / 2.0)
-                index = tuple(min(shape[a] - 1, max(0, int(center[a] / dims_mm[a] * shape[a])))
-                              for a in range(3))
-                mask[index] = True
+            bounds = ((obstacle.bounds_mm[0], obstacle.bounds_mm[3]),
+                      (obstacle.bounds_mm[1], obstacle.bounds_mm[4]),
+                      (obstacle.bounds_mm[2], obstacle.bounds_mm[5]))
+            axis_indices = []
+            fell_back = []
+            for axis in range(3):
+                lo, hi = bounds[axis]
+                found = np.nonzero((centers[axis] >= lo) & (centers[axis] <= hi))[0]
+                if found.size:
+                    axis_indices.append(found)
+                    fell_back.append(False)
+                    continue
+                # No cell centre falls inside this axis's span -- the
+                # obstacle is thinner than one cell there. Snapping only
+                # *this* axis to its nearest cell, instead of collapsing
+                # every axis to the centroid's single cell, is what keeps a
+                # thin board a conductive sheet across its whole footprint:
+                # P02 Rev E's 125 x 45 x 1.29 mm board used to become one
+                # 5 mm cell (CFD-1); here only z falls back, x and y keep
+                # their full overlap.
+                nearest = int(np.argmin(np.abs(centers[axis] - (lo + hi) / 2.0)))
+                axis_indices.append(np.array([nearest]))
+                fell_back.append(True)
+            mask = np.zeros(shape, dtype=bool)
+            mask[np.ix_(*axis_indices)] = True
+            if all(fell_back):
+                collapsed.append(obstacle.name)
             solid |= mask
             conductivity[mask] = max(0.05, float(obstacle.conductivity_w_mk))
             names[mask] = obstacle.name
             cells = int(np.count_nonzero(mask))
             if obstacle.heat_w > 0 and cells:
                 heat[mask] += float(obstacle.heat_w) / cells
+        if collapsed:
+            self._log(
+                f"{len(collapsed)} obstacle(s) thinner than one cell on every axis, "
+                f"each represented by a single fallback cell: {', '.join(collapsed)}."
+            )
 
         fluid = ~solid
         patches = []
@@ -162,6 +189,7 @@ class CFDMeshGenerator:
             heat_sources_w=heat,
             patch_cells=patches,
             obstacle_names=names,
+            collapsed_obstacles=collapsed,
         )
         self._log(
             f"Generated {shape[0]} x {shape[1]} x {shape[2]} = {count:,} cells "

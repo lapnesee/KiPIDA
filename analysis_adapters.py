@@ -928,6 +928,22 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
     ).finish()
 
 
+def _cfd_collapsed_obstacle_limitations(mesh: Any) -> list:
+    # CFD-1, docs/audit-2026-09-23.md: an obstacle thinner than one cell on
+    # every axis is still a single fallback cell -- a point mass with no
+    # conduction path to its neighbours -- even after a thin board is snapped
+    # to the full sheet of cells its footprint overlaps. Named rather than
+    # silent, per the finding's own requirement.
+    names = list(getattr(mesh, "collapsed_obstacles", None) or [])
+    if not names:
+        return []
+    return [
+        f"{len(names)} obstacle(s) smaller than one mesh cell on every axis are each "
+        f"modelled as a single point cell with no conduction path to neighbouring cells: "
+        f"{', '.join(names)}. Reduce the CFD cell size to resolve them.",
+    ]
+
+
 def adapt_cfd_result(mesh: Any, domain_result: Any, *, copper_loss_source: str = "") -> AnalysisResult:
     findings = []
     if not bool(getattr(domain_result, "converged", False)):
@@ -1076,7 +1092,7 @@ def adapt_cfd_result(mesh: Any, domain_result: Any, *, copper_loss_source: str =
             f"Mass balance is measured before the outlet fix-up: "
             f"{float(getattr(domain_result, 'mass_balance_error_pct', 0.0)):.3g}% of the inflow "
             "did not reach the outlet.",
-        ],
+        ] + _cfd_collapsed_obstacle_limitations(mesh),
     ).finish()
 
 

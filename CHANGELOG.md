@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed a CFD enclosure mesh bug where a board or component thinner than
+  one cell on every axis collapsed to a single fallback cell instead of
+  spanning its footprint on the axes where it is not thin. P02 Rev E's
+  125 x 45 x 1.29 mm board (z 15.0-16.29 mm, cell centres at 12.5/17.5 mm)
+  went from one 5 mm cell with no conduction path to its 20 components to
+  a full sheet of cells across its footprint. A residual single-cell
+  fallback (an obstacle too small on every axis) is now reported as a CFD
+  limitation instead of staying silent.
 - Fixed dielectric er silently falling back to 4.4 "FR4" when KiCad IPC
   gives no BoardStackupDielectricLayer sub-layers (P02 Rev E,
   20260922-2156: IPC reported 4.4 on all 5 dielectrics vs the board
