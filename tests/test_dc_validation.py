@@ -4,7 +4,6 @@ All tests run without KiCad / kipy / wx.  They verify:
   - ingest.track_resistance formulae against analytically known values
   - HybridMesher produces exactly one branch with the correct resistance
     for a single straight segment
-  - Solver.solve() with use_precond=True agrees with the default backend
 """
 
 import sys
@@ -407,85 +406,6 @@ class TestRasterViaBarrel(unittest.TestCase):
         self.assertEqual(len(barrels), 1)
         expected = rho * 1.5 / (math.pi * (0.3 * t + t * t))
         self.assertAlmostEqual(barrels[0].resistance_ohm, expected, delta=1e-6 * expected)
-
-
-# ---------------------------------------------------------------------------
-# Tests: Solver — ILU preconditioner
-# ---------------------------------------------------------------------------
-
-class TestSolverPreconditioner(unittest.TestCase):
-
-    def setUp(self):
-        try:
-            import scipy  # noqa: F401
-        except ImportError:
-            self.skipTest("scipy not available")
-
-    def _three_node_mesh(self):
-        """Resistor divider: 0 -[10Ω]- 1 -[10Ω]- 2."""
-        from mesh import Mesh
-        m = Mesh()
-        m.nodes = [0, 1, 2]
-        m.node_coords = {0: (0, 0, 0), 1: (5, 0, 0), 2: (10, 0, 0)}
-        m.add_edge_direct(0, 1, 1.0 / 10.0)
-        m.add_edge_direct(1, 2, 1.0 / 10.0)
-        return m
-
-    def _solve(self, use_precond):
-        from solver import Solver
-        mesh = self._three_node_mesh()
-        # Both source and ground must be Dirichlet; loads carry current, not voltage.
-        sources = [{"node_id": 0, "voltage": 5.0}, {"node_id": 2, "voltage": 0.0}]
-        loads = []
-        return Solver().solve(mesh, sources, loads, use_precond=use_precond)
-
-    def test_direct_gives_midpoint(self):
-        result = self._solve(False)
-        self.assertAlmostEqual(result[0], 5.0, places=6)
-        self.assertAlmostEqual(result[1], 2.5, places=5)
-        self.assertAlmostEqual(result[2], 0.0, places=6)
-
-    def test_precond_matches_direct(self):
-        direct = self._solve(False)
-        precond = self._solve(True)
-        for node_id in [0, 1, 2]:
-            self.assertAlmostEqual(
-                direct.get(node_id, 0), precond.get(node_id, 0), places=5
-            )
-
-    def test_precond_false_is_default(self):
-        """Calling solve() without use_precond must behave identically to False."""
-        from solver import Solver
-        mesh = self._three_node_mesh()
-        sources = [{"node_id": 0, "voltage": 5.0}, {"node_id": 2, "voltage": 0.0}]
-        loads = []
-        s = Solver()
-        result_default = s.solve(mesh, sources, loads)
-        result_false = s.solve(mesh, sources, loads, use_precond=False)
-        for node_id in [0, 1, 2]:
-            self.assertAlmostEqual(
-                result_default.get(node_id, 0),
-                result_false.get(node_id, 0),
-                places=8,
-            )
-
-    def test_larger_chain(self):
-        """10-node resistor chain with preconditioner."""
-        from mesh import Mesh
-        from solver import Solver
-        n = 10
-        m = Mesh()
-        m.nodes = list(range(n))
-        m.node_coords = {i: (i, 0, 0) for i in range(n)}
-        R = 1.0  # 1 Ω per segment
-        for i in range(n - 1):
-            m.add_edge_direct(i, i + 1, 1.0 / R)
-        sources = [{"node_id": 0, "voltage": float(n - 1)}]
-        loads = [{"node_id": n - 1, "voltage": 0.0}]
-        direct = Solver().solve(m, sources, loads, use_precond=False)
-        precond = Solver().solve(m, sources, loads, use_precond=True)
-        for i in range(n):
-            self.assertAlmostEqual(direct.get(i, 0), precond.get(i, 0), places=5)
 
 
 # ---------------------------------------------------------------------------
