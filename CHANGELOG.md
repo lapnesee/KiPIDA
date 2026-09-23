@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed the near-field solver applying the image method across a
+  reference plane that sits between the source and the observer
+  instead of shielding it: P02 Rev E's /MAIN_3V3_SW (U5), on B.Cu
+  under GND.L2/GND.L5, went from 46% of the map's peak H (0.133 A/m,
+  mirrored through 2 planes it should not pass) to 19.8% (0.043 A/m),
+  computed from its own side now that em_field_solver.py solves both
+  the top and bottom observation planes and reports the worse.
 - Fixed AC-9 (partial, correctness half): the decoupling optimizer now
   scores baseline/trials/result with solve_sweep_multiport, matching
   the worst-port verdict AC-4 made the published AC result use,

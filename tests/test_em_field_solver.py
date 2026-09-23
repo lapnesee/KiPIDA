@@ -144,6 +144,53 @@ class EMFieldSolverTests(unittest.TestCase):
         self.assertLess(with_return.maximum_e_v_m, plain.maximum_e_v_m)
         self.assertLess(with_return.maximum_h_a_m, plain.maximum_h_a_m)
 
+    def test_a_plane_between_source_and_observer_drops_the_element(self):
+        # EMC-2, P02 Rev E: /MAIN_3V3_SW (U5) is entirely on B.Cu under two
+        # solid GND planes (L2, L5) on the way to the default top-side
+        # observation point. Mirroring it there gave 0.62x the field of the
+        # same trace on F.Cu -- the two planes together only cut it x15.4,
+        # when a continuous plane between source and observer should shield
+        # it (~0), not partially mirror it. The same element, observed from
+        # its own (bottom) side where nothing sits between it and the
+        # observer, must still be there in full.
+        snap = EMCGeometrySnapshot(
+            bounds_mm=(0.0, 0.0, 20.0, 10.0),
+            stackup=StackupProfile(layers=[
+                StackupLayerModel("F.Cu", "COPPER", 0.035, layer_id=0),
+                StackupLayerModel("Pre1", "DIELECTRIC", 0.2, epsilon_r=4.4),
+                StackupLayerModel("GND.In1", "COPPER", 0.035, layer_id=1),
+                StackupLayerModel("Core", "DIELECTRIC", 1.0, epsilon_r=4.4),
+                StackupLayerModel("B.Cu", "COPPER", 0.035, layer_id=31),
+            ]),
+            tracks=[EMCTrack("SW", (2.0, 5.0), (18.0, 5.0), 0.3, 31, 16.0)],
+            zones_by_net={"GND": {1: box(0.0, 0.0, 20.0, 10.0)}},
+        )
+        profile = settings(height=3.0)
+        profile.sources = [EMCSignalSource(
+            "Buck", "SW", "SWITCHING", 600e3, 5.0, voltage_swing_v=12.0, current_a=4.0,
+        )]
+        solver = EMNearFieldSolver(
+            snap, profile, runtime_settings=RuntimeComputeSettings(backend="CPU"),
+        )
+        layer_z = solver._layer_z_m()
+        reference_planes = solver._reference_planes(layer_z)
+        top_z = 3.0e-3
+        bottom_z = -(solver._stackup_thickness_mm() + 3.0) * 1.0e-3
+        top_elements, _segments, _source = solver._elements_for_source(
+            profile.sources[0], layer_z, reference_planes, 1.0, top_z,
+        )
+        bottom_elements, _segments, _source = solver._elements_for_source(
+            profile.sources[0], layer_z, reference_planes, 1.0, bottom_z,
+        )
+        self.assertEqual(top_elements, [])
+        self.assertTrue(bottom_elements)
+        # The full solve, which reports the worse of both sides, must still
+        # see this source through its own (bottom) face rather than reading
+        # zero because the default top-side plane shields it.
+        result = solver.solve()
+        self.assertGreater(result.maximum_h_a_m, 0.0)
+        self.assertEqual(result.source_contributions[0].source_name, "Buck")
+
     def test_switching_zone_without_track_uses_pad_to_pad_geometry(self):
         snap = snapshot()
         snap.tracks = []
