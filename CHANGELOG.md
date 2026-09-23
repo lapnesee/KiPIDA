@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed the consolidated report to carry each domain's completion time
+  and board fingerprint, and to warn when domains in the same report
+  do not share a fingerprint; standalone (non-batch) results are now
+  stamped with one, where before only a batch run was.
 - Fixed power_loss.estimate_stage to keep Iin = Iout for a series
   element (shunt/fuse/eFuse/net-tie) instead of inflating it through
   the general Pin/Vin formula; P02 Rev E's /SYS_5V_PRE_SENSE, /VBUS_SYS

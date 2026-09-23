@@ -205,15 +205,27 @@ def _render_scores(scores: List[DomainScore]) -> str:
             f'<span class="badge {_SEVERITY_CLASS[sev]}">{sev.value[:4]} {score.finding_counts.get(sev.value, 0)}</span>'
             for sev in FindingSeverity if score.finding_counts.get(sev.value, 0)
         ) or '<span class="muted">none</span>'
+        # COH-10: board_fingerprint is the SHA of the saved file while
+        # AC/differential/EMC/thermal geometry reads the open board, so two
+        # domains in the same report can describe different moments; shown
+        # here rather than only carried silently on the result.
+        when = _esc(score.completed_at) or "&mdash;"
+        fingerprint = (
+            f'<code title="{_esc(score.board_fingerprint)}">'
+            f"{_esc(score.board_fingerprint[:10])}…</code>"
+            if score.board_fingerprint else "&mdash;"
+        )
         rows.append(
             f"<tr><th>{_esc(score.domain)}</th>"
             f'<td><span class="verdict {status_class}">{_esc(score.status)}</span></td>'
             f"<td>{bar}</td><td>{value}</td><td>{counts}</td>"
-            f"<td>{_esc(score.headline)}</td></tr>"
+            f"<td>{_esc(score.headline)}</td>"
+            f"<td>{when}</td><td>{fingerprint}</td></tr>"
         )
     return (
         "<table><thead><tr><th>Domain</th><th>Status</th><th>Score</th>"
-        "<th></th><th>Findings</th><th>Headline</th></tr></thead>"
+        "<th></th><th>Findings</th><th>Headline</th>"
+        "<th>Completed</th><th>Board</th></tr></thead>"
         f"<tbody>{''.join(rows)}</tbody></table>"
     )
 
@@ -268,10 +280,19 @@ def _render_synthesis(campaign: CampaignResult) -> str:
         f"<tr><th>Analyses</th><td>{len(campaign.results)}</td></tr>"
         "</tbody></table>"
     )
+    warnings = campaign.provenance_warnings()
+    warning_block = ""
+    if warnings:
+        items = "".join(f"<li>{_esc(line)}</li>" for line in warnings)
+        warning_block = (
+            '<p class="muted"><strong>Warning:</strong> these domains do not all '
+            f"describe the same board revision:</p><ul class=\"tight\">{items}</ul>"
+        )
     return (
         '<section id="synthesis"><h2>1. Synthesis</h2>'
         f'<p>Overall verdict: <span class="verdict {status_class}">'
         f"{_esc(campaign.overall_status)}</span></p>"
+        f"{warning_block}"
         "<h3>Domain scores</h3>"
         '<p class="muted">Status rule, the same for every domain: FAIL on any '
         "CRITICAL finding, or a HIGH one backed by a DETERMINISTIC, MEASURED "

@@ -324,6 +324,38 @@ class GainRankTests(unittest.TestCase):
         )
 
 
+class ProvenanceWarningTests(unittest.TestCase):
+    def test_matching_fingerprints_warn_nothing(self):
+        # COH-10: DC-004 proves AC/differential/EMC/thermal geometry (read
+        # from the open board) and board_fingerprint (SHA of the saved file)
+        # can differ even for one honest run; a campaign batch stamps every
+        # domain with the same fingerprint (CampaignEngine._stamp), so that
+        # case must stay silent.
+        dc = AnalysisResult("DC", "DC", status=AnalysisStatus.PASS, board_fingerprint="abc123")
+        emc = AnalysisResult("EMC", "EMC", status=AnalysisStatus.PASS, board_fingerprint="abc123")
+        campaign = CampaignResult.from_results([dc, emc])
+        self.assertEqual(campaign.provenance_warnings(), [])
+
+    def test_differing_fingerprints_are_named(self):
+        # The consolidate button (ui/main_dialog.py:on_build_campaign_report)
+        # aggregates whatever results this session holds, which can be run
+        # against a board edited and re-saved in between -- unlike a batch,
+        # it never checked whether they still describe the same board.
+        dc = AnalysisResult("DC", "DC", status=AnalysisStatus.PASS, board_fingerprint="abc123")
+        emc = AnalysisResult("EMC", "EMC", status=AnalysisStatus.PASS, board_fingerprint="def456")
+        campaign = CampaignResult.from_results([dc, emc])
+        warnings = campaign.provenance_warnings()
+        self.assertEqual(len(warnings), 2)
+        self.assertTrue(any("DC" in line for line in warnings))
+        self.assertTrue(any("EMC" in line for line in warnings))
+
+    def test_missing_fingerprints_are_not_flagged_as_a_mismatch(self):
+        dc = AnalysisResult("DC", "DC", status=AnalysisStatus.PASS, board_fingerprint="abc123")
+        emc = AnalysisResult("EMC", "EMC", status=AnalysisStatus.PASS)
+        campaign = CampaignResult.from_results([dc, emc])
+        self.assertEqual(campaign.provenance_warnings(), [])
+
+
 class SerializationTests(unittest.TestCase):
     def test_round_trip_preserves_aggregation(self):
         campaign = CampaignResult.from_results(

@@ -438,7 +438,18 @@ class KiPIDA_MainDialog(wx.Dialog):
         return None
 
     def _publish_results(self, analysis_id, report, plots=None, structured_result=None):
-        """Publish one analysis without discarding other session results."""
+        """Publish one analysis without discarding other session results.
+
+        A campaign batch stamps board_fingerprint on every domain result
+        (CampaignEngine._stamp); a standalone per-domain button press never
+        did, so the consolidate button's aggregated report showed no
+        fingerprint for most domains and could not tell that a board edited
+        and re-saved between two button presses was no longer the one an
+        earlier domain analysed (COH-10). Stamped here, once, for every
+        publish path.
+        """
+        if structured_result is not None and not getattr(structured_result, "board_fingerprint", ""):
+            structured_result.board_fingerprint = self._board_fingerprint(self._board_file_path())
         page = self.results_workspace.publish(
             analysis_id, report, plots, result=structured_result,
         )

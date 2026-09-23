@@ -106,6 +106,19 @@ class RemediationMarkerTests(unittest.TestCase):
         self.assertIn("NOT RE-SIMULATED", document)
 
 
+class ProvenanceTests(unittest.TestCase):
+    def test_mismatched_board_fingerprints_are_warned_about(self):
+        # COH-10: two domains describing different board saves used to be
+        # invisible in the consolidated report.
+        dc = AnalysisResult("DC", "DC", status=AnalysisStatus.PASS, board_fingerprint="abc123")
+        emc = AnalysisResult("EMC", "EMC", status=AnalysisStatus.PASS, board_fingerprint="def456")
+        campaign = CampaignResult.from_results([dc, emc])
+        document = render_campaign_html(campaign)
+        self.assertIn("do not all", document)
+        self.assertIn("abc123", document)
+        self.assertIn("def456", document)
+
+
 class RecommendationFallbackTests(unittest.TestCase):
     def test_finding_recommendation_shown_when_no_structured_remediation(self):
         # COH-1: on P02 Rev E (campaign-20260922-215852.html) all 26 actions

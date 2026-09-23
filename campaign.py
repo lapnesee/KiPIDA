@@ -146,6 +146,14 @@ class DomainScore:
     score: float
     finding_counts: Dict[str, int] = field(default_factory=dict)
     headline: str = ""
+    # COH-10: board_fingerprint = SHA of the *saved* file while AC,
+    # differential, EMC and thermal geometry reads the *open* board (DC-004
+    # proves they can differ on the same report), and the consolidate button
+    # aggregated session results with no per-domain timestamp or fingerprint
+    # shown at all. Carried per domain, from the result it was computed on,
+    # so a reader can see when two domains describe different moments.
+    completed_at: str = ""
+    board_fingerprint: str = ""
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "DomainScore":
@@ -459,8 +467,32 @@ class CampaignResult:
                 score=score,
                 finding_counts=counts,
                 headline=self._headline(result),
+                completed_at=result.completed_at,
+                board_fingerprint=result.board_fingerprint,
             ))
         return scores
+
+    def provenance_warnings(self) -> List[str]:
+        """State it when this campaign's domains do not describe one moment.
+
+        The consolidate button (ui/main_dialog.py) can aggregate whatever
+        results this session happens to hold, run at different times or even
+        against different board saves; a batch stamps every domain with the
+        same board_fingerprint, so this is silent for one. Warns once per
+        distinct fingerprint beyond the first, naming which domains carry it.
+        """
+        by_fingerprint: Dict[str, List[str]] = {}
+        for score in self.domain_scores:
+            if not score.board_fingerprint or score.status == AnalysisStatus.NO_DATA:
+                continue
+            by_fingerprint.setdefault(score.board_fingerprint, []).append(score.domain)
+        if len(by_fingerprint) <= 1:
+            return []
+        return [
+            f"{', '.join(domains)}: board fingerprint {fingerprint[:12]}…, "
+            "different from at least one other domain in this report."
+            for fingerprint, domains in sorted(by_fingerprint.items())
+        ]
 
     @staticmethod
     def _headline(result: AnalysisResult) -> str:
