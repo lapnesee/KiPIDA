@@ -72,6 +72,39 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertLess(result.risk_score, 100)
         self.assertTrue(result.probe_points)
 
+    def test_analyze_refuses_a_capture_with_no_copper_at_all(self):
+        # P02 Rev E, 2026-09-22 21:39 (report campaign-...-213933): the PCB
+        # editor was still synchronising, IPC returned every collection
+        # empty, and the old code scored that as 62/100 -- with the only
+        # geometric finding being GP-002 CRITICAL "No ground plane
+        # detected" -- against the real board's 61/100 that day.
+        empty = EMCGeometrySnapshot(bounds_mm=(0.0, 0.0, 100.0, 80.0), stackup=stackup())
+        with self.assertRaisesRegex(ValueError, "no copper geometry"):
+            EMCAnalyzer(empty, self.settings()).analyze()
+
+    def test_gp002_needs_a_captured_zone_not_just_layer_count(self):
+        # A capture with real tracks/vias/pads but zero zones anywhere (a
+        # partial IPC sync) must not read as "no ground plane": zone
+        # capture itself has not produced anything to judge yet.
+        four_layer = StackupProfile(layers=[
+            StackupLayerModel("F.Cu", "COPPER", 0.035, layer_id=0),
+            StackupLayerModel("In1.Cu", "COPPER", 0.035, layer_id=1),
+            StackupLayerModel("In2.Cu", "COPPER", 0.035, layer_id=2),
+            StackupLayerModel("B.Cu", "COPPER", 0.035, layer_id=31),
+        ], source="TEST", trustworthy=True)
+        snap = EMCGeometrySnapshot(
+            bounds_mm=(0.0, 0.0, 100.0, 80.0),
+            stackup=four_layer,
+            tracks=[EMCTrack("SYS_CLK", (5.0, 10.0), (95.0, 10.0), 0.2, 0, 90.0)],
+            vias=[EMCVia("SYS_CLK", (50.0, 10.0), (0, 31))],
+            footprints=[EMCFootprint(
+                "U1", "MCU", (10.0, 10.0), ("SYS_CLK",), (("SYS_CLK", 10.0, 10.0),),
+            )],
+            zones_by_net={},
+        )
+        result = EMCAnalyzer(snap, self.settings()).analyze()
+        self.assertNotIn("GP-002", {finding.rule_id for finding in result.findings})
+
     def test_live_board_capture_converts_ipc_values_before_worker_use(self):
         net = SimpleNamespace(name="SYS_CLK")
         track = SimpleNamespace(

@@ -38,6 +38,24 @@ def to_mm(val_nm):
     return val_nm / 1e6
 
 
+def live_capture_has_no_copper(track_count, via_count, zone_count, pad_count):
+    """True when a live geometry capture holds no copper and no net pads.
+
+    KiCad's IPC answers every collection empty while the PCB editor is still
+    synchronising (``thermal_model.ThermalModelBuilder.build`` refuses the
+    same condition, added in 1bf2be7). A capture with zero tracks, zero vias,
+    zero filled zones and zero net-connected pads is not "an empty board" --
+    it is "no board was captured" -- and scoring or diffing it produces false
+    findings. A campaign on P02 Rev E started while the editor was still
+    synchronising (report campaign-...-213933, 2026-09-22 21:39) hit this:
+    EMC read the empty geometry as GP-002 CRITICAL "No ground plane
+    detected" (verdict FAIL, action #1) while DC-004 reported 17 rails
+    "differs ... (100% of it)" against the saved file, both from a capture
+    that simply had not finished arriving.
+    """
+    return track_count == 0 and via_count == 0 and zone_count == 0 and pad_count == 0
+
+
 def file_layers_to_live(file_layers, live_copper, layer_order=None):
     """``{canonical name: live layer id}`` for a board file's copper layers.
 

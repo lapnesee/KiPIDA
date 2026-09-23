@@ -21,7 +21,7 @@ except ImportError:  # pragma: no cover - Ki-PIDA normally ships Shapely
 
 try:
     from .differential_length import protocol_skew_limit_ps
-    from .extractor import GeometryExtractor, to_mm
+    from .extractor import GeometryExtractor, live_capture_has_no_copper, to_mm
     from .inductor_em import resolve_inductor_models, TargetedInductorRefiner
     from .models import (
         EMCAnalysisResult, EMCEvidence, EMCFinding, EMCFrequencyRisk,
@@ -29,7 +29,7 @@ try:
     )
 except (ImportError, ValueError):
     from differential_length import protocol_skew_limit_ps
-    from extractor import GeometryExtractor, to_mm
+    from extractor import GeometryExtractor, live_capture_has_no_copper, to_mm
     from inductor_em import resolve_inductor_models, TargetedInductorRefiner
     from models import (
         EMCAnalysisResult, EMCEvidence, EMCFinding, EMCFrequencyRisk,
@@ -1044,7 +1044,10 @@ class EMCAnalyzer:
         if not self._enabled("GROUND"):
             return
         self._check(4)
-        if len(self._copper_layers) >= 4 and not self._ground_zones:
+        # Only claim "no ground plane" once zone capture demonstrably worked
+        # for *some* net; an IPC answer with zero zones anywhere (still
+        # syncing) says nothing about whether a ground plane exists.
+        if len(self._copper_layers) >= 4 and self.snapshot.zones_by_net and not self._ground_zones:
             self._add("GP-002", "GROUND", "CRITICAL", "No ground plane detected",
                       "The multilayer board has no filled zone on a configured ground net.",
                       "Add a continuous ground plane and verify the configured ground-net aliases.", "HIGH")
@@ -1927,6 +1930,26 @@ class EMCAnalyzer:
 
     def analyze(self, progress_callback=None):
         started = time.perf_counter()
+        if live_capture_has_no_copper(
+            len(self.snapshot.tracks), len(self.snapshot.vias),
+            sum(len(layers) for layers in self.snapshot.zones_by_net.values()),
+            sum(len(footprint.nets) for footprint in self.snapshot.footprints),
+        ):
+            # KiCad's IPC answers every collection empty while the PCB editor
+            # is still synchronising. On P02 Rev E a campaign run at 21:39
+            # (report campaign-...-213933) hit exactly this: 62/100 with 33
+            # checks instead of 1569, the only geometric finding being GP-002
+            # CRITICAL "No ground plane detected" -- false, since no zone was
+            # captured at all, not just the ground ones. Refusing here, like
+            # thermal_model.ThermalModelBuilder.build does for the same IPC
+            # condition (1bf2be7), keeps that false finding and score out of
+            # the report instead of computing them from nothing.
+            raise ValueError(
+                "KiCad IPC returned no copper geometry on any layer (no tracks, vias, "
+                "filled zones or net-connected pads), so every EMI/EMC check would read "
+                "an empty board rather than the real one. Wait for PCB Editor "
+                "synchronisation and retry."
+            )
         stages = [
             ("Ground planes", self._ground_rules),
             ("Stackup", self._stackup_rules),

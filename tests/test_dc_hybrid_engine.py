@@ -369,6 +369,23 @@ class OneEngineForEveryAnalysis(unittest.TestCase):
         ])])
         self.assertEqual(saved_board_differences(saved, "VCC", request, {}), [])
 
+    def test_an_empty_live_capture_says_so_instead_of_100_percent_differs(self):
+        # P02 Rev E, 2026-09-22 21:39 (report campaign-...-213933): the PCB
+        # editor was still synchronising, IPC returned every collection
+        # empty, and the old code compared that to the saved file and
+        # reported 17 rails "differs ... (100% of it)" -- none of them a
+        # real edit.
+        from application.dc_controller import DCBoardSnapshot, saved_board_differences
+
+        request = SimpleNamespace(
+            board=DCBoardSnapshot((), ()), classification_geometry_by_rail={},
+        )
+        saved = SimpleNamespace(vias=[], footprints=[])
+        self.assertEqual(
+            saved_board_differences(saved, "VCC", request, {}),
+            ["live capture empty, retry after sync"],
+        )
+
 
 class LiveLayerPairing(unittest.TestCase):
     @staticmethod

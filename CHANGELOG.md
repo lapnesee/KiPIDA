@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Fixed EMC scoring and DC-004 diffing an empty live capture (KiCad's
+  IPC mid-sync) as real board data: P02 Rev E, 2026-09-22 21:39,
+  scored empty geometry 62/100 with a false GP-002 CRITICAL and gave
+  DC-004 17 false "100% differs" findings. Both now recognise an
+  empty capture (no tracks, vias, zones or net pads) via a shared
+  extractor.live_capture_has_no_copper() guard: EMC refuses to score
+  it and the campaign skips the domain like it already does for
+  thermal; DC-004 reports "live capture empty, retry after sync"
+  instead of a fabricated 100% diff.
 - Fixed AC-4: every child regulator's input pin is now swept as a
   candidate AC port, not just PowerRail.loads. P02 Rev E's /VBUS_SYS
   feeds U4 and U14 with no load of its own; U14's input (pads 10-12)

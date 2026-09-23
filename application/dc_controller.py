@@ -15,7 +15,7 @@ from advisor.dc_advisor import load_drop_v
 from advisor.rail_sources import (
     NODE_MATCH_FLOOR_MM, NODE_MATCH_GRID_FACTOR, NodeIndex, map_pads_to_nodes,
 )
-from extractor import GeometryExtractor
+from extractor import GeometryExtractor, live_capture_has_no_copper
 from ingest.board_reader import read_board
 from mesh import Mesher
 from mesh_hybrid import HybridMesher
@@ -829,6 +829,28 @@ DIVERGENCE_AREA_FRACTION = 0.02
 DIVERGENCE_AREA_FLOOR_MM2 = 0.05
 
 
+def _live_capture_counts(request):
+    """(track, via, zone, pad) counts of the whole live capture, every rail.
+
+    ``request.classification_geometry_by_rail`` maps rail net -> kind
+    ("track"/"zone") -> layer -> a Shapely geometry, which the IPC can hand
+    back present but empty (area 0) while the editor is still synchronising;
+    only non-empty geometry counts as captured.
+    """
+    snapshot = request.board
+    track_count = 0
+    zone_count = 0
+    for kinds in (request.classification_geometry_by_rail or {}).values():
+        for geometry in (kinds.get("track") or {}).values():
+            if geometry is not None and not geometry.is_empty:
+                track_count += 1
+        for geometry in (kinds.get("zone") or {}).values():
+            if geometry is not None and not geometry.is_empty:
+                zone_count += 1
+    pad_count = sum(len(footprint.pads) for footprint in snapshot.footprints)
+    return track_count, len(snapshot.vias), zone_count, pad_count
+
+
 def saved_board_differences(board, net_name, request, layer_mapping):
     """How the open board's copper on *net_name* differs from the saved file.
 
@@ -838,7 +860,17 @@ def saved_board_differences(board, net_name, request, layer_mapping):
     (from the live snapshot), and its track and pour copper per layer (from the
     live classification geometry) by the area of their symmetric difference.
     Whatever the request did not capture is not compared.
+
+    KiCad's IPC answers every collection empty while the PCB editor is still
+    synchronising. On P02 Rev E a campaign started there (21:39,
+    campaign-...-213933) compared that empty capture to the saved file and
+    reported 17 rails "differs ... (100% of it)", one per rail, none of them
+    a real edit. When the *whole* live capture -- every rail, not just this
+    net -- has no via, pad, track or zone at all, that is not a diff to
+    report; it is a capture that has not arrived yet.
     """
+    if live_capture_has_no_copper(*_live_capture_counts(request)):
+        return ["live capture empty, retry after sync"]
     differences = []
     snapshot = request.board
     if snapshot.vias or snapshot.footprints:
