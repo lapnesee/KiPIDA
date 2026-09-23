@@ -260,5 +260,163 @@ class TestGeometryExtractor(unittest.TestCase):
             geometry = extractor.get_zone_geometry("VBUS_SYS")
         self.assertEqual(set(geometry), {5})
 
+
+class FakeIpcDielectric:
+    """Reproduces the KiCad IPC bug: BoardStackupDielectricLayer.layers is
+    empty, so GeometryExtractor._get_stackup_protobuf's get_epsilon_r/
+    get_material helpers fall back to 4.4/"FR4" (SI-1)."""
+    def __init__(self):
+        self.layers = []
+
+
+class FakeIpcStackupLayer:
+    def __init__(self, type_val, layer=None, thickness_mm=0.0, user_name=None, dielectric=None):
+        self.type = type_val
+        self.layer = layer
+        self.thickness = thickness_mm * 1e6  # nm, per to_mm()
+        self.user_name = user_name
+        self.dielectric = dielectric
+
+
+class FakeIpcStackup:
+    def __init__(self, layers):
+        self.layers = layers
+
+
+class FakeIpcBoard:
+    def __init__(self, stackup):
+        self._stackup = stackup
+
+    def get_stackup(self):
+        return self._stackup
+
+
+def _p02_ipc_layers():
+    """P02 Rev E stackup with the IPC dielectric bug: all 5 dielectrics
+    report empty .layers (see FakeIpcDielectric)."""
+    coppers = [(0, 'F.Cu', 0.035), (1, 'In1.Cu', 0.0152), (2, 'In2.Cu', 0.0152),
+               (3, 'In3.Cu', 0.0152), (4, 'In4.Cu', 0.0152), (31, 'B.Cu', 0.035)]
+    thicknesses_mm = [0.0994, 0.35, 0.1088, 0.35, 0.0994]
+    layers = []
+    for index, (lid, name, thickness) in enumerate(coppers):
+        layers.append(FakeIpcStackupLayer(1, layer=lid, thickness_mm=thickness, user_name=name))
+        if index < len(thicknesses_mm):
+            layers.append(FakeIpcStackupLayer(
+                2, thickness_mm=thicknesses_mm[index], dielectric=FakeIpcDielectric(),
+            ))
+    return layers
+
+
+# P02 Rev E .kicad_pcb stackup block, run 20260922-2156 (audit SI-1): the
+# saved file carries the real er/material/loss tangent that IPC dropped.
+P02_STACKUP_BLOCK = """
+	(stackup
+		(layer "F.Mask"
+			(type "Top Solder Mask")
+			(thickness 0.01)
+		)
+		(layer "F.Cu"
+			(type "copper")
+			(thickness 0.035)
+		)
+		(layer "dielectric 1"
+			(type "prepreg")
+			(thickness 0.0994)
+			(material "3313")
+			(epsilon_r 4.1)
+			(loss_tangent 0.02)
+		)
+		(layer "In1.Cu"
+			(type "copper")
+			(thickness 0.0152)
+		)
+		(layer "dielectric 2"
+			(type "core")
+			(thickness 0.35)
+			(material "FR4")
+			(epsilon_r 4.6)
+			(loss_tangent 0.02)
+		)
+		(layer "In2.Cu"
+			(type "copper")
+			(thickness 0.0152)
+		)
+		(layer "dielectric 3"
+			(type "prepreg")
+			(thickness 0.1088)
+			(material "2116")
+			(epsilon_r 4.16)
+			(loss_tangent 0.02)
+		)
+		(layer "In3.Cu"
+			(type "copper")
+			(thickness 0.0152)
+		)
+		(layer "dielectric 4"
+			(type "core")
+			(thickness 0.35)
+			(material "FR4")
+			(epsilon_r 4.6)
+			(loss_tangent 0.02)
+		)
+		(layer "In4.Cu"
+			(type "copper")
+			(thickness 0.0152)
+		)
+		(layer "dielectric 5"
+			(type "prepreg")
+			(thickness 0.0994)
+			(material "3313")
+			(epsilon_r 4.1)
+			(loss_tangent 0.02)
+		)
+		(layer "B.Cu"
+			(type "copper")
+			(thickness 0.035)
+		)
+		(layer "B.Mask"
+			(type "Bottom Solder Mask")
+			(thickness 0.01)
+		)
+		(copper_finish "ENIG")
+		(dielectric_constraints yes)
+	)
+"""
+
+
+class TestStackupDielectricFileFallback(unittest.TestCase):
+    """SI-1: IPC's dielectric.layers comes back empty on P02 Rev E (run
+    20260922-2156) and the 2-D solver silently used er 4.4 "FR4" for all 5
+    dielectrics, worth 76.86 ohm on the USB pairs. The board file has
+    4.1 / 4.6 / 4.16 / 4.6 / 4.1, materials 3313 / FR4 / 2116 / FR4 / 3313,
+    which the reference solver measures at 85.4 ohm."""
+
+    def test_falls_back_to_board_file_when_ipc_dielectric_is_empty(self):
+        board = FakeIpcBoard(FakeIpcStackup(_p02_ipc_layers()))
+        with tempfile.TemporaryDirectory() as directory:
+            board_path = Path(directory) / "p02_revision_e.kicad_pcb"
+            board_path.write_text(f"(kicad_pcb\n{P02_STACKUP_BLOCK}\n)\n", encoding="utf-8")
+            extractor = GeometryExtractor(board, board_path=board_path)
+            stackup = extractor._get_stackup_protobuf()
+
+        self.assertTrue(stackup['trustworthy'])
+        self.assertEqual(stackup['warnings'], [])
+        eps = [sub['epsilon_r'] for sub in stackup['substrate']]
+        self.assertEqual(eps, [4.1, 4.6, 4.16, 4.6, 4.1])
+        materials = [sub['material'] for sub in stackup['substrate']]
+        self.assertEqual(materials, ['3313', 'FR4', '2116', 'FR4', '3313'])
+        self.assertTrue(all(sub['loss_tangent'] == 0.02 for sub in stackup['substrate']))
+
+    def test_marks_untrustworthy_with_named_layers_when_no_file_available(self):
+        board = FakeIpcBoard(FakeIpcStackup(_p02_ipc_layers()))
+        extractor = GeometryExtractor(board, board_path=None)
+        stackup = extractor._get_stackup_protobuf()
+
+        self.assertFalse(stackup['trustworthy'])
+        self.assertEqual(len(stackup['warnings']), 1)
+        self.assertIn('F.Cu-In1.Cu', stackup['warnings'][0])
+        self.assertTrue(all(sub['epsilon_r'] == 4.4 for sub in stackup['substrate']))
+
+
 if __name__ == '__main__':
     unittest.main()

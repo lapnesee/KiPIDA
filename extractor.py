@@ -303,6 +303,64 @@ class GeometryExtractor:
             return None
         return unary_union(shapes) if unary_union is not None else shapes[0]
 
+    @staticmethod
+    def _stackup_from_file(board_path):
+        """Read per-dielectric er/material/loss tangent from the saved
+        .kicad_pcb stackup table, in physical top-to-bottom order.
+
+        Needed because the IPC API's BoardStackupDielectricLayer.layers list
+        comes back empty on some KiCad 10 installs (see get_epsilon_r in
+        _get_stackup_protobuf) even though the same stackup is written
+        correctly to the board file. P02 Rev E, run 20260922-2156: IPC
+        reported er 4.4 "FR4" tan d 0 on all 5 dielectrics; the file has
+        4.1 / 4.6 / 4.16 / 4.6 / 4.1 with materials 3313 / FR4 / 2116 / FR4 /
+        3313 (audit-2026-09-23.md SI-1).
+        """
+        try:
+            text = Path(board_path).read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError):
+            return None
+        stackup_start = text.find('(stackup')
+        if stackup_start < 0:
+            return None
+        depth = 0
+        stackup_end = None
+        for index in range(stackup_start, len(text)):
+            depth += (text[index] == '(') - (text[index] == ')')
+            if depth == 0:
+                stackup_end = index + 1
+                break
+        if stackup_end is None:
+            return None
+        block = text[stackup_start:stackup_end]
+
+        dielectrics = []
+        layer_start = re.compile(r'\(layer\s+"')
+        for match in layer_start.finditer(block):
+            depth = 0
+            end = None
+            for index in range(match.start(), len(block)):
+                depth += (block[index] == '(') - (block[index] == ')')
+                if depth == 0:
+                    end = index + 1
+                    break
+            if end is None:
+                continue
+            layer_text = block[match.start():end]
+            eps_match = re.search(r'\(epsilon_r\s+([-+]?\d*\.?\d+)', layer_text)
+            if not eps_match:
+                continue  # copper / mask / silk / paste: no dielectric constant
+            thickness_match = re.search(r'\(thickness\s+([-+]?\d*\.?\d+)', layer_text)
+            material_match = re.search(r'\(material\s+"((?:\\.|[^"\\])*)"', layer_text)
+            loss_match = re.search(r'\(loss_tangent\s+([-+]?\d*\.?\d+)', layer_text)
+            dielectrics.append({
+                'thickness_mm': float(thickness_match.group(1)) if thickness_match else 0.0,
+                'material': material_match.group(1) if material_match else '',
+                'epsilon_r': float(eps_match.group(1)),
+                'loss_tangent': float(loss_match.group(1)) if loss_match else 0.0,
+            })
+        return dielectrics
+
     def get_board_outline(self, board_file_path=None):
         """Return an Edge.Cuts polygon for thermal meshing without padding."""
         outline = self._edge_cuts_outline_from_file(board_file_path) if board_file_path else None
@@ -396,11 +454,24 @@ class GeometryExtractor:
                 if hasattr(dielectric_layer, 'layers') and dielectric_layer.layers:
                     return dielectric_layer.layers[0].epsilon_r
                 return 4.4 # Default FR4
-            
+
             def get_material(dielectric_layer):
                 if hasattr(dielectric_layer, 'layers') and dielectric_layer.layers:
                     return dielectric_layer.layers[0].material_name
                 return "FR4"
+
+            def get_loss_tangent(dielectric_layer):
+                if hasattr(dielectric_layer, 'layers') and dielectric_layer.layers:
+                    return getattr(dielectric_layer.layers[0], 'loss_tangent', 0.0)
+                return 0.0
+
+            def has_ipc_dielectric_properties(dielectric_layer):
+                # SI-1: KiCad IPC returns an empty .layers list on some KiCad
+                # 10 installs; the three helpers above then fall back to
+                # 4.4/"FR4"/0 silently. This flags that fallback so the
+                # stackup builder below can re-read the real values from the
+                # saved board file instead of trusting the IPC default.
+                return bool(getattr(dielectric_layer, 'layers', None))
 
             # Iterate layers
             for i, layer in enumerate(stackup.layers):
@@ -442,15 +513,50 @@ class GeometryExtractor:
                             d_layer = layer.dielectric
                             eps = get_epsilon_r(d_layer)
                             mat = get_material(d_layer)
-                            
+                            loss = get_loss_tangent(d_layer)
+
                             substrates.append({
                                 'thickness_mm': thickness_mm,
                                 'between': [last_copper, None],
                                 'material': mat,
-                                'epsilon_r': eps
+                                'epsilon_r': eps,
+                                'loss_tangent': loss,
+                                '_ipc_dielectric_ok': has_ipc_dielectric_properties(d_layer),
                             })
                         else:
                             substrates[-1]['thickness_mm'] += thickness_mm
+
+            warnings = []
+            missing = [sub for sub in substrates if not sub.get('_ipc_dielectric_ok', True)]
+            if missing:
+                # Re-read the dielectrics IPC could not give us from the
+                # saved board file, which carries the real values (SI-1).
+                file_dielectrics = self._stackup_from_file(self.board_path) if self.board_path else None
+                if file_dielectrics and len(file_dielectrics) == len(substrates):
+                    for sub, file_sub in zip(substrates, file_dielectrics):
+                        if sub.get('_ipc_dielectric_ok', True):
+                            continue
+                        sub['epsilon_r'] = file_sub['epsilon_r']
+                        sub['material'] = file_sub['material'] or sub['material']
+                        sub['loss_tangent'] = file_sub['loss_tangent']
+                        if file_sub['thickness_mm'] > 0:
+                            sub['thickness_mm'] = file_sub['thickness_mm']
+                else:
+                    names = []
+                    for sub in missing:
+                        l1, l2 = sub['between']
+                        n1 = copper_data.get(l1, {}).get('name', str(l1))
+                        n2 = copper_data.get(l2, {}).get('name', str(l2)) if l2 is not None else "Bottom"
+                        names.append(f"{n1}-{n2}")
+                    warnings.append(
+                        "IPC gave no dielectric constant for " + ", ".join(names)
+                        + " and the board file was unavailable to fall back to; "
+                        "using default er 4.4 'FR4'. Impedance results on these "
+                        "layers are not trustworthy."
+                    )
+
+            for sub in substrates:
+                sub.pop('_ipc_dielectric_ok', None)
 
             result = {
                 'copper': copper_data,
@@ -458,8 +564,8 @@ class GeometryExtractor:
                 'substrate': substrates,
                 'resistivity': rho_copper,
                 'source': 'KICAD_IPC',
-                'trustworthy': bool(copper_data and substrates),
-                'warnings': [],
+                'trustworthy': bool(copper_data and substrates) and not warnings,
+                'warnings': warnings,
             }
             
             if self.debug:

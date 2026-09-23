@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed dielectric er silently falling back to 4.4 "FR4" when KiCad IPC
+  gives no BoardStackupDielectricLayer sub-layers (P02 Rev E,
+  20260922-2156: IPC reported 4.4 on all 5 dielectrics vs the board
+  file's 4.1/4.6/4.16/4.6/4.1). The stackup now falls back to the saved
+  .kicad_pcb file, or is marked untrustworthy with a named-layer warning
+  when no file is available.
 - Fixed the campaign score to exclude calculation_quality findings
   (CFD-003/004, DC-004/005 on P02 Rev E) instead of scoring a tool
   limitation like a board defect.
