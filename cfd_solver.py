@@ -685,8 +685,13 @@ class EnclosureCFDSolver:
             return None
         return abs(incoming - outgoing) / max(incoming, outgoing, 1e-15) * 100.0
 
+    # Board orientation -> the mesh axis running through its thickness (its
+    # normal). Matches EnclosureModelBuilder._oriented_bounds: XY keeps the
+    # board flat, thin in z; XZ and YZ stand it on edge, thin in y or x.
+    _ORIENTATION_NORMAL_AXIS = {"XY": 2, "XZ": 1, "YZ": 0}
+
     @staticmethod
-    def _board_free_stream(mesh, speed):
+    def _board_free_stream(mesh, speed, board_orientation="XY"):
         """Mean air speed approaching the board, in m/s, with its cell count.
 
         The flat-plate correlation Nu = 0.664 Re^0.5 Pr^(1/3) takes the
@@ -724,16 +729,27 @@ class EnclosureCFDSolver:
             near_solid = grown
         # Restrict to the board's footprint, so a fan blowing through an empty
         # corner of a large enclosure cannot masquerade as flow over it. Along
-        # the board's normal -- its thinnest extent -- the slab runs the full
-        # enclosure: the air to sample is above and below the board. It used
-        # to stop at the board's own thickness, one layer of cells that is
-        # solid wherever the board is, so no mesh could ever offer a sample:
-        # P02 Rev E's 33 x 20 x 10 enclosure returned none at 21:58.
+        # the board's normal, the slab runs the full enclosure: the air to
+        # sample is above and below the board. It used to stop at the board's
+        # own thickness, one layer of cells that is solid wherever the board
+        # is, so no mesh could ever offer a sample: P02 Rev E's 33 x 20 x 10
+        # enclosure returned none at 21:58.
+        #
+        # The normal used to be guessed from the populated mask's own extent
+        # (argmin of upper - lower): whichever axis looked thinnest. A board
+        # snapped to one cell on every axis (CFD-1) has extent (0, 0, 0), so
+        # argmin trivially picked axis 0 regardless of which way the board
+        # actually faces -- on P02 that sampled a line running through the
+        # board's own plane, not the air above and below it: 7 cells at
+        # 0.0117 m/s (docs/audit-2026-09-23.md CFD-5, commit 15666c8). The
+        # orientation the board was actually built with is not a guess.
+        normal = EnclosureCFDSolver._ORIENTATION_NORMAL_AXIS.get(
+            str(board_orientation or "XY").upper(), 2
+        )
         extent = np.argwhere(board)
         slab = np.zeros(mesh.shape, dtype=bool)
         lower = extent.min(axis=0)
         upper = extent.max(axis=0)
-        normal = int(np.argmin(upper - lower))
         lower[normal], upper[normal] = 0, mesh.shape[normal] - 1
         slab[lower[0]:upper[0] + 1, lower[1]:upper[1] + 1, lower[2]:upper[2] + 1] = True
         sample = mesh.fluid_mask & ~near_solid & slab
@@ -897,7 +913,9 @@ class EnclosureCFDSolver:
         solid_values = temperature[mesh.solid_mask]
         air_values = temperature[fluid]
         total_heat = float(np.sum(mesh.heat_sources_w))
-        free_stream, free_stream_cells = self._board_free_stream(mesh, speed)
+        free_stream, free_stream_cells = self._board_free_stream(
+            mesh, speed, getattr(settings.geometry, "board_orientation", "XY")
+        )
         self._log(
             f"Solved {mesh.cell_count:,} cells in {iteration + 1} iterations; "
             f"Vmax={np.max(speed):.4g} m/s, "

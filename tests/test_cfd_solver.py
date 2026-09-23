@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from cfd_mesh import CFDMeshGenerator
+from cfd_mesh import CFDMesh, CFDMeshGenerator
 from cfd_model import CFDObstacle, EnclosureModel
 from cfd_solver import EnclosureCFDSolver
 from models import CFDBoundaryPatch, EnclosureCFDSettings
@@ -146,6 +146,41 @@ class TestEnclosureCFDSolver(unittest.TestCase):
 
         self.assertGreater(cells, 0)
         self.assertEqual(velocity, 1.0)
+
+    def test_free_stream_normal_comes_from_orientation_not_mask_extent(self):
+        # docs/audit-2026-09-23.md CFD-5, redo of commit 15666c8: with a
+        # board collapsed to one mesh cell (CFD-1's fallback, still possible
+        # for a board smaller than a cell on every axis) the populated mask's
+        # extent is (0, 0, 0) on every axis, so the old argmin-based normal
+        # trivially picked axis 0 (x) regardless of which way the board
+        # actually faces. On P02 Rev E that sampled a line running through
+        # the board's own plane -- 7 cells at 0.0117 m/s -- instead of the
+        # air above and below it. Built by hand rather than through
+        # CFDMeshGenerator so this exercises the sampler's own logic
+        # independently of whatever CFD-1 now does to the mesh.
+        shape = (13, 13, 13)
+        solid = np.zeros(shape, dtype=bool)
+        solid[6, 6, 6] = True
+        names = np.full(shape, "AIR", dtype=object)
+        names[6, 6, 6] = "PCB"
+        mesh = CFDMesh(
+            shape=shape, spacing_m=(0.005, 0.005, 0.005),
+            dimensions_m=(0.065, 0.065, 0.065),
+            fluid_mask=~solid, solid_mask=solid,
+            solid_conductivity_w_mk=np.zeros(shape), heat_sources_w=np.zeros(shape),
+            obstacle_names=names,
+        )
+        # Slow in-plane air (what the old, wrong axis would sample) against
+        # fast air rising and sinking through the board's true (XY) normal.
+        speed = np.full(shape, 0.02)
+        speed[6, 6, :] = 1.0
+
+        velocity, cells = EnclosureCFDSolver._board_free_stream(
+            mesh, speed, board_orientation="XY",
+        )
+
+        self.assertEqual(cells, 4)
+        self.assertAlmostEqual(velocity, 1.0)
 
     def test_cancellation_stops_before_iteration(self):
         settings = self._settings()

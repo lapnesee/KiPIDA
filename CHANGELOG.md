@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed the CFD free-stream sampler picking its normal axis from the PCB
+  mask's own (possibly degenerate) extent instead of the board's actual
+  orientation, which on P02 Rev E sampled a line in the board's own plane
+  (7 cells at 0.0117 m/s) instead of the air above and below it.
 - Fixed non-conservative CFD energy advection: the energy equation now
   advects with the pressure projection's own divergence-free face
   velocities instead of re-averaging cell velocities, which had let a
