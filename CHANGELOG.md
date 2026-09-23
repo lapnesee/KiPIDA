@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Moved ViaLossesGetAnAction and PlaneCopperLossesGetAnAction from
+  tests/test_cfd_validation_fixes.py to tests/test_dc_advisor.py; they
+  test the DC advisor, not CFD.
 - Added validation/cfd_benchmarks.py's first energy/buoyancy case (a
   closed heated cavity) with real assertions -- convergence, energy
   balance, and C/K origin invariance -- where every existing case only
