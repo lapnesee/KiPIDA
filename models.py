@@ -162,6 +162,25 @@ class ACSourceModel:
     inductance_h: float = 1.0e-9
 
 
+# Named small-signal source models the AC sweep can be told to use instead of
+# the untouched (R, L) defaults above. Each pair is what
+# scratchpad/audit/ac/source_lumped.py measured actually moving the
+# source/bulk anti-resonance against P02 Rev E's 7-capacitor bank: the
+# factory-floor default gives max|Z| 12 mOhm below 10 MHz and hides it
+# entirely, while a USB-C cable both reveals it and shifts its peak (133 mOhm
+# at 24 kHz; 362 mOhm, 92% of the 0.39226 ohm target, at 21 kHz for a worse
+# cable/regulator combination). "regulator_output" is a plain R+L stand-in
+# for a regulator's control-loop-limited output impedance, not a full
+# R_out + L with an explicit bandwidth roll-off -- that needs a
+# frequency-shaped source the solver's single complex R + jwL stamp does not
+# support yet, so it is published here as a limitation rather than modelled.
+AC_SOURCE_PRESETS = (
+    ("default", "Default (10 mOhm + 1 nH, no board evidence)", 0.01, 1.0e-9),
+    ("usb_c_cable", "USB-C cable/connector (~0.1 ohm + 0.5 uH)", 0.1, 0.5e-6),
+    ("regulator_output", "Regulator output, unspecified bandwidth (~0.05 ohm + 1 uH)", 0.05, 1.0e-6),
+)
+
+
 @dataclass
 class ACMeasurementPort:
     """Differential rail-to-ground observation port."""

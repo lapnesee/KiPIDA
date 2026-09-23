@@ -259,10 +259,58 @@ def _ac_validity_limitations(final: Any) -> list:
     return notes
 
 
+def _ac_source_is_default(settings: Any) -> bool:
+    """True when the AC source still carries the untouched 10 mOhm + 1 nH
+    default (models.ACSourceModel), which has no board evidence behind it.
+
+    scratchpad/audit/ac/source_lumped.py measured this default hiding the
+    source/bulk anti-resonance of P02 Rev E's 7-capacitor bank entirely
+    (max|Z| 12 mOhm below 10 MHz), while a USB-C cable both reveals it and
+    moves it close to the target (362 mOhm, 92% of 0.39226 ohm, at 21 kHz).
+    """
+    source = getattr(settings, "source", None)
+    resistance_ohm = float(getattr(source, "resistance_ohm", 0.0) or 0.0)
+    inductance_h = float(getattr(source, "inductance_h", 0.0) or 0.0)
+    return math.isclose(resistance_ohm, 0.01, rel_tol=1e-6) and math.isclose(
+        inductance_h, 1.0e-9, rel_tol=1e-6,
+    )
+
+
+def _ac_source_limitations(settings: Any) -> list:
+    """State the source impedance as the dominant, and possibly unverified,
+    assumption behind the sweep (AC-2)."""
+    source = getattr(settings, "source", None)
+    resistance_ohm = float(getattr(source, "resistance_ohm", 0.0) or 0.0)
+    inductance_h = float(getattr(source, "inductance_h", 0.0) or 0.0)
+    if _ac_source_is_default(settings):
+        return [
+            f"The source impedance ({resistance_ohm * 1e3:.3g} mOhm + "
+            f"{inductance_h * 1e9:.3g} nH) is the untouched default with no board "
+            "evidence behind it, and it dominates the swept impedance below a few "
+            "MHz: a real USB-C cable or regulator output can move the source/bulk "
+            "anti-resonance to within 92% of a typical target. Pick a source preset "
+            "(USB-C cable/connector or regulator output) that matches what actually "
+            "feeds this rail, or measure it; treat this sweep's low-frequency region "
+            "as source-dependent and lower confidence until then."
+        ]
+    return [
+        f"The source impedance ({resistance_ohm * 1e3:.3g} mOhm + "
+        f"{inductance_h * 1e9:.3g} nH) dominates the swept impedance below a few "
+        "MHz and remains a modelled R + jwL stamp: it has no explicit control-loop "
+        "bandwidth roll-off, so a regulator's real output impedance may differ "
+        "above its bandwidth."
+    ]
+
+
 def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any = None) -> AnalysisResult:
     final = getattr(optimization, "optimized", None) or domain_result
     target = float(getattr(final, "target_impedance_ohm", 0.0) or 0.0)
     worst = float(getattr(final, "worst_impedance_ohm", 0.0) or 0.0)
+    # An unverified default source hides the source/bulk anti-resonance
+    # (AC-2), so a verdict that rests on it is worth less than one where the
+    # source was actually characterised.
+    source_default = _ac_source_is_default(settings)
+    verdict_confidence = EvidenceConfidence.HEURISTIC if source_default else EvidenceConfidence.ESTIMATED
     sweep = _ac_sweep_snapshot(final)
     failing = [point for point in sweep if target > 0.0 and point["magnitude_ohm"] > target]
     first_failure = failing[0]["frequency_hz"] if failing else 0.0
@@ -321,7 +369,7 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
             "Extend the sweep's stop frequency toward the quasi-static limit and "
             "re-run before trusting a PASS.",
         )
-        finding.confidence = EvidenceConfidence.ESTIMATED
+        finding.confidence = verdict_confidence
         finding.nets = [item for item in (rail_name,) if item]
         findings.append(finding)
     elif not bool(getattr(final, "meets_target", False)):
@@ -353,8 +401,10 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
         # mounting inductance and DC-bias derating -- both of which push the
         # real impedance above the swept one at high frequency. However exact
         # the target and the capacitor data, this is an estimate. It used to
-        # read DETERMINISTIC whenever the target was explicit.
-        finding.confidence = EvidenceConfidence.ESTIMATED
+        # read DETERMINISTIC whenever the target was explicit. HEURISTIC
+        # instead of ESTIMATED when the source impedance is still the
+        # untouched, unverified default (AC-2).
+        finding.confidence = verdict_confidence
         finding.nets = [item for item in (rail_name, ground_name) if item]
         finding.components = [item["reference"] for item in capacitors if item["reference"]]
         finding.evidence = [AnalysisEvidence(
@@ -440,7 +490,7 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
             f"Observation point {item.get('ref_des') or '(unnamed)'} was excluded "
             f"from the sweep: it {item.get('reason', 'could not be measured')}."
             for item in (getattr(final, "excluded_ports", None) or ())
-        ] + _ac_validity_limitations(final) + _raster_track_limitations(
+        ] + _ac_source_limitations(settings) + _ac_validity_limitations(final) + _raster_track_limitations(
             getattr(final, "track_summary", None),
             float(getattr(final, "effective_grid_size_mm", 0.0) or 0.0), "AC mesh",
         ),

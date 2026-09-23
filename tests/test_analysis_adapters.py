@@ -56,7 +56,10 @@ class AnalysisAdapterTests(unittest.TestCase):
         )
         settings = ACAnalysisSettings(
             rail_name="+3V3", ground_net_name="GND",
-            source=ACSourceModel(ref_des="U1", resistance_ohm=0.01, inductance_h=1e-9),
+            # AC-2: a non-default source (here the USB-C cable preset) keeps
+            # this test's confidence at ESTIMATED rather than the HEURISTIC
+            # an unverified default source now gets.
+            source=ACSourceModel(ref_des="U1", resistance_ohm=0.1, inductance_h=0.5e-6),
             measurement_port=ACMeasurementPort(ref_des="U2"),
             capacitors=[CapacitorModel("C1", capacitance_f=1e-6)],
         )

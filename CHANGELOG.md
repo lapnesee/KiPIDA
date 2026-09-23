@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed AC-2: the AC source model is now a documented, named preset
+  choice (default/USB-C cable/regulator output) in the UI, always
+  stated as a dominant assumption in the report's limitations, and the
+  verdict drops from ESTIMATED to HEURISTIC confidence while the
+  default is unverified. P02 Rev E: default source hides the
+  source/bulk anti-resonance (max|Z| 12 mOhm below 10 MHz); a USB-C
+  cable preset shows 362 mOhm, 92% of the 0.39226 ohm target, at 21 kHz.
 - Fixed DC-2: the DC current-density maximum and hotspot no longer pick
   a near-empty cut cell carrying a trickle of current. P02 Rev E
   /J2_PD_HV's published 697 A/mm2 maximum (0.7% copper, 4 mA, 4.3 mm

@@ -613,6 +613,36 @@ class SolveManyTests(unittest.TestCase):
             self.assertEqual(port.compute_backend, result.compute_backend)
 
 
+class SourcePresetTests(unittest.TestCase):
+    def test_presets_match_the_values_the_audit_measured(self):
+        # AC-2: scratchpad/audit/ac/source_lumped.py's three source models,
+        # named so the sidecar/UI can offer them instead of leaving the
+        # unverified default unquestioned.
+        try:
+            from models import AC_SOURCE_PRESETS
+        except ImportError:
+            self.skipTest("models is not available")
+        by_key = {key: (r, l) for key, _label, r, l in AC_SOURCE_PRESETS}
+        self.assertEqual(by_key["default"], (0.01, 1.0e-9))
+        self.assertEqual(by_key["usb_c_cable"], (0.1, 0.5e-6))
+        self.assertEqual(by_key["regulator_output"], (0.05, 1.0e-6))
+
+    def test_matching_values_resolve_to_their_preset_index(self):
+        try:
+            import ui.ac_analysis_panel as panel
+        except ImportError:
+            self.skipTest("wxPython is not available")
+        # USB-C cable preset is index 1.
+        self.assertEqual(
+            panel.ACAnalysisPanel._source_preset_index_for_values(0.1, 0.5e-6), 1,
+        )
+        # A value matching no preset resolves to the trailing "Custom" slot.
+        self.assertEqual(
+            panel.ACAnalysisPanel._source_preset_index_for_values(0.02, 2e-9),
+            len(panel.AC_SOURCE_PRESETS),
+        )
+
+
 class LoadedProfileRailTests(unittest.TestCase):
     def test_a_loaded_project_opens_the_tab_on_a_rail_it_configured(self):
         # P02 Rev E saved AC profiles for /VBUS_SYS, /+5V_U4 and /+5V_RAIL; the

@@ -33,13 +33,38 @@ class ConfidenceCalibrationTests(unittest.TestCase):
         )
         settings = ACAnalysisSettings(
             rail_name="+3V3", ground_net_name="GND",
-            source=ACSourceModel(ref_des="U1"), measurement_port=ACMeasurementPort(ref_des="U2"),
+            # AC-2: a non-default source keeps this test about the target's
+            # own confidence, not about the separate default-source downgrade.
+            source=ACSourceModel(ref_des="U1", resistance_ohm=0.1, inductance_h=0.5e-6),
+            measurement_port=ACMeasurementPort(ref_des="U2"),
             capacitors=[CapacitorModel("C1", capacitance_f=1e-6, model_source="datasheet")],
         )
         settings.target_impedance_provenance = "set explicitly"
         result = adapt_ac_result(sweep, settings=settings)
         self.assertEqual(result.findings[0].confidence, EvidenceConfidence.ESTIMATED)
         self.assertTrue(any("mounting inductance" in item for item in result.limitations))
+
+    def test_ac_001_drops_to_heuristic_on_the_untouched_default_source(self):
+        # AC-2: scratchpad/audit/ac/source_lumped.py measured the default 10
+        # mOhm + 1 nH source hiding the source/bulk anti-resonance of P02 Rev
+        # E's 7-capacitor bank entirely (max|Z| 12 mOhm below 10 MHz), while a
+        # USB-C cable moves it to 92% of a typical target. A verdict that
+        # still rests on the untouched default is worth less than an
+        # estimate, so it must not read ESTIMATED.
+        sweep = SimpleNamespace(
+            meets_target=False, worst_impedance_ohm=0.12, worst_frequency_hz=50e6,
+            target_impedance_ohm=0.05, frequencies_hz=[1e6, 50e6],
+            impedance_ohm=[0.01 + 0j, 0.12 + 0j],
+        )
+        settings = ACAnalysisSettings(
+            rail_name="+3V3", ground_net_name="GND",
+            source=ACSourceModel(ref_des="U1"),  # untouched default (0.01 ohm, 1 nH)
+            measurement_port=ACMeasurementPort(ref_des="U2"),
+        )
+        result = adapt_ac_result(sweep, settings=settings)
+        finding = next(f for f in result.findings if f.rule_id == "AC-001")
+        self.assertEqual(finding.confidence, EvidenceConfidence.HEURISTIC)
+        self.assertTrue(any("no board evidence" in item for item in result.limitations))
 
     def test_dc_001_names_the_mesh_as_a_possible_cause(self):
         result = adapt_dc_result({"+3V3": {

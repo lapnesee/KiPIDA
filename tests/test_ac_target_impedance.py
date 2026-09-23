@@ -15,7 +15,7 @@ if _root not in sys.path:
 
 from ac_model import derive_target_impedance, resolve_target_impedance
 from models import (
-    ACAnalysisSettings, ComponentRef, PowerRail, UnifiedLoad,
+    ACAnalysisSettings, ACSourceModel, ComponentRef, PowerRail, UnifiedLoad,
 )
 
 
@@ -172,6 +172,9 @@ class AdapterProvenanceTests(unittest.TestCase):
         settings = ACAnalysisSettings(
             rail_name="+5V_RAIL", target_impedance_ohm=0.0526,
             target_impedance_provenance="0.0526 ohm derived from 5.00 V x 2.0 % ripple",
+            # AC-2: a non-default source keeps this test about target
+            # provenance, not about the separate default-source downgrade.
+            source=ACSourceModel(resistance_ohm=0.1, inductance_h=0.5e-6),
         )
         result = adapt_ac_result(self._result(0.0526, False), settings=settings)
         finding = next(f for f in result.findings if f.rule_id == "AC-001")

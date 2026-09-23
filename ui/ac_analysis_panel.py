@@ -1,13 +1,15 @@
+import math
+
 import wx
 
 from i18n import _
 
 try:
     from ac_model import ACModelBuilder, format_capacitance, parse_capacitance
-    from models import ACAnalysisSettings, ACMeasurementPort, ACSourceModel
+    from models import AC_SOURCE_PRESETS, ACAnalysisSettings, ACMeasurementPort, ACSourceModel
 except (ImportError, ValueError):
     from ac_model import ACModelBuilder, format_capacitance, parse_capacitance
-    from models import ACAnalysisSettings, ACMeasurementPort, ACSourceModel
+    from models import AC_SOURCE_PRESETS, ACAnalysisSettings, ACMeasurementPort, ACSourceModel
 
 
 def rail_to_show(rail_names, shown, profiles):
@@ -134,6 +136,14 @@ class ACAnalysisPanel(wx.Panel):
         self.txt_source_r_mohm = wx.TextCtrl(settings_parent, value="10")
         self.txt_source_l_nh = wx.TextCtrl(settings_parent, value="1")
         self.txt_max_additions = wx.TextCtrl(settings_parent, value="8")
+        # The default 10 mOhm + 1 nH source has no board evidence and hides
+        # the source/bulk anti-resonance a real cable or regulator output
+        # shows (AC-2): a preset picks a documented, source-typed (R, L)
+        # pair instead of leaving the factory-floor default unquestioned.
+        self.choice_source_model = wx.Choice(
+            settings_parent, choices=[label for _key, label, _r, _l in AC_SOURCE_PRESETS] + ["Custom"],
+        )
+        self.choice_source_model.SetSelection(0)
 
         rows = [
             ("Power rail:", self.choice_rail, "Return net:", self.choice_ground),
@@ -142,6 +152,7 @@ class ACAnalysisPanel(wx.Panel):
             ("Start frequency (Hz):", self.txt_f_start, "Stop frequency (Hz):", self.txt_f_stop),
             ("Frequency points:", self.txt_points, "AC mesh resolution (mm):", self.txt_mesh_resolution),
             ("Target |Z| (mOhm, blank = auto):", self.txt_target_mohm, "Max capacitor additions:", self.txt_max_additions),
+            ("Source model:", self.choice_source_model, "", wx.StaticText(settings_parent, label="")),
             ("Source R (mOhm):", self.txt_source_r_mohm, "Source L (nH):", self.txt_source_l_nh),
         ]
         for left_label, left_ctrl, right_label, right_ctrl in rows:
@@ -184,6 +195,9 @@ class ACAnalysisPanel(wx.Panel):
         self.choice_rail.Bind(wx.EVT_CHOICE, self._on_context_changed)
         self.choice_ground.Bind(wx.EVT_CHOICE, self._on_context_changed)
         self.choice_preset.Bind(wx.EVT_CHOICE, self._on_preset_changed)
+        self.choice_source_model.Bind(wx.EVT_CHOICE, self._on_source_model_changed)
+        self.txt_source_r_mohm.Bind(wx.EVT_TEXT, self._on_source_rl_changed)
+        self.txt_source_l_nh.Bind(wx.EVT_TEXT, self._on_source_rl_changed)
         self.txt_points.Bind(wx.EVT_TEXT, self._on_complexity_changed)
         self.txt_mesh_resolution.Bind(wx.EVT_TEXT, self._on_complexity_changed)
         self.btn_refresh.Bind(wx.EVT_BUTTON, self._on_refresh)
@@ -252,6 +266,47 @@ class ACAnalysisPanel(wx.Panel):
         except ValueError:
             self.choice_preset.SetSelection(len(self.ANALYSIS_PRESETS) - 1)
         self._update_cost_hint()
+
+    def _on_source_model_changed(self, _event):
+        if self._updating:
+            return
+        selection = self.choice_source_model.GetSelection()
+        if selection == wx.NOT_FOUND or selection >= len(AC_SOURCE_PRESETS):
+            return
+        _key, _label, resistance_ohm, inductance_h = AC_SOURCE_PRESETS[selection]
+        self._updating = True
+        try:
+            self.txt_source_r_mohm.SetValue(f"{resistance_ohm * 1e3:g}")
+            self.txt_source_l_nh.SetValue(f"{inductance_h * 1e9:g}")
+        finally:
+            self._updating = False
+
+    def _on_source_rl_changed(self, _event):
+        if self._updating:
+            return
+        try:
+            index = self._source_preset_index_for_values(
+                float(self.txt_source_r_mohm.GetValue()) / 1e3,
+                float(self.txt_source_l_nh.GetValue()) * 1e-9,
+            )
+        except ValueError:
+            index = len(AC_SOURCE_PRESETS)
+        self._updating = True
+        try:
+            self.choice_source_model.SetSelection(index)
+        finally:
+            self._updating = False
+
+    @staticmethod
+    def _source_preset_index_for_values(resistance_ohm, inductance_h):
+        """The AC_SOURCE_PRESETS entry matching (R, L), or the trailing
+        "Custom" index when the values match none of them."""
+        for index, (_key, _label, preset_r, preset_l) in enumerate(AC_SOURCE_PRESETS):
+            if math.isclose(resistance_ohm, preset_r, rel_tol=1e-6) and math.isclose(
+                inductance_h, preset_l, rel_tol=1e-6,
+            ):
+                return index
+        return len(AC_SOURCE_PRESETS)
 
     def _rails(self):
         return list(self.rails_provider() or [])
@@ -362,6 +417,9 @@ class ACAnalysisPanel(wx.Panel):
             )
             self.txt_source_r_mohm.SetValue(f"{profile.source.resistance_ohm * 1e3:g}")
             self.txt_source_l_nh.SetValue(f"{profile.source.inductance_h * 1e9:g}")
+            self.choice_source_model.SetSelection(self._source_preset_index_for_values(
+                profile.source.resistance_ohm, profile.source.inductance_h,
+            ))
             self.txt_max_additions.SetValue(str(profile.optimizer_max_additions))
 
             ground_name = self._selected_text(self.choice_ground)
