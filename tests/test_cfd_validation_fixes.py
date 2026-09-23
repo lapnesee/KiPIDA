@@ -154,6 +154,27 @@ class CFDFeedsThermalOnlyWhenTheFlowIsForced(unittest.TestCase):
             request.domain_requests["THERMAL"].air_velocity_m_s, 0.42,
         )
 
+    def test_forced_flow_also_hands_over_the_enclosure(self):
+        # COH-4: the enclosure ambient-rise correction rides the same
+        # forced-flow gate as the free-stream speed (it needs THERMAL not to
+        # have run yet, same as the velocity), so it is expected to reach
+        # THERMAL whenever the velocity does.
+        from application.campaign_controller import CampaignEngine
+        from models import CFDBoundaryPatch, EnclosureCFDResult
+
+        request = self._request([
+            CFDBoundaryPatch("Fan", "FAN", "XMIN", 0.5, 0.5, 0.5, 0.5, 0.8, 25.0),
+        ])
+        CampaignEngine(domain_engines={})._couple_cfd_into_thermal(
+            request,
+            EnclosureCFDResult(board_free_stream_velocity_m_s=0.42, board_free_stream_cells=17),
+            lambda _m: None,
+        )
+        self.assertIs(
+            request.domain_requests["THERMAL"].enclosure,
+            request.domain_requests["CFD"].settings,
+        )
+
     def test_an_unsampled_field_leaves_thermal_untouched(self):
         # A mesh too coarse to offer cells clear of every solid must not
         # silently hand thermal a zero and call it a resolved velocity.
@@ -239,6 +260,38 @@ class TheDialogHandsTheVelocityToThermal(unittest.TestCase):
         import types
 
         stub = types.SimpleNamespace(log=lambda _m: None)
+        self.assertIsNone(self.method(stub))
+
+
+class TheDialogHandsTheEnclosureToThermal(unittest.TestCase):
+    """COH-4: same gating rule as the free-stream speed above, on the panel's
+    enclosure settings instead -- only once the user has actually run the
+    enclosure CFD this session, not from its always-present board-fitted
+    defaults."""
+
+    def setUp(self):
+        try:
+            from ui.main_dialog import KiPIDA_MainDialog
+        except Exception as exc:  # pragma: no cover - depends on import order
+            self.skipTest(f"ui.main_dialog unavailable: {exc}")
+        self.method = KiPIDA_MainDialog._enclosure_profile_for_thermal
+
+    def test_a_run_cfd_result_hands_over_the_enclosure(self):
+        import types
+
+        from models import EnclosureCFDResult, EnclosureCFDSettings
+
+        settings = EnclosureCFDSettings()
+        stub = types.SimpleNamespace(
+            cfd_result=EnclosureCFDResult(),
+            cfd_panel=types.SimpleNamespace(get_settings=lambda: settings),
+        )
+        self.assertIs(self.method(stub), settings)
+
+    def test_no_cfd_run_yet_hands_over_nothing(self):
+        import types
+
+        stub = types.SimpleNamespace(cfd_result=None)
         self.assertIsNone(self.method(stub))
 
 

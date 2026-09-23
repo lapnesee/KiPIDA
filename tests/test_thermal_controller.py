@@ -107,6 +107,113 @@ class ThermalControllerTests(unittest.TestCase):
         second = thermal_cache_key(settings, None, False, [])
         self.assertNotEqual(first, second)
 
+
+class EnclosureAirRiseTests(unittest.TestCase):
+    def test_matches_p02_rev_e_measured_rise(self):
+        # P02 Rev E sidecar: sealed 165 x 100 x 50 mm box, walls 5 W/m2K,
+        # 4.9186 W total board heat (THERMAL.md) -> the audit's measured
+        # ~16 K mean internal air rise (CFD-4). A_walls = 2*(0.165*0.100 +
+        # 0.165*0.050 + 0.100*0.050) = 0.0595 m2; rise = 4.9186/(5*0.0595).
+        from application.thermal_controller import enclosure_internal_air_rise_k
+        from models import EnclosureCFDSettings, EnclosureGeometrySettings
+
+        enclosure = EnclosureCFDSettings(geometry=EnclosureGeometrySettings(
+            width_mm=165.0, depth_mm=100.0, height_mm=50.0,
+            wall_heat_transfer_w_m2k=5.0,
+        ))
+        self.assertAlmostEqual(
+            enclosure_internal_air_rise_k(enclosure, 4.9186), 16.53, places=1,
+        )
+
+    def test_no_heat_means_no_rise(self):
+        from application.thermal_controller import enclosure_internal_air_rise_k
+        from models import EnclosureCFDSettings
+
+        self.assertEqual(enclosure_internal_air_rise_k(EnclosureCFDSettings(), 0.0), 0.0)
+
+
+class EnclosureAmbientReachesTheSolve(unittest.TestCase):
+    """COH-4: thermal used to ignore an enclosure entirely and solve at the
+    bare outside ambient; a configured enclosure now shifts the ambient the
+    mesh and solver actually see."""
+
+    def _request(self, enclosure, apply_it=True):
+        from dataclasses import dataclass, field
+
+        from application.thermal_controller import ThermalRunRequest
+        from models import ThermalAnalysisSettings, ThermalComponentModel
+
+        @dataclass
+        class Model:
+            copper_losses: list = field(default_factory=list)
+            components: list = field(default_factory=lambda: [
+                ThermalComponentModel(ref_des="U1", power_w=4.9186, enabled=True),
+            ])
+
+        settings = ThermalAnalysisSettings(
+            ambient_c=45.0, include_dc_copper_losses=False,
+            apply_enclosure_ambient=apply_it,
+        )
+        return ThermalRunRequest(settings=settings, board_model=Model(), enclosure=enclosure)
+
+    def _engine(self, seen):
+        from application.thermal_controller import ThermalSolverEngine
+
+        class Mesher:
+            def __init__(self, **_kwargs):
+                pass
+
+            def generate_mesh(self, model, settings, progress_callback=None, air_velocity_m_s=None):
+                seen["ambient_c"] = settings.ambient_c
+                return SimpleNamespace(nodes=[0])
+
+        class Solver:
+            def __init__(self, **_kwargs):
+                pass
+
+            def solve_with_surface_refinement(self, mesh, settings, progress_callback=None):
+                return SimpleNamespace(hotspot=None)
+
+        return ThermalSolverEngine(mesher_factory=Mesher, solver_factory=Solver)
+
+    def _enclosure(self):
+        from models import EnclosureCFDSettings, EnclosureGeometrySettings
+
+        return EnclosureCFDSettings(geometry=EnclosureGeometrySettings(
+            width_mm=165.0, depth_mm=100.0, height_mm=50.0,
+            wall_heat_transfer_w_m2k=5.0,
+        ))
+
+    def test_solves_at_ambient_plus_the_enclosure_rise(self):
+        seen = {}
+        outcome = self._engine(seen).solve(
+            self._request(self._enclosure()), lambda _m: None, lambda *_: None, lambda: False,
+        )
+        # P02 Rev E, 2026-09-22: 45 C ambient + ~16.5 K from 4.9186 W in a
+        # 165x100x50 mm, 5 W/m2K box (CFD-4's ~16 K measurement).
+        self.assertAlmostEqual(seen["ambient_c"], 45.0 + 16.53, places=1)
+        self.assertAlmostEqual(outcome.enclosure_air_rise_k, 16.53, places=1)
+        self.assertTrue(outcome.enclosure_ambient_applied)
+
+    def test_disabled_keeps_ambient_but_still_reports_the_rise(self):
+        seen = {}
+        outcome = self._engine(seen).solve(
+            self._request(self._enclosure(), apply_it=False),
+            lambda _m: None, lambda *_: None, lambda: False,
+        )
+        self.assertAlmostEqual(seen["ambient_c"], 45.0)
+        self.assertAlmostEqual(outcome.enclosure_air_rise_k, 16.53, places=1)
+        self.assertFalse(outcome.enclosure_ambient_applied)
+
+    def test_no_enclosure_means_no_rise_at_all(self):
+        seen = {}
+        outcome = self._engine(seen).solve(
+            self._request(None), lambda _m: None, lambda *_: None, lambda: False,
+        )
+        self.assertAlmostEqual(seen["ambient_c"], 45.0)
+        self.assertIsNone(outcome.enclosure_air_rise_k)
+        self.assertFalse(outcome.enclosure_ambient_applied)
+
     def test_coupled_run_says_why_no_rail_was_solved(self):
         # The P02 Rev E power tree came from a board scan and was never filled
         # in; the run only said it "requires a successful DC analysis".

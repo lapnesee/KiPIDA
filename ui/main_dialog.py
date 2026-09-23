@@ -1584,6 +1584,20 @@ class KiPIDA_MainDialog(wx.Dialog):
         )
         return velocity
 
+    def _enclosure_profile_for_thermal(self):
+        """The enclosure CFD profile thermal should balance its ambient
+        against, or None (COH-4).
+
+        Same precedent as _cfd_free_stream_for_thermal: the CFD panel always
+        has board-fitted geometry, even when the user never opened it, so
+        gating on that alone would silently assume every board sits sealed
+        in a box. Gating on ``cfd_result`` restricts this to a session where
+        the user has actually run the enclosure CFD.
+        """
+        if getattr(self, "cfd_result", None) is None:
+            return None
+        return self.cfd_panel.get_settings()
+
     def _build_thermal_request(self, coupled, resolve_air_velocity=True):
         """Capture wx settings so the solve can run entirely off the GUI thread.
 
@@ -1633,6 +1647,12 @@ class KiPIDA_MainDialog(wx.Dialog):
             cached_entries=dict(self._thermal_session_cache),
             air_velocity_m_s=(
                 self._cfd_free_stream_for_thermal() if resolve_air_velocity else None
+            ),
+            # COH-4: same rule as the free-stream speed above -- a campaign
+            # that also runs CFD hands its own enclosure over instead
+            # (CampaignEngine._couple_cfd_into_thermal).
+            enclosure=(
+                self._enclosure_profile_for_thermal() if resolve_air_velocity else None
             ),
         )
 

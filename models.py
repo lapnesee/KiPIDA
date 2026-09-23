@@ -889,6 +889,12 @@ class ThermalAnalysisSettings:
     # hotspot moves: the thermal result had no error bar, and mesh resolution
     # alone moved the reference board's hotspot by 7.4 C between 0.5 and 0.1 mm.
     mesh_sensitivity_check: bool = True
+    # COH-4: a sealed enclosure raises the air the board sits in above the
+    # ambient outside its walls (CFD-4 measured ~16 K for P02 Rev E's box).
+    # True solves at ambient + that rise whenever an enclosure profile is
+    # handed to the run; False keeps the configured ambient and the report
+    # states the rise as an unapplied limitation instead.
+    apply_enclosure_ambient: bool = True
     coupled_iterations: int = 10
     convergence_c: float = 0.1
     relaxation: float = 0.6

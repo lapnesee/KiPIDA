@@ -272,6 +272,34 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertIn("the configured efficiency fallback", limitation)
         self.assertIn("confidence=low", limitation)
 
+    def test_enclosure_rise_is_published_when_applied(self):
+        # COH-4: P02 Rev E, sealed 165x100x50 mm box -> ~16.5 K rise on a
+        # 45 C ambient (CFD-4's ~16 K measurement).
+        thermal = ThermalResult(
+            hotspot=ThermalHotspot(1, 0.0, 0.0, 0.1, 100.0),
+            total_input_power_w=4.9186, energy_balance_error_pct=0.1,
+        )
+        result = adapt_thermal_result(
+            thermal, ambient_c=45.0, enclosure_air_rise_k=16.53, enclosure_ambient_applied=True,
+        )
+        metric = next(item for item in result.metrics if item.key == "internal_air_c")
+        self.assertAlmostEqual(metric.value, 61.53, places=1)
+        evidence = next(item for item in result.provenance if item.source == "ENCLOSURE_AMBIENT")
+        self.assertIn("61.5 C", evidence.detail)
+        self.assertIn("16.5 K", evidence.detail)
+
+    def test_enclosure_rise_is_a_limitation_when_disabled(self):
+        thermal = ThermalResult(
+            hotspot=ThermalHotspot(1, 0.0, 0.0, 0.1, 100.0),
+            total_input_power_w=4.9186, energy_balance_error_pct=0.1,
+        )
+        result = adapt_thermal_result(
+            thermal, ambient_c=45.0, enclosure_air_rise_k=16.53, enclosure_ambient_applied=False,
+        )
+        self.assertFalse(any(item.key == "internal_air_c" for item in result.metrics))
+        limitation = next(item for item in result.limitations if "ambient-rise correction" in item)
+        self.assertIn("16.5 K", limitation)
+
     def test_cfd_adapter_reports_convergence_and_balance(self):
         mesh = SimpleNamespace(cell_count=1000)
         cfd = SimpleNamespace(

@@ -174,6 +174,12 @@ def _adapt_thermal(domain_result, request) -> AnalysisResult:
         mesh_sensitivity=getattr(domain_result, "mesh_sensitivity", None),
         mesh=getattr(domain_result, "mesh", None),
         power_stage_reports=getattr(getattr(request, "settings", None), "power_stage_reports", None),
+        # COH-4: request.settings still holds the nominal, pre-enclosure
+        # ambient -- ThermalSolverEngine.solve elevates its own local copy,
+        # never the caller's -- so the adapter can report "ambient + rise".
+        ambient_c=getattr(getattr(request, "settings", None), "ambient_c", None),
+        enclosure_air_rise_k=getattr(domain_result, "enclosure_air_rise_k", None),
+        enclosure_ambient_applied=getattr(domain_result, "enclosure_ambient_applied", False),
     )
 
 
@@ -377,7 +383,8 @@ class CampaignEngine:
         return reordered
 
     def _couple_cfd_into_thermal(self, request, domain_result, emit_log) -> None:
-        """Hand the CFD free-stream speed to the pending thermal request."""
+        """Hand the CFD free-stream speed, and its enclosure, to the pending
+        thermal request."""
         thermal = request.domain_requests.get("THERMAL")
         if thermal is None or getattr(thermal, "air_velocity_m_s", None) is not None:
             return
@@ -385,8 +392,21 @@ class CampaignEngine:
         # of THERMAL (_order_for_cfd_coupling). Under buoyancy THERMAL has
         # already run by now: on P02 Rev E at 21:58 this still logged that
         # thermal "keeps its configured airflow", as if it were yet to run.
+        #
+        # COH-4's enclosure ambient-rise correction (Q / (h * A_walls)) is
+        # not itself a flow-direction effect, but it still needs THERMAL not
+        # to have run yet to matter -- so it rides the same forced-flow gate
+        # rather than a separate one. The common buoyancy campaign therefore
+        # does not get the correction from this handover yet; told to the
+        # integrator alongside this fix.
         if not self._forced_flow_patches(request.domain_requests.get("CFD")):
             return
+        if getattr(thermal, "enclosure", None) is None:
+            enclosure = getattr(request.domain_requests.get("CFD"), "settings", None)
+            if enclosure is not None:
+                thermal = replace(thermal, enclosure=enclosure)
+                request.domain_requests["THERMAL"] = thermal
+                emit_log("THERMAL will balance its ambient against the enclosure CFD's box.")
         result = getattr(domain_result, "result", domain_result)
         velocity = float(getattr(result, "board_free_stream_velocity_m_s", 0.0) or 0.0)
         cells = int(getattr(result, "board_free_stream_cells", 0) or 0)
@@ -398,7 +418,7 @@ class CampaignEngine:
             )
             return
         request.domain_requests["THERMAL"] = replace(
-            thermal, air_velocity_m_s=velocity,
+            request.domain_requests["THERMAL"], air_velocity_m_s=velocity,
         )
         emit_log(
             f"THERMAL will use the CFD free-stream speed of {velocity:.4g} m/s "

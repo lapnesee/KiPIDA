@@ -1059,9 +1059,41 @@ def _thermal_fallback_stage_limitations(power_stage_reports: Any) -> list:
     return limitations
 
 
+def _thermal_enclosure_metrics_evidence_limitations(
+    ambient_c: Any, enclosure_air_rise_k: Any, enclosure_ambient_applied: bool,
+):
+    """COH-4: publish the enclosure's internal-air assumption, or say it was
+    computed but not applied, instead of thermal silently ignoring the
+    sealed box the CFD domain models (CFD-4: ~16 K mean air rise for P02
+    Rev E's box; hotspot ~115 -> ~131 C, U14 margin ~25 -> ~9 K estimated).
+    """
+    if enclosure_air_rise_k is None:
+        return [], [], []
+    rise_k = float(enclosure_air_rise_k)
+    internal_air_c = float(ambient_c or 0.0) + rise_k
+    if not enclosure_ambient_applied:
+        return [], [], [
+            f"An enclosure is configured but its ambient-rise correction is disabled: "
+            f"internal air would run {rise_k:.1f} K warmer than the configured ambient "
+            f"({internal_air_c:.1f} C) if enabled (settings.apply_enclosure_ambient)."
+        ]
+    metrics = [AnalysisMetric(
+        "internal_air_c", "Internal air (enclosure)", internal_air_c, "°C", "INFO",
+    )]
+    evidence = [AnalysisEvidence(
+        "ENCLOSURE_AMBIENT",
+        f"Solved at internal air {internal_air_c:.1f} C (ambient + {rise_k:.1f} K from the "
+        "enclosure heat balance), not the bare configured ambient.",
+        reference="enclosure heat balance: rise = Q / (h * A_walls)",
+    )]
+    return metrics, evidence, []
+
+
 def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seconds: float = 0.0,
                          *, copper_loss_source: str = "", mesh_sensitivity: Any = None,
-                         mesh: Any = None, power_stage_reports: Any = None) -> AnalysisResult:
+                         mesh: Any = None, power_stage_reports: Any = None,
+                         ambient_c: Any = None, enclosure_air_rise_k: Any = None,
+                         enclosure_ambient_applied: bool = False) -> AnalysisResult:
     sensitivity_metrics, sensitivity_findings, sensitivity_limitations = (
         _thermal_mesh_sensitivity(mesh_sensitivity)
     )
@@ -1115,6 +1147,11 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
     status = AnalysisStatus.FAIL if any(item.severity == FindingSeverity.CRITICAL for item in findings) else (
         AnalysisStatus.WARN if findings else AnalysisStatus.PASS
     )
+    enclosure_metrics, enclosure_evidence, enclosure_limitations = (
+        _thermal_enclosure_metrics_evidence_limitations(
+            ambient_c, enclosure_air_rise_k, enclosure_ambient_applied,
+        )
+    )
     return AnalysisResult(
         "THERMAL", "3D Thermal", status=status,
         elapsed_seconds=float(elapsed_seconds or 0.0),
@@ -1149,7 +1186,7 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
                 float(components[0].margin_c), "K",
                 "WARN" if float(components[0].margin_c) < 0 else "INFO",
             )] if components else []
-        ) + _thermal_surface_metrics(domain_result) + sensitivity_metrics,
+        ) + _thermal_surface_metrics(domain_result) + sensitivity_metrics + enclosure_metrics,
         provenance=[
             AnalysisEvidence(
                 "PCB_GEOMETRY",
@@ -1167,7 +1204,7 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
                 "Heat sources use configured component losses and optional DC copper losses.",
                 reference="coupled DC" if coupled else "thermal inputs",
             ),
-        ] + _copper_loss_evidence(copper_loss_source),
+        ] + _copper_loss_evidence(copper_loss_source) + enclosure_evidence,
         compute_metadata={
             "backend": getattr(domain_result, "compute_backend", ""),
             "device": getattr(domain_result, "compute_device", ""),
@@ -1176,7 +1213,7 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
         limitations=[
             "Compact thermal models require datasheet and measurement validation.",
         ] + _thermal_grid_limitations(domain_result) + sensitivity_limitations
-        + _thermal_fallback_stage_limitations(power_stage_reports),
+        + _thermal_fallback_stage_limitations(power_stage_reports) + enclosure_limitations,
     ).finish()
 
 

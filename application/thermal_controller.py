@@ -34,6 +34,11 @@ class ThermalRunRequest:
     # differ only by this number have genuinely different surface physics and
     # must not share a cached mesh.
     air_velocity_m_s: Optional[float] = None
+    # An enclosure CFD profile (models.EnclosureCFDSettings), or None to
+    # solve at the configured ambient with no enclosure correction (COH-4).
+    # Part of no cache key of its own: it only ever acts by shifting
+    # settings.ambient_c below, which thermal_cache_key already hashes.
+    enclosure: Any = None
     # A DC result to take copper losses from instead of solving the DC again,
     # and what it is -- a campaign hands over the one its DC domain produced
     # on the same capture. A coupled run takes it as the ambient pass its
@@ -58,6 +63,12 @@ class ThermalRunOutcome:
     # {"fine_grid_mm", "coarse_grid_mm", "fine_hotspot_c", "coarse_hotspot_c",
     # "delta_c"}. None when not computed.
     mesh_sensitivity: Optional[Dict[str, float]] = None
+    # COH-4: the internal air rise applied from an enclosure profile (K), or
+    # None when no enclosure was handed to this run.
+    enclosure_air_rise_k: Optional[float] = None
+    # Whether that rise was actually folded into the ambient this run solved
+    # at, as opposed to computed-but-disabled (settings.apply_enclosure_ambient).
+    enclosure_ambient_applied: bool = False
 
 
 def describe_dc_source(system_results, origin):
@@ -133,6 +144,60 @@ def dc_copper_loss_points(system_results):
     return losses
 
 
+def enclosure_internal_air_rise_k(enclosure, heat_w):
+    """Steady mean rise of a sealed enclosure's internal air above the
+    ambient its walls see outside, from one lumped heat balance across every
+    interior wall: at steady state Q = h * A_walls * rise, so
+    rise = Q / (h * A_walls).
+
+    This is a TODO-free stand-in for the CFD domain's planned
+    ``cfd_model.enclosure_air_rise_k`` (COH-4): the CFD agent had not added
+    it in this worktree when this fix landed, so it is written here, local
+    to thermal, using the same ``models.EnclosureCFDSettings`` geometry the
+    CFD domain already persists. The integrator should fold this call site
+    onto the CFD version once it exists, rather than keep two formulas.
+
+    On P02 Rev E's sealed 165 x 100 x 50 mm box (walls 5 W/m2K, ~4.9 W
+    total board heat): A_walls = 0.0595 m2, rise = 4.9 / (5 * 0.0595) =
+    16.5 K -- matching the audit's measured ~16 K (CFD-4).
+    """
+    geometry = enclosure.geometry
+    width_m = max(0.0, float(geometry.width_mm)) * 1.0e-3
+    depth_m = max(0.0, float(geometry.depth_mm)) * 1.0e-3
+    height_m = max(0.0, float(geometry.height_mm)) * 1.0e-3
+    wall_area_m2 = 2.0 * (
+        width_m * depth_m + width_m * height_m + depth_m * height_m
+    )
+    wall_h_w_m2k = max(1.0e-9, float(geometry.wall_heat_transfer_w_m2k))
+    if wall_area_m2 <= 0.0:
+        return 0.0
+    return max(0.0, float(heat_w)) / (wall_h_w_m2k * wall_area_m2)
+
+
+def _estimate_total_heat_w(model, coupled, system_results):
+    """Total heat the board dumps into its surroundings, without solving.
+
+    Used only to size the enclosure air-rise correction before the thermal
+    solve runs, so it must not itself require one. Component power is
+    already known from the model; copper loss is either the coupled model's
+    ambient DC pass (its per-branch losses, not yet redistributed by
+    temperature) or the uncoupled model's own copper_losses list.
+    """
+    component_heat_w = sum(
+        max(0.0, float(component.power_w))
+        for component in model.components if component.enabled
+    )
+    if coupled:
+        copper_heat_w = sum(
+            sum(max(0.0, float(power)) for power in
+                getattr(data.get("detailed_result"), "branch_losses_w", None) or ())
+            for data in (system_results or {}).values()
+        )
+    else:
+        copper_heat_w = sum(max(0.0, float(loss.power_w)) for loss in model.copper_losses)
+    return component_heat_w + copper_heat_w
+
+
 class ThermalSolverEngine:
     def __init__(
         self, dc_engine_factory=DefaultDCSolverEngine, mesher_factory=ThermalMesher,
@@ -198,6 +263,38 @@ class ThermalSolverEngine:
             if request.settings.include_dc_copper_losses else []
         )
         model = replace(request.board_model, copper_losses=list(copper_losses))
+
+        # COH-4: a sealed enclosure raises the air the board actually sits in
+        # above the ambient its walls see outside; thermal used to ignore an
+        # enclosure entirely and solve at that bare outside ambient. The
+        # heat used to size the rise is a pre-solve estimate (component
+        # power plus the ambient DC pass's copper loss), not a converged
+        # one; the correction folds into settings.ambient_c below, so every
+        # later use of request.settings -- meshing, the solve itself, the
+        # cache key, mesh sensitivity -- sees it for free.
+        enclosure = getattr(request, "enclosure", None)
+        enclosure_air_rise_k = None
+        if enclosure is not None:
+            heat_w = _estimate_total_heat_w(model, request.coupled, system_results)
+            enclosure_air_rise_k = enclosure_internal_air_rise_k(enclosure, heat_w)
+            if getattr(request.settings, "apply_enclosure_ambient", True):
+                elevated_settings = copy.copy(request.settings)
+                elevated_settings.ambient_c = float(request.settings.ambient_c) + enclosure_air_rise_k
+                request = replace(request, settings=elevated_settings)
+                emit(
+                    "Enclosure configured (sealed box, wall h="
+                    f"{float(enclosure.geometry.wall_heat_transfer_w_m2k):.3g} W/m2K): "
+                    f"solving at internal air {elevated_settings.ambient_c:.3g} C (ambient + "
+                    f"{enclosure_air_rise_k:.3g} K from the enclosure heat balance, "
+                    f"{heat_w:.3g} W estimated)."
+                )
+            else:
+                emit(
+                    "Enclosure is configured but its ambient-rise correction is disabled "
+                    f"(apply_enclosure_ambient=False): internal air would run "
+                    f"{enclosure_air_rise_k:.3g} K warmer than the configured ambient if enabled."
+                )
+
         key = (
             request.board_signature,
             thermal_cache_key(
@@ -287,6 +384,11 @@ class ThermalSolverEngine:
             elapsed_seconds=time.perf_counter() - started,
             copper_loss_source=copper_loss_source,
             mesh_sensitivity=mesh_sensitivity,
+            enclosure_air_rise_k=enclosure_air_rise_k,
+            enclosure_ambient_applied=(
+                enclosure_air_rise_k is not None
+                and bool(getattr(request.settings, "apply_enclosure_ambient", True))
+            ),
         )
 
     def _coupled_mesh_sensitivity(

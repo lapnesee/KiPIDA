@@ -760,6 +760,7 @@ def _thermal_settings_to_dict(settings: ThermalAnalysisSettings) -> dict:
         "color_scale_maximum_c": settings.color_scale_maximum_c,
         "show_internal_copper_layers": settings.show_internal_copper_layers,
         "mesh_sensitivity_check": settings.mesh_sensitivity_check,
+        "apply_enclosure_ambient": settings.apply_enclosure_ambient,
         "coupled_iterations": settings.coupled_iterations,
         "convergence_c": settings.convergence_c,
         "relaxation": settings.relaxation,
@@ -813,6 +814,9 @@ def _dict_to_thermal_settings(data: dict) -> ThermalAnalysisSettings:
         show_internal_copper_layers=bool(data.get("show_internal_copper_layers", True)),
         mesh_sensitivity_check=bool(data.get(
             "mesh_sensitivity_check", ThermalAnalysisSettings().mesh_sensitivity_check,
+        )),
+        apply_enclosure_ambient=bool(data.get(
+            "apply_enclosure_ambient", ThermalAnalysisSettings().apply_enclosure_ambient,
         )),
         coupled_iterations=int(data.get("coupled_iterations", 10)),
         convergence_c=float(data.get("convergence_c", 0.1)),

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed thermal ignoring the enclosure the CFD domain models
+  (application/thermal_controller.py, models.py). P02 Rev E's sealed
+  165x100x50 mm box (5 W/m2K walls) raises internal air ~16.5 K above
+  the outside ambient at ~4.9 W; thermal now solves at that internal
+  air when an enclosure profile is handed to the run, publishing it
+  as an "internal air <T> C" metric, and a limitation when the
+  correction is configured but disabled.
 - Documented (limite publiee): plane-pair cavity capacitance
   (C = eps0*er*A/d) is not modelled anywhere in the AC network. Stated
   on the AC report and at ac_solver.py's _stamps, with the reason a
