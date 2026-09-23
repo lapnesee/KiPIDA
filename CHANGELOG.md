@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed AC-3: the AC solver's plane-pair loop inductance was counted
+  twice (mu0*d given whole to both the rail and ground mesh instead of
+  split). scratchpad/audit/ac/ac_checks.py (A): 0.999 nH modelled vs
+  0.500 nH analytic (d=0.0994 mm, l/w=4) before the fix; now split by
+  distance to the nearest layer carrying the return net.
 - Fixed CFD's AUTO backend selection obeying a CUDA threshold tuned for
   other domains' larger, less frequent solves; CFD now raises it to
   100,000 cells for its own solve unless CUDA was explicitly forced. On

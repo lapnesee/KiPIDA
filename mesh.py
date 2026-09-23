@@ -368,10 +368,17 @@ class Mesher:
 
     def generate_mesh(
         self, net_name, geometry_by_layer, stackup, grid_size_mm=0.5,
+        return_layers=None,
         _adaptive_pass=0, _requested_grid_size=None, _raster_prepared=False,
     ):
         """
         Generates a resistive mesh from the geometry using vectorized operations.
+
+        `return_layers`, when given, is the set of copper layer ids that carry
+        the OTHER net of this rail/ground pair (e.g. the ground layers when
+        meshing the rail, or vice versa). It lets the lateral-branch
+        inductance be measured to the actual return path instead of the
+        nearest dielectric of any kind (AC-3).
         """
         mesh = Mesh()
         mesh.grid_step = grid_size_mm
@@ -398,6 +405,7 @@ class Mesher:
                 )
                 adapted = self.generate_mesh(
                     net_name, geometry_by_layer, stackup, preflight_grid,
+                    return_layers=return_layers,
                     _adaptive_pass=1, _requested_grid_size=mesh.requested_grid_step,
                     _raster_prepared=True,
                 )
@@ -497,6 +505,7 @@ class Mesher:
                 )
             adapted = self.generate_mesh(
                 net_name, geometry_by_layer, stackup, safer_grid,
+                return_layers=return_layers,
                 _adaptive_pass=_adaptive_pass + 1,
                 _requested_grid_size=mesh.requested_grid_step,
                 _raster_prepared=True,
@@ -551,7 +560,7 @@ class Mesher:
                 thick = copper_info.get('thickness_mm', DEFAULT_COPPER_THICKNESS_MM)
                 rho = stackup.get('resistivity', COPPER_RESISTIVITY_OHM_MM)
                 g_lat_val = thick / rho
-                l_lat_val = self._estimate_lateral_l(lid, stackup)
+                l_lat_val = self._estimate_lateral_l(lid, stackup, return_layers)
                 
                 # Horizontal Neighbors (x, y) <-> (x+1, y)
                 # Check where node and right-neighbor both exist
@@ -690,22 +699,76 @@ class Mesher:
         if h <= 0: h = 0.5 
         return area / (rho * h)
 
-    def _estimate_lateral_l(self, layer, stackup):
-        """Estimate per-square spreading inductance to the nearest return plane.
+    def _distance_to_layers_mm(self, layer, target_layers, stackup):
+        """Shortest cumulative dielectric thickness (mm) from `layer` to any
+        layer in `target_layers`, walking the stackup's substrate list as a
+        1-D graph of copper layers linked by their dielectrics. Returns None
+        if no path is found (e.g. missing substrate data)."""
+        if layer in target_layers:
+            return 0.0
 
-        This quasi-static approximation intentionally avoids claiming full-wave
-        accuracy.  It gives the AC solver a stackup-sensitive loop inductance
-        while keeping the existing 2.5D mesh topology.
-        """
-        distances_mm = []
+        adjacency = {}
         for sub in stackup.get('substrate', []):
             between = sub.get('between', [])
-            if layer in between:
-                thickness = float(sub.get('thickness_mm', 0.0) or 0.0)
-                if thickness > 0:
-                    distances_mm.append(thickness)
+            if len(between) != 2 or between[0] is None or between[1] is None:
+                continue
+            a, b = between
+            thickness = float(sub.get('thickness_mm', 0.0) or 0.0)
+            if thickness <= 0:
+                continue
+            adjacency.setdefault(a, []).append((b, thickness))
+            adjacency.setdefault(b, []).append((a, thickness))
 
-        return 4.0e-7 * math.pi * (min(distances_mm) if distances_mm else 0.2) * 1.0e-3
+        import heapq
+        seen = set()
+        heap = [(0.0, layer)]
+        while heap:
+            dist, node = heapq.heappop(heap)
+            if node in seen:
+                continue
+            seen.add(node)
+            if node in target_layers:
+                return dist
+            for neighbour, thickness in adjacency.get(node, []):
+                if neighbour not in seen:
+                    heapq.heappush(heap, (dist + thickness, neighbour))
+        return None
+
+    def _estimate_lateral_l(self, layer, stackup, return_layers=None):
+        """Estimate this layer's share of the plane-pair loop inductance.
+
+        Loop (plane-pair) inductance is mu0*h per square, where h is the
+        dielectric height between the forward and return conductors (Novak;
+        Smith & Bogatin) -- it belongs to the LOOP, not to either plane. The
+        rail mesh and the ground mesh are built independently, so each one
+        only owns HALF of mu0*h; giving the full mu0*h to both (as before)
+        double counted the loop (audit AC-3: 0.999 nH modelled vs 0.500 nH
+        analytic for a d=0.0994 mm, l/w=4 plane pair -- factor 2.00).
+
+        `h` is measured to the nearest copper layer that actually carries the
+        return net (`return_layers`), not merely the thinnest neighbouring
+        dielectric: on P02, /VBUS_SYS pours on In2.Cu while ground pours on
+        F/In1/In4/B.Cu, so the relevant return layer for In2.Cu is In1.Cu,
+        not whichever dielectric happens to be thinnest.
+        """
+        height_mm = None
+        if return_layers:
+            height_mm = self._distance_to_layers_mm(layer, set(return_layers), stackup)
+
+        if height_mm is None:
+            # No known return layer (legacy caller, e.g. the DC mesh which
+            # never uses this inductance): fall back to the thinnest
+            # neighbouring dielectric as a single-sided estimate.
+            distances_mm = []
+            for sub in stackup.get('substrate', []):
+                between = sub.get('between', [])
+                if layer in between:
+                    thickness = float(sub.get('thickness_mm', 0.0) or 0.0)
+                    if thickness > 0:
+                        distances_mm.append(thickness)
+            return 4.0e-7 * math.pi * (min(distances_mm) if distances_mm else 0.2) * 1.0e-3
+
+        return 4.0e-7 * math.pi * (height_mm / 2.0) * 1.0e-3
 
     def _calculate_vertical_l(self, layer_a, layer_b, stackup, diameter_mm):
         """Estimate via/PTH inductance from traversed dielectric height."""

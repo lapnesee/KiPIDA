@@ -841,8 +841,17 @@ class ACModelBuilder:
             raise ValueError(f"No copper geometry found for return net '{settings.ground_net_name}'.")
 
         mesher = Mesher(self.board, debug=self.debug, log_callback=self.log_callback)
-        rail_mesh = mesher.generate_mesh(settings.rail_name, rail_geometry, stackup, grid_size_mm)
-        ground_mesh = mesher.generate_mesh(settings.ground_net_name, ground_geometry, stackup, grid_size_mm)
+        # Each mesh is told which copper layers carry the OTHER net so the
+        # plane-pair loop inductance can be split by return distance instead
+        # of double counted per mesh (AC-3, mesh.py:_estimate_lateral_l).
+        rail_layers = {lid for lid, poly in rail_geometry.items() if not poly.is_empty}
+        ground_layers = {lid for lid, poly in ground_geometry.items() if not poly.is_empty}
+        rail_mesh = mesher.generate_mesh(
+            settings.rail_name, rail_geometry, stackup, grid_size_mm, return_layers=ground_layers
+        )
+        ground_mesh = mesher.generate_mesh(
+            settings.ground_net_name, ground_geometry, stackup, grid_size_mm, return_layers=rail_layers
+        )
         if not rail_mesh.nodes or not ground_mesh.nodes:
             raise ValueError("The AC rail-to-ground mesh is empty.")
 

@@ -2,6 +2,7 @@
 import unittest
 import sys
 import os
+import math
 
 try:
     import numpy as np
@@ -185,6 +186,28 @@ class TestMesher(unittest.TestCase):
 
         self.assertTrue(mask[2, 2])
         self.assertFalse(mask[5, 5])
+
+    def test_plane_pair_loop_inductance_is_not_doubled(self):
+        # AC-3 (docs/audit-2026-09-23.md, scratchpad/audit/ac/ac_checks.py (A)):
+        # mu0*d used to be given to EVERY branch of BOTH the rail and the
+        # ground mesh, doubling the plane-pair loop inductance: 0.999 nH
+        # modelled vs 0.500 nH analytic (mu0*d*l/w, d=0.0994 mm, l/w=4).
+        # Each mesh now only owns half of mu0*h, h measured to the nearest
+        # layer carrying the OTHER net, so the two halves sum back to the
+        # analytic mu0*d for a simple two-layer plane pair.
+        stackup = {'substrate': [{'between': [0, 1], 'thickness_mm': 0.0994}], 'copper': {}}
+        rail_l = self.mesher._estimate_lateral_l(0, stackup, return_layers={1})
+        ground_l = self.mesher._estimate_lateral_l(1, stackup, return_layers={0})
+        mu0 = 4e-7 * math.pi
+        self.assertAlmostEqual(rail_l, ground_l)
+        self.assertAlmostEqual(rail_l + ground_l, mu0 * 0.0994e-3, delta=1e-15)
+
+    def test_lateral_l_falls_back_without_return_layers(self):
+        # DC callers (application/dc_controller.py) never pass return_layers
+        # since DC ignores inductance entirely; the legacy nearest-dielectric
+        # estimate must still be available for them.
+        stackup = {'substrate': [{'between': [0, 1], 'thickness_mm': 0.0994}], 'copper': {}}
+        self.assertGreater(self.mesher._estimate_lateral_l(0, stackup), 0.0)
 
 if __name__ == '__main__':
     unittest.main()
