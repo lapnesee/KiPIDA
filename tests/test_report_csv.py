@@ -97,6 +97,22 @@ class ActionsCsvTests(unittest.TestCase):
         self.assertEqual(rows[0]["rank"], "1")
         self.assertEqual(rows[0]["severity"], "CRITICAL")
 
+    def test_recommendation_text_reaches_the_csv_without_structured_remediation(self):
+        # COH-1: actions.csv (report/csv_export.py:98-106) showed nothing for
+        # an action whose only advice was AnalysisFinding.recommendation.
+        campaign = CampaignResult.from_results([AnalysisResult(
+            analysis_type="DIFFERENTIAL", title="D", status=AnalysisStatus.FAIL,
+            findings=[AnalysisFinding(
+                rule_id="SI-DIFF-001", category="DIFFERENTIAL", severity=FindingSeverity.HIGH,
+                title="/USB_DEVICE_D: Fail High", description="d",
+                recommendation="Route 0.155 mm / 0.250 mm gap -> 90.6 ohm.",
+            )],
+        )])
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = read_csv(write_actions_csv(campaign, Path(tmp) / "a.csv"))
+        self.assertEqual(rows[0]["remediation_actions"], "")
+        self.assertEqual(rows[0]["recommendations"], "Route 0.155 mm / 0.250 mm gap -> 90.6 ohm.")
+
 
 if __name__ == "__main__":
     unittest.main()

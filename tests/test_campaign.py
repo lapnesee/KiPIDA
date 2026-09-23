@@ -189,6 +189,44 @@ class GainRankTests(unittest.TestCase):
         ])])
         self.assertEqual(campaign.actions[0].effort, RemediationEffort.HIGH)
 
+    def test_deterministic_outranks_estimated_at_equal_severity(self):
+        # COH-1: gain_rank now folds in confidence (severity x confidence),
+        # so a fact-backed HIGH outranks an estimated one instead of tying.
+        campaign = CampaignResult.from_results([result("DC", findings=[
+            finding("A", FindingSeverity.HIGH, nets=["N1"], confidence=EvidenceConfidence.ESTIMATED),
+            finding("B", FindingSeverity.HIGH, nets=["N2"], confidence=EvidenceConfidence.DETERMINISTIC),
+        ])])
+        ranked = campaign.top_actions()
+        self.assertEqual([a.rule_ids[0] for a in ranked], ["B", "A"])
+
+    def test_residual_ties_break_on_title_not_domain_order(self):
+        # P02 Rev E: six HIGH actions with no remediation all scored 25.0 and
+        # ordered by which domain the campaign happened to run first
+        # (docs/audit-2026-09-23.md COH-1). With equal severity/confidence/
+        # effort/domain-count, order must now be a property of the actions,
+        # not of self.results' order.
+        campaign = CampaignResult.from_results([
+            result("EMC", findings=[finding("A", FindingSeverity.HIGH, nets=["N9"], title="Zebra")]),
+            result("DC", findings=[finding("B", FindingSeverity.HIGH, nets=["N1"], title="Apple")]),
+        ])
+        ranked = campaign.top_actions()
+        self.assertEqual([a.title for a in ranked], ["Apple", "Zebra"])
+
+    def test_recommendation_text_reaches_the_action_when_unstructured(self):
+        # COH-1: finding.recommendation used to stop at the finding -- the
+        # action never carried it, so the report had nothing to fall back on.
+        campaign = CampaignResult.from_results([result("DIFFERENTIAL", findings=[
+            AnalysisFinding(
+                rule_id="SI-DIFF-001", category="DIFFERENTIAL", severity=FindingSeverity.HIGH,
+                title="/USB_DEVICE_D: Fail High", description="d",
+                confidence=EvidenceConfidence.ESTIMATED,
+                recommendation="Route 0.155 mm / 0.250 mm gap -> 90.6 ohm.",
+            ),
+        ])])
+        self.assertEqual(
+            campaign.actions[0].recommendations, ["Route 0.155 mm / 0.250 mm gap -> 90.6 ohm."],
+        )
+
 
 class SerializationTests(unittest.TestCase):
     def test_round_trip_preserves_aggregation(self):

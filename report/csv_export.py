@@ -22,7 +22,7 @@ FINDING_COLUMNS: List[str] = [
 ACTION_COLUMNS: List[str] = [
     "rank", "action_id", "title", "severity", "domains", "rule_ids",
     "nets", "components", "effort", "gain_rank", "consequences",
-    "remediation_actions", "verified_remediations",
+    "remediation_actions", "verified_remediations", "recommendations",
 ]
 
 
@@ -104,5 +104,10 @@ def write_actions_csv(campaign: CampaignResult, path: Path) -> Path:
             "verified_remediations": sum(
                 1 for item in action.remediations if item.verified
             ),
+            # Free-text advice from findings with no structured Remediation
+            # (e.g. the differential recommender's geometry suggestion);
+            # empty when a structured remediation_actions entry already
+            # covers the action.
+            "recommendations": _join(action.recommendations),
         })
     return _write(path, ACTION_COLUMNS, rows)

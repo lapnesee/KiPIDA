@@ -160,6 +160,13 @@ class CampaignAction:
     nets: List[str] = field(default_factory=list)
     components: List[str] = field(default_factory=list)
     remediations: List[Remediation] = field(default_factory=list)
+    # Free-text recommendations from findings that carry no structured
+    # Remediation. Only DC-003 built one on P02 Rev E (analysis_adapters.py:
+    # 567-569); every other action's advice -- including the differential
+    # recommender's own geometry ("0.155 mm / 0.250 mm -> 90.6 ohm") -- lived
+    # only in AnalysisFinding.recommendation, which the report never showed,
+    # so 26/26 P02 actions read "No structured remediation was computed".
+    recommendations: List[str] = field(default_factory=list)
     consequences: List[str] = field(default_factory=list)
     effort: RemediationEffort = RemediationEffort.MEDIUM
     gain_rank: float = 0.0
@@ -404,6 +411,7 @@ class CampaignResult:
             components: List[str] = []
             consequences: List[str] = []
             remediations: List[Remediation] = []
+            recommendations: List[str] = []
             for domain, finding in group:
                 if domain not in domains:
                     domains.append(domain)
@@ -417,6 +425,9 @@ class CampaignResult:
                         components.append(component)
                 consequences.append(f"{domain}: {finding.title}")
                 remediations.extend(finding.remediations)
+                text = (finding.recommendation or "").strip()
+                if text and text not in recommendations:
+                    recommendations.append(text)
 
             remediations = _dedupe_remediations(remediations)
             effort = (
@@ -424,7 +435,18 @@ class CampaignResult:
                 if remediations else RemediationEffort.MEDIUM
             )
             # Title comes from the most severe contributing finding.
-            lead = next(finding for _d, finding in group if finding.severity == severity)
+            lead_findings = [finding for _d, finding in group if finding.severity == severity]
+            lead = lead_findings[0]
+            # Ranking tie-break: fold confidence into the score itself
+            # (severity x confidence, one of the audit's own suggestions)
+            # rather than leaving equal-severity/effort/domain-count actions
+            # ordered by domain iteration order. On P02 Rev E six actions all
+            # scored 25.0 (HIGH, no remediation, one domain) and their order
+            # was purely which domain the campaign happened to run first.
+            confidence_weight = max(
+                CONFIDENCE_WEIGHT.get(f.confidence, CONFIDENCE_WEIGHT[EvidenceConfidence.HEURISTIC])
+                for f in lead_findings
+            )
             action = CampaignAction(
                 action_id=f"action-{index:03d}",
                 title=lead.title,
@@ -434,16 +456,21 @@ class CampaignResult:
                 nets=nets,
                 components=components,
                 remediations=remediations,
+                recommendations=recommendations,
                 consequences=consequences,
                 effort=effort,
             )
             action.gain_rank = (
                 SEVERITY_WEIGHT[severity]
+                * confidence_weight
                 * (1.0 + 0.5 * (len(domains) - 1))
                 / EFFORT_DIVISOR[effort]
             )
             actions.append(action)
-        actions.sort(key=lambda item: item.gain_rank, reverse=True)
+        # Any residual tie (identical severity/confidence/domain-count/effort)
+        # breaks on the title, so ordering no longer depends on which domain
+        # the campaign happened to run first.
+        actions.sort(key=lambda item: (-item.gain_rank, item.title))
         return actions
 
     def _compute_overall_status(self) -> AnalysisStatus:
@@ -464,7 +491,7 @@ class CampaignResult:
         return AnalysisStatus.PASS
 
     def top_actions(self, limit: int = 10) -> List[CampaignAction]:
-        return sorted(self.actions, key=lambda item: item.gain_rank, reverse=True)[:limit]
+        return sorted(self.actions, key=lambda item: (-item.gain_rank, item.title))[:limit]
 
     @property
     def total_elapsed_seconds(self) -> float:

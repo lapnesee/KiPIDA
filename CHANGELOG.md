@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed the campaign report to show a finding's recommendation text
+  when no structured Remediation exists, instead of a blanket "No
+  structured remediation was computed" on all 26 of P02 Rev E's
+  actions; also fixed the action gain_rank tie-break (was domain
+  iteration order) to use confidence, then title.
 - Fixed the campaign verdict to derive each domain's PASS/WARN/FAIL
   from its findings' severity and confidence, one rule for every
   domain, instead of trusting each adapter's own hard-coded status;

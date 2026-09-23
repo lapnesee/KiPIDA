@@ -106,6 +106,34 @@ class RemediationMarkerTests(unittest.TestCase):
         self.assertIn("NOT RE-SIMULATED", document)
 
 
+class RecommendationFallbackTests(unittest.TestCase):
+    def test_finding_recommendation_shown_when_no_structured_remediation(self):
+        # COH-1: on P02 Rev E (campaign-20260922-215852.html) all 26 actions
+        # read "No structured remediation was computed", including the
+        # differential adapter's SI-DIFF-001 findings, which carry the
+        # recommender's geometry only as AnalysisFinding.recommendation text
+        # (analysis_adapters.py:469-475) -- never shown, never printed.
+        campaign = campaign_with([AnalysisFinding(
+            rule_id="SI-DIFF-001", category="DIFFERENTIAL", severity=FindingSeverity.HIGH,
+            title="/USB_DEVICE_D: Fail High", description="d",
+            recommendation=(
+                "Route the pair 0.155 mm wide with a 0.250 mm gap on B.Cu: "
+                "the model predicts 90.6 ohm."
+            ),
+        )])
+        document = render_campaign_html(campaign)
+        self.assertNotIn("No structured remediation was computed for this action.</p>", document)
+        self.assertIn("0.155 mm wide", document)
+
+    def test_no_recommendation_still_reports_the_gap_honestly(self):
+        campaign = campaign_with([AnalysisFinding(
+            rule_id="DC-1", category="DC", severity=FindingSeverity.HIGH,
+            title="Drop", description="d", nets=["VCC"],
+        )])
+        document = render_campaign_html(campaign)
+        self.assertIn("No structured remediation was computed for this action.</p>", document)
+
+
 class ArtifactTests(unittest.TestCase):
     def test_missing_artifact_renders_placeholder_without_raising(self):
         campaign = campaign_with(

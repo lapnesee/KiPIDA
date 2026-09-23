@@ -324,6 +324,17 @@ def _render_actions(campaign: CampaignResult) -> str:
         consequences = "".join(f"<li>{_esc(line)}</li>" for line in action.consequences)
         if action.remediations:
             remediations = "".join(_render_remediation(item) for item in action.remediations)
+        elif action.recommendations:
+            # No quantified Remediation exists, but the finding(s) still carry
+            # free-text advice (e.g. the differential recommender's "0.155 mm
+            # / 0.250 mm -> 90.6 ohm"): show it rather than claim there is
+            # nothing to act on.
+            items = "".join(f"<li>{_esc(text)}</li>" for text in action.recommendations)
+            remediations = (
+                '<p class="muted">No structured remediation was computed for '
+                "this action; the underlying finding(s) recommend:</p>"
+                f'<ul class="tight">{items}</ul>'
+            )
         else:
             remediations = ('<p class="muted">No structured remediation was computed '
                             'for this action.</p>')
