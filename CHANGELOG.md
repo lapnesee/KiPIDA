@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed AC-6: the AC report's limitations no longer say DC-bias
+  derating "is not modelled" while the same report shows it applied
+  (P02 Rev E: "DC bias X5R 35 V at 20 V: 22uF -> 11.4uF"). The text now
+  names the real gaps -- a generic retention curve (AC-7) and
+  mounting inductance with no mutual term (AC-8).
 - Fixed AC-2: the AC source model is now a documented, named preset
   choice (default/USB-C cable/regulator output) in the UI, always
   stated as a dominant assumption in the report's limitations, and the

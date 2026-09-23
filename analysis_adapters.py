@@ -482,7 +482,7 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
         )],
         limitations=[
             "The AC result is an engineering PDN model; package, connector, and measurement-fixture parasitics require explicit models or measurement.",
-            "Capacitor mounting inductance (the pad and via loop) and MLCC DC-bias derating are not modelled; both raise the real impedance above the swept one from a few MHz upward, so a passing sweep is optimistic there.",
+            "Capacitor mounting inductance (the pad and via loop) is only partially modelled -- the rail and ground meshes each add their own via/pad inductance with no mutual term between them (see AC-8) -- and MLCC DC-bias derating uses a single generic retention curve (ac_model.dc_bias_retention), not a per-part datasheet or case-size table (see AC-7). Both can leave the real impedance above the swept one from a few MHz upward, so a passing sweep is optimistic there.",
             "The AC mesh is intentionally independent from the finer DC voltage-drop mesh; refine it only after validating runtime and convergence.",
         ] + [
             # A dropped observation point narrows what the sweep actually
