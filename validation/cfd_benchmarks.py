@@ -24,6 +24,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cfd_mesh import CFDMesh, CFDMeshGenerator, CFDPatchCells  # noqa: E402
+from cfd_model import CFDObstacle, EnclosureModel  # noqa: E402
 from cfd_solver import EnclosureCFDSolver  # noqa: E402
 from models import (  # noqa: E402
     CFDBoundaryPatch, CFDSolverSettings, EnclosureCFDSettings,
@@ -321,12 +322,83 @@ def case_residual_source():
               "of the total squared divergence")
 
 
+# --------------------------------------------------------------------------
+# Case 5 -- energy and buoyancy: the closed heated cavity (CFD-2)
+
+
+def case_closed_cavity():
+    """A sealed, heated, buoyant cavity -- the energy/buoyancy case.
+
+    Every case above is isothermal forced flow with buoyancy off: nothing
+    here ran the energy equation or buoyancy, and nothing asserted -- every
+    case above only prints (docs/audit-2026-09-23.md triage). This closes
+    both gaps, and its origin-invariance check is CFD-2's own regression:
+    advecting the energy equation with a re-averaged, non-divergence-free
+    cell velocity instead of the pressure projection's own face field was
+    not conservative, and moving the temperature origin C -> K (the same
+    physics) moved P02 Rev E's reported peak air temperature from 404.7 to
+    1005.9 C (scratchpad/audit/cfd/p02_inspect.py). Film and Boussinesq beta
+    are frozen to one ambient so this checks only the advection operator,
+    the same reasoning tests.test_cfd_solver.py's unit-level regression uses.
+    """
+    settings = EnclosureCFDSettings(ambient_c=25.0)
+    settings.geometry.width_mm = 30.0
+    settings.geometry.depth_mm = 30.0
+    settings.geometry.height_mm = 30.0
+    settings.geometry.wall_heat_transfer_w_m2k = 8.0
+    settings.solver.cell_size_mm = 6.0
+    settings.solver.max_iterations = 400
+    settings.solver.tolerance = 1e-6
+    model = EnclosureModel(
+        dimensions_mm=(30.0, 30.0, 30.0),
+        obstacles=[CFDObstacle("HOT", (12, 12, 12, 18, 18, 18), 5.0, 0.5)],
+    )
+    mesh = CFDMeshGenerator().generate_mesh(model, settings)
+    result = EnclosureCFDSolver().solve(mesh, settings)
+
+    print(f"converged={result.converged} after {result.iterations} iterations")
+    print(f"Tair_max={result.maximum_air_temperature_c:.2f} C  "
+          f"Tsolid_max={result.maximum_solid_temperature_c:.2f} C  "
+          f"energy balance error={result.energy_balance_error_pct:.3g}%")
+    assert result.converged, "closed cavity did not converge"
+    assert result.energy_balance_error_pct < 5.0, (
+        f"energy balance error {result.energy_balance_error_pct:.3g}% exceeds 5%"
+    )
+    assert result.maximum_air_temperature_c > settings.ambient_c, "no heating reached the air"
+
+    orig_film = EnclosureCFDSolver._film_coefficient
+    orig_beta = EnclosureCFDSolver._boussinesq_beta
+    ambient0 = settings.ambient_c
+    EnclosureCFDSolver._film_coefficient = staticmethod(
+        lambda dt, L, s, amb, e, facing="up", _o=orig_film, _a=ambient0:
+        _o(dt, L, s, _a, e, facing)
+    )
+    EnclosureCFDSolver._boussinesq_beta = staticmethod(
+        lambda ambient_c, _o=orig_beta, _a=ambient0: _o(_a)
+    )
+    try:
+        mesh_k = CFDMeshGenerator().generate_mesh(model, settings)
+        shifted = EnclosureCFDSettings(ambient_c=ambient0 + 273.15)
+        shifted.geometry, shifted.solver = settings.geometry, settings.solver
+        result_k = EnclosureCFDSolver().solve(mesh_k, shifted)
+    finally:
+        EnclosureCFDSolver._film_coefficient = staticmethod(orig_film)
+        EnclosureCFDSolver._boussinesq_beta = staticmethod(orig_beta)
+
+    difference = abs(
+        result.maximum_air_temperature_c - (result_k.maximum_air_temperature_c - 273.15)
+    )
+    print(f"origin-invariance check: |T(C) - (T(K origin)-273.15)| = {difference:.3f} C")
+    assert difference < 2.0, f"energy advection is not origin-invariant: {difference:.3f} C"
+
+
 CASES = {
     "profile": case_profile,
     "residual": case_residual_source,
     "flux": case_flux,
     "divergence": case_divergence,
     "convergence": case_mesh_convergence,
+    "cavity": case_closed_cavity,
 }
 
 

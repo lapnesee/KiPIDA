@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added validation/cfd_benchmarks.py's first energy/buoyancy case (a
+  closed heated cavity) with real assertions -- convergence, energy
+  balance, and C/K origin invariance -- where every existing case only
+  printed for manual review.
 - Removed CFDSolverSettings.pressure_iterations and its UI control: inert
   since the pressure Poisson system moved to a direct sparse solve
   (c4e0ead). A project saved with the key still loads; it is just no
