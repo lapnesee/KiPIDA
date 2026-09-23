@@ -322,6 +322,27 @@ class PortResolutionTests(unittest.TestCase):
 
         self.assertEqual([ref for ref, _pads in ports], ["J6", "U7"])
 
+    def test_child_regulator_inputs_become_candidate_ports(self):
+        # AC-4: P02 Rev E's /VBUS_SYS has no load of its own but feeds U4
+        # (buck) and U14, both counted into the AC target
+        # (converter_input_current) -- yet resolve_ports only looked at
+        # PowerRail.loads, so U14's input was never swept and only a
+        # user-forced port on Q10 was ever measured.
+        rail = PowerRail(net_name="/VBUS_SYS", nominal_voltage=20.0, child_regulators=[
+            VoltageRegulator("U4 buck", "/VBUS_SYS", "Q10", ["5", "6"],
+                              "/SYS_5V_PRE_SENSE", "U4", ["11", "26"], reg_type="SWITCHING"),
+            VoltageRegulator("U14", "/VBUS_SYS", "U14", ["10", "11", "12"],
+                              "/J2_SRC_VBUS", "U14", ["1"], reg_type="SWITCHING"),
+        ])
+        settings = ACAnalysisSettings(rail_name="/VBUS_SYS")
+
+        ports = ACModelBuilder(SimpleNamespace(footprints=[])).resolve_ports(rail, settings)
+
+        self.assertEqual(
+            {ref: pads for ref, pads in ports},
+            {"Q10": ["5", "6"], "U14": ["10", "11", "12"]},
+        )
+
     def test_explicit_port_suppresses_the_sweep(self):
         rail = PowerRail(net_name="+5V_RAIL")
         rail.loads.append(UnifiedLoad(ComponentRef("J6"), 3.8, ["5"]))

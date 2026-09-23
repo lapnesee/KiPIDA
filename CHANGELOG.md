@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed AC-4: every child regulator's input pin is now swept as a
+  candidate AC port, not just PowerRail.loads. P02 Rev E's /VBUS_SYS
+  feeds U4 and U14 with no load of its own; U14's input (pads 10-12)
+  was never observed before, though the target already counts its
+  current.
 - Fixed AC-5: the AC target for a bus feeding switching converters is
   now derived from the largest fed converter's own output current
   (Iout), not 50% of the rail's time-averaged input current. P02 Rev E

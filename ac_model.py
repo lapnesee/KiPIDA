@@ -815,9 +815,15 @@ class ACModelBuilder:
     def resolve_ports(self, rail, settings):
         """Every candidate measurement port, as (ref_des, rail_pad_names).
 
-        An explicit port wins. Otherwise every declared load is a port: the
-        PDN is qualified by its worst observation point, and which point that
-        is cannot be known before solving.
+        An explicit port wins. Otherwise every declared load is a port, and
+        so is every child regulator's INPUT pin: a regulator draws current
+        from this rail exactly as a load does (converter_input_current
+        counts it into the target), but PowerRail.loads never lists it, so
+        it was never swept. P02 Rev E's /VBUS_SYS has no loads of its own --
+        only a user-forced port on Q10 was ever measured -- though the
+        target counts U14's input current (AC-4). The PDN is qualified by
+        its worst observation point, and which point that is cannot be
+        known before solving.
         """
         if settings.measurement_port.ref_des:
             return [(
@@ -827,6 +833,9 @@ class ACModelBuilder:
         ports = []
         for load in (getattr(rail, "loads", ()) or ()):
             ports.append((load.component_ref.ref_des, list(load.pad_names)))
+        for regulator in (getattr(rail, "child_regulators", ()) or ()):
+            if regulator.input_ref_des:
+                ports.append((regulator.input_ref_des, list(regulator.input_pad_names or [])))
         return ports
 
     def _connection(
