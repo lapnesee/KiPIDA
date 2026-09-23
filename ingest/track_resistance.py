@@ -87,37 +87,3 @@ def via_resistance(
     area = math.pi * (r_outer ** 2 - r_inner ** 2)
     return rho * h / area
 
-
-def spreading_resistance(
-    thickness_mm: float,
-    r1_mm: float,
-    r2_mm: float,
-    rho: float = RHO_COPPER,
-) -> float:
-    """Radial spreading resistance between two radii r1 < r2 in a plane.
-
-    R = ρ / (2π·t) · ln(r2 / r1)
-
-    Used to model the resistance from a via/pad barrel to the surrounding
-    copper plane at radius r2.
-
-    Args:
-        thickness_mm: Plane thickness in mm.
-        r1_mm: Inner radius in mm (e.g. via barrel outer radius).
-        r2_mm: Outer radius in mm (effective current-spreading radius).
-        rho: Resistivity in Ω·m.
-
-    Returns:
-        Resistance in Ω.
-
-    Raises:
-        ValueError: If r1 >= r2 or any dimension is non-positive.
-    """
-    if thickness_mm <= 0:
-        raise ValueError(f"thickness_mm must be > 0, got {thickness_mm}")
-    if r1_mm <= 0:
-        raise ValueError(f"r1_mm must be > 0, got {r1_mm}")
-    if r2_mm <= r1_mm:
-        raise ValueError(f"r2_mm must be > r1_mm, got r2={r2_mm}, r1={r1_mm}")
-    t = thickness_mm * _MM_TO_M
-    return rho / (2 * math.pi * t) * math.log(r2_mm / r1_mm)
