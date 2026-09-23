@@ -481,6 +481,19 @@ class ACSolver:
             int(np.count_nonzero(np.asarray(frequencies, dtype=float) > limit_hz))
             if limit_hz > 0.0 else 0
         )
+        # A worst case pinned to the edge and still rising means the real
+        # maximum lies beyond the window. The tail there is dominated by loop
+        # inductance (|Z| ~ 2*pi*f*L), so linearly scaling the last point to
+        # the target approximates where it would be crossed -- e.g. P02
+        # Rev E's /VBUS_SYS: 0.2947 ohm at 100 MHz, target 0.39226 ohm ->
+        # 0.39226/0.2947 x 100 MHz = 133 MHz crossing, inside its own
+        # ~140 MHz quasi-static limit, so its PASS is not established (AC-1).
+        crossing_hz = 0.0
+        if worst_at_edge and target > 0.0 and worst_index > 0:
+            last = float(magnitudes[worst_index])
+            prior = float(magnitudes[worst_index - 1])
+            if last > prior > 0.0:
+                crossing_hz = float(frequencies[worst_index]) * (target / last)
         return ImpedanceSweepResult(
             frequencies_hz=[float(value) for value in frequencies],
             impedance_ohm=list(impedances),
@@ -495,6 +508,7 @@ class ACSolver:
             quasi_static_limit_hz=limit_hz,
             points_beyond_quasi_static=beyond,
             worst_at_sweep_edge=worst_at_edge,
+            extrapolated_crossing_hz=crossing_hz,
             **compute,
         )
 

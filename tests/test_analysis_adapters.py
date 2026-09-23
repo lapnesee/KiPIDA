@@ -73,6 +73,24 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertEqual(len(result.summary["sweep"]), 2)
         self.assertAlmostEqual(result.summary["sweep"][1]["real_ohm"], 0.12)
 
+    def test_ac_adapter_warns_when_pass_is_only_a_lower_bound(self):
+        # AC-1: P02 Rev E /VBUS_SYS sweep -- every swept point passes, but the
+        # worst (0.2947 ohm at 100 MHz) sits on the closed sweep edge and was
+        # still rising; extrapolated crossing (~133 MHz) falls inside the
+        # quasi-static limit (~140 MHz), so the PASS must not stand alone.
+        sweep = SimpleNamespace(
+            meets_target=True, worst_impedance_ohm=0.2947, worst_frequency_hz=100e6,
+            target_impedance_ohm=0.39226, compute_backend="CPU", compute_device="CPU",
+            compute_solve_seconds=0.01, compute_relative_residual=1e-9,
+            frequencies_hz=[1e3, 50e6, 100e6], impedance_ohm=[0.001 + 0j, 0.2 + 0j, 0.2947 + 0j],
+            worst_at_sweep_edge=True, extrapolated_crossing_hz=133.1e6,
+            quasi_static_limit_hz=140e6,
+        )
+        settings = ACAnalysisSettings(rail_name="/VBUS_SYS", ground_net_name="GND")
+        result = adapt_ac_result(sweep, settings=settings)
+        self.assertEqual(result.status, AnalysisStatus.WARN)
+        self.assertEqual(result.findings[0].rule_id, "AC-003")
+
     def test_differential_adapter_aggregates_pair_status(self):
         pair = SimpleNamespace(name="USB", target_impedance_ohm=90.0)
         pair_result = SimpleNamespace(

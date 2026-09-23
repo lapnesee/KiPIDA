@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed AC-1: a PASS verdict no longer stands when the worst |Z| sits
+  on the closed sweep edge, still rising, with its extrapolated target
+  crossing inside the quasi-static limit. P02 Rev E /VBUS_SYS: 0.2947
+  ohm at 100 MHz vs 0.39226 ohm target crosses near 133 MHz, under the
+  ~140 MHz limit -- now WARN (AC-003) instead of PASS.
 - Fixed AC-3: the AC solver's plane-pair loop inductance was counted
   twice (mu0*d given whole to both the rail and ground mesh instead of
   split). scratchpad/audit/ac/ac_checks.py (A): 0.999 nH modelled vs

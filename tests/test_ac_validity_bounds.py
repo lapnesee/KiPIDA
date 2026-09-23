@@ -114,6 +114,33 @@ class SweepSummaryTests(unittest.TestCase):
         self.assertEqual(result.points_beyond_quasi_static, 0)
         self.assertAlmostEqual(result.quasi_static_limit_hz, 180e6)
 
+    def test_rising_edge_extrapolates_crossing_below_quasi_static_limit(self):
+        # AC-1 (docs/audit-2026-09-23.md, P02 Rev E /VBUS_SYS, 2026-09-22
+        # campaign): worst |Z| 0.2947 ohm landed on the last swept point
+        # (100 MHz), still rising, target 0.39226 ohm. Extrapolating the
+        # rise linearly crosses the target near 0.39226/0.2947 x 100 MHz
+        # = 133 MHz, below the ~140 MHz quasi-static limit for a ~100 mm
+        # span -- so the PASS the swept points show is not established.
+        from ac_solver import ACSolver
+        from models import ACAnalysisSettings
+
+        class _Net:
+            node_count = 10
+            requested_grid_size_mm = 0.5
+            effective_grid_size_mm = 0.5
+            quasi_static_limit_hz = 140e6
+
+        frequencies = [1e3, 50e6, 100e6]
+        impedances = [0.001, 0.20, 0.2947]
+        result = ACSolver._summarize(
+            frequencies, impedances,
+            ACAnalysisSettings(target_impedance_ohm=0.39226), _Net(),
+        )
+        self.assertTrue(result.meets_target)
+        self.assertTrue(result.worst_at_sweep_edge)
+        self.assertAlmostEqual(result.extrapolated_crossing_hz, 133.1e6, delta=0.5e6)
+        self.assertLess(result.extrapolated_crossing_hz, result.quasi_static_limit_hz)
+
 
 if __name__ == "__main__":
     unittest.main()

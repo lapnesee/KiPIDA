@@ -774,6 +774,13 @@ class ImpedanceSweepResult:
     # True when the worst case landed on the last swept point, so the real
     # maximum may lie outside the window rather than at its edge.
     worst_at_sweep_edge: bool = False
+    # When worst_at_sweep_edge and the impedance was still rising there, the
+    # frequency at which linearly extrapolating that rise would cross the
+    # target -- 0.0 when not applicable (edge not reached, not rising, or no
+    # target). A PASS is not established when this falls inside the model's
+    # own quasi-static domain: the real crossing may already be within the
+    # window the tool claims to trust (AC-1).
+    extrapolated_crossing_hz: float = 0.0
     # Outcome of the GPU-against-CPU audit run on the first swept point. Empty
     # when the sweep never touched a GPU or the check was switched off. It
     # records the agreement measured, or the disagreement that sent the rest

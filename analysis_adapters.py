@@ -293,6 +293,36 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
         finding.confidence = EvidenceConfidence.DETERMINISTIC
         finding.nets = [item for item in (rail_name,) if item]
         findings.append(finding)
+    elif (
+        bool(getattr(final, "meets_target", False))
+        and bool(getattr(final, "worst_at_sweep_edge", False))
+        and float(getattr(final, "extrapolated_crossing_hz", 0.0) or 0.0) > 0.0
+        and float(getattr(final, "extrapolated_crossing_hz", 0.0))
+        < float(getattr(final, "quasi_static_limit_hz", 0.0) or float("inf"))
+    ):
+        # The swept points all pass, but the worst one sits on the closed
+        # edge of the window and was still rising: linearly extrapolating
+        # that rise crosses the target before the model's own quasi-static
+        # limit, so the PASS is not established (AC-1).
+        rail_name = str(getattr(settings, "rail_name", ""))
+        crossing_hz = float(getattr(final, "extrapolated_crossing_hz", 0.0))
+        limit_hz = float(getattr(final, "quasi_static_limit_hz", 0.0) or 0.0)
+        stop_hz = float(getattr(final, "worst_frequency_hz", 0.0) or 0.0)
+        finding = _finding(
+            "AC-003", 1, "TARGET_IMPEDANCE", FindingSeverity.HIGH,
+            "PASS is undetermined: the worst point is still rising at the sweep edge",
+            f"Worst impedance {worst:.6g} ohm sits on the last swept point "
+            f"({stop_hz:.6g} Hz) and was still rising there. Extrapolating that "
+            f"slope linearly, the {target:.6g} ohm target would be crossed near "
+            f"{crossing_hz / 1e6:.3g} MHz, inside the model's own quasi-static "
+            f"domain (limit {limit_hz / 1e6:.3g} MHz): the PASS the swept points "
+            "show is a lower bound, not a verdict.",
+            "Extend the sweep's stop frequency toward the quasi-static limit and "
+            "re-run before trusting a PASS.",
+        )
+        finding.confidence = EvidenceConfidence.ESTIMATED
+        finding.nets = [item for item in (rail_name,) if item]
+        findings.append(finding)
     elif not bool(getattr(final, "meets_target", False)):
         rail_name = str(getattr(settings, "rail_name", ""))
         ground_name = str(getattr(settings, "ground_net_name", ""))
