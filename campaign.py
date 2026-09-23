@@ -234,13 +234,27 @@ def _finding_penalty(finding: AnalysisFinding) -> float:
 
 
 def score_findings(findings: List[AnalysisFinding]) -> float:
-    """100 minus each rule's worst few findings, weighted by what they rest on."""
-    by_rule: Dict[str, List[float]] = {}
+    """100 minus each rule's worst few findings, weighted by what they rest on.
+
+    The cap of MAX_FINDINGS_PER_RULE_IN_SCORE applies per rule *and per
+    distinct net*, not per rule alone: a rule firing once per pair/net --
+    SI-DIFF-001 on five different differential pairs, on P02 Rev E -- is five
+    distinct physical defects, and capping those at three under-counted two
+    of them (score 76.6 instead of 61.0 for 5 failed pairs vs. 3). A rule
+    naming only components, not nets, stays under the old per-rule cap: 159
+    SCH-005 findings, one per silkscreen reference, are one systematic cause
+    ("missing a power rating"), not 159, and a component-per-finding rule is
+    the survey case GROUPING_MAX_COMPONENTS already treats as one cause
+    rather than 159 problems tied together.
+    """
+    by_object: Dict[tuple, List[float]] = {}
     for finding in findings:
-        by_rule.setdefault(finding.rule_id, []).append(_finding_penalty(finding))
+        net_key = tuple(sorted(finding.nets))
+        key = (finding.rule_id, net_key) if net_key else (finding.rule_id, None)
+        by_object.setdefault(key, []).append(_finding_penalty(finding))
     penalty = sum(
         sum(sorted(penalties, reverse=True)[:MAX_FINDINGS_PER_RULE_IN_SCORE])
-        for penalties in by_rule.values()
+        for penalties in by_object.values()
     )
     return max(0.0, 100.0 - penalty)
 

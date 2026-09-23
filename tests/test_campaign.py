@@ -64,6 +64,35 @@ class DomainScoreTests(unittest.TestCase):
         ])])
         self.assertAlmostEqual(campaign.domain_scores[0].score, 100.0)
 
+    def test_per_rule_cap_exempts_findings_on_distinct_objects(self):
+        # COH-7: 5 failed differential pairs (5 distinct nets, one
+        # SI-DIFF-001 rule) are 5 physical defects, not one systematic cause
+        # capped at 3. docs/audit-2026-09-23.md cites 76.6 (old, capped) vs.
+        # 61.0 (right) for 5 HIGH ESTIMATED findings on one rule; those are
+        # exactly SEVERITY_PENALTY[HIGH] (12.0) * CONFIDENCE_WEIGHT[ESTIMATED]
+        # (0.65) = 7.8 per finding, capped at 3 (100 - 23.4 = 76.6) vs. all 5
+        # (100 - 39.0 = 61.0).
+        pairs = CampaignResult.from_results([result("DIFFERENTIAL", findings=[
+            finding(
+                "SI-DIFF-001", FindingSeverity.HIGH, nets=[f"/PAIR_{i}"],
+                confidence=EvidenceConfidence.ESTIMATED,
+            )
+            for i in range(5)
+        ])])
+        self.assertAlmostEqual(pairs.domain_scores[0].score, 61.0)
+
+        # Contrast: 5 findings on the same rule with no object to distinguish
+        # them (a systemic complaint) still share the old per-rule cap of 3.
+        systemic = CampaignResult.from_results([result("DIFFERENTIAL", findings=[
+            AnalysisFinding(
+                rule_id="SI-DIFF-001", category="DIFFERENTIAL",
+                severity=FindingSeverity.HIGH, title=f"instance {i}",
+                description="d", confidence=EvidenceConfidence.ESTIMATED,
+            )
+            for i in range(5)
+        ])])
+        self.assertAlmostEqual(systemic.domain_scores[0].score, 76.6)
+
     def test_no_data_domain_is_not_scored_as_clean(self):
         campaign = CampaignResult.from_results([result("CFD", AnalysisStatus.NO_DATA)])
         score = campaign.domain_scores[0]

@@ -46,6 +46,37 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual([a.nets for a in delta.persisting], [["GND"]])
         self.assertEqual(delta.net_improvement, 0)
 
+    def test_identity_collisions_are_matched_by_count_not_overwritten(self):
+        # COH-7 (docs/audit-2026-09-23.md scratchpad/audit/coherence/agg.py):
+        # SI-DIFF-001 findings carry no net/component before the SI adapter
+        # adds the pair's P/N nets, so all 5 differential-pair findings share
+        # one identity. A dict keyed on identity kept only the last action
+        # written on each side and reported "resolved 0, persisting 6" for
+        # 10 actions across 6 distinct identities; fixing 4 of 5 pairs must
+        # report resolved 4.
+        def diff_campaign(pair_titles):
+            findings = [
+                AnalysisFinding(
+                    rule_id="SI-DIFF-001", category="DIFFERENTIAL",
+                    severity=FindingSeverity.HIGH, title=f"{title}: Fail High",
+                    description="d",
+                )
+                for title in pair_titles
+            ]
+            return CampaignResult.from_results([AnalysisResult(
+                analysis_type="DIFFERENTIAL", title="D", status=AnalysisStatus.FAIL,
+                findings=findings,
+            )], board_fingerprint="fp-1")
+
+        baseline = diff_campaign([
+            "/USB_DEVICE_D", "/USB_J2_MUX_D", "/USB_HOST_D", "/USB_J1_D", "/USB_J2_D",
+        ])
+        current = diff_campaign(["/USB_DEVICE_D"])
+        delta = compare_campaigns(baseline, current)
+        self.assertEqual(len(delta.resolved), 4)
+        self.assertEqual(len(delta.persisting), 1)
+        self.assertEqual(len(delta.introduced), 0)
+
     def test_identity_matching_survives_regenerated_action_ids(self):
         # action_id is positional and regenerated per campaign; matching must
         # not depend on it or every action reads as both gone and new.

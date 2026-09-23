@@ -59,22 +59,33 @@ def compare_campaigns(baseline: CampaignResult, current: CampaignResult) -> Camp
     board against its corrected revision is the point -- but it is recorded
     in ``board_changed`` so a caller never silently compares two unrelated
     boards while believing it is looking at one board over time.
-    """
-    baseline_by_identity = {_identity(action): action for action in baseline.actions}
-    current_by_identity = {_identity(action): action for action in current.actions}
 
-    resolved = [
-        action for identity, action in baseline_by_identity.items()
-        if identity not in current_by_identity
-    ]
-    introduced = [
-        action for identity, action in current_by_identity.items()
-        if identity not in baseline_by_identity
-    ]
-    persisting = [
-        action for identity, action in current_by_identity.items()
-        if identity in baseline_by_identity
-    ]
+    Matching is by *count* per identity, not a dict keyed on it: several
+    actions can share one identity when their findings carry no net or
+    component to distinguish them (SI-DIFF-001 on P02 Rev E's 5 differential
+    pairs, before the SI adapter adds per-pair nets -- COH-7). A dict silently
+    keeps only the last action written to a colliding key on each side, so
+    fixing 4 of those 5 pairs used to report "resolved 0, persisting 6" for
+    10 actions collapsed into 6 distinct identity strings. Matching by count
+    reports it as 4 resolved, 1 persisting, as it actually is.
+    """
+    baseline_by_identity: Dict[str, List[CampaignAction]] = {}
+    for action in baseline.actions:
+        baseline_by_identity.setdefault(_identity(action), []).append(action)
+    current_by_identity: Dict[str, List[CampaignAction]] = {}
+    for action in current.actions:
+        current_by_identity.setdefault(_identity(action), []).append(action)
+
+    resolved: List[CampaignAction] = []
+    introduced: List[CampaignAction] = []
+    persisting: List[CampaignAction] = []
+    for identity in set(baseline_by_identity) | set(current_by_identity):
+        before = baseline_by_identity.get(identity, [])
+        after = current_by_identity.get(identity, [])
+        shared = min(len(before), len(after))
+        persisting.extend(after[:shared])
+        resolved.extend(before[shared:])
+        introduced.extend(after[shared:])
 
     baseline_scores = {score.domain: score.score for score in baseline.domain_scores}
     current_scores = {score.domain: score.score for score in current.domain_scores}

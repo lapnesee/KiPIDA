@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed the campaign score's per-rule cap to charge every distinct net
+  a per-net rule fires on (P02 Rev E: 5 failed differential pairs score
+  61.0, not 76.6), while a component-only rule keeps the old cap.
+- Fixed before/after campaign comparison to match actions by count per
+  identity instead of a dict overwrite, so fixing 4 of 5
+  identity-colliding SI-DIFF-001 pairs reports resolved 4, not 0.
 - Fixed the campaign report to show a finding's recommendation text
   when no structured Remediation exists, instead of a blanket "No
   structured remediation was computed" on all 26 of P02 Rev E's
