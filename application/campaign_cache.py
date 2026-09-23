@@ -57,6 +57,13 @@ class CampaignCache:
 
     def __init__(self, history=None):
         self._entries: Dict[Tuple[str, str, str], AnalysisResult] = {}
+        # The domain engine's own outcome (a raw dict for DC, a frozen
+        # *RunOutcome for the rest), kept beside the adapted result so a
+        # cache hit can still feed CampaignEngine._handover -- the DC ->
+        # thermal/CFD result sharing and the EMC input coupling both read
+        # this, not the AnalysisResult, and neither can be reconstructed
+        # from it after the fact.
+        self._raw: Dict[Tuple[str, str, str], Any] = {}
         self._history = history
 
     @staticmethod
@@ -69,12 +76,21 @@ class CampaignCache:
         """Return the memoised result for these exact inputs, or None."""
         return self._entries.get(self._key(board_fingerprint, analysis_id, config_digest))
 
+    def get_domain_result(
+        self, board_fingerprint: str, analysis_id: str, config_digest: str,
+    ) -> Any:
+        """Return the memoised raw domain outcome for these inputs, or None."""
+        return self._raw.get(self._key(board_fingerprint, analysis_id, config_digest))
+
     def put(
         self, board_fingerprint: str, analysis_id: str, config_digest: str,
-        result: AnalysisResult,
+        result: AnalysisResult, domain_result: Any = None,
     ) -> None:
-        """Memoise *result*, and archive it if a history was supplied."""
-        self._entries[self._key(board_fingerprint, analysis_id, config_digest)] = result
+        """Memoise *result* (and its raw *domain_result*), and archive it if a history was supplied."""
+        key = self._key(board_fingerprint, analysis_id, config_digest)
+        self._entries[key] = result
+        if domain_result is not None:
+            self._raw[key] = domain_result
         if self._history is None:
             return
         try:
@@ -101,6 +117,7 @@ class CampaignCache:
         ]
         for key in doomed:
             del self._entries[key]
+            self._raw.pop(key, None)
         return len(doomed)
 
     def __len__(self) -> int:

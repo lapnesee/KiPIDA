@@ -664,6 +664,18 @@ class CampaignEngine:
             cached = self._cache.get(request.board_fingerprint, analysis_id, digest)
             if cached is not None:
                 emit_log(f"{analysis_id}: reused cached result (inputs unchanged).")
+                if on_domain_result is not None:
+                    # A cached domain still has to hand its raw outcome to
+                    # the domains that couple to it -- DC's rails feed
+                    # THERMAL/CFD, and AC/DIFFERENTIAL/THERMAL feed EMC
+                    # (_handover). Returning here without this used to
+                    # leave a re-run's later domains solving against no
+                    # handover at all whenever their input was a cache hit.
+                    cached_raw = self._cache.get_domain_result(
+                        request.board_fingerprint, analysis_id, digest,
+                    )
+                    if cached_raw is not None:
+                        on_domain_result(cached_raw)
                 return DomainOutcome(analysis_id, cached, from_cache=True)
 
         started = time.perf_counter()
@@ -691,7 +703,9 @@ class CampaignEngine:
         elapsed = time.perf_counter() - started
         self._stamp(result, request, elapsed)
         if self._cache is not None:
-            self._cache.put(request.board_fingerprint, analysis_id, digest, result)
+            self._cache.put(
+                request.board_fingerprint, analysis_id, digest, result, domain_result,
+            )
         emit_log(f"{analysis_id}: completed in {elapsed:.2f}s ({result.status.value}).")
         return DomainOutcome(analysis_id, result, elapsed_seconds=elapsed)
 

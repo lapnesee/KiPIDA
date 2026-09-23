@@ -8,7 +8,7 @@ import os
 import sys
 import unittest
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Any, Dict
 
 _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _root not in sys.path:
@@ -18,6 +18,19 @@ from application.campaign_cache import CampaignCache, configuration_digest
 from application.campaign_controller import CampaignRunRequest
 
 from tests.test_campaign_controller import FakeEngine, FakeRequest, build
+
+
+@dataclass
+class _ThermalLikeRequest:
+    """Stand-in for a coupled THERMAL/CFD request, just enough for
+    CampaignEngine._share_dc_results to accept the handover."""
+
+    coupled: bool = True
+    dc_request: Any = None
+    grid_size_mm: float = 0.0
+    board_path: Any = None
+    _dc_results: Any = None
+    _dc_results_source: str = ""
 
 
 @dataclass
@@ -76,6 +89,36 @@ class CacheReuseTests(unittest.TestCase):
         self._run(fake, None)
         self._run(fake, None)
         self.assertEqual(fake.calls, 2)
+
+    def test_cache_hit_still_hands_the_dc_result_to_thermal(self):
+        """Latent defect (COH campaign-cache): a cache hit returned before
+        on_domain_result, so a re-run after fixing one net -- the whole point
+        of the cache -- handed THERMAL/CFD nothing and each re-solved its own
+        ambient DC, the 87 s of P02 Rev E's 349 s campaign _share_dc_results
+        exists to avoid.
+        """
+        cache = CampaignCache()
+        fake = FakeEngine()
+        engine = build({"DC": fake}, ["DC"], cache=cache)
+        request = CampaignRunRequest(
+            board_fingerprint="fp-1",
+            domain_requests={"DC": DigestRequest(), "THERMAL": _ThermalLikeRequest()},
+        )
+
+        engine.solve(request, lambda m: None, lambda *a: None, lambda: False)
+        self.assertIsNotNone(
+            request.domain_requests["THERMAL"]._dc_results,
+            "live solve must hand the DC result to THERMAL",
+        )
+
+        request.domain_requests["THERMAL"] = _ThermalLikeRequest()
+        engine.solve(request, lambda m: None, lambda *a: None, lambda: False)
+
+        self.assertEqual(fake.calls, 1, "second run must be served from cache")
+        self.assertIsNotNone(
+            request.domain_requests["THERMAL"]._dc_results,
+            "a cached DC result must still hand over to THERMAL",
+        )
 
 
 class InvalidateTests(unittest.TestCase):

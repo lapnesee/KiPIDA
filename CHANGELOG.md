@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed the campaign cache so a cache-served domain still hands its
+  raw outcome to the domains coupled to it (DC -> THERMAL/CFD,
+  AC/DIFFERENTIAL/THERMAL -> EMC), instead of silently dropping every
+  handover on a cache hit.
 - Fixed the enclosure CFD never finding a free-stream sample over a flat
   board. The sampling slab stopped at the board's own thickness along its
   normal, one layer of cells solid wherever the board is, so no mesh could
