@@ -374,7 +374,20 @@ def estimate_stage(regulator: VoltageRegulator, vin_v: float, vout_v: float,
 
     total_loss = sum(item.power_w for item in losses)
     input_power = output_power + total_loss
-    iin = input_power / vin if vin > 0.0 else 0.0
+    if kind == "resistive":
+        # A series element -- shunt, fuse, eFuse, net tie -- passes the same
+        # current in as out (KCL on a two-terminal part); its loss is a
+        # voltage drop, not extra input current. The general Pin/Vin formula
+        # below assumes a voltage-transforming stage, and for a series
+        # element (vin here is the nominal rail voltage, not vout + I*R) it
+        # inflated Iin by the loss itself: on P02 Rev E, /SYS_5V_PRE_SENSE's
+        # DC-solved Iin = Iout = 4.363 A while this formula gave 4.447 A
+        # (+1.9%, R49); /VBUS_SYS 2.040 -> 2.084 A (+2.2%); /J1_VBUS_RAW
+        # 2.043 -> 2.103 A (F1, +2.9%) (COH-8, thermal_model.py:129 calls
+        # this for every power-tree current AC and EMC also read).
+        iin = iout
+    else:
+        iin = input_power / vin if vin > 0.0 else 0.0
     actual_efficiency = output_power / input_power if input_power > 0.0 else 1.0
     balance_error = abs(input_power - output_power - total_loss) / max(input_power, 1e-12) * 100.0
     if balance_error > 1.0:

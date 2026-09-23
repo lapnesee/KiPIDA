@@ -78,6 +78,14 @@ class PowerLossTests(unittest.TestCase):
         self.assertEqual([loss.mechanism for loss in stage.losses], ["resistive-i2r"])
         self.assertAlmostEqual(stage.total_loss_w, 4.4 * 4.4 * 0.0075 * 1.01)
         self.assertIn("R(T)=", "\n".join(format_power_stage_report(stage)))
+        # COH-8: a series element carries the same current in as out (KCL);
+        # its loss is a voltage drop, not extra input current. The general
+        # Pin/Vin formula used to inflate this to Pin/Vin = (Pout + I^2R)/Vin
+        # > Iout. On P02 Rev E, /SYS_5V_PRE_SENSE (this same R49 shunt) read
+        # DC Iin=Iout=4.363 A while thermal's formula gave 4.447 A (+1.9%);
+        # /VBUS_SYS 2.040 -> 2.084 A (+2.2%); /J1_VBUS_RAW 2.043 -> 2.103 A
+        # (F1, +2.9%).
+        self.assertEqual(stage.iin_a, stage.iout_a)
 
     def test_efficiency_table_interpolation_is_deterministic(self):
         table = [

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed power_loss.estimate_stage to keep Iin = Iout for a series
+  element (shunt/fuse/eFuse/net-tie) instead of inflating it through
+  the general Pin/Vin formula; P02 Rev E's /SYS_5V_PRE_SENSE, /VBUS_SYS
+  and /J1_VBUS_RAW read 1.9-2.9% high in thermal's own power tree
+  versus DC's.
 - Fixed EMC scoring and DC-004 diffing an empty live capture (KiCad's
   IPC mid-sync) as real board data: P02 Rev E, 2026-09-22 21:39,
   scored empty geometry 62/100 with a false GP-002 CRITICAL and gave
