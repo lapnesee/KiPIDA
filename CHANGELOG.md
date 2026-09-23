@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed AC-10: a campaign's AC step now states how many of the
+  project's configured AC profiles it actually swept (finding AC-004)
+  and no longer scores 100/100 on partial coverage. P02 Rev E: 3
+  profiles configured, 1 swept per campaign run.
 - Moved ViaLossesGetAnAction and PlaneCopperLossesGetAnAction from
   tests/test_cfd_validation_fixes.py to tests/test_dc_advisor.py; they
   test the DC advisor, not CFD.

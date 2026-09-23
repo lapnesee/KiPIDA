@@ -302,7 +302,10 @@ def _ac_source_limitations(settings: Any) -> list:
     ]
 
 
-def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any = None) -> AnalysisResult:
+def adapt_ac_result(
+    domain_result: Any, optimization: Any = None, settings: Any = None,
+    profile_coverage: Any = None,
+) -> AnalysisResult:
     final = getattr(optimization, "optimized", None) or domain_result
     target = float(getattr(final, "target_impedance_ohm", 0.0) or 0.0)
     worst = float(getattr(final, "worst_impedance_ohm", 0.0) or 0.0)
@@ -413,6 +416,28 @@ def adapt_ac_result(domain_result: Any, optimization: Any = None, settings: Any 
             reference=str(getattr(final, "compute_backend", "") or "frequency-domain solver"),
         )]
         findings.append(finding)
+    if profile_coverage is not None:
+        covered, total = int(profile_coverage[0]), int(profile_coverage[1])
+        if total > covered:
+            # P02 Rev E has 3 AC profiles and 17 rails; a campaign swept only
+            # the one selected in the tab and still scored AC 100/100 (AC-10).
+            # A rail count this could hide is a fact about the run, not a
+            # model verdict, so it is DETERMINISTIC; LOW keeps it from
+            # drowning a real AC-001/AC-003 finding while still moving the
+            # score off 100 (INFO would cost nothing, campaign.SEVERITY_PENALTY).
+            rail_name = str(getattr(settings, "rail_name", ""))
+            finding = _finding(
+                "AC-004", 1, "TARGET_IMPEDANCE", FindingSeverity.LOW,
+                "This campaign covers only part of the project's AC profiles",
+                f"{covered} of {total} configured AC profile(s) were swept in this "
+                f"campaign; only '{rail_name}' is represented here. The others' "
+                "PDN impedance is not scored or checked by this run.",
+                "Run the AC batch once per configured profile, or select each "
+                "rail in turn and re-run the campaign, to cover every profile.",
+            )
+            finding.confidence = EvidenceConfidence.DETERMINISTIC
+            finding.nets = [item for item in (rail_name,) if item]
+            findings.append(finding)
     recommendations = list(getattr(optimization, "recommendations", ()) or ())
     overall_status = AnalysisStatus.PASS if not findings else AnalysisStatus.WARN
     result = AnalysisResult(

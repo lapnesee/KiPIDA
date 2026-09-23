@@ -502,7 +502,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         return {
             "SCHEMATIC": self._build_schematic_request,
             "DC": self._build_dc_request,
-            "AC": lambda: self._build_ac_request(optimize=False),
+            "AC": lambda: self._build_ac_request(optimize=False, for_campaign=True),
             "DIFFERENTIAL": self._build_differential_request,
             "THERMAL": lambda: self._build_thermal_request(
                 coupled=True,
@@ -1030,20 +1030,30 @@ class KiPIDA_MainDialog(wx.Dialog):
             return
         self._start_ac_job(optimize=True)
 
-    def _build_ac_request(self, optimize=False):
-        """Capture the AC network and settings for one sweep."""
+    def _build_ac_request(self, optimize=False, for_campaign=False):
+        """Capture the AC network and settings for one sweep.
+
+        A campaign run sweeps only the rail on screen (self.ac_panel), never
+        every configured AC profile (AC-10): P02 Rev E has 3 profiles and 17
+        rails, and a campaign scored AC 100/100 having swept just one. The
+        batch AC builder is the one place that knows both numbers, so
+        `for_campaign` records them on the request for adapt_ac_result to
+        report as a coverage limitation/finding instead of a full score.
+        """
         settings, network = self._prepare_ac_analysis()
         compute_settings = self.runtime_panel.get_settings(persist=True)
         self._log_ac_backend_decision(network, compute_settings)
         # The report needs the settings the sweep actually ran with, and the
         # panel is free to change under the user's hands while it runs.
         self._active_ac_settings = deepcopy(settings)
+        profile_coverage = (1, max(1, len(self.ac_panel.profiles))) if for_campaign else None
         return ACRunRequest(
             settings=settings,
             network=network,
             compute_settings=compute_settings,
             debug=self.chk_debug.GetValue(),
             optimize=bool(optimize),
+            profile_coverage=profile_coverage,
         )
 
     def _log_ac_backend_decision(self, network, compute_settings):

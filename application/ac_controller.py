@@ -1,7 +1,7 @@
 """UI-independent orchestration for AC analysis and decoupling optimization."""
 
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Tuple
 
 from ac_solver import ACSolver
 from decoupling_optimizer import DecouplingOptimizer
@@ -19,6 +19,11 @@ class ACRunRequest:
     compute_settings: Any = None
     debug: bool = False
     optimize: bool = False
+    # (rails swept, rails configured) for a campaign run, so the adapter can
+    # say a batch covered only some of the project's AC profiles instead of
+    # silently scoring the one swept rail as if it were the whole picture
+    # (AC-10). None outside a campaign, where "coverage" does not apply.
+    profile_coverage: Optional[Tuple[int, int]] = None
 
 
 @dataclass(frozen=True)

@@ -111,6 +111,30 @@ class AnalysisAdapterTests(unittest.TestCase):
         result = adapt_ac_result(sweep, settings=settings)
         self.assertTrue(any("AC-8" in item and "mutual" in item for item in result.limitations))
 
+    def test_ac_adapter_flags_partial_campaign_coverage(self):
+        # AC-10: P02 Rev E has 3 AC profiles and 17 rails; a campaign swept
+        # only the rail on screen and still scored AC 100/100. A passing
+        # sweep with profile_coverage=(1, 3) must no longer read a clean
+        # PASS with no findings.
+        sweep = SimpleNamespace(
+            meets_target=True, worst_impedance_ohm=0.05, worst_frequency_hz=1e6,
+            target_impedance_ohm=0.2, compute_backend="CPU", compute_device="CPU",
+            compute_solve_seconds=0.01, compute_relative_residual=1e-9,
+            frequencies_hz=[1e3, 1e6], impedance_ohm=[0.01 + 0j, 0.05 + 0j],
+        )
+        settings = ACAnalysisSettings(rail_name="/VBUS_SYS", ground_net_name="GND")
+        result = adapt_ac_result(sweep, settings=settings, profile_coverage=(1, 3))
+        self.assertEqual(result.status, AnalysisStatus.WARN)
+        finding = next(f for f in result.findings if f.rule_id == "AC-004")
+        self.assertIn("1 of 3", finding.description)
+        self.assertEqual(finding.confidence, EvidenceConfidence.DETERMINISTIC)
+
+        # Full coverage (or no coverage info at all) stays a clean PASS.
+        full = adapt_ac_result(sweep, settings=settings, profile_coverage=(3, 3))
+        self.assertEqual(full.status, AnalysisStatus.PASS)
+        none_given = adapt_ac_result(sweep, settings=settings)
+        self.assertEqual(none_given.status, AnalysisStatus.PASS)
+
     def test_differential_adapter_aggregates_pair_status(self):
         pair = SimpleNamespace(name="USB", target_impedance_ohm=90.0)
         pair_result = SimpleNamespace(

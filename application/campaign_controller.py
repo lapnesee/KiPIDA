@@ -139,6 +139,7 @@ def _adapt_ac(domain_result, request) -> AnalysisResult:
     result, optimization = domain_result
     return analysis_adapters.adapt_ac_result(
         result, optimization, getattr(request, "settings", None),
+        profile_coverage=getattr(request, "profile_coverage", None),
     )
 
 
