@@ -95,6 +95,25 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertEqual(result.status, AnalysisStatus.WARN)
         self.assertEqual(result.findings[0].rule_id, "AC-003")
 
+    def test_ac_adapter_states_the_missing_cavity_capacitance(self):
+        # Old open item (docs/audit-2026-09-23.md section 9): plane-pair
+        # (cavity) capacitance C = eps0*er*A/d is not stamped anywhere in
+        # the AC network. A per-cell version would reintroduce the
+        # per-frequency Python stamping cost ac_solver.py's vectorised
+        # _NetworkStamps was built to remove, so it is published as a
+        # limitation rather than half-implemented.
+        sweep = SimpleNamespace(
+            meets_target=True, worst_impedance_ohm=0.1, worst_frequency_hz=1e6,
+            target_impedance_ohm=0.2, compute_backend="CPU", compute_device="CPU",
+            compute_solve_seconds=0.01, compute_relative_residual=1e-9,
+            frequencies_hz=[1e3, 1e6], impedance_ohm=[0.01 + 0j, 0.1 + 0j],
+        )
+        settings = ACAnalysisSettings(rail_name="+3V3", ground_net_name="GND")
+        result = adapt_ac_result(sweep, settings=settings)
+        self.assertTrue(any(
+            "cavity" in item and "eps0" in item for item in result.limitations
+        ))
+
     def test_ac_adapter_states_the_via_mutual_inductance_gap(self):
         # AC-8: mesh.Mesher._calculate_vertical_l has no mutual term against
         # a nearby return via, overestimating a tight decoupling via pair's

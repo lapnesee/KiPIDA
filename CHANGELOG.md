@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Documented (limite publiee): plane-pair cavity capacitance
+  (C = eps0*er*A/d) is not modelled anywhere in the AC network. Stated
+  on the AC report and at ac_solver.py's _stamps, with the reason a
+  per-cell or lumped version was not attempted in this fix.
 - Added coverage for Mesher._add_vertical_stack (PTH pad barrels),
   previously untested (audit-2026-09-23.md section 11).
 - Fixed: tests/test_ac_controller.py now inserts the repo root on
