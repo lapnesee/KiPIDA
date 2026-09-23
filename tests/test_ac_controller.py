@@ -1,7 +1,13 @@
+import os
+import sys
 import threading
 import time
 from types import SimpleNamespace
 import unittest
+
+plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if plugin_dir not in sys.path:
+    sys.path.insert(0, plugin_dir)
 
 from application.ac_controller import (
     ACAnalysisCancelled, ACAnalysisController, ACControllerCallbacks, ACRunRequest,

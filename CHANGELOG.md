@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed: tests/test_ac_controller.py now inserts the repo root on
+  sys.path before importing application.ac_controller, matching every
+  other test file, so it no longer depends on the test runner adding
+  the current directory itself.
 - Fixed AC-10: a campaign's AC step now states how many of the
   project's configured AC profiles it actually swept (finding AC-004)
   and no longer scores 100/100 on partial coverage. P02 Rev E: 3
