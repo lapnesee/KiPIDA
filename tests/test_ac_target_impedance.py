@@ -49,9 +49,15 @@ class DeriveTargetImpedanceTests(unittest.TestCase):
         self.assertIsNone(value)
         self.assertIn("load current", reason)
 
-    def test_a_rail_feeding_converters_is_given_their_input_current(self):
-        # P02 Rev E: /VBUS_SYS has no load of its own and feeds two bucks, and
-        # its sweep ran with no target at all.
+    def test_a_rail_feeding_a_switching_converter_is_given_its_output_step(self):
+        # P02 Rev E: /VBUS_SYS has no load of its own and feeds two bucks
+        # (U4, U14). AC-5: the transient that matters for an AC target is the
+        # converter's own chopped input current, which steps by roughly its
+        # Iout at every switching edge -- not a fraction of the rail's
+        # time-averaged input current (converter_input_current), which
+        # understates it. Only the largest DIRECT converter's step is used
+        # (here U4's downstream 4.5 A beats U14's 3.0 A), since asynchronous
+        # converters do not step together.
         from models import VoltageRegulator
 
         def regulator(name, vin_rail, vout_rail, kind, efficiency=1.0):
@@ -74,10 +80,31 @@ class DeriveTargetImpedanceTests(unittest.TestCase):
         rails = [vbus, pre, u4_out, rail5, main33, j2]
 
         value, provenance = derive_target_impedance(vbus, all_rails=rails)
-        current = 5.08 * (4.0 + 3.32 * 0.5 / (5.08 * 0.90)) / (20.0 * 0.93) + 5.2 * 3.0 / (20.0 * 0.92)
-        self.assertAlmostEqual(value, (20.0 * 0.02) / (current * 0.5), places=12)
-        self.assertIn("drawn by the converters", provenance)
+        # U4's own output step: rail5's 4.0 A load plus whatever U5 draws
+        # downstream (main33's 0.5 A), all the way through U4's chain of
+        # linear regulators -- 4.0 + 0.5 = 4.5 A, ahead of U14's 3.0 A.
+        step_current = 4.0 + 0.5
+        self.assertAlmostEqual(value, (20.0 * 0.02) / (step_current * 1.0), places=12)
+        self.assertIn("chopped input current", provenance)
+        self.assertIn("'U4'", provenance)
         self.assertIsNone(derive_target_impedance(vbus)[0])  # the tree is what supplies it
+
+    def test_a_rail_feeding_only_linear_regulators_keeps_the_transient_fraction(self):
+        # AC-5's step-current override only applies to SWITCHING converters;
+        # a rail feeding a linear regulator still uses the old
+        # transient-fraction heuristic on the time-averaged current.
+        from models import VoltageRegulator
+
+        source = PowerRail(net_name="+12V", nominal_voltage=12.0)
+        sink = _rail(5.0, (2.0,))
+        source.child_regulators.append(VoltageRegulator(
+            "LDO1", "+12V", "U", ["1"], "+5V_RAIL", "U", ["2"], reg_type="LINEAR",
+        ))
+        value, provenance = derive_target_impedance(
+            source, ripple_fraction=0.02, transient_fraction=0.5, all_rails=[source, sink],
+        )
+        self.assertAlmostEqual(value, (12.0 * 0.02) / (2.0 * 0.5), places=12)
+        self.assertNotIn("chopped input current", provenance)
 
     def test_a_rail_without_voltage_yields_no_target(self):
         value, reason = derive_target_impedance(_rail(0.0, (1.0,)))

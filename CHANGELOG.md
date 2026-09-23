@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed AC-5: the AC target for a bus feeding switching converters is
+  now derived from the largest fed converter's own output current
+  (Iout), not 50% of the rail's time-averaged input current. P02 Rev E
+  /VBUS_SYS: target moves from 0.39226 ohm (1.02 A assumed step) to
+  0.0917 ohm (U4's 4.36 A Iout step); against the worst |Z| of 0.2947
+  ohm (AC-1) the verdict moves from PASS to FAIL.
 - Fixed AC-1: a PASS verdict no longer stands when the worst |Z| sits
   on the closed sweep edge, still rising, with its extrapolated target
   crossing inside the quasi-static limit. P02 Rev E /VBUS_SYS: 0.2947

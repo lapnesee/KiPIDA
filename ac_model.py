@@ -68,6 +68,53 @@ def converter_input_current(rail, all_rails):
     return drawn(rail, {rail.net_name})
 
 
+def switching_converter_step_current(rail, all_rails):
+    """The largest single transient step a switching converter this rail
+    feeds directly puts on it, and that converter's name.
+
+    A buck/boost input current is chopped at its switching frequency between
+    (about) zero and its own output current, not a smooth average: every
+    edge is a step of roughly Iout, e.g. P02 Rev E's U4 (buck, Iout 4.36 A at
+    5.08 V, 400 kHz). That is a different, and larger, quantity than
+    converter_input_current's time-averaged Vout/(Vin*eff)-scaled figure,
+    which is what belongs in a DC or EMC-source current budget but is the
+    wrong basis for an AC transient step.
+
+    Only DIRECT child regulators of *rail* matter: whatever a converter
+    THEN feeds is already smoothed by that converter's own output
+    capacitor before the ripple could reach this rail. Among those, the
+    single largest Iout is used rather than their sum: converters switch
+    asynchronously (independent fsw and phase), so there is no shared
+    instant at which every one of them steps at once -- the credible worst
+    edge is set by whichever converter steps hardest on its own, not by all
+    of them adding up.
+
+    Returns ``(0.0, "")`` when *rail* feeds no switching converter.
+    """
+    by_name = {item.net_name: item for item in (all_rails or ())}
+
+    def supplied(name, visiting):
+        item = by_name.get(name)
+        if item is None or name in visiting:
+            return 0.0
+        own = sum(float(getattr(load, "total_current", 0.0) or 0.0) for load in (item.loads or ()))
+        nested = sum(
+            supplied(regulator.output_rail_name, visiting | {name})
+            for regulator in (getattr(item, "child_regulators", ()) or ())
+        )
+        return own + nested
+
+    best_current, best_name = 0.0, ""
+    for regulator in (getattr(rail, "child_regulators", ()) or ()):
+        if str(getattr(regulator, "reg_type", "")).upper() != "SWITCHING":
+            continue
+        iout = supplied(regulator.output_rail_name, {rail.net_name})
+        if iout > best_current:
+            best_current = iout
+            best_name = str(getattr(regulator, "name", "") or regulator.output_rail_name)
+    return best_current, best_name
+
+
 def derive_target_impedance(
     rail, *, ripple_fraction=RIPPLE_FRACTION_DEFAULT,
     transient_fraction=TRANSIENT_FRACTION_DEFAULT, all_rails=None,
@@ -115,15 +162,35 @@ def derive_target_impedance(
     if ripple <= 0.0 or transient <= 0.0:
         return None, "the ripple and transient fractions must both be positive"
 
-    transient_current = total_current * transient
-    value = (voltage * ripple) / transient_current
-    provenance = (
-        f"derived from {voltage:.2f} V x {ripple * 100.0:.1f} % ripple / "
-        f"{transient_current:.3g} A transient "
-        f"({transient * 100.0:.0f} % of {total_current:.3g} A configured load"
-        + (f", {converters:.3g} A of it drawn by the converters the rail feeds" if converters > 0.0 else "")
-        + ")"
+    # A rail that feeds a switching converter sees that converter's chopped
+    # input current, which steps by roughly its own Iout at every switching
+    # edge -- not by a configurable fraction of the rail's time-averaged
+    # load. Where that applies, it replaces the transient-fraction heuristic
+    # outright rather than adding to it (AC-5): the two are alternative
+    # models of the same step, not independent contributions.
+    step_current, step_name = (
+        switching_converter_step_current(rail, all_rails) if all_rails else (0.0, "")
     )
+    if step_current > 0.0:
+        transient_current = step_current
+        provenance = (
+            f"derived from {voltage:.2f} V x {ripple * 100.0:.1f} % ripple / "
+            f"{transient_current:.3g} A transient step (the chopped input current "
+            f"of switching converter '{step_name}' at its own switching frequency, "
+            "the largest such step this rail feeds directly -- not "
+            f"{transient * 100.0:.0f} % of the {total_current:.3g} A time-averaged "
+            "load current, which understates a converter's input ripple)"
+        )
+    else:
+        transient_current = total_current * transient
+        provenance = (
+            f"derived from {voltage:.2f} V x {ripple * 100.0:.1f} % ripple / "
+            f"{transient_current:.3g} A transient "
+            f"({transient * 100.0:.0f} % of {total_current:.3g} A configured load"
+            + (f", {converters:.3g} A of it drawn by the converters the rail feeds" if converters > 0.0 else "")
+            + ")"
+        )
+    value = (voltage * ripple) / transient_current
     return value, provenance
 
 
