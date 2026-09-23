@@ -267,6 +267,22 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["mean_air_rise"].value, 16.0, places=1)
         self.assertAlmostEqual(metrics["internal_ambient"].value, 61.0, places=1)
 
+    def test_cfd_adapter_flags_boussinesq_out_of_range_as_a_limitation(self):
+        # docs/audit-2026-09-23.md CFD-7: beta * dT is usually cited as valid
+        # below ~0.1; this is a fact about the solved field, not a design
+        # defect, so it is a limitation rather than a scored finding.
+        mesh = SimpleNamespace(cell_count=1000)
+        cfd = SimpleNamespace(
+            converged=True, iterations=100, mass_balance_error_pct=0.0,
+            energy_balance_error_pct=0.0, maximum_velocity_m_s=0.1,
+            maximum_air_temperature_c=40.0, maximum_solid_temperature_c=60.0,
+            compute_backend="CPU", compute_device="CPU",
+            boussinesq_beta_delta_t_max=0.42,
+        )
+        result = adapt_cfd_result(mesh, cfd)
+        self.assertTrue(any("Boussinesq" in text for text in result.limitations))
+        self.assertEqual({f.rule_id for f in result.findings}, set())
+
     def test_dc_adapter_combines_connectivity_and_drop_rules(self):
         detail = SimpleNamespace(valid=False, excluded_load_node_count=2)
         compute = SimpleNamespace(converged=True)

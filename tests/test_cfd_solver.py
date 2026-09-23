@@ -104,12 +104,22 @@ class TestEnclosureCFDSolver(unittest.TestCase):
         )
         mesh = CFDMeshGenerator().generate_mesh(model, settings)
 
+        # Both correlations are legitimately functions of the *absolute*
+        # ambient temperature (film: air properties; beta, since CFD-7: the
+        # ideal-gas 1/T), so shifting ambient_c by 273.15 to fake a C -> K
+        # relabelling would otherwise also fake a real ambient change in
+        # each. Freezing both to the original ambient isolates the one
+        # thing this test is about: the advection operator.
         orig_film = EnclosureCFDSolver._film_coefficient
+        orig_beta = EnclosureCFDSolver._boussinesq_beta
         ambient0 = settings.ambient_c
-        frozen = staticmethod(
-            lambda dt, L, s, amb, e, _o=orig_film, _a=ambient0: _o(dt, L, s, _a, e)
+        frozen_film = staticmethod(
+            lambda dt, L, s, amb, e, facing="up", _o=orig_film, _a=ambient0:
+            _o(dt, L, s, _a, e, facing)
         )
-        EnclosureCFDSolver._film_coefficient = frozen
+        frozen_beta = staticmethod(lambda ambient_c, _o=orig_beta, _a=ambient0: _o(_a))
+        EnclosureCFDSolver._film_coefficient = frozen_film
+        EnclosureCFDSolver._boussinesq_beta = frozen_beta
         try:
             result_c = EnclosureCFDSolver().solve(mesh, settings)
             shifted_settings = self._settings()
@@ -118,12 +128,34 @@ class TestEnclosureCFDSolver(unittest.TestCase):
             result_k = EnclosureCFDSolver().solve(mesh_k, shifted_settings)
         finally:
             EnclosureCFDSolver._film_coefficient = staticmethod(orig_film)
+            EnclosureCFDSolver._boussinesq_beta = staticmethod(orig_beta)
 
         self.assertLess(
             abs(result_c.maximum_air_temperature_c
                 - (result_k.maximum_air_temperature_c - 273.15)),
             1.0,
         )
+
+    def test_film_coefficient_facing_sets_the_natural_convection_branch(self):
+        # docs/audit-2026-09-23.md CFD-6: every solid-air face used to pass
+        # facing="up" regardless of which way it actually faces, over-
+        # estimating a downward-facing bottom face by the correlation's own
+        # stated ratio, 0.54 vs 0.27 (surface_convection.natural_convection_h).
+        up = EnclosureCFDSolver._film_coefficient(20.0, 0.01, 0.0, 25.0, 0.0, "up")
+        down = EnclosureCFDSolver._film_coefficient(20.0, 0.01, 0.0, 25.0, 0.0, "down")
+        self.assertGreater(up, down)
+        self.assertAlmostEqual(up / down, 0.54 / 0.27, places=2)
+
+    def test_boussinesq_beta_uses_the_actual_ambient_not_a_fixed_25c(self):
+        # docs/audit-2026-09-23.md CFD-7: beta was FluidProperties.thermal_
+        # expansion_per_k, a constant fitted at 25 C (0.00335 = 1/298.15)
+        # and applied unchanged at any ambient -- off by ~6.7% at P02 Rev E's
+        # 45 C ambient.
+        beta_25 = EnclosureCFDSolver._boussinesq_beta(25.0)
+        beta_45 = EnclosureCFDSolver._boussinesq_beta(45.0)
+        self.assertAlmostEqual(beta_25, 1.0 / 298.15, places=6)
+        self.assertAlmostEqual(beta_45, 1.0 / 318.15, places=6)
+        self.assertGreater(abs(beta_25 - beta_45) / beta_45, 0.06)
 
     def test_free_stream_is_sampled_over_and_under_a_flat_board(self):
         # P02 Rev E, 2026-09-22 21:58: a 1.6 mm board 15 mm up a 165 x 100 x

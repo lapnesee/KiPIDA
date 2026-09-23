@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Fixed the CFD solid-air film always rating a face as upward-facing
+  (0.54 vs the 0.27 a downward face gets), added a real (default-off)
+  emissivity setting so radiation in the film is configurable instead of
+  dead code, and documented the film length/velocity/double-counting
+  limitations that remain.
+- Fixed CFD's explicit advection missing its own stability bound
+  (dt <= 2*nu/u^2, 3.8x violated on P02 Rev E) and its Boussinesq beta
+  using a 25 C constant regardless of actual ambient (6.7% low at 45 C);
+  added a limitation when beta*dT exceeds the usual ~0.1 validity bound.
 - Fixed the campaign thermal report naming no component, no hottest
   junction and no loss provenance (analysis_adapters.py). P02 Rev E:
   the 114.71 C hotspot now names Q10 as the component underneath it,

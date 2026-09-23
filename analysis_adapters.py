@@ -1240,18 +1240,37 @@ def adapt_cfd_result(mesh: Any, domain_result: Any, *, copper_loss_source: str =
         solid_c = float(getattr(domain_result, "maximum_solid_temperature_c", 0.0))
         air_c = float(getattr(domain_result, "maximum_air_temperature_c", 0.0))
         if solid_c > air_c > 0.0:
+            emissivity = float(getattr(getattr(settings, "geometry", None), "emissivity", 0.0) or 0.0)
+            film_terms = (
+                "natural, forced and radiation correlations" if emissivity > 0.0
+                else "natural and forced correlations (radiation is off: "
+                     "geometry.emissivity is 0)"
+            )
             mesh_quality_limitations.append(
                 f"Solid and air maxima are not usable at this mesh size: the hottest "
                 f"solid reads {solid_c:.1f} C against {air_c:.1f} C for the air, "
                 f"{solid_c - air_c:.1f} C apart. A solid-air face does carry a surface "
-                "film (conduction through the solid half-cell in series with natural, "
-                "forced and radiation correlations), so the component's own interface "
-                "is modelled; the resolution error above is what makes the local values "
-                "unreliable, not an unmodelled transport mechanism. Take component "
-                "temperatures from the 3D thermal analysis, which applies a convective "
-                "correlation and radiation at every exposed face. Use the mean internal "
-                "air rise below, or the flow field, from this run."
+                f"film (conduction through the solid half-cell in series with {film_terms}), "
+                "so the component's own interface is modelled; the resolution error above "
+                "is what makes the local values unreliable, not an unmodelled transport "
+                "mechanism. Take component temperatures from the 3D thermal analysis, "
+                "which applies a convective correlation and radiation at every exposed "
+                "face. Use the mean internal air rise below, or the flow field, from "
+                "this run."
             )
+    # Boussinesq (buoyancy linear in temperature) is usually cited as valid to
+    # beta*dT <~ 0.1; above that the force this solver computes is
+    # progressively less trustworthy, and it is a fact about this run's own
+    # solved field, not a design defect -- a limitation, not a finding.
+    # See CFD-7, docs/audit-2026-09-23.md.
+    boussinesq_max = float(getattr(domain_result, "boussinesq_beta_delta_t_max", 0.0))
+    if boussinesq_max > 0.1:
+        mesh_quality_limitations.append(
+            f"Boussinesq buoyancy is out of its usual validity range: beta * max|T - "
+            f"ambient| = {boussinesq_max:.2f} (usually cited as valid below ~0.1). "
+            "The temperature field is likely developing enough real density change "
+            "that the linear approximation under- or over-drives the flow."
+        )
     mass_applicable = bool(getattr(domain_result, "mass_balance_applicable", True))
     for index, (key, label) in enumerate((("mass_balance_error_pct", "Mass"), ("energy_balance_error_pct", "Energy")), start=1):
         if key == "mass_balance_error_pct" and not mass_applicable:
@@ -1313,10 +1332,26 @@ def adapt_cfd_result(mesh: Any, domain_result: Any, *, copper_loss_source: str =
         ] + _copper_loss_evidence(copper_loss_source),
         compute_metadata={"backend": getattr(domain_result, "compute_backend", ""), "device": getattr(domain_result, "compute_device", "")},
         limitations=[
-            "Laminar steady-state model; turbulence, fan blades, radiation, and transients are excluded.",
+            "Laminar steady-state model; turbulence, fan blades, and transients are excluded. "
+            + (
+                "Radiation is included in the solid-air film (geometry.emissivity "
+                f"= {float(getattr(getattr(settings, 'geometry', None), 'emissivity', 0.0) or 0.0):g}), "
+                "but not between enclosure walls or to ambient."
+                if float(getattr(getattr(settings, "geometry", None), "emissivity", 0.0) or 0.0) > 0.0
+                else "Radiation is excluded (geometry.emissivity is 0)."
+            ),
             "Momentum discretisation validated against laminar duct flow to 0.4% at 20 cells "
             "across the channel; at 6 cells it produced no boundary layer at all. "
             "See docs/validation-cfd.md.",
+            "Solid-air film: the length scale is the mesh's own mean cell size, not each "
+            "obstacle's A/P footprint; the forced-convection term uses the adjacent cell's "
+            "local speed rather than the board's free-stream velocity (the value this same "
+            "report uses for its own free-stream metric, for the opposite reason -- a "
+            "near-wall cell under-predicts the coefficient there, the same physics this "
+            "film term does not correct for); and natural convection is evaluated everywhere "
+            "a solid-air face exists, including where the resolved buoyant flow already "
+            "carries that heat, which can double-count it. See CFD-6, "
+            "docs/audit-2026-09-23.md.",
             "Sealed enclosure: no flow crosses a boundary, so mass balance is "
             "not applicable rather than perfect."
             if not mass_applicable else

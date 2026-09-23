@@ -82,6 +82,18 @@ class EnclosureCFDSolver:
             self.log_callback(f"[CFD SOLVER] {message}")
 
     @staticmethod
+    def _boussinesq_beta(ambient_c):
+        """Thermal expansion coefficient of air for the Boussinesq force, 1/K.
+
+        beta = 1/T for an ideal gas at absolute temperature T. The solver
+        used to take it from FluidProperties.thermal_expansion_per_k, a
+        constant (default 0.00335 = 1/298.15, i.e. 25 C) applied unchanged
+        at any ambient -- wrong by 6% at P02 Rev E's 45 C ambient and worse
+        further out (CFD-7, docs/audit-2026-09-23.md).
+        """
+        return 1.0 / (float(ambient_c) + 273.15)
+
+    @staticmethod
     def _shift(array, axis, amount, fill=None):
         shifted = np.roll(array, amount, axis=axis)
         selector = [slice(None)] * array.ndim
@@ -485,7 +497,7 @@ class EnclosureCFDSolver:
         return free
 
     @staticmethod
-    def _film_coefficient(delta_t_k, length_m, speed_m_s, ambient_c, emissivity):
+    def _film_coefficient(delta_t_k, length_m, speed_m_s, ambient_c, emissivity, facing="up"):
         """Surface film at a solid-air face, W/m^2K.
 
         Without this the only path off a hot component is conduction into still
@@ -500,6 +512,14 @@ class EnclosureCFDSolver:
         what the 3D thermal solver already does, through the same correlations.
         Reusing surface_convection keeps the two analyses answering with one
         physics instead of two.
+
+        ``facing`` is "up" for a solid whose exposed face is beneath the air
+        (natural_convection_h's plume case, coefficient 0.54) and anything
+        else -- "down" for a solid above its air, or a vertical side face --
+        for the 0.27 case (see CFD-6, docs/audit-2026-09-23.md: every call
+        used to pass "up" regardless of the face's actual orientation, which
+        over-estimated a downward-facing bottom face by about 2x, 0.54 vs
+        0.27).
         """
         try:
             from .import surface_convection
@@ -507,7 +527,7 @@ class EnclosureCFDSolver:
             import surface_convection
 
         natural = surface_convection.natural_convection_h(
-            delta_t_k, length_m, facing="up", ambient_c=ambient_c,
+            delta_t_k, length_m, facing=facing, ambient_c=ambient_c,
         )
         forced = surface_convection.forced_convection_h(
             speed_m_s, length_m, ambient_c=ambient_c, delta_t_k=delta_t_k,
@@ -552,10 +572,14 @@ class EnclosureCFDSolver:
         ambient = float(settings.ambient_c)
         # Length scale for the plate correlations at a solid-air face. The mean
         # cell size is used because the mesh is all the geometry the solver has
-        # here -- it does not carry each obstacle's own A/P. Since h varies only
-        # as L^(-1/4), a length wrong by a factor of two moves the coefficient
-        # by 19%, which is inside the correlation's own spread; a missing film
-        # was wrong by a factor of forty.
+        # here -- it does not carry each obstacle's own A/P (surface_convection.
+        # characteristic_length_m), which the 3D thermal solver uses instead
+        # (CFD-6, docs/audit-2026-09-23.md). A length wrong by a factor of two
+        # moves natural h (~L^-1/4) by 19% and forced h (~L^-1/2) by 41%; both
+        # are inside the correlations' own spread, and a missing film was wrong
+        # by a factor of forty. Stated as a limitation below rather than
+        # plumbed through, since the mesh has no per-obstacle footprint to give
+        # it.
         film_length_m = float(sum(mesh.spacing_m)) / 3.0
         emissivity = max(0.0, min(1.0, float(
             getattr(settings.geometry, "emissivity", 0.0) or 0.0
@@ -603,10 +627,24 @@ class EnclosureCFDSolver:
                 delta_t = np.abs(previous[lower] - previous[upper])[interface]
                 air_speed = np.where(fluid_lower, speed[lower], speed[upper])[interface]
                 k_solid = np.maximum(np.where(fluid_lower, k_upper, k_lower)[interface], 1e-9)
+                # Which way the solid's exposed face points. Only the two
+                # z-axis cases differ: a solid below its air (fluid on the
+                # upper side) has a top face driving a plume, "up"; a solid
+                # above its air (fluid below) has a bottom face trapping the
+                # boundary layer, "down". A side face (x or y axis) is
+                # vertical, the same 0.27 coefficient as "down". See CFD-6.
+                if axis == 2:
+                    # fluid_lower True means the solid is the *upper* cell:
+                    # its exposed face is its underside, facing down into the
+                    # air beneath it. fluid_lower False puts the solid below
+                    # its air, exposed face up, driving the plume.
+                    facing = np.where(fluid_lower[interface], "down", "up")
+                else:
+                    facing = np.full(int(interface.sum()), "down")
                 film = np.fromiter(
                     (self._film_coefficient(float(dt), film_length_m, float(v),
-                                            ambient, emissivity)
-                     for dt, v in zip(delta_t, air_speed)),
+                                            ambient, emissivity, str(f))
+                     for dt, v, f in zip(delta_t, air_speed, facing)),
                     dtype=float, count=delta_t.size,
                 )
                 resistance = (
@@ -884,16 +922,37 @@ class EnclosureCFDSolver:
             max_speed = float(np.max(speed[fluid])) if np.any(fluid) else 0.0
             advective_dt = 0.35 * min(mesh.spacing_m) / max(max_speed, 1e-3)
             diffusive_dt = 0.12 * min(mesh.spacing_m) ** 2 / max(viscosity, 1e-12)
-            dt = min(max(1e-6, float(controls.pseudo_time_step_s)), advective_dt, diffusive_dt)
+            # Explicit CENTRED advection has a third, independent stability
+            # bound: it oscillates above a cell Peclet number of 2, which
+            # combined with the diffusive time-step limit gives
+            # dt <= 2*nu/u^2 (Peclet = u*dx/nu <= 2 <=> dt_diff <= 2*nu/u^2
+            # at dt_diff = dx^2/nu). Neither advective_dt (a CFL bound) nor
+            # diffusive_dt (viscous-only) enforces it. relaxation scales the
+            # velocity update actually applied, so it divides the bound
+            # rather than multiplying dt. At P02 Rev E's 0.15 m/s this is
+            # 1.4 ms against the previous effective (relaxation-scaled) step
+            # of 5.3 ms, 3.8x over (CFD-7, docs/audit-2026-09-23.md).
+            centred_advection_dt = (
+                2.0 * viscosity / max(max_speed, 1e-3) ** 2 / max(relaxation, 1e-6)
+            )
+            dt = min(
+                max(1e-6, float(controls.pseudo_time_step_s)),
+                advective_dt, diffusive_dt, centred_advection_dt,
+            )
             gradients = [self._gradient(component, mesh.spacing_m, fluid) for component in velocity]
             old_velocity = [component.copy() for component in velocity]
             body = [np.zeros(shape, dtype=float) for _ in range(3)]
             if controls.include_buoyancy:
                 temperature_delta = temperature - float(settings.ambient_c)
                 gravity = (controls.gravity_x_m_s2, controls.gravity_y_m_s2, controls.gravity_z_m_s2)
+                # Boussinesq's beta is 1/T_ambient (ideal gas, absolute
+                # temperature), not a fitted constant: the configured
+                # thermal_expansion_per_k (default 0.00335 = 1/298.15, i.e.
+                # 25 C) was used unchanged at any ambient, wrong by 6% at
+                # P02 Rev E's 45 C ambient and worse further out (CFD-7).
+                beta = self._boussinesq_beta(settings.ambient_c)
                 for axis in range(3):
-                    body[axis] = (-float(gravity[axis]) * props.thermal_expansion_per_k *
-                                  temperature_delta)
+                    body[axis] = -float(gravity[axis]) * beta * temperature_delta
                     body[axis][~fluid] = 0.0
             for axis in range(3):
                 advection = sum(velocity[d] * gradients[axis][d] for d in range(3))
@@ -955,6 +1014,11 @@ class EnclosureCFDSolver:
         free_stream, free_stream_cells = self._board_free_stream(
             mesh, speed, getattr(settings.geometry, "board_orientation", "XY")
         )
+        beta = self._boussinesq_beta(settings.ambient_c)
+        boussinesq_max = (
+            float(beta * np.max(np.abs(temperature[fluid] - float(settings.ambient_c))))
+            if np.any(fluid) else 0.0
+        )
         self._log(
             f"Solved {mesh.cell_count:,} cells in {iteration + 1} iterations; "
             f"Vmax={np.max(speed):.4g} m/s, "
@@ -974,6 +1038,7 @@ class EnclosureCFDSolver:
             mass_balance_error_pct=0.0 if mass_error is None else float(mass_error),
             mass_balance_applicable=mass_error is not None,
             energy_balance_error_pct=float(energy_error),
+            boussinesq_beta_delta_t_max=boussinesq_max,
             maximum_velocity_m_s=float(np.max(speed[fluid])) if np.any(fluid) else 0.0,
             board_free_stream_velocity_m_s=free_stream,
             board_free_stream_cells=free_stream_cells,

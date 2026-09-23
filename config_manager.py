@@ -851,6 +851,7 @@ def _cfd_settings_to_dict(settings: EnclosureCFDSettings) -> dict:
             "board_offset_y_mm": geometry.board_offset_y_mm,
             "board_offset_z_mm": geometry.board_offset_z_mm,
             "wall_heat_transfer_w_m2k": geometry.wall_heat_transfer_w_m2k,
+            "emissivity": geometry.emissivity,
         },
         "fluid": {
             "density_kg_m3": fluid.density_kg_m3,
@@ -906,6 +907,7 @@ def _dict_to_cfd_settings(data: dict) -> EnclosureCFDSettings:
             wall_heat_transfer_w_m2k=float(
                 geometry.get("wall_heat_transfer_w_m2k", 5.0)
             ),
+            emissivity=float(geometry.get("emissivity", 0.0)),
         ),
         fluid=FluidProperties(
             density_kg_m3=float(fluid.get("density_kg_m3", 1.184)),

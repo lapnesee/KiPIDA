@@ -1027,6 +1027,12 @@ class EnclosureGeometrySettings:
     board_offset_y_mm: float = 0.0
     board_offset_z_mm: float = 15.0
     wall_heat_transfer_w_m2k: float = 5.0
+    # Solid-air film radiation, CFD-6 (docs/audit-2026-09-23.md): the field
+    # this setting fills used to not exist, so the solver's own emissivity
+    # read always fell back to 0.0 -- radiation was dead code -- while a
+    # report limitation claimed it was part of the film. 0.0 keeps that exact
+    # behaviour; enter e.g. 0.9 for an FR4/plastic enclosure to turn it on.
+    emissivity: float = 0.0
 
 
 @dataclass
@@ -1120,6 +1126,12 @@ class EnclosureCFDResult:
     compute_solve_seconds: float = 0.0
     compute_relative_residual: float = 0.0
     compute_fallback_reason: str = ""
+    # max(beta * |T - ambient|) over the fluid, at solve's end. Boussinesq
+    # (a linear density-vs-temperature approximation) is usually cited as
+    # valid to beta*dT <~ 0.1; above that the buoyancy force this solver
+    # computes is progressively less trustworthy. See CFD-7,
+    # docs/audit-2026-09-23.md.
+    boussinesq_beta_delta_t_max: float = 0.0
 
 def generate_regulator_name(input_ref_des: str, output_ref_des: str, output_rail_name: str = "") -> str:
     """
