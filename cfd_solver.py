@@ -315,7 +315,7 @@ class EnclosureCFDSolver:
         matrix.sort_indices()
         return matrix, fixed, isolated
 
-    def _pressure_projection(self, mesh, velocity, pressure, density, dt, iterations):
+    def _pressure_projection(self, mesh, velocity, pressure, density, dt):
         fluid = mesh.fluid_mask
         shape = mesh.shape
         faces = []
@@ -966,9 +966,7 @@ class EnclosureCFDSolver:
                     relaxation * candidate[fluid]
                 )
             self._apply_velocity_boundaries(mesh, velocity, pressure)
-            continuity = self._pressure_projection(
-                mesh, velocity, pressure, density, dt, controls.pressure_iterations
-            )
+            continuity = self._pressure_projection(mesh, velocity, pressure, density, dt)
             momentum = max(float(np.max(np.abs(velocity[a] - old_velocity[a]))) for a in range(3))
             if iteration == 0 or (iteration + 1) % 5 == 0:
                 new_temperature, energy_residual = self._solve_energy(

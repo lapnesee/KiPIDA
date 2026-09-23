@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Removed CFDSolverSettings.pressure_iterations and its UI control: inert
+  since the pressure Poisson system moved to a direct sparse solve
+  (c4e0ead). A project saved with the key still loads; it is just no
+  longer read into anything.
 - Fixed the CFD solid-air film always rating a face as upward-facing
   (0.54 vs the 0.27 a downward face gets), added a real (default-off)
   emissivity setting so radiation in the film is configurable instead of

@@ -119,9 +119,6 @@ class CFDAnalysisPanel(wx.Panel):
         self.tolerance = wx.TextCtrl(solver_parent, value=f"{_solver.tolerance:g}")
         self.relaxation = wx.TextCtrl(solver_parent, value=f"{_solver.relaxation:g}")
         self.time_step = wx.TextCtrl(solver_parent, value=f"{_solver.pseudo_time_step_s:g}")
-        self.pressure_iterations = wx.TextCtrl(
-            solver_parent, value=str(_solver.pressure_iterations),
-        )
         self.buoyancy = wx.CheckBox(solver_parent, label="Boussinesq buoyancy")
         self.buoyancy.SetValue(True)
         self.phase3_heat = wx.CheckBox(solver_parent, label="Use Phase 3 heat sources")
@@ -131,7 +128,7 @@ class CFDAnalysisPanel(wx.Panel):
         for row in (
             ("Ambient (C):", self.ambient, "Cell (mm):", self.cell, "Iterations:", self.iterations),
             ("Tolerance:", self.tolerance, "Relaxation:", self.relaxation, "Pseudo dt (s):", self.time_step),
-            ("Pressure iterations:", self.pressure_iterations, "", self.buoyancy, "", self.phase3_heat),
+            ("", self.buoyancy, "", self.phase3_heat, "", wx.StaticText(solver_parent, label="")),
         ):
             for index in range(0, 6, 2):
                 solver_grid.Add(wx.StaticText(solver_parent, label=row[index]), 0, wx.ALIGN_CENTER_VERTICAL)
@@ -259,13 +256,12 @@ class CFDAnalysisPanel(wx.Panel):
         solver.tolerance = float(self.tolerance.GetValue())
         solver.relaxation = float(self.relaxation.GetValue())
         solver.pseudo_time_step_s = float(self.time_step.GetValue())
-        solver.pressure_iterations = int(self.pressure_iterations.GetValue())
         solver.include_buoyancy = self.buoyancy.GetValue()
         result.use_phase3_heat_sources = self.phase3_heat.GetValue()
         result.include_dc_copper_losses = self.dc_losses.GetValue()
         if min(geometry.width_mm, geometry.depth_mm, geometry.height_mm, solver.cell_size_mm) <= 0:
             raise ValueError("Enclosure dimensions and CFD cell size must be greater than zero.")
-        if solver.max_iterations < 1 or solver.pressure_iterations < 1:
+        if solver.max_iterations < 1:
             raise ValueError("CFD iteration limits must be greater than zero.")
         return result
 
@@ -280,7 +276,6 @@ class CFDAnalysisPanel(wx.Panel):
             (self.cell, solver.cell_size_mm), (self.iterations, solver.max_iterations),
             (self.tolerance, solver.tolerance), (self.relaxation, solver.relaxation),
             (self.time_step, solver.pseudo_time_step_s),
-            (self.pressure_iterations, solver.pressure_iterations),
         ):
             control.SetValue(f"{value:g}")
         index = self.orientation.FindString(geometry.board_orientation)

@@ -453,6 +453,35 @@ class TestConfigManager(unittest.TestCase):
             if Path(filepath).exists():
                 os.unlink(filepath)
 
+    def test_a_saved_pressure_iterations_key_is_ignored_on_load(self):
+        # pressure_iterations (the old Jacobi sweep count) was removed from
+        # CFDSolverSettings once the pressure Poisson system moved to a
+        # direct sparse solve with no sweep count to tune
+        # (docs/audit-2026-09-23.md triage). A project saved before that
+        # still has the key in its JSON; loading it must not fail, and the
+        # loaded settings must not carry it either.
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
+            filepath = f.name
+            json.dump({
+                "version": "1.3", "rails": [], "ac_profiles": {},
+                "thermal_profile": None,
+                "cfd_profile": {
+                    "ambient_c": 25.0,
+                    "geometry": {}, "fluid": {},
+                    "solver": {"cell_size_mm": 5.0, "pressure_iterations": 240},
+                    "patches": [],
+                },
+            }, f)
+
+        try:
+            loaded = load_project_config(filepath).cfd_profile
+            self.assertIsNotNone(loaded)
+            self.assertAlmostEqual(loaded.solver.cell_size_mm, 5.0)
+            self.assertFalse(hasattr(loaded.solver, "pressure_iterations"))
+        finally:
+            if Path(filepath).exists():
+                os.unlink(filepath)
+
     def test_legacy_v12_config_migrates_without_cfd_profile(self):
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
             filepath = f.name

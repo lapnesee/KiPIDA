@@ -1053,18 +1053,15 @@ class CFDSolverSettings:
     tolerance: float = 1.0e-4
     relaxation: float = 0.45
     pseudo_time_step_s: float = 0.02
-    # UNUSED since the pressure Poisson system moved to SparseComputeBackend.
-    #
-    # It set the number of Jacobi sweeps the projection used to clean
-    # divergence. Jacobi bought accuracy linearly and never reached it: 30/60/
-    # 240/960 sweeps gave -8.2/-5.2/-1.6/-0.6% mass error on the validation
-    # duct. The sparse solve reaches 0.08% on the same case and does not have a
-    # sweep count to tune.
-    #
-    # Kept so saved projects and their persisted settings still load. It is
-    # deliberately not removed and not silently repurposed -- a control that
-    # looks live but does nothing is worse than one documented as inert.
-    pressure_iterations: int = 240
+    # pressure_iterations (the Jacobi sweep count the old hand-rolled
+    # projection used) was removed here: the pressure Poisson system moved
+    # to a direct sparse solve (SparseComputeBackend) that has no sweep
+    # count to tune. Jacobi bought accuracy linearly and never reached it --
+    # 30/60/240/960 sweeps gave -8.2/-5.2/-1.6/-0.6% mass error on the
+    # validation duct; the sparse solve reaches 0.08% on the same case,
+    # unconditionally, with every sweep count verified identical
+    # (docs/audit-2026-09-23.md triage). config_manager still loads a
+    # project that saved the key; it just no longer reads it into anything.
     include_buoyancy: bool = True
     gravity_x_m_s2: float = 0.0
     gravity_y_m_s2: float = 0.0

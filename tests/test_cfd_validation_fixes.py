@@ -324,7 +324,6 @@ class SealedEnclosuresReportNoMassBalance(unittest.TestCase):
         settings.geometry.height_mm = 30.0
         settings.solver.cell_size_mm = 6.0
         settings.solver.max_iterations = 6
-        settings.solver.pressure_iterations = 6
         model = EnclosureModel(
             dimensions_mm=(30.0, 30.0, 30.0),
             obstacles=[CFDObstacle("HOT", (12, 12, 12, 18, 18, 18), 5.0, 0.5)],
@@ -563,7 +562,6 @@ class ResidualsAreDimensionless(unittest.TestCase):
         settings.geometry.height_mm = 30.0
         settings.solver.cell_size_mm = 6.0
         settings.solver.max_iterations = 12
-        settings.solver.pressure_iterations = 12
         settings.solver.include_buoyancy = False
         model = EnclosureModel((30.0, 30.0, 30.0), patches=[
             CFDBoundaryPatch("Fan", "FAN", "XMIN", 0.5, 0.5, 0.5, 0.5, 0.8, 25.0),
@@ -600,7 +598,6 @@ class ResidualsAreDimensionless(unittest.TestCase):
         settings.geometry.height_mm = 30.0
         settings.solver.cell_size_mm = 6.0
         settings.solver.max_iterations = 12
-        settings.solver.pressure_iterations = 12
         settings.solver.include_buoyancy = False
         model = EnclosureModel((30.0, 30.0, 30.0), patches=[
             CFDBoundaryPatch("Fan", "FAN", "XMIN", 0.5, 0.5, 0.5, 0.5, 0.8, 25.0),
@@ -691,34 +688,6 @@ class ResidualsAreDimensionless(unittest.TestCase):
         result = self._forced_case(250)
         self.assertLess(result.mass_balance_error_pct, 1.0)
         self.assertGreater(result.mass_balance_error_pct, 1.0e-6)
-
-    def test_the_projection_no_longer_depends_on_a_sweep_count(self):
-        # pressure_iterations tuned the Jacobi projection, which the sparse
-        # backend replaced. Two wildly different values must now give the same
-        # answer; if they diverge, something still reads the setting and the
-        # comment calling it inert is wrong.
-        from cfd_mesh import CFDMeshGenerator
-        from cfd_model import EnclosureModel
-        from models import CFDBoundaryPatch
-
-        def run(sweeps):
-            settings = EnclosureCFDSettings()
-            settings.geometry.width_mm = 30.0
-            settings.geometry.depth_mm = 30.0
-            settings.geometry.height_mm = 30.0
-            settings.solver.cell_size_mm = 6.0
-            settings.solver.max_iterations = 10
-            settings.solver.pressure_iterations = sweeps
-            settings.solver.include_buoyancy = False
-            model = EnclosureModel((30.0, 30.0, 30.0), patches=[
-                CFDBoundaryPatch("Fan", "FAN", "XMIN", 0.5, 0.5, 0.5, 0.5, 0.8, 25.0),
-                CFDBoundaryPatch("Outlet", "OUTLET", "XMAX", 0.5, 0.5, 0.5, 0.5),
-            ])
-            mesh = CFDMeshGenerator().generate_mesh(model, settings)
-            return EnclosureCFDSolver().solve(mesh, settings).maximum_velocity_m_s
-
-        self.assertAlmostEqual(run(1), run(960), places=9)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,7 +19,6 @@ class TestEnclosureCFDSolver(unittest.TestCase):
         settings.geometry.wall_heat_transfer_w_m2k = 8.0
         settings.solver.cell_size_mm = 6.0
         settings.solver.max_iterations = 12
-        settings.solver.pressure_iterations = 12
         settings.solver.tolerance = 1e-8
         settings.solver.pseudo_time_step_s = 0.002
         return settings

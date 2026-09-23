@@ -866,7 +866,6 @@ def _cfd_settings_to_dict(settings: EnclosureCFDSettings) -> dict:
             "tolerance": solver.tolerance,
             "relaxation": solver.relaxation,
             "pseudo_time_step_s": solver.pseudo_time_step_s,
-            "pressure_iterations": solver.pressure_iterations,
             "include_buoyancy": solver.include_buoyancy,
             "gravity_x_m_s2": solver.gravity_x_m_s2,
             "gravity_y_m_s2": solver.gravity_y_m_s2,
@@ -932,9 +931,8 @@ def _dict_to_cfd_settings(data: dict) -> EnclosureCFDSettings:
             pseudo_time_step_s=float(solver.get(
                 "pseudo_time_step_s", _CFD_SOLVER_DEFAULTS.pseudo_time_step_s,
             )),
-            pressure_iterations=int(solver.get(
-                "pressure_iterations", _CFD_SOLVER_DEFAULTS.pressure_iterations,
-            )),
+            # A project saved before this field was removed still has a
+            # "pressure_iterations" key here; it is simply never read.
             include_buoyancy=bool(solver.get(
                 "include_buoyancy", _CFD_SOLVER_DEFAULTS.include_buoyancy,
             )),
