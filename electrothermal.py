@@ -109,8 +109,12 @@ class ElectroThermalSolver:
                 for node in nodes
             ]
             indices = [index for index in indices if index >= 0]
+            # TH-5: same fix as thermal_solver.py's component_results -- the
+            # coupling's own junction estimate (feeding the dynamic stage
+            # power that follows temperature) must not average away the
+            # part's own hotspot under it either.
             board_temperature = (
-                float(np.mean(temperatures[indices])) if indices else float(ambient_c)
+                float(np.max(temperatures[indices])) if indices else float(ambient_c)
             )
             component = thermal_mesh.component_models.get(ref_des)
             junction_rise = 0.0

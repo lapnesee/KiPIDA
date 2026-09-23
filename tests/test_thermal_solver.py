@@ -75,6 +75,31 @@ class TestThermalSolver(unittest.TestCase):
         self.assertEqual(heated, {3.5, 6.5})
         self.assertAlmostEqual(sum(mesh.heat_sources_w.values()), 1.0)
 
+    def test_component_board_temperature_is_the_hottest_cell_not_the_average(self):
+        # TH-5: P02 Rev E read Q10 Tj 110.64 C under its own 114.71 C board
+        # hotspot -- the window average sat below the part's own peak. A
+        # small pad concentrates its share of the heat more than a large one
+        # spreads it, so the part's cells are not at a uniform temperature;
+        # board_temperature_c must be the hottest of them, not their mean.
+        model = self._model()
+        model.copper_by_layer[0] = box(3.0, 4.0, 4.0, 6.0).union(box(6.0, 4.0, 9.0, 6.0))
+        model.placements["U1"] = ThermalPlacement("U1", 6.0, 5.0, 6.0, 2.0, "TOP")
+        settings = self._settings()
+        settings.grid_size_mm = 1.0
+        mesh = ThermalMesher().generate_mesh(model, settings)
+        result = ThermalSolver().solve(mesh, ambient_c=25.0)
+
+        component_nodes = mesh.component_nodes["U1"]
+        under_part = [
+            result.temperature_vector_c[index]
+            for index, node in enumerate(mesh.nodes) if node in component_nodes
+        ]
+        self.assertGreater(len(under_part), 1)
+        self.assertGreater(max(under_part), sum(under_part) / len(under_part))
+        self.assertAlmostEqual(
+            result.component_results[0].board_temperature_c, max(under_part), places=6,
+        )
+
     def test_a_package_the_grid_barely_resolves_is_spread_over_nearby_copper(self):
         # At 2 mm one sampled copper cell held all of U14 and read 158 C.
         model = self._model()

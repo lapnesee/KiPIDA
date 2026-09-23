@@ -303,7 +303,13 @@ class ThermalSolver:
             )
             if valid_indices.size == 0:
                 continue
-            board_temperature = float(np.mean(temperatures[valid_indices]))
+            # TH-5: the mean under-part temperature can sit well below the
+            # part's own hotspot -- P02 Rev E read Q10 Tj 110.64 C under a
+            # 114.71 C board hotspot beneath Q10 itself. thetaJB already maps
+            # the part's total dissipation to its hottest junction, so the
+            # board-side term it adds to should be the hottest cell under the
+            # part, not an average that a cooler pad drags down.
+            board_temperature = float(np.max(temperatures[valid_indices]))
             junction = board_temperature + component.power_w * max(0.0, component.theta_jb_c_per_w)
             component_results.append(ComponentThermalResult(
                 ref_des=ref_des,

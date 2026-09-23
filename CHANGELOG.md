@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed component board temperature averaging every cell under the
+  part instead of taking the hottest one (thermal_solver.py,
+  electrothermal.py). P02 Rev E's Q10 read Tj 110.64 C under its own
+  114.71 C board hotspot; the board-side term now uses the part's
+  hottest mapped cell.
 - Fixed thermal ignoring the enclosure the CFD domain models
   (application/thermal_controller.py, models.py). P02 Rev E's sealed
   165x100x50 mm box (5 W/m2K walls) raises internal air ~16.5 K above
