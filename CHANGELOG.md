@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed DC-1: a track end, via barrel or through-hole pad barrel now
+  joins every plane/land lattice node under its own footprint instead
+  of the single nearest one, removing a fictitious constriction
+  resistance that grew with grid refinement. P02 Rev E /+5V_U4
+  (2026-09-23): worst-load drop growth 0.1->0.035 mm was +4.9% before
+  this fix (24.2->25.7 mV) and is now -4.4% (21.3->20.3 mV, no longer
+  growing). DC-005's recommendation text updated to match.
 - Fixed the CFD report publishing unusable solid/air maxima as its headline
   numbers while never publishing the one defensible quantity in a sealed
   enclosure, the mean internal air rise (16.0 K on P02 Rev E, 4.755 W into

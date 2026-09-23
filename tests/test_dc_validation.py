@@ -266,10 +266,44 @@ class TestHybridMesherVia(unittest.TestCase):
         self.assertEqual(len(barrels), 1)
         layers = {mesh.node_coords[barrels[0].node_a][2], mesh.node_coords[barrels[0].node_b][2]}
         self.assertEqual(layers, {0, 2})
+        # DC-1 fix: the via's 0.6 mm land covers several 0.1 mm cells, so the
+        # barrel's per-layer node now stitches to every one of them instead of
+        # just the nearest -- "contact:via:..." branches alongside the land's
+        # own "pad-copper:" cut-cell edges, not just the latter.
         self.assertTrue(all(
             branch.geometry_source.startswith("pad-copper:")
+            or branch.geometry_source.startswith("contact:via:")
             for branch in mesh.branches if branch.kind != "vertical"
         ))
+        self.assertTrue(any(
+            branch.geometry_source.startswith("contact:via:") for branch in mesh.branches
+        ))
+
+    def test_finer_grid_adds_parallel_stitches_not_one_longer_one(self):
+        # DC-1 regression. Before this fix a via/track end joined the plane at
+        # the single nearest lattice node, so refining the grid moved that
+        # node no closer to the real contact and only added a fictitious
+        # constriction resistance: on P02 Rev E's /J2_PD_HV (3 A) the worst
+        # load's drop rose 26.49 -> 28.64 -> 31.81 -> 33.07 mV from 0.1 to
+        # 0.035 mm, "independent of the load sampling" (2026-09-22
+        # pdhv_grid.py; re-measured 2026-09-23 after this fix, see the
+        # DC-1 commit message for the post-fix table). The real board is not
+        # available in CI, so this checks the mechanism on the same synthetic
+        # 0.6 mm via land: refining the grid must add more parallel stitches
+        # under the unchanged physical land, not replace one with another.
+        from mesh_hybrid import HybridMesher
+
+        board = self._board_with_via()
+        coarse = HybridMesher(board, grid_step_mm=0.1).build_mesh("VCC")
+        fine = HybridMesher(board, grid_step_mm=0.03).build_mesh("VCC")
+        coarse_stitches = sum(
+            1 for b in coarse.branches if b.geometry_source.startswith("contact:via:")
+        )
+        fine_stitches = sum(
+            1 for b in fine.branches if b.geometry_source.startswith("contact:via:")
+        )
+        self.assertGreater(coarse_stitches, 0)
+        self.assertGreater(fine_stitches, coarse_stitches)
 
     def test_via_resistance_positive(self):
         from mesh_hybrid import HybridMesher

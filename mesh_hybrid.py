@@ -224,7 +224,10 @@ class HybridMesher:
                 mesh.node_coords[nid] = (_snap(x), _snap(y), layer_id)
             return node_registry[key]
 
-        def attach(x: float, y: float, layer_id: int) -> int:
+        def attach(x: float, y: float, layer_id: int,
+                   contact_radius_mm: float = 0.0,
+                   contact_thickness_mm: float = 0.0,
+                   contact_label: str = "") -> int:
             """Node for a track endpoint or via, joined to the plane it touches.
 
             Track endpoints snap to 1 um so two tracks meeting share a node.
@@ -238,9 +241,27 @@ class HybridMesher:
             grid cells on its own layer, and adopts the nearest one within half
             a cell. Only when the copper genuinely has no pour there does it
             create a node of its own.
+
+            *contact_radius_mm* widens this from "nearest node" to "every node
+            the real contact touches" -- a track end covers a disc of its own
+            width, a via or pad barrel the land drawn around it. Joining to a
+            single lattice point regardless of that real area forces the whole
+            current through one node and adds a fictitious constriction
+            resistance -- ~(rho/t)/(2*pi)*ln(r_pad/r_node) -- that grows as the
+            grid is refined and more lattice points crowd under the same
+            physical copper: P02 Rev E's /J2_PD_HV worst-load drop rose 26.49
+            -> 33.07 mV from 0.1 to 0.035 mm for exactly this reason, and it
+            was independent of the load count (2026-09-22 pdhv_grid.py). When
+            more than one lattice node lies under the contact they are stitched
+            to a shared hub node at the contact's own coordinates, each stitch
+            using the same rho*L/(w*t) model as every other branch here, at the
+            real reach to that node and the contact's own width -- so refining
+            the grid adds parallel paths instead of one long series one.
             """
-            if zone_index:
-                step = self._effective_grid_step
+            if not zone_index:
+                return get_or_create(x, y, layer_id)
+            step = self._effective_grid_step
+            if contact_radius_mm <= 0.0:
                 ix, iy = x / step, y / step
                 best_id, best_distance = None, None
                 for cx in (math.floor(ix), math.ceil(ix)):
@@ -267,7 +288,47 @@ class HybridMesher:
                 # missing by 6 um left the load unreachable from its source.
                 if best_id is not None and best_distance <= 0.7072 * step:
                     return best_id
-            return get_or_create(x, y, layer_id)
+                return get_or_create(x, y, layer_id)
+
+            # Widened search: every zone node inside the real contact, not
+            # just the nearest one.
+            reach = max(contact_radius_mm, 0.7072 * step)
+            cell_reach = int(math.ceil(reach / step)) + 1
+            cx0, cy0 = int(math.floor(x / step)), int(math.floor(y / step))
+            matches = []
+            for cx in range(cx0 - cell_reach, cx0 + cell_reach + 1):
+                for cy in range(cy0 - cell_reach, cy0 + cell_reach + 1):
+                    found = zone_index.get((cx, cy, layer_id))
+                    if found is None:
+                        continue
+                    zx, zy, _layer = mesh.node_coords[found]
+                    distance = math.hypot(zx - x, zy - y)
+                    if distance <= reach:
+                        matches.append((found, distance))
+            if not matches:
+                return get_or_create(x, y, layer_id)
+            if len(matches) == 1:
+                return matches[0][0]
+            hub = get_or_create(x, y, layer_id)
+            span_mm = min(2.0 * contact_radius_mm, step)
+            t_mm = contact_thickness_mm if contact_thickness_mm > 0.0 else DEFAULT_COPPER_THICKNESS_MM
+            # Tagged "contact:" rather than the caller's own label (e.g.
+            # "seg:F.Cu") so a test or report summing one kind's *modelled*
+            # resistance is not silently joined by the stitches that connect
+            # it to the plane -- they are a different thing, the fix for
+            # DC-1, not a change to the track/via/pad's own resistance.
+            label = f"contact:{contact_label}" if contact_label else f"contact:{layer_id}"
+            for node_id, distance in matches:
+                if node_id == hub:
+                    continue
+                reach_mm = max(distance, step * 0.5)
+                mesh.add_edge_direct(
+                    hub, node_id, 1.0 / segment_resistance(reach_mm, span_mm, t_mm, self._rho),
+                    kind="lateral",
+                    cross_section_mm2=span_mm * t_mm,
+                    geometry_source=label,
+                )
+            return hub
 
         def probe(x: float, y: float, layer_id: int):
             """Existing node at this point, or None -- never mints one.
@@ -357,9 +418,13 @@ class HybridMesher:
                 if piece_mm <= _SNAP:
                     continue
                 u = attach(x0 + (x1 - x0) * start_mm / length_mm,
-                           y0 + (y1 - y0) * start_mm / length_mm, layer_id)
+                           y0 + (y1 - y0) * start_mm / length_mm, layer_id,
+                           contact_radius_mm=width_mm / 2.0, contact_thickness_mm=thickness_mm,
+                           contact_label=f"seg:{seg.layer}")
                 v = attach(x0 + (x1 - x0) * end_mm / length_mm,
-                           y0 + (y1 - y0) * end_mm / length_mm, layer_id)
+                           y0 + (y1 - y0) * end_mm / length_mm, layer_id,
+                           contact_radius_mm=width_mm / 2.0, contact_thickness_mm=thickness_mm,
+                           contact_label=f"seg:{seg.layer}")
                 if u == v:
                     # Both ends adopted the same node: copper already joined.
                     continue
@@ -442,10 +507,16 @@ class HybridMesher:
             # inter-layer hop its share so the total across the stack is right.
             hops = len(span) - 1
             g = hops / R_via
-            previous = attach(vx, vy, span[0][1])
+            via_radius_mm = via.size_mm / 2.0 if getattr(via, "size_mm", 0.0) > 0.0 else 0.0
+            via_label = f"via:{top_layer}-{bot_layer}"
+            previous = attach(vx, vy, span[0][1], contact_radius_mm=via_radius_mm,
+                               contact_thickness_mm=_thickness_for_layer(board, span[0][0]),
+                               contact_label=via_label)
             added = False
             for name, layer_id in span[1:]:
-                node = attach(vx, vy, layer_id)
+                node = attach(vx, vy, layer_id, contact_radius_mm=via_radius_mm,
+                               contact_thickness_mm=_thickness_for_layer(board, name),
+                               contact_label=via_label)
                 if node != previous:
                     mesh.add_edge_direct(
                         previous, node, g,
@@ -490,10 +561,15 @@ class HybridMesher:
                 # would otherwise have found the real network.
                 if not any(probe(px, py, layer_id) is not None for _n, layer_id in span):
                     continue
+                pad_w, pad_h = (tuple(getattr(pad, "size_mm", ()) or ()) + (0.0, 0.0))[:2]
+                pad_radius_mm = max(pad_w, pad_h) / 2.0
+                pad_label = f"pad:{footprint.reference}-{pad.number}"
                 if len(span) < 2:
                     # A surface pad adds no vertical path; attaching it is what
                     # lets a load anchored on an SMD pad share the pour's node.
-                    attach(px, py, span[0][1])
+                    attach(px, py, span[0][1], contact_radius_mm=pad_radius_mm,
+                           contact_thickness_mm=_thickness_for_layer(board, span[0][0]),
+                           contact_label=pad_label)
                     pad_count += 1
                     continue
                 drill = float(pad.drill_mm or 0.0)
@@ -511,10 +587,14 @@ class HybridMesher:
                     continue
                 hops = len(span) - 1
                 conductance = hops / barrel
-                previous = attach(px, py, span[0][1])
+                previous = attach(px, py, span[0][1], contact_radius_mm=pad_radius_mm,
+                                   contact_thickness_mm=_thickness_for_layer(board, span[0][0]),
+                                   contact_label=pad_label)
                 added = False
                 for _name, layer_id in span[1:]:
-                    node = attach(px, py, layer_id)
+                    node = attach(px, py, layer_id, contact_radius_mm=pad_radius_mm,
+                                   contact_thickness_mm=_thickness_for_layer(board, _name),
+                                   contact_label=pad_label)
                     if node != previous:
                         mesh.add_edge_direct(
                             previous, node, conductance,

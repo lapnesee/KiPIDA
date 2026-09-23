@@ -1242,8 +1242,10 @@ def _dc_grid_sensitivity(rail, index, check, maximum_drop_pct, source_voltage):
         f"{DC_GRID_SENSITIVITY_LIMIT_PCT:g}% a converged drop may move." + verdict,
         f"Rerun at {check_grid:g} mm or finer until the check stays under "
         f"{DC_GRID_SENSITIVITY_LIMIT_PCT:g}%; until then read the drop as uncertain by at least "
-        f"{abs(check_drop - drop) * 1000.0:.1f} mV. A drop that grows as the grid is refined "
-        "usually runs through a neck of copper narrower than a few grid steps.",
+        f"{abs(check_drop - drop) * 1000.0:.1f} mV. Since DC-1, a track, via or pad joins the "
+        "plane at every lattice node under its own footprint rather than the single nearest "
+        "one, so a drop that still grows as the grid is refined usually runs through a neck "
+        "of copper narrower than a few grid steps, not that meshing artifact.",
         confidence=EvidenceConfidence.DETERMINISTIC,
     )]
 
