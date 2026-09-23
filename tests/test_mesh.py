@@ -131,6 +131,35 @@ class TestMesher(unittest.TestCase):
         # We can just check that G_coo_data grew
         self.assertTrue(len(mesh.G_coo_data) > 0)
 
+    def test_add_vertical_stack_connects_a_pth_pads_layers(self):
+        # docs/audit-2026-09-23.md "old items": _add_vertical_stack -- the
+        # PTH pad barrel path taken by a through-hole footprint pad, as
+        # opposed to _add_vertical_link's board via -- had no direct test.
+        mesh = Mesh()
+        mesh.grid_origin = (0.0, 0.0)
+        mesh.grid_step = 0.5
+        mesh.node_map[(0, 0, 0)] = 10
+        mesh.node_map[(0, 0, 31)] = 20
+        mesh.node_coords[10] = (0.0, 0.0, 0)
+        mesh.node_coords[20] = (0.0, 0.0, 31)
+        stackup = {
+            'copper': {0: {}, 31: {}},
+            'resistivity': 1.7e-5,
+            'substrate': [{'between': [0, 31], 'thickness_mm': 1.51}],
+        }
+
+        self.mesher._add_vertical_stack(
+            mesh, MockPoint(0, 0), layers=[0, 31], diameter=0.3, stackup=stackup,
+        )
+
+        self.assertEqual(len(mesh.branches), 1)
+        branch = mesh.branches[0]
+        self.assertEqual({branch.node_a, branch.node_b}, {10, 20})
+        self.assertEqual(branch.kind, "pth")
+        self.assertGreater(branch.resistance_ohm, 0.0)
+        self.assertGreater(branch.inductance_h, 0.0)
+        self.assertGreater(branch.cross_section_mm2, 0.0)
+
     def test_large_electrical_mesh_adapts_grid_instead_of_exhausting_memory(self):
         poly = Polygon([(0, 0), (20, 0), (20, 10), (0, 10)])
         stackup = {'copper': {0: {'thickness_mm': 0.035}}, 'resistivity': 1.7e-5}

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added coverage for Mesher._add_vertical_stack (PTH pad barrels),
+  previously untested (audit-2026-09-23.md section 11).
 - Fixed: tests/test_ac_controller.py now inserts the repo root on
   sys.path before importing application.ac_controller, matching every
   other test file, so it no longer depends on the test runner adding
