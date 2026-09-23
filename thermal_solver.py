@@ -69,6 +69,7 @@ class ThermalSolver:
         if not base or str(settings.airflow.mode or "").upper() == "CUSTOM":
             return result
 
+        result.surface_refined = True
         for iteration in range(1, self.SURFACE_REFINEMENT_PASSES + 1):
             updated, worst_change = self._refine_surface_exchange(mesh, settings, result)
             if not updated:
@@ -82,6 +83,7 @@ class ThermalSolver:
                 progress_callback=None,
                 materialize_temperatures=materialize_temperatures,
             )
+            result.surface_refined = True
             if worst_change <= self.SURFACE_H_TOLERANCE:
                 break
         applied = ", ".join(

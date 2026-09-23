@@ -246,6 +246,18 @@ class ElectroThermalSolver:
             thermal_result = thermal_solver.solve(
                 thermal_mesh, settings.ambient_c, materialize_temperatures=False
             )
+            # Natural convection and radiation depend on the surface
+            # temperature just solved for -- the same reason the uncoupled
+            # path uses solve_with_surface_refinement instead of solve().
+            # This loop already re-solves every iteration, so refining here
+            # costs nothing extra: the rescaled boundaries are simply what
+            # the next iteration's solve() sees (its CSR cache is dropped by
+            # the refinement itself). Skipped in CUSTOM airflow, where h is
+            # user-specified, matching solve_with_surface_refinement's guard.
+            surface_base = dict(getattr(thermal_mesh, "surface_h_w_m2k", {}) or {})
+            if surface_base and str(settings.airflow.mode or "").upper() != "CUSTOM":
+                thermal_solver._refine_surface_exchange(thermal_mesh, settings, thermal_result)
+                thermal_result.surface_refined = True
             current_temperatures = thermal_result.temperature_vector_c
             if current_temperatures is None:
                 current_temperatures = np.fromiter(

@@ -105,6 +105,31 @@ class TestThermalSolver(unittest.TestCase):
             result.component_results[0].board_temperature_c + 5.0,
         )
 
+    def test_refine_surface_exchange_moves_h_toward_the_solved_temperature(self):
+        # TH-2: _refine_surface_exchange had 0 calls in the suite. The nominal
+        # mesh guess (ambient + 30 K) disagrees with this board's actual
+        # solved rise, so a first pass must report a correction (updated,
+        # worst_change beyond the 2% tolerance); repeating it after
+        # re-solving with the corrected h must shrink that mismatch.
+        model = self._model()
+        settings = self._settings()
+        mesh = ThermalMesher().generate_mesh(model, settings)
+        solver = ThermalSolver()
+        plain = solver.solve(mesh, ambient_c=settings.ambient_c)
+
+        before_updated, before_change = solver._refine_surface_exchange(mesh, settings, plain)
+        self.assertTrue(before_updated)
+        self.assertGreater(before_change, ThermalSolver.SURFACE_H_TOLERANCE)
+
+        resolved = solver.solve(mesh, ambient_c=settings.ambient_c)
+        _, after_change = solver._refine_surface_exchange(mesh, settings, resolved)
+        self.assertLess(after_change, before_change)
+
+    def test_plain_solve_does_not_claim_surface_refinement(self):
+        mesh = ThermalMesher().generate_mesh(self._model(), self._settings())
+        result = ThermalSolver().solve(mesh, ambient_c=25.0)
+        self.assertFalse(result.surface_refined)
+
     def test_reuses_same_host_csr_matrix_between_coupled_iterations(self):
         mesh = ThermalMesher().generate_mesh(self._model(), self._settings())
         solver = ThermalSolver()

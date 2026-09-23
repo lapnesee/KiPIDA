@@ -138,6 +138,62 @@ class TestElectroThermalSolver(unittest.TestCase):
         self.assertLessEqual(result.iterations, settings.coupled_iterations)
         self.assertTrue(result.converged)
 
+    def test_coupled_loop_refines_natural_convection_h(self):
+        # TH-2: the coupled path called solve() and never
+        # solve_with_surface_refinement, so h stayed at the mesh's nominal
+        # "ambient + 30 K" guess -- P02 Rev E published exactly that guess
+        # (h_top 16.44, h_bottom 12.00 W/m2K) while the report claimed
+        # "refined against the solved surface temperature".
+        settings = ThermalAnalysisSettings(
+            ambient_c=25.0,
+            grid_size_mm=2.0,
+            airflow=AirflowSettings(
+                mode="NATURAL",
+                expose_top=True, expose_bottom=True, expose_edges=True,
+            ),
+            include_radiation=False,
+            coupled_iterations=10,
+            convergence_c=0.01,
+            relaxation=1.0,
+        )
+        board_model = ThermalBoardModel(
+            bounds_mm=(0.0, 0.0, 10.0, 10.0),
+            outline=box(0.0, 0.0, 10.0, 10.0),
+            stackup={
+                "copper": {
+                    0: {"name": "F.Cu", "thickness_mm": 0.035},
+                    31: {"name": "B.Cu", "thickness_mm": 0.035},
+                },
+                "layer_order": [0, 31],
+                "substrate": [{"between": [0, 31], "thickness_mm": 1.53}],
+            },
+            copper_by_layer={
+                0: box(0.0, 0.0, 10.0, 10.0),
+                31: box(0.0, 0.0, 10.0, 10.0),
+            },
+        )
+        thermal_mesh = ThermalMesher().generate_mesh(board_model, settings)
+        nominal_h = thermal_mesh.surface_h_w_m2k["top"]
+
+        electrical_mesh = Mesh()
+        electrical_mesh.nodes = [0, 1]
+        electrical_mesh.node_coords = {0: (2.0, 5.0, 0), 1: (8.0, 5.0, 0)}
+        electrical_mesh.add_edge_direct(0, 1, g=1.0)
+        contexts = {
+            "5V": {
+                "mesh": electrical_mesh,
+                "sources": [{"node_id": 0, "voltage": 5.0}],
+                "loads": [{"node_id": 1, "current": 1.0}],
+            }
+        }
+
+        result = ElectroThermalSolver().solve(thermal_mesh, settings, contexts)
+
+        self.assertTrue(result.thermal.surface_refined)
+        self.assertNotAlmostEqual(
+            thermal_mesh.surface_h_w_m2k["top"], nominal_h, places=3,
+        )
+
     def test_default_relaxation_does_not_drag_a_settled_coupling(self):
         # P02 Rev E, 2026-09-22 21:56: the solved hotspot sat at 114.68-114.71 C
         # from the first iteration, yet the deltas ran 69.68, 27.89, 11.17 ...

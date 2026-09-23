@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed the coupled thermal path never refining surface h against the
+  solved temperature (electrothermal.py, thermal_solver.py): it now
+  runs the same correction the uncoupled path does, and the report's
+  "refined" wording is conditional on that having happened
+  (ThermalResult.surface_refined). P02 Rev E's published h_top
+  16.44 / h_bottom 12.00 W/m2K was the untouched nominal guess.
 - Fixed thermal via modelling reading kipy's nonexistent Via.width
   (defaulted all 685 P02 Rev E vias to 0.6 mm vs real 0.3/0.4 mm
   drills) and via barrels bypassing inner copper planes. Synthetic

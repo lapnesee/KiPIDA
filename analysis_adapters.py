@@ -806,7 +806,15 @@ def _thermal_surface_metrics(domain_result: Any) -> list:
 
 
 def _thermal_surface_detail(domain_result: Any) -> str:
-    """One line naming the coefficients used and where they came from."""
+    """One line naming the coefficients used and where they came from.
+
+    TH-2: the coupled path used to call solve() and never
+    solve_with_surface_refinement, so this always claimed "refined against
+    the solved surface temperature" while h stayed at the mesh's nominal
+    ambient + 30 K guess (P02 Rev E published h 16.44 / 12.00 W/m2K, exactly
+    that guess). The claim now follows ThermalResult.surface_refined, which
+    is only True once ThermalSolver._refine_surface_exchange actually ran.
+    """
     surfaces = dict(getattr(domain_result, "surface_h_w_m2k", {}) or {})
     basis = str(getattr(domain_result, "convection_basis", "") or "unspecified correlation")
     length_m = float(getattr(domain_result, "characteristic_length_m", 0.0) or 0.0)
@@ -821,10 +829,13 @@ def _thermal_surface_detail(domain_result: Any) -> str:
         f" Characteristic length A/P = {length_m * 1000.0:.1f} mm."
         if length_m > 0.0 else ""
     )
-    return (
-        f"Convection and radiation combined, refined against the solved surface "
-        f"temperature: {applied}. Basis: {basis}.{length_note}"
+    provenance = (
+        "Convection and radiation combined, refined against the solved surface temperature"
+        if bool(getattr(domain_result, "surface_refined", False)) else
+        "Convection and radiation combined at the mesh's nominal ambient + 30 K rise, "
+        "not refined against the solved surface temperature"
     )
+    return f"{provenance}: {applied}. Basis: {basis}.{length_note}"
 
 
 def _thermal_grid_limitations(domain_result: Any) -> list:

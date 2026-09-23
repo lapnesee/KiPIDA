@@ -952,6 +952,12 @@ class ThermalResult:
     # that produced it, so the report must be able to state both rather than
     # leaving a first-order assumption invisible.
     surface_h_w_m2k: Dict[str, float] = field(default_factory=dict)
+    # Whether the surface coefficients above were actually refined against
+    # this solution (ThermalSolver._refine_surface_exchange ran at least
+    # once) rather than left at the mesh's nominal "ambient + 30 K" guess.
+    # The coupled path used to leave this False while still describing the
+    # coefficients as "refined" (TH-2).
+    surface_refined: bool = False
     convection_basis: str = ""
     characteristic_length_m: float = 0.0
     iterations: int = 1
