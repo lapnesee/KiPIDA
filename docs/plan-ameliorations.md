@@ -36,8 +36,10 @@ Working constraints for this project:
   * `cfd_benchmarks.py` needs **no** board. It builds its own ducts and
     enclosures from `CFDMesh` directly, so every CFD item -- A1 and A2 -- can
     be worked anywhere Python and numpy run.
-  * `advisor_on_board.py` and `mesh_connectivity.py` need the real board and
-    take its path as an argument. They open it read-only and write nothing.
+  * `advisor_on_board.py` needs the real board and takes its path as an
+    argument. It opens it read-only and writes nothing. (`mesh_connectivity.py`,
+    which diagnosed the isolated loads, was retired once the mesh_hybrid tests
+    locked those fixes in.)
 
     "A3 and A4 cannot be measured without them" is how this read, and it was
     too strong -- both were closed without the board. What needed it was the

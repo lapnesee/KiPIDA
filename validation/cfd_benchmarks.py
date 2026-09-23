@@ -267,37 +267,6 @@ def case_mesh_convergence():
               f"{1.5 * ny / (ny - 2.0):8.3f}  {parabola_shape_error(profile):7.2f} %")
 
 
-def case_pressure_sweeps():
-    """Is the mass deficit caused by an under-solved pressure Poisson equation?
-
-    The projection cleans divergence with plain Jacobi sweeps
-    (``pressure_iterations``, default 60). Jacobi damps low-frequency error at a
-    rate that scales with the square of the grid size, so 60 sweeps on a 30x10x8
-    grid leaves the long-wavelength part of the pressure field essentially
-    untouched -- and it is exactly that part which enforces global mass balance.
-
-    If that is the mechanism, raising the sweep count must shrink the deficit.
-    If the deficit is instead structural, it will sit still no matter how many
-    sweeps are spent. This case distinguishes the two, so the fix is chosen on
-    evidence rather than plausibility.
-    """
-    inlet_area = HEIGHT_M * WIDTH_M
-    imposed = INLET_M_S * inlet_area
-    print("  sweeps   settled flux / imposed   mass error   continuity residual")
-    for sweeps in (30, 60, 240, 960):
-        mesh = duct_mesh(30, 10, 8)
-        settings = duct_settings()
-        settings.solver.pressure_iterations = sweeps
-        attach_patches(mesh, settings)
-        result, (u, _v, _w) = run(mesh, settings)
-        dy, dz = mesh.spacing_m[1], mesh.spacing_m[2]
-        flux = np.array([float(u[i, :, :].sum()) * dy * dz
-                         for i in range(mesh.shape[0] // 2, mesh.shape[0] - 1)])
-        ratio = flux.mean() / imposed
-        print(f"  {sweeps:6d}   {ratio:20.4f}   {(ratio - 1.0) * 100:+9.2f} %   "
-              f"{result.residuals.continuity[-1]:.4g}")
-
-
 def case_residual_source():
     """Where does the continuity residual actually live?
 
@@ -358,7 +327,6 @@ CASES = {
     "flux": case_flux,
     "divergence": case_divergence,
     "convergence": case_mesh_convergence,
-    "pressure": case_pressure_sweeps,
 }
 
 
