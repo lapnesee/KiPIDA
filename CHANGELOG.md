@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed thermal via modelling reading kipy's nonexistent Via.width
+  (defaulted all 685 P02 Rev E vias to 0.6 mm vs real 0.3/0.4 mm
+  drills) and via barrels bypassing inner copper planes. Synthetic
+  9-via/1.5 W board: 84.6 C -> 77.3 C hotspot once drills are read
+  correctly and chained through every layer.
 - Fixed SW-001, EE-002 and the near-field solver each modelling a
   switching/clock source's harmonic rolloff differently: P02 Rev E's
   U4 (400 kHz, tr 10 ns) read -44.1 dB from SW-001 and -94.8 dB from

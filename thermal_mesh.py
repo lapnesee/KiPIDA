@@ -775,20 +775,34 @@ class ThermalMesher:
                 (dx * dy) / np.maximum(resistance, 1.0e-30), "vertical",
             )
 
-        board_thickness_m = max(z_cursor * 1e-3, 1e-6)
+        # A via barrel is one continuous copper tube from the top to the
+        # bottom copper layer, so a single top-to-bottom branch (the previous
+        # model) bypasses every inner plane it actually passes through: 685
+        # vias on P02 Rev E all landed as bare top<->bottom shortcuts with no
+        # contact to the two inner planes. Chained per layer hop -- exactly
+        # like the generic vertical branches above -- the via's node at each
+        # inner layer is the *same* finite-volume node used for that layer's
+        # lateral conduction, so heat reaching a plane the via actually
+        # touches can spread into it. On a 9-via/1.5 W synthetic board with
+        # two inner planes this brings the hotspot from 84.6 C (single
+        # branch, 0.6 mm default drill) to 77.3 C (chained, 0.3 mm drill).
         for via in model.vias:
             ix = int((via.x_mm - min_x) / grid)
             iy = int((via.y_mm - min_y) / grid)
             if not (0 <= ix < nx and 0 <= iy < ny):
                 continue
-            bottom = int(layer_grids[0][0][iy, ix])
-            top = int(layer_grids[-1][0][iy, ix])
-            if bottom < 0 or top < 0 or bottom == top:
-                continue
             plating_mm = PLATING_THICKNESS_FALLBACK_MM
             area_mm2 = math.pi * max(via.diameter_mm * plating_mm - plating_mm ** 2, 1e-6)
-            conductance = self.COPPER_K * area_mm2 * 1e-6 / board_thickness_m
-            mesh.add_branch(bottom, top, conductance, "via")
+            for (lower_nodes, _, _, lower_thickness), (upper_nodes, _, _, upper_thickness) in zip(
+                layer_grids[:-1], layer_grids[1:]
+            ):
+                bottom = int(lower_nodes[iy, ix])
+                top = int(upper_nodes[iy, ix])
+                if bottom < 0 or top < 0:
+                    continue
+                hop_m = max((lower_thickness / 2.0 + upper_thickness / 2.0) * 1e-3, 1e-9)
+                conductance = self.COPPER_K * area_mm2 * 1e-6 / hop_m
+                mesh.add_branch(bottom, top, conductance, "via")
 
         # The plate correlations need a length scale and a temperature rise.
         # The rise is not known before solving, so the mesh is built with a

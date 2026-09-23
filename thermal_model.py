@@ -306,6 +306,21 @@ class ThermalModelBuilder:
         value = float(value or 0.0)
         return value / 1e6 if abs(value) > 10000 else value
 
+    def _via_diameter_mm(self, via):
+        """The barrel diameter a via's thermal branch should use, in mm.
+
+        kipy's Via exposes only ``diameter`` (outer copper) and
+        ``drill_diameter`` (hole) -- never ``width`` (verified against
+        kipy/board_types.py). Reading the nonexistent ``width`` attribute
+        silently defaulted every via to 0.6 mm; on P02 Rev E (685 vias, real
+        drills 0.3/0.4 mm) that understated barrel conductance by x2.07 /
+        x1.53. The drill sets the thermal barrel's bore, so it is read
+        first, falling back to the outer diameter only if the drill is
+        unavailable.
+        """
+        drill = self._get_val(via, "drill_diameter", self._get_val(via, "diameter", 0.6e6))
+        return max(self._to_mm(drill), 0.1)
+
     def _position(self, item):
         position = self._get_val(item, "position", self._get_val(item, "start"))
         if position is None:
@@ -511,8 +526,7 @@ class ThermalModelBuilder:
             position = self._position(via)
             if position is None:
                 continue
-            width = self._to_mm(self._get_val(via, "width", 0.6e6))
-            vias.append(ThermalVia(position[0], position[1], max(width, 0.1)))
+            vias.append(ThermalVia(position[0], position[1], self._via_diameter_mm(via)))
 
         return ThermalBoardModel(
             bounds_mm=bounds,

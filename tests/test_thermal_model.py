@@ -7,7 +7,7 @@ if plugin_dir not in sys.path:
     sys.path.insert(0, plugin_dir)
 
 from models import ComponentRef, PowerRail, ThermalComponentModel, UnifiedLoad, VoltageRegulator
-from thermal_model import PowerLossEstimator, merge_component_heat_sources
+from thermal_model import PowerLossEstimator, ThermalModelBuilder, merge_component_heat_sources
 
 
 class TestPowerLossEstimator(unittest.TestCase):
@@ -186,6 +186,39 @@ class EmptyLiveBoardTests(unittest.TestCase):
 
         self.assertIn("no copper geometry", str(refusal.exception))
         self.assertIn("retry", str(refusal.exception))
+
+
+class ViaDiameterTests(unittest.TestCase):
+    """TH-4: kipy's Via has no ``width`` attribute, only ``diameter`` and
+    ``drill_diameter`` (kipy/board_types.py). thermal_model.py:514 used to
+    read ``width``, so every P02 Rev E via (685 of them, real drills
+    0.3/0.4 mm) silently fell back to a 0.6 mm default -- understating via
+    conductance by x2.07 / x1.53."""
+
+    class _KipyLikeVia:
+        """Exposes only drill_diameter, like the real kipy.Via."""
+
+        def __init__(self, drill_diameter_nm):
+            self.drill_diameter = drill_diameter_nm
+
+    class _OuterDiameterOnlyVia:
+        """A via with no drill_diameter at all (outer diameter only)."""
+
+        def __init__(self, diameter_nm):
+            self.diameter = diameter_nm
+
+    def test_reads_drill_diameter_not_width(self):
+        builder = ThermalModelBuilder(board=None)
+        # 300000 nm = 0.3 mm, P02 Rev E's smaller via drill.
+        self.assertAlmostEqual(
+            builder._via_diameter_mm(self._KipyLikeVia(300000)), 0.3,
+        )
+
+    def test_falls_back_to_outer_diameter_without_a_drill(self):
+        builder = ThermalModelBuilder(board=None)
+        self.assertAlmostEqual(
+            builder._via_diameter_mm(self._OuterDiameterOnlyVia(450000)), 0.45,
+        )
 
 
 if __name__ == "__main__":
