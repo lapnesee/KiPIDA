@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed efficiency-closed stages dumping their entire residual on one
+  component and holding total loss temperature-independent
+  (power_loss.py). residual_split now distributes the residual across
+  named components (documented, default unchanged: 100% on
+  controller_ref_des); residual_temperature_multiplier_table lets the
+  target itself grow with the coupled solve's temperature instead of
+  only reshuffling a fixed total.
 - Fixed component board temperature averaging every cell under the
   part instead of taking the hottest one (thermal_solver.py,
   electrothermal.py). P02 Rev E's Q10 read Tj 110.64 C under its own

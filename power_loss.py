@@ -347,20 +347,57 @@ def estimate_stage(regulator: VoltageRegulator, vin_v: float, vout_v: float,
         )
 
     if selected_efficiency is not None and output_power > 0.0:
-        target_loss = output_power * (1.0 / selected_efficiency - 1.0)
+        default_residual_ref = str(
+            model.get("controller_ref_des") or regulator.thermal_ref_des or regulator.input_ref_des
+        )
+        # TH-6: a fixed efficiency target held this stage's total loss
+        # constant no matter how hot its parts ran, so as the physical
+        # mechanisms above grew with temperature, the residual just shrank
+        # to compensate -- "temperature dependence" only moved heat between
+        # parts, never added any. The target is only as good as the
+        # temperature it was characterised at; scaled by the same
+        # temperature-multiplier mechanism the physical mechanisms already
+        # use (residual_temperature_multiplier_table / residual_tempco_per_c,
+        # evaluated at the default residual component -- undeclared, this is
+        # 1.0 and the target stays fixed, unchanged from before), the total
+        # can grow with temperature too, a real coupling instead of a
+        # reshuffle.
+        residual_temperature_c = _model_temperature(
+            model, component_temperatures_c, default_residual_ref,
+        )
+        target_multiplier = _prefixed_temperature_multiplier(
+            model, "residual", residual_temperature_c,
+        )
+        target_loss = output_power * (1.0 / selected_efficiency - 1.0) * target_multiplier
         residual = target_loss - known_loss
         if residual > 1e-15:
-            losses.append(LossContribution(
-                str(model.get("controller_ref_des") or regulator.thermal_ref_des or regulator.input_ref_des),
-                str(model.get("residual_mechanism") or "unmodelled-conversion-residual"), residual,
-                {"source": "efficiency fallback" if table_efficiency is None else "efficiency table residual",
-                 "confidence": "low" if table_efficiency is None else "medium",
-                 "reference": str(model.get("residual_reference", ""))},
-            ))
+            # residual_split sends the residual -- gate drive, core loss,
+            # dead-time conduction, whatever this stage's physical model
+            # does not itemise -- to more than one component instead of
+            # always the controller. Undeclared, it keeps the old
+            # behaviour: the whole residual on default_residual_ref.
+            split = dict(model.get("residual_split") or {default_residual_ref: 1.0})
+            mechanism = str(model.get("residual_mechanism") or "unmodelled-conversion-residual")
+            source = "efficiency fallback" if table_efficiency is None else "efficiency table residual"
+            confidence = "low" if table_efficiency is None else "medium"
+            reference = str(model.get("residual_reference", ""))
+            for ref_des, fraction in split.items():
+                piece = residual * float(fraction)
+                if piece <= 0.0:
+                    continue
+                losses.append(LossContribution(
+                    str(ref_des), mechanism, piece,
+                    {"source": source, "confidence": confidence, "reference": reference,
+                     "residual_fraction": float(fraction)},
+                ))
             target_source = "efficiency-table" if table_efficiency is not None else "efficiency-fallback"
+            placement = (
+                f"across {', '.join(str(ref) for ref in split)}" if len(split) > 1
+                else f"on {default_residual_ref}"
+            )
             warnings.append(
                 f"Switching/core losses are incomplete; the {target_source} residual closes "
-                "the stage power target."
+                f"the stage power target, placed {placement}."
             )
         elif residual < -max(1e-12, target_loss * 0.01):
             efficiency_provenance = (

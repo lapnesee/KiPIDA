@@ -171,6 +171,72 @@ class PowerLossTests(unittest.TestCase):
         self.assertIn("confidence=high", report)
         self.assertIn("balance error=", report)
 
+    def test_residual_split_distributes_across_declared_components(self):
+        # TH-6: P02 Rev E's residual bundles gate drive (dissipated in the
+        # controller's driver), inductor core loss and dead-time diode
+        # conduction, but all of it landed on one ref_des
+        # (controller_ref_des) regardless. residual_split lets it name where
+        # each share actually goes.
+        reg = VoltageRegulator(
+            name="buck", input_rail_name="12V", input_ref_des="U4", input_pad_names=[],
+            output_rail_name="5V", output_ref_des="L1", output_pad_names=[], reg_type="SWITCHING",
+            efficiency=0.9, thermal_ref_des="U4",
+            loss_model={
+                "kind": "buck", "controller_ref_des": "Q10", "fallback_efficiency": 0.9,
+                "high_side_rds_on_ohm": parameter(0.02), "low_side_rds_on_ohm": parameter(0.01),
+                "inductors": [{"ref_des": "L1", "dcr_ohm": parameter(0.03)}],
+                "residual_split": {"Q10": 0.5, "U4": 0.3, "L1": 0.2},
+            },
+        )
+        stage = estimate_stage(reg, 12.0, 5.0, 2.0)
+        residual = {
+            loss.ref_des: loss.power_w
+            for loss in stage.losses if loss.mechanism == "unmodelled-conversion-residual"
+        }
+        self.assertEqual(set(residual), {"Q10", "U4", "L1"})
+        total = sum(residual.values())
+        self.assertAlmostEqual(residual["Q10"] / total, 0.5, places=6)
+        self.assertAlmostEqual(residual["U4"] / total, 0.3, places=6)
+        self.assertAlmostEqual(residual["L1"] / total, 0.2, places=6)
+        self.assertAlmostEqual(stage.iin_a * stage.vin_v, stage.iout_a * stage.vout_v + stage.total_loss_w)
+
+    def test_residual_target_grows_with_temperature_when_declared(self):
+        # TH-6: a fixed efficiency target held this stage's total loss
+        # constant no matter how hot its parts ran -- the residual just
+        # shrank as the physical mechanisms grew, so "temperature
+        # dependence" only moved heat between parts, never added any.
+        # residual_temperature_multiplier_table lets the target scale too.
+        def stage_at(temperature_c):
+            reg = VoltageRegulator(
+                name="buck", input_rail_name="12V", input_ref_des="U4", input_pad_names=[],
+                output_rail_name="5V", output_ref_des="L1", output_pad_names=[], reg_type="SWITCHING",
+                efficiency=0.9, thermal_ref_des="U4",
+                loss_model={
+                    "kind": "buck", "controller_ref_des": "Q10", "fallback_efficiency": 0.9,
+                    "high_side_rds_on_ohm": parameter(0.02), "low_side_rds_on_ohm": parameter(0.01),
+                    "inductors": [{"ref_des": "L1", "dcr_ohm": parameter(0.03)}],
+                    "residual_temperature_multiplier_table": [
+                        {"temperature_c": 25, "multiplier": 1.0},
+                        {"temperature_c": 125, "multiplier": 1.5},
+                    ],
+                },
+            )
+            return estimate_stage(reg, 12.0, 5.0, 2.0, {"Q10": temperature_c})
+
+        cold, hot = stage_at(25.0), stage_at(125.0)
+        cold_residual = next(
+            item for item in cold.losses if item.mechanism == "unmodelled-conversion-residual"
+        ).power_w
+        hot_residual = next(
+            item for item in hot.losses if item.mechanism == "unmodelled-conversion-residual"
+        ).power_w
+        # Rds(on)/DCR are not temperature-corrected in this fixture (no
+        # tempco given), so the entire increase must be the residual's.
+        output_power = 5.0 * 2.0
+        expected_target_delta = output_power * (1.0 / 0.9 - 1.0) * (1.5 - 1.0)
+        self.assertAlmostEqual(hot_residual - cold_residual, expected_target_delta, places=6)
+        self.assertAlmostEqual(hot.total_loss_w - cold.total_loss_w, expected_target_delta, places=6)
+
     def test_incomplete_datasheet_uses_explicit_fallback(self):
         reg = VoltageRegulator(
             name="legacy", input_rail_name="12V", input_ref_des="U1", input_pad_names=[],
