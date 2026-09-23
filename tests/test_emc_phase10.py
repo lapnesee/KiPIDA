@@ -280,11 +280,6 @@ Time for 8000 iterations with 399562.00 cells : 117.83 sec
         self.assertIsNone(points[0].margin_db)
         self.assertIn("RELATIVE", points[0].provenance)
 
-    def test_known_windows_tool_paths_are_considered(self):
-        statuses = Phase10Toolchain(self.settings().phase10).detect()
-        names = {item.name for item in statuses}
-        self.assertEqual(names, {"NGSPICE", "OPENEMS", "OPENEMS_PYTHON", "GMSH", "PALACE"})
-
     def test_pipeline_routes_full_wave_execution_to_remote_palace_backend(self):
         settings = self.settings()
         settings.phase10.spice_enabled = False

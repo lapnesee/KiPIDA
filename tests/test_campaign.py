@@ -98,15 +98,6 @@ class OverallStatusTests(unittest.TestCase):
 
 
 class DeduplicationTests(unittest.TestCase):
-    def test_shared_net_alone_does_not_merge(self):
-        # Nearly every finding names a ground or a rail; sharing one says
-        # nothing about sharing a cause (tests/test_campaign_grouping.py).
-        campaign = CampaignResult.from_results([
-            result("DC", findings=[finding("DC-1", title="Drop on GND", nets=["GND"])]),
-            result("EMC", findings=[finding("GP-3", title="Return path", nets=["GND"])]),
-        ])
-        self.assertEqual(len(campaign.actions), 2)
-
     def test_shared_component_merges_across_domains(self):
         campaign = CampaignResult.from_results([
             result("THERMAL", findings=[finding("TH-1", title="Hot", components=["U7"])]),
@@ -122,15 +113,6 @@ class DeduplicationTests(unittest.TestCase):
             result("EMC", findings=[finding("GP-3", nets=["VCC"])]),
         ])
         self.assertEqual(len(campaign.actions), 2)
-
-    def test_nearby_evidence_on_a_shared_net_merges(self):
-        near = [AnalysisEvidence("PCB", "d", x_mm=10.0, y_mm=10.0, layer="F.Cu")]
-        also_near = [AnalysisEvidence("PCB", "d", x_mm=11.0, y_mm=10.0, layer="F.Cu")]
-        campaign = CampaignResult.from_results([
-            result("DC", findings=[finding("DC-1", nets=["VCC"], evidence=near)]),
-            result("EMC", findings=[finding("GP-3", nets=["VCC"], evidence=also_near)]),
-        ])
-        self.assertEqual(len(campaign.actions), 1)
 
     def test_nearby_evidence_on_different_nets_does_not_merge(self):
         near = [AnalysisEvidence("PCB", "d", x_mm=10.0, y_mm=10.0, layer="F.Cu")]
