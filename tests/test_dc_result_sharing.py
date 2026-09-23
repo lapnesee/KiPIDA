@@ -127,6 +127,11 @@ class ThermalTakesAHandedOverResult(unittest.TestCase):
         self.assertEqual(list(seen["contexts"]), ["VCC"])
         self.assertEqual(outcome.result, "coupled result")
         self.assertTrue(any("coupling starts from" in line for line in logs))
+        # COH-11: copper-loss provenance used to stay empty for every coupled
+        # run, although the coupling's own per-rail solves are exactly where
+        # those losses come from.
+        self.assertIn("this campaign's DC result", outcome.copper_loss_source)
+        self.assertIn("hybrid mesh", outcome.copper_loss_source)
 
     def test_without_one_the_run_solves_and_says_so(self):
         from application.thermal_controller import ThermalRunRequest

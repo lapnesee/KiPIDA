@@ -925,8 +925,117 @@ def _thermal_mesh_sensitivity(mesh_sensitivity: Any):
     )], []
 
 
+def _thermal_hotspot_component(hotspot: Any, mesh: Any):
+    """(ref_des, distance_mm) of the component nearest the board hotspot.
+
+    TH-1: the campaign report named neither the hottest junction nor the
+    component at the hotspot -- on P02 Rev E the 114.71 C board hotspot sits
+    under Q10 while the hottest *junction* is U14 (125.0 C, 25 K margin):
+    two different components a reader could not otherwise tell apart.
+    ``distance_mm`` is 0.0 when the hotspot node is literally one of the
+    component's mapped mesh cells (mesh.component_nodes), i.e. "under" it;
+    otherwise it is the distance to that component's nearest mapped centroid.
+    """
+    if hotspot is None or mesh is None:
+        return None
+    component_nodes = dict(getattr(mesh, "component_nodes", {}) or {})
+    if not component_nodes:
+        return None
+    hotspot_node = getattr(hotspot, "node_id", None)
+    for ref_des, nodes in component_nodes.items():
+        if hotspot_node is not None and hotspot_node in nodes:
+            return ref_des, 0.0
+    node_coords = dict(getattr(mesh, "node_coords", {}) or {})
+    hx = float(getattr(hotspot, "x_mm", 0.0))
+    hy = float(getattr(hotspot, "y_mm", 0.0))
+    best = None
+    for ref_des, nodes in component_nodes.items():
+        coords = [node_coords[node] for node in nodes if node in node_coords]
+        if not coords:
+            continue
+        cx = sum(item[0] for item in coords) / len(coords)
+        cy = sum(item[1] for item in coords) / len(coords)
+        distance = math.hypot(hx - cx, hy - cy)
+        if best is None or distance < best[1]:
+            best = (ref_des, distance)
+    return best
+
+
+def _thermal_hotspot_location_evidence(hotspot: Any, mesh: Any) -> list:
+    located = _thermal_hotspot_component(hotspot, mesh)
+    if located is None:
+        return []
+    ref_des, distance_mm = located
+    where = f"under {ref_des}" if distance_mm <= 1e-6 else f"{distance_mm:.1f} mm from {ref_des}"
+    return [AnalysisEvidence(
+        "HOTSPOT_LOCATION",
+        f"The {float(getattr(hotspot, 'temperature_c', 0.0)):.2f} C hotspot at "
+        f"({float(getattr(hotspot, 'x_mm', 0.0)):.2f}, {float(getattr(hotspot, 'y_mm', 0.0)):.2f}) "
+        f"mm is {where}.",
+        reference=ref_des,
+        x_mm=float(getattr(hotspot, "x_mm", 0.0)), y_mm=float(getattr(hotspot, "y_mm", 0.0)),
+    )]
+
+
+def _thermal_junction_evidence(components: Any) -> list:
+    """Name the hottest junctions instead of leaving them in a list nobody
+    reading the report summary sees. ``components`` is already sorted
+    hottest-first (thermal_solver.py); P02 Rev E's hottest is U14, 125.0 C,
+    25 K margin."""
+    top = list(components or [])[:3]
+    if not top:
+        return []
+    named = "; ".join(
+        f"{item.ref_des} {float(item.junction_temperature_c):.1f} C "
+        f"(margin {float(item.margin_c):.1f} K, {item.thermal_source})"
+        for item in top
+    )
+    return [AnalysisEvidence(
+        "JUNCTION_TEMPERATURES",
+        f"Hottest junction estimate(s): {named}.",
+        reference=f"{len(components)} component(s) mapped",
+    )]
+
+
+def _thermal_fallback_stage_limitations(power_stage_reports: Any) -> list:
+    """Say which stages are efficiency-closed fallbacks, and how much heat
+    that places and where (TH-1, TH-6 context).
+
+    power_loss.py:349-359 closes an incompletely modelled stage by forcing
+    its total loss to the configured efficiency target and dumping the gap
+    onto one component as a residual LossContribution (mechanism
+    "unmodelled-conversion-residual"; provenance source "efficiency
+    fallback" or "efficiency table residual"). On P02 Rev E that residual is
+    1.365 W of 4.9186 W total board heat (28%), from U4's stage, landed on
+    Q10 at confidence=low.
+    """
+    limitations = []
+    for stage in power_stage_reports or []:
+        stage_total = float(getattr(stage, "total_loss_w", 0.0) or 0.0)
+        for loss in getattr(stage, "losses", ()) or ():
+            provenance = dict(getattr(loss, "provenance", {}) or {})
+            source = str(provenance.get("source", ""))
+            if source not in ("efficiency fallback", "efficiency table residual"):
+                continue
+            power_w = float(getattr(loss, "power_w", 0.0) or 0.0)
+            share_pct = power_w / stage_total * 100.0 if stage_total > 0 else 0.0
+            basis = (
+                "the configured efficiency fallback" if source == "efficiency fallback"
+                else "the efficiency table"
+            )
+            limitations.append(
+                f"{getattr(stage, 'name', '?')}: {power_w:.3g} W ({share_pct:.0f}% of this "
+                f"stage's loss) is an unmodelled-conversion residual placed on "
+                f"{getattr(loss, 'ref_des', '?')}, closed by {basis} "
+                f"({getattr(stage, 'efficiency_provenance', '')}; "
+                f"confidence={provenance.get('confidence', 'low')})."
+            )
+    return limitations
+
+
 def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seconds: float = 0.0,
-                         *, copper_loss_source: str = "", mesh_sensitivity: Any = None) -> AnalysisResult:
+                         *, copper_loss_source: str = "", mesh_sensitivity: Any = None,
+                         mesh: Any = None, power_stage_reports: Any = None) -> AnalysisResult:
     sensitivity_metrics, sensitivity_findings, sensitivity_limitations = (
         _thermal_mesh_sensitivity(mesh_sensitivity)
     )
@@ -988,7 +1097,13 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
         metrics=[
             AnalysisMetric(
                 "hotspot", "Hotspot",
-                float(getattr(hotspot, "temperature_c", 0.0)), "°C", status.value,
+                float(getattr(hotspot, "temperature_c", 0.0)), "°C",
+                # TH-1 / COH-11: this used to copy the domain's PASS/WARN/FAIL
+                # onto the metric with no threshold of its own -- "Hotspot
+                # 114.71 C PASS" next to EMC flagging the same board over
+                # 85 C. A bare temperature has no universal pass/fail line;
+                # only a junction's margin does (TH-001 above).
+                "INFO",
             ),
             AnalysisMetric(
                 "input_heat", "Input heat",
@@ -1002,7 +1117,13 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
                 # it to be read as physical accuracy.
                 "NUMERICS_OK" if abs(balance) <= 5.0 else "WARN",
             ),
-        ] + _thermal_surface_metrics(domain_result) + sensitivity_metrics,
+        ] + (
+            [AnalysisMetric(
+                "hottest_junction_margin", f"{components[0].ref_des} junction margin",
+                float(components[0].margin_c), "K",
+                "WARN" if float(components[0].margin_c) < 0 else "INFO",
+            )] if components else []
+        ) + _thermal_surface_metrics(domain_result) + sensitivity_metrics,
         provenance=[
             AnalysisEvidence(
                 "PCB_GEOMETRY",
@@ -1014,6 +1135,7 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
                 _thermal_surface_detail(domain_result),
                 reference=str(getattr(domain_result, "convection_basis", "") or "surface correlation"),
             ),
+        ] + _thermal_hotspot_location_evidence(hotspot, mesh) + _thermal_junction_evidence(components) + [
             AnalysisEvidence(
                 "POWER_MODEL",
                 "Heat sources use configured component losses and optional DC copper losses.",
@@ -1027,7 +1149,8 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
         },
         limitations=[
             "Compact thermal models require datasheet and measurement validation.",
-        ] + _thermal_grid_limitations(domain_result) + sensitivity_limitations,
+        ] + _thermal_grid_limitations(domain_result) + sensitivity_limitations
+        + _thermal_fallback_stage_limitations(power_stage_reports),
     ).finish()
 
 

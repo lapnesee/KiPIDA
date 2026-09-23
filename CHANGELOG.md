@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed the campaign thermal report naming no component, no hottest
+  junction and no loss provenance (analysis_adapters.py). P02 Rev E:
+  the 114.71 C hotspot now names Q10 as the component underneath it,
+  U14 (125.0 C, 25 K margin) as the hottest junction, and the 1.365 W
+  efficiency-fallback residual (28% of 4.9186 W) placed on Q10. The
+  hotspot metric no longer copies the domain PASS/WARN/FAIL onto
+  itself; coupled runs now publish COPPER_LOSSES provenance too.
 - Fixed the mesh-resolution error bar (double-step hotspot check)
   being silently skipped whenever the thermal run was coupled, which
   is every campaign; the P02 Rev E sidecar's

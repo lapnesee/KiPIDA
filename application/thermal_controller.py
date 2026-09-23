@@ -162,6 +162,12 @@ class ThermalSolverEngine:
                 # The coupling's first pass is the ambient DC this result
                 # already is; every iteration after it re-solves the same
                 # meshes against the temperature field, reading them only.
+                # COH-11: copper-loss provenance used to stay unpublished for
+                # every coupled run, although the coupling's own per-rail
+                # solves are exactly where those losses come from.
+                copper_loss_source = describe_dc_source(
+                    system_results, f"the coupled per-iteration DC solve, seeded from {source}"
+                )
                 emit(f"The coupling starts from {source}; the ambient DC is not solved again.")
             else:
                 copper_loss_source = describe_dc_source(system_results, source)
@@ -178,7 +184,11 @@ class ThermalSolverEngine:
                     "Coupled analysis requires a successful DC analysis, and no rail was solved. "
                     + unsolved_rails_reason(getattr(request.dc_request, "rails", ()) or ())
                 )
-            if not request.coupled:
+            if request.coupled:
+                copper_loss_source = describe_dc_source(
+                    system_results, "the coupled per-iteration DC solve"
+                )
+            else:
                 copper_loss_source = describe_dc_source(system_results, "a DC solve run for this analysis")
         if cancelled():
             raise ThermalAnalysisCancelled("Thermal analysis cancelled.")

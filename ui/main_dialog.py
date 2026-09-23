@@ -1734,7 +1734,10 @@ class KiPIDA_MainDialog(wx.Dialog):
             "THERMAL", report, [],
             structured_result=adapt_thermal_result(
                 result, coupled, elapsed_seconds or 0.0, copper_loss_source=copper_loss_source,
-                mesh_sensitivity=mesh_sensitivity,
+                mesh_sensitivity=mesh_sensitivity, mesh=mesh,
+                power_stage_reports=list(
+                    getattr(self.thermal_panel.settings, "power_stage_reports", []) or []
+                ),
             ),
         )
         page.show_rendering("Rendering thermal plots in background...")

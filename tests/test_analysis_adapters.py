@@ -9,7 +9,8 @@ from analysis_contract import AnalysisStatus, EvidenceConfidence, FindingSeverit
 from models import (
     ACAnalysisSettings, ACMeasurementPort, ACSourceModel, CapacitorModel,
     EMCAnalysisResult, EMCAnalysisSettings, EMCEvidence, EMCFinding,
-    EnclosureCFDSettings, ThermalHotspot, ThermalResult,
+    EnclosureCFDSettings, LossContribution, PowerStageResult, ThermalHotspot,
+    ThermalResult,
 )
 
 
@@ -153,14 +154,80 @@ class AnalysisAdapterTests(unittest.TestCase):
         result = adapt_thermal_result(thermal)
         self.assertEqual(result.status, AnalysisStatus.FAIL)
         self.assertEqual(result.findings[0].severity, FindingSeverity.CRITICAL)
-        self.assertEqual(result.metrics[0].status, "FAIL")
+        # TH-1 / COH-11: was "FAIL", copying the domain status onto the
+        # metric with no threshold of its own -- the same "Hotspot ... PASS"
+        # shape the audit flagged, just on the FAIL side. A bare temperature
+        # has no universal pass/fail line; only a junction's margin does,
+        # which is why U1's CRITICAL finding above still fires.
+        self.assertEqual(result.metrics[0].status, "INFO")
         # Was "PASS". The energy balance only shows the linear solve converged
         # -- it would read just as well with a surface coefficient wrong by a
         # factor of ten -- so labelling it PASS invited it to be read as
         # physical accuracy. NUMERICS_OK says what it actually measures.
         self.assertEqual(result.metrics[2].status, "NUMERICS_OK")
-        # Surface exchange is now stated alongside geometry and power.
-        self.assertEqual(len(result.provenance), 3)
+        # TH-1: U1 exceeding its limit is named among the hottest junctions.
+        self.assertEqual(result.metrics[3].key, "hottest_junction_margin")
+        # Surface exchange and the hottest-junction summary are now stated
+        # alongside geometry and power (no mesh here, so no HOTSPOT_LOCATION).
+        self.assertEqual(len(result.provenance), 4)
+
+    def test_hotspot_names_the_component_it_sits_under(self):
+        # P02 Rev E, 2026-09-22 21:56: board hotspot 114.71 C at
+        # (274.75, 86.56) mm sits under Q10 (274.53, 85.65); the hottest
+        # *junction* is a different part, U14 (125.0 C, 25 K margin) -- the
+        # report named neither before this fix.
+        thermal = ThermalResult(
+            hotspot=ThermalHotspot(node_id=7, x_mm=274.75, y_mm=86.56, z_mm=0.1, temperature_c=114.71),
+            component_results=[SimpleNamespace(
+                ref_des="U14", junction_temperature_c=125.0, margin_c=25.0,
+                theta_jb_c_per_w=20.7, thermal_source="datasheet",
+            )],
+            total_input_power_w=4.9186, energy_balance_error_pct=0.1,
+        )
+        mesh = SimpleNamespace(
+            component_nodes={"Q10": [7], "U14": [9]},
+            node_coords={7: (274.75, 86.56, 0.1), 9: (100.0, 50.0, 0.1)},
+        )
+        result = adapt_thermal_result(thermal, mesh=mesh)
+        location = next(item for item in result.provenance if item.source == "HOTSPOT_LOCATION")
+        self.assertIn("under Q10", location.detail)
+        junctions = next(item for item in result.provenance if item.source == "JUNCTION_TEMPERATURES")
+        self.assertIn("U14 125.0 C (margin 25.0 K, datasheet)", junctions.detail)
+        margin_metric = next(item for item in result.metrics if item.key == "hottest_junction_margin")
+        self.assertEqual(margin_metric.value, 25.0)
+
+    def test_efficiency_closed_stage_discloses_its_residual(self):
+        # P02 Rev E: U4's stage is closed at a 93% efficiency fallback,
+        # leaving a 1.365 W residual (28% of the stage's 4.9184 W) placed on
+        # Q10 -- previously invisible in the report (TH-1, power_loss.py:349).
+        stage = PowerStageResult(
+            name="U4 buck", input_ref_des="U4", output_ref_des="L1",
+            vin_v=12.0, vout_v=5.0, iin_a=1.0, iout_a=2.0,
+            efficiency=0.93,
+            efficiency_provenance="configured efficiency fallback (incomplete physical data)",
+            losses=[
+                LossContribution(
+                    "Q10", "buck-mosfet-conduction", 3.5534,
+                    {"source": "measured", "confidence": "high"},
+                ),
+                LossContribution(
+                    "Q10", "unmodelled-conversion-residual", 1.365,
+                    {"source": "efficiency fallback", "confidence": "low"},
+                ),
+            ],
+        )
+        thermal = ThermalResult(
+            hotspot=ThermalHotspot(1, 0.0, 0.0, 0.1, 100.0),
+            total_input_power_w=4.9186, energy_balance_error_pct=0.1,
+        )
+        result = adapt_thermal_result(thermal, power_stage_reports=[stage])
+        limitation = next(
+            item for item in result.limitations if "unmodelled-conversion residual" in item
+        )
+        self.assertIn("Q10", limitation)
+        self.assertIn("28%", limitation)
+        self.assertIn("the configured efficiency fallback", limitation)
+        self.assertIn("confidence=low", limitation)
 
     def test_cfd_adapter_reports_convergence_and_balance(self):
         mesh = SimpleNamespace(cell_count=1000)

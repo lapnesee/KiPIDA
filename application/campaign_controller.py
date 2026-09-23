@@ -161,12 +161,18 @@ def _adapt_emc(domain_result, request) -> AnalysisResult:
 
 
 def _adapt_thermal(domain_result, request) -> AnalysisResult:
+    # TH-1: the campaign report is what a reader actually sees, so it needs
+    # the mesh (to name the component at the hotspot) and the power-stage
+    # accounting (to say which stages are efficiency-closed fallbacks) that
+    # the plain per-run text report already had.
     return analysis_adapters.adapt_thermal_result(
         domain_result.result,
         domain_result.coupled_result is not None,
         domain_result.elapsed_seconds,
         copper_loss_source=getattr(domain_result, "copper_loss_source", ""),
         mesh_sensitivity=getattr(domain_result, "mesh_sensitivity", None),
+        mesh=getattr(domain_result, "mesh", None),
+        power_stage_reports=getattr(getattr(request, "settings", None), "power_stage_reports", None),
     )
 
 
