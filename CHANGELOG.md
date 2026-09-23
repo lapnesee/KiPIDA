@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added SW-003, a switching hot-loop spread rule, and sized Phase 10's
+  SWITCHING regions on the net's own copper plus every hot-loop
+  footprint instead of one evidence point +/- a fixed margin: P02 Rev
+  E's region_1 held L1 but neither Q10 nor Q11 (20.1 mm apart, now
+  flagged HIGH by SW-003 at today's 24.7 mm Q10-R57 spread). Fixed
+  SW-002's recommendation to name FET-to-FET/FET-to-inductor copper
+  for an external-FET stage instead of always saying IC-to-inductor.
 - Fixed the near-field solver exciting a switching trace's H-field
   with source.current_a/n (a square-wave current) instead of the
   linked inductor's own triangular ripple: P02 Rev E's U4 read 58 mA

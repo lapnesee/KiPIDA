@@ -118,6 +118,30 @@ def is_switching_node_name(name):
     return bool(SWITCH_TOKEN_PATTERN.search(name) or CONTEXTUAL_SW_PATTERN.search(name))
 
 
+def hot_loop_components(snapshot, source_name, net_name):
+    """``{reference: (x, y)}`` for the footprints in a switching hot loop.
+
+    Every footprint with a pad on the switch node (SW/PH/LX) is part of it:
+    an integrated switcher's IC and the inductor, or an external-FET
+    controller's high-side FET, low-side FET (or diode) and the inductor,
+    since all of them have a pin on that exact net (EMC-4, P02 Rev E: U4's
+    /SYS_5V_SW1 hot loop is Q10, Q11 and L1, all three on that net). The
+    linked inductor's own footprint is added even when it is captured
+    without that specific pad net, resolved the same way
+    em_field_solver.EMNearFieldSolver._inductors_for_source does.
+    """
+    seen = {}
+    for footprint in snapshot.footprints:
+        if net_name in footprint.nets:
+            seen[footprint.reference] = footprint.position
+    for model in getattr(snapshot, "inductors", []) or []:
+        if model.source_name == source_name or model.switching_net == net_name:
+            for footprint in snapshot.footprints:
+                if footprint.reference.upper() == model.ref_des.upper():
+                    seen[footprint.reference] = footprint.position
+    return seen
+
+
 def switch_node_evidence(footprints, rail_nets=()):
     """``{net: references}`` for SW-named nets that join an inductor to an IC.
 
@@ -1475,11 +1499,15 @@ class EMCAnalyzer:
                       "Add ground stitching around board edges, connectors and reference transitions.",
                       "MEDIUM", location=(*worst.position, None))
 
+    def _hot_loop_components(self, source):
+        return hot_loop_components(self.snapshot, source.name, source.net_name)
+
     def _switching_rules(self):
         if not self._enabled("SWITCHING"):
             return
         for source in [item for item in self.settings.sources if item.enabled and item.kind == "SWITCHING"]:
             tracks = self._tracks.get(source.net_name, [])
+            hot_loop = self._hot_loop_components(source)
             source_location = None
             if tracks:
                 representative = max(tracks, key=lambda item: item.length_mm * item.width_mm)
@@ -1508,10 +1536,60 @@ class EMCAnalyzer:
                 area += float(geometry.area)
             if area > 25.0:
                 severity = "HIGH" if area > 100.0 else "MEDIUM"
+                # An IC with 2+ other components on its own switch node is an
+                # external-FET controller (P02 Rev E: U4 drives Q10/Q11 to
+                # L1 on /SYS_5V_SW1) -- "IC-to-inductor" describes an
+                # integrated switcher and is the wrong recommendation there.
+                non_inductor_refs = len(hot_loop) - sum(
+                    1 for model in getattr(self.snapshot, "inductors", []) or []
+                    if (model.source_name == source.name or model.switching_net == source.net_name)
+                    and model.ref_des in hot_loop
+                )
+                recommendation = (
+                    "Restrict the FET-to-FET (or FET-to-diode) and FET-to-inductor copper to the "
+                    "shortest path, and keep the input capacitor's return current on the same loop."
+                    if non_inductor_refs >= 2 else
+                    "Restrict SW/PH/LX copper to the shortest IC-to-inductor connection."
+                )
                 self._add("SW-002", "SWITCHING", severity, "Large switching-node copper area",
                           f"{source.net_name} occupies approximately {area:.1f} mm2 of copper.",
-                          "Restrict SW/PH/LX copper to the shortest IC-to-inductor connection.",
+                          recommendation,
                           "MEDIUM", [source.net_name], location=source_location)
+            if len(hot_loop) >= 2:
+                refs = sorted(hot_loop)
+                far_a, far_b, span_mm = max(
+                    ((a, b, math.dist(hot_loop[a], hot_loop[b]))
+                     for i, a in enumerate(refs) for b in refs[i + 1:]),
+                    key=lambda item: item[2],
+                )
+                self._check()
+                # TI SLVA959 ("Optimizing the Layout of a Synchronous Buck
+                # Converter") and ADI AN-136 both call for the high-side
+                # FET/diode, low-side FET and input capacitor to sit as
+                # close together as the footprints allow, citing millimetre-
+                # scale spacing at these switching currents and frequencies;
+                # 10 mm/20 mm are this tool's own read of that guidance, not
+                # a number either app note states outright. P02 Rev E: Q10
+                # and Q11 (U4's high-/low-side FETs) sit 20.1 mm apart with
+                # nothing flagging it before this rule.
+                if span_mm > 20.0:
+                    severity = "HIGH"
+                elif span_mm > 10.0:
+                    severity = "MEDIUM"
+                else:
+                    severity = None
+                if severity is not None:
+                    midpoint = ((hot_loop[far_a][0] + hot_loop[far_b][0]) / 2.0,
+                                (hot_loop[far_a][1] + hot_loop[far_b][1]) / 2.0)
+                    self._add(
+                        "SW-003", "SWITCHING", severity, "Switching hot loop is spread out",
+                        f"{far_a} and {far_b}, on {source.net_name}'s hot loop, are {span_mm:.1f} mm apart.",
+                        "Move the high-side FET (or diode), low-side FET/rectifier, input "
+                        "capacitor and inductor as close together as the footprints allow to "
+                        "minimise loop area and di/dt radiation.",
+                        "MEDIUM", [source.net_name], components=list(hot_loop),
+                        location=(*midpoint, None),
+                    )
             if source.frequency_hz > 0:
                 first = max(1, int(math.ceil(self.settings.frequency_start_hz / source.frequency_hz)))
                 harmonic = first * source.frequency_hz

@@ -30,6 +30,7 @@ try:
         EMCPalaceRemoteRunResult,
         EMCPhase10ToolStatus, EMCSpiceModelAudit, EMCVirtualReceiverPoint,
     )
+    from .emc_analyzer import hot_loop_components
     from .palace_remote import PalaceRemoteClient, PalaceRemoteConnection
 except (ImportError, ValueError):
     from models import (
@@ -37,6 +38,7 @@ except (ImportError, ValueError):
         EMCPalaceRemoteRunResult,
         EMCPhase10ToolStatus, EMCSpiceModelAudit, EMCVirtualReceiverPoint,
     )
+    from emc_analyzer import hot_loop_components
     from palace_remote import PalaceRemoteClient, PalaceRemoteConnection
 
 
@@ -655,6 +657,38 @@ def select_target_regions(snapshot, findings, settings):
             )
         })
 
+    def hot_loop_bounds_mm(finding):
+        """Bounding box of a SWITCHING finding's net copper, FETs and inductor.
+
+        EMC-4, P02 Rev E: region_1 (SW-002) was the finding's evidence point
+        +/- region_margin_mm, x 266.8-276.8 / y 74.3-84.3 -- it held L1 but
+        neither Q10 (274.5, 85.6) nor Q11 (269.8, 66.1), 20.1 mm apart, so no
+        hot-loop rule could see them together. The region is now the union
+        of the switch node's own copper and every hot-loop footprint
+        (SW-003's ``hot_loop_components``), not one point and a fixed pad.
+        """
+        if finding.category != "SWITCHING" or not hasattr(settings, "_parent_sources"):
+            return None
+        finding_nets = set(finding.nets)
+        xs, ys = [], []
+        for source in settings._parent_sources:
+            if not source.enabled or source.net_name not in finding_nets:
+                continue
+            for x, y in hot_loop_components(snapshot, source.name, source.net_name).values():
+                xs.append(x)
+                ys.append(y)
+            for track in snapshot.tracks_by_net.get(source.net_name, []):
+                xs.extend((track.start[0], track.end[0]))
+                ys.extend((track.start[1], track.end[1]))
+            for geometry in snapshot.zones_by_net.get(source.net_name, {}).values():
+                if geometry is not None and not geometry.is_empty:
+                    minx, miny, maxx, maxy = geometry.bounds
+                    xs.extend((minx, maxx))
+                    ys.extend((miny, maxy))
+        if len(xs) < 2:
+            return None
+        return (min(xs), min(ys), max(xs), max(ys))
+
     candidates = sorted(
         (finding for finding in findings if _evidence_position(finding) is not None),
         key=lambda item: (
@@ -676,6 +710,14 @@ def select_target_regions(snapshot, findings, settings):
             max(board[0], x - margin), max(board[1], y - margin),
             min(board[2], x + margin), min(board[3], y + margin),
         )
+        loop_bounds = hot_loop_bounds_mm(finding)
+        if loop_bounds is not None:
+            bounds = (
+                max(board[0], min(bounds[0], loop_bounds[0]) - margin),
+                max(board[1], min(bounds[1], loop_bounds[1]) - margin),
+                min(board[2], max(bounds[2], loop_bounds[2]) + margin),
+                min(board[3], max(bounds[3], loop_bounds[3]) + margin),
+            )
         width = max(bounds[2] - bounds[0], settings.mesh_resolution_mm)
         depth = max(bounds[3] - bounds[1], settings.mesh_resolution_mm)
         air_margin = max(3.0, 0.5 * max(width, depth))

@@ -58,7 +58,12 @@ class Phase10Tests(unittest.TestCase):
         regions = select_target_regions(self.snapshot(), findings, settings.phase10)
         del settings.phase10._parent_sources
         self.assertEqual(len(regions), 1)
-        self.assertEqual(regions[0].bounds_mm, (7.0, 7.0, 13.0, 13.0))
+        # EMC-4: a SWITCHING region is the evidence point +/- margin UNIONED
+        # with the switch node's own copper (here the U4_SW track, x 9-12)
+        # plus margin, not the point alone -- P02 Rev E's region_1 held L1
+        # but neither Q10 nor Q11, 20.1 mm apart, because it never looked
+        # past one point.
+        self.assertEqual(regions[0].bounds_mm, (4.0, 4.0, 16.0, 16.0))
         self.assertEqual(regions[0].source_names, ["U4 switch"])
         self.assertGreater(regions[0].estimated_cells, 0)
 

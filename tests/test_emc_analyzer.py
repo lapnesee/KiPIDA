@@ -63,6 +63,36 @@ class TestEMCAnalyzer(unittest.TestCase):
                           "BUCK_SW": {0: box(40.0, 35.0, 50.0, 45.0)}},
         )
 
+    def test_hot_loop_rule_flags_a_spread_out_external_fet_stage(self):
+        # EMC-4, P02 Rev E: U4's /SYS_5V_SW1 hot loop is Q10 (274.5, 85.6)
+        # and Q11 (269.8, 66.1), 20.1 mm apart, with L1 between them; no
+        # rule flagged it and SW-002 recommended "IC-to-inductor", wrong for
+        # an external-FET controller (U4 drives Q10/Q11, it is not itself
+        # the switch).
+        snap = EMCGeometrySnapshot(
+            bounds_mm=(0.0, 0.0, 300.0, 100.0),
+            stackup=stackup(),
+            tracks=[EMCTrack("SW1", (269.8, 66.1), (274.5, 85.6), 3.0, 0, 20.06)],
+            footprints=[
+                EMCFootprint("Q10", "FET", (274.5, 85.6), ("SW1",), (("SW1", 274.5, 85.6),)),
+                EMCFootprint("Q11", "FET", (269.8, 66.1), ("SW1",), (("SW1", 269.8, 66.1),)),
+                EMCFootprint("L1", "1uH", (272.0, 76.0), ("SW1",), (("SW1", 272.0, 76.0),)),
+            ],
+        )
+        settings = EMCAnalysisSettings(sources=[
+            EMCSignalSource("U4 SW1 buck leg", "SW1", "SWITCHING", 400e3, 10.0,
+                             voltage_swing_v=20.0, current_a=4.36),
+        ])
+        result = EMCAnalyzer(snap, settings).analyze()
+        by_rule = {finding.rule_id: finding for finding in result.findings}
+        self.assertIn("SW-003", by_rule)
+        self.assertEqual(by_rule["SW-003"].severity, "HIGH")
+        self.assertIn("20.1", by_rule["SW-003"].description)
+        self.assertEqual(sorted(by_rule["SW-003"].components), ["L1", "Q10", "Q11"])
+        self.assertIn("SW-002", by_rule)
+        self.assertIn("FET-to-FET", by_rule["SW-002"].recommendation)
+        self.assertNotIn("IC-to-inductor", by_rule["SW-002"].recommendation)
+
     def test_detects_plane_void_switching_area_and_missing_return_via(self):
         result = EMCAnalyzer(self.snapshot(), self.settings()).analyze()
         rules = {finding.rule_id for finding in result.findings}
