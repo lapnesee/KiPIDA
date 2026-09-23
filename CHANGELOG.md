@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Documented AC-8 (limite publiee): via inductance
+  (mesh.Mesher._calculate_vertical_l) is a self inductance with no
+  mutual term against a nearby return via, overestimating a close
+  decoupling via pair's loop inductance by about 2.6x (1 mm-apart
+  pair, 1 mm dielectric span: 2 x 1.0 nH modelled vs about 0.76 nH by
+  the two-wire loop formula). Stated on the AC report rather than
+  corrected, since via-pair spacing is not available at this call site.
 - Fixed AC-7: DC-bias derating and ESR now depend on EIA case size
   (documented tables) instead of one generic curve and a fixed 10 mOhm;
   a 22uF/35V X5R at 20 V derates further and carries higher ESR in

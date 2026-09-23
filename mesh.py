@@ -771,7 +771,24 @@ class Mesher:
         return 4.0e-7 * math.pi * (height_mm / 2.0) * 1.0e-3
 
     def _calculate_vertical_l(self, layer_a, layer_b, stackup, diameter_mm):
-        """Estimate via/PTH inductance from traversed dielectric height."""
+        """Estimate one via/PTH's own inductance from traversed dielectric height.
+
+        This is a SELF inductance for one barrel, with no mutual term against
+        a nearby return via on the other net: the rail mesh and the ground
+        mesh each call this independently and simply add their own via's
+        value to the branch, the way _estimate_lateral_l used to for
+        plane-pair inductance before AC-3. For a close rail/ground via pair
+        that double counts the loop: scratchpad/audit/ac/ac_checks.py-style
+        measurement on a 1 mm-apart pair with h = 1 mm found 2 x 1.0 nH here
+        against a two-wire loop formula (mu0*h/pi * ln(s/r)) of about
+        0.76 nH -- pessimistic by about 2.6x. Unlike AC-3's plane pair, the
+        two vias' spacing and which via belongs to which net are not known
+        at this call site (_add_vertical_link/_add_vertical_stack call it
+        per via, independently of any paired return via), so no half-and-
+        subtract-the-mutual correction is applied here; this is published as
+        an AC-8 limitation on the report instead of silently under- or
+        over-correcting a distance this function cannot see.
+        """
         l_min, l_max = min(layer_a, layer_b), max(layer_a, layer_b)
         height_mm = 0.0
         for sub in stackup.get('substrate', []):
