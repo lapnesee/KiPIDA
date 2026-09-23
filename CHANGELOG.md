@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed CFD's AUTO backend selection obeying a CUDA threshold tuned for
+  other domains' larger, less frequent solves; CFD now raises it to
+  100,000 cells for its own solve unless CUDA was explicitly forced. On
+  P02 Rev E with the user's saved runtime.json this moved the 6,600-cell
+  solve from CUDA (324 ms/it) to CPU_PARDISO (22 ms/it, 490 it, 10.8 s,
+  converged).
 - Fixed the CFD free-stream sampler picking its normal axis from the PCB
   mask's own (possibly degenerate) extent instead of the board's actual
   orientation, which on P02 Rev E sampled a line in the board's own plane

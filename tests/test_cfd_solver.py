@@ -182,6 +182,29 @@ class TestEnclosureCFDSolver(unittest.TestCase):
         self.assertEqual(cells, 4)
         self.assertAlmostEqual(velocity, 1.0)
 
+    def test_auto_backend_gets_a_cfd_specific_cuda_threshold(self):
+        # docs/audit-2026-09-23.md CFD-3: with the user's saved runtime.json
+        # (backend AUTO, cuda_min_nodes lowered to 1,000 for other domains),
+        # P02 Rev E's 6,600-cell enclosure mesh went to CUDA at 324 ms/it
+        # against 17 ms/it on CPU (scratchpad p02_usercfg.py).
+        from runtime_config import RuntimeComputeSettings
+
+        logged = []
+        settings = RuntimeComputeSettings(backend="AUTO", cuda_enabled=True, cuda_min_nodes=1000)
+        solver = EnclosureCFDSolver(compute_settings=settings, log_callback=logged.append)
+
+        self.assertEqual(solver.compute_backend.settings.cuda_min_nodes, 100_000)
+        self.assertEqual(settings.cuda_min_nodes, 1000)  # caller's object is untouched
+        self.assertTrue(any("CUDA threshold" in message for message in logged))
+
+    def test_forced_cuda_backend_keeps_its_configured_threshold(self):
+        from runtime_config import RuntimeComputeSettings
+
+        settings = RuntimeComputeSettings(backend="CUDA", cuda_enabled=True, cuda_min_nodes=1000)
+        solver = EnclosureCFDSolver(compute_settings=settings)
+
+        self.assertEqual(solver.compute_backend.settings.cuda_min_nodes, 1000)
+
     def test_cancellation_stops_before_iteration(self):
         settings = self._settings()
         model = EnclosureModel((30.0, 30.0, 30.0))

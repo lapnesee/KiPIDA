@@ -1,6 +1,7 @@
 """Volumetric steady enclosure CFD with Boussinesq buoyancy and CHT energy."""
 
 import math
+from dataclasses import replace as _replace
 
 try:
     import numpy as np
@@ -26,9 +27,47 @@ except (ImportError, ValueError):
 class EnclosureCFDSolver:
     """Pseudo-transient projection solver on a structured cell-centred grid."""
 
+    # AUTO routes to CUDA past this many nodes, below the runtime-wide
+    # cuda_min_nodes default (100,000) but far above a typical enclosure
+    # mesh. CFD's per-iteration work is many small/medium GENERAL solves
+    # (the pressure Poisson system and the energy equation), not the few
+    # large ones CUDA amortises its transfer and kernel-launch overhead
+    # against. Measured on P02 Rev E with the user's saved runtime.json
+    # (backend AUTO, cuda_min_nodes lowered to 1,000 for other domains):
+    # 6,600 cells went to CUDA at 324 ms/iteration against 17 ms/iteration
+    # on CPU (docs/audit-2026-09-23.md CFD-3, scratchpad p02_usercfg.py).
+    CFD_CUDA_MIN_NODES = 100_000
+
+    @staticmethod
+    def _cfd_compute_settings(compute_settings, log_callback):
+        """Raise AUTO's CUDA threshold for this solve; leave CPU/CUDA alone.
+
+        A user-forced backend (CPU or CUDA) is respected unchanged -- this
+        only guards the AUTO heuristic, and only when the configured
+        threshold is lower than CFD needs. The caller's settings object is
+        never mutated, so a request shared with another domain (DC, thermal)
+        keeps its own threshold for their solves.
+        """
+        if compute_settings is None:
+            return compute_settings
+        backend = str(getattr(compute_settings, "backend", "AUTO") or "AUTO").upper()
+        current = int(getattr(compute_settings, "cuda_min_nodes", 0) or 0)
+        if backend != "AUTO" or current >= EnclosureCFDSolver.CFD_CUDA_MIN_NODES:
+            return compute_settings
+        if log_callback:
+            log_callback(
+                f"[CFD SOLVER] AUTO backend: using a {EnclosureCFDSolver.CFD_CUDA_MIN_NODES:,}-cell "
+                f"CUDA threshold for this solve (configured cuda_min_nodes={current:,} is "
+                "tuned for other domains' larger, less frequent solves; CFD's many small "
+                "per-iteration solves measured 324 ms/it on CUDA against 17 ms/it on CPU "
+                "at 6,600 cells)."
+            )
+        return _replace(compute_settings, cuda_min_nodes=EnclosureCFDSolver.CFD_CUDA_MIN_NODES)
+
     def __init__(self, debug=False, log_callback=None, compute_settings=None):
         self.debug = debug
         self.log_callback = log_callback
+        compute_settings = self._cfd_compute_settings(compute_settings, log_callback)
         self.compute_backend = SparseComputeBackend(compute_settings, log_callback)
         self._last_compute = None
         # The mass-conservative face velocities the last _pressure_projection
