@@ -32,22 +32,19 @@ def _rectangle_intersects_xy(rectangle, x_values, y_values):
 
 class TestVectorizedThermalSampling(unittest.TestCase):
     def test_vectorized_band_preserves_sparse_cell_coordinates_and_copper(self):
-        original = thermal_mesh.intersects_xy
-        thermal_mesh.intersects_xy = _rectangle_intersects_xy
-        try:
-            cells = thermal_mesh.ThermalMesher._sample_layer_band(
-                _Rectangle(0.0, 0.0, 4.0, 3.0),
-                _Rectangle(1.0, 1.0, 3.0, 3.0),
-                0.0, 0.0, 4, 1, 3, 1.0,
-            )
-        finally:
-            thermal_mesh.intersects_xy = original
-
+        # Real geometry: edge cells now carry their exact copper fraction,
+        # which a stub rectangle cannot compute. Cells fully inside or
+        # outside the copper still read 1.0 and 0.0.
+        from shapely.geometry import box
+        cells = thermal_mesh.ThermalMesher._sample_layer_band(
+            box(0.0, 0.0, 4.0, 3.0), box(1.0, 1.0, 3.0, 3.0),
+            0.0, 0.0, 4, 1, 3, 1.0,
+        )
         self.assertEqual(
             cells,
             [
-                (0, 1, False), (1, 1, True), (2, 1, True), (3, 1, False),
-                (0, 2, False), (1, 2, True), (2, 2, True), (3, 2, False),
+                (0, 1, 0.0), (1, 1, 1.0), (2, 1, 1.0), (3, 1, 0.0),
+                (0, 2, 0.0), (1, 2, 1.0), (2, 2, 1.0), (3, 2, 0.0),
             ],
         )
 
@@ -146,6 +143,22 @@ class TestVectorizedThermalSampling(unittest.TestCase):
         self.assertTrue(all(face_mesh.node_layers[item.node_id] == 0 for item in face_mesh.boundaries if item.kind == "top"))
         self.assertTrue(all(face_mesh.node_layers[item.node_id] == 31 for item in face_mesh.boundaries if item.kind == "bottom"))
 
+
+
+class CopperFractionTests(unittest.TestCase):
+    def test_a_trace_narrower_than_a_cell_is_a_fraction_of_it(self):
+        # A cell was copper or laminate by its centre alone: a 0.1 mm trace
+        # on a 0.5 mm grid was either a 0.5 mm copper strip or nothing
+        # (open since the 2026-09-04 thermal audit).
+        from shapely.geometry import box
+        from thermal_mesh import ThermalMesher
+        outline = box(0.0, 0.0, 2.0, 2.0)
+        trace = box(0.0, 0.95, 2.0, 1.05)
+        cells = ThermalMesher._sample_layer_band(outline, trace, 0.0, 0.0, 4, 0, 4, 0.5)
+        fractions = {(ix, iy): fraction for ix, iy, fraction in cells}
+        # Rows 1 and 2 straddle y = 1.0; each holds part of the trace.
+        self.assertTrue(all(0.0 < fractions[(ix, 1)] < 1.0 for ix in range(4)))
+        self.assertEqual(fractions[(0, 0)], 0.0)
 
 if __name__ == "__main__":
     unittest.main()

@@ -456,16 +456,59 @@ class ThermalMesher:
             else:
                 inside = np.asarray(intersects_xy(outline, x_grid, y_grid), dtype=bool)
             if copper is None or copper.is_empty:
-                copper_mask = np.zeros(x_grid.size, dtype=bool)
+                fraction = np.zeros(x_grid.size, dtype=np.float64)
             else:
                 copper_mask = np.asarray(intersects_xy(copper, x_grid, y_grid), dtype=bool)
+                fraction = copper_mask.astype(np.float64)
+                # A cell was copper or laminate by its centre alone, so a
+                # trace narrower than a cell was all copper or none of it and
+                # a pour edge moved by up to half a cell (open since the
+                # 2026-09-04 thermal audit). Cells on a copper edge -- a
+                # neighbour differs, or the copper's outline crosses them --
+                # carry the exact fraction of their area the copper covers.
+                mask = copper_mask.reshape(row_count, int(nx))
+                edge = np.zeros_like(mask)
+                edge[:, 1:] |= mask[:, 1:] != mask[:, :-1]
+                edge[:, :-1] |= mask[:, 1:] != mask[:, :-1]
+                edge[1:, :] |= mask[1:, :] != mask[:-1, :]
+                edge[:-1, :] |= mask[1:, :] != mask[:-1, :]
+                # A trace narrower than a cell can pass between cell centres
+                # and leave no mask edge at all, so the copper's own outline,
+                # walked every third of a cell, marks the cells it crosses.
+                try:
+                    import shapely
+                    # The band's copper only, cut once: walking and
+                    # intersecting the whole layer per band cost 3.2 s a
+                    # layer on P02 Rev E's In1.Cu at 0.2 mm, 0.09 s before.
+                    band_copper = shapely.intersection(copper, shapely.box(
+                        min_x - grid, min_y + (int(row_start) - 1) * grid,
+                        min_x + (int(nx) + 1) * grid, min_y + (int(row_stop) + 1) * grid,
+                    ))
+                    walk = shapely.segmentize(band_copper.boundary, grid / 3.0)
+                    points = shapely.get_coordinates(walk)
+                except (ImportError, AttributeError):
+                    band_copper = copper
+                    points = np.empty((0, 2))
+                if len(points):
+                    cols = np.floor((points[:, 0] - min_x) / grid).astype(np.int64)
+                    rows = np.floor((points[:, 1] - min_y) / grid).astype(np.int64) - int(row_start)
+                    keep = (cols >= 0) & (cols < int(nx)) & (rows >= 0) & (rows < row_count)
+                    edge[rows[keep], cols[keep]] = True
+                candidates = np.flatnonzero(edge.ravel() & inside)
+                if candidates.size:
+                    import shapely
+                    half = grid / 2.0
+                    cells = shapely.box(
+                        x_grid[candidates] - half, y_grid[candidates] - half,
+                        x_grid[candidates] + half, y_grid[candidates] + half,
+                    )
+                    covered = shapely.area(shapely.intersection(band_copper, cells))
+                    fraction[candidates] = np.clip(covered / (grid * grid), 0.0, 1.0)
             active = np.flatnonzero(inside)
             # Return the same compact, deterministic cell tuples consumed by
-            # the finite-volume builder.  Geometry classification is now done
-            # in bulk; the remaining tuple creation is unavoidable because the
-            # existing mesh API stores sparse board cells explicitly.
+            # the finite-volume builder, with each cell's copper fraction.
             return [
-                (int(index % nx), int(row_start + index // nx), bool(copper_mask[index]))
+                (int(index % nx), int(row_start + index // nx), float(fraction[index]))
                 for index in active
             ]
 
@@ -478,7 +521,7 @@ class ThermalMesher:
                 x = min_x + (ix + 0.5) * grid
                 point = Point(x, y)
                 if prepared_outline.covers(point):
-                    cells.append((ix, iy, bool(prepared_copper and prepared_copper.covers(point))))
+                    cells.append((ix, iy, 1.0 if prepared_copper and prepared_copper.covers(point) else 0.0))
         return cells
 
     @classmethod
@@ -723,11 +766,15 @@ class ThermalMesher:
             node_grid = np.full((ny, nx), -1, dtype=np.int32)
             kxy_grid = np.zeros((ny, nx), dtype=np.float64)
             kz_grid = np.zeros((ny, nx), dtype=np.float64)
-            for ix, iy, is_copper in sampled_layers[iz]:
+            for ix, iy, copper_fraction in sampled_layers[iz]:
                 x = min_x + (ix + 0.5) * grid
                 y = min_y + (iy + 0.5) * grid
-                if spec.material == "copper-layer" and is_copper:
-                    kx = ky = kz = self.COPPER_K
+                if spec.material == "copper-layer" and copper_fraction > 0.0:
+                    # Copper and laminate side by side in the cell: parallel
+                    # mixing, in plane and through it.
+                    f = float(copper_fraction)
+                    kx = ky = f * self.COPPER_K + (1.0 - f) * self.FR4_K_XY
+                    kz = f * self.COPPER_K + (1.0 - f) * self.FR4_K_Z
                 else:
                     kx = ky = self.FR4_K_XY
                     kz = self.FR4_K_Z

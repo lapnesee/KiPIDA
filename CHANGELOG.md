@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed thermal cells being all copper or all laminate by their centre:
+  a trace narrower than a cell was a full-cell strip or nothing, and a
+  pour edge moved by up to half a cell. Cells on a copper edge now carry
+  the exact copper fraction of their area, mixed in parallel with the
+  laminate; P02 Rev E's In1.Cu reads 5021.2 mm2 of copper, its true area.
 - Fixed thermal actions never carrying a remediation: the thermal-via
   advisor was imported by no production code. A junction over its limit
   now gets a sized ADD_THERMAL_VIAS remediation (1-D barrel sizing,
