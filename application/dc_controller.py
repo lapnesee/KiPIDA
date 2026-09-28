@@ -445,14 +445,43 @@ def _regulator_input_currents(rail, rails, rail_current):
     return demands
 
 
-def _rail_injections(rail, rails, regulator_demands, locate, emit):
-    """Sources and loads of one rail as solver injections, for either engine.
+def _is_pass_element(regulator, by_name):
+    """True for a fuse, eFuse, shunt, switch or net-tie, not a real converter.
 
-    Declared sources and the outputs of the regulators producing the rail hold
-    it at its nominal voltage; declared loads and the inputs of the regulators
-    it feeds draw current, split evenly over the nodes their pads were located
-    on. *locate* maps ``(ref_des, pad_names)`` to node ids on the engine's mesh.
+    DC-3: these are declared as regulators (reg_type defaults to "LINEAR")
+    because they connect two rails, but they do not regulate -- their input
+    and output rails share the same nominal voltage. A true linear regulator
+    (an LDO) is also "LINEAR" but drops its input to a lower, different
+    nominal, and stays Dirichlet at that set point as intended.
     """
+    if str(getattr(regulator, "reg_type", "LINEAR")) == "SWITCHING":
+        return False
+    output_rail = by_name.get(regulator.output_rail_name)
+    input_rail = by_name.get(regulator.input_rail_name)
+    if output_rail is None or input_rail is None:
+        return False
+    return abs(float(output_rail.nominal_voltage) - float(input_rail.nominal_voltage)) < 1e-9
+
+
+def _rail_injections(rail, rails, regulator_demands, locate, emit, pass_voltages=None):
+    """Sources, loads and downstream regulator input nodes of one rail.
+
+    Declared sources hold the rail at its nominal voltage. The output of a
+    regulator producing the rail does too, *unless* it is a pass element
+    (DC-3, :func:`_is_pass_element`) and *pass_voltages* already carries a
+    propagated voltage for this rail -- computed by the caller from the
+    regulator's own input pad, once solved on its own (upstream) rail, minus
+    its declared ``r_pass_ohm`` drop. Declared loads and the inputs of the
+    regulators this rail feeds draw current, split evenly over the nodes
+    their pads were located on. *locate* maps ``(ref_des, pad_names)`` to
+    node ids on the engine's mesh.
+
+    Returns ``(sources, loads, regulator_input_nodes)``, the last a
+    ``{regulator.output_rail_name: [node_id, ...]}`` map of where each
+    downstream regulator's input pad landed on *this* rail's mesh, so the
+    caller can read its solved voltage back out and propagate it onward.
+    """
+    by_name = {item.net_name: item for item in rails}
     sources, loads = [], []
     for source in rail.sources:
         nodes = locate(source.component_ref.ref_des, source.pad_names)
@@ -462,12 +491,18 @@ def _rail_injections(rail, rails, regulator_demands, locate, emit):
         for regulator in parent.child_regulators:
             if regulator.output_rail_name == rail.net_name:
                 nodes = locate(regulator.output_ref_des, regulator.output_pad_names)
-                sources.extend({'node_id': node, 'voltage': rail.nominal_voltage} for node in nodes)
+                voltage = rail.nominal_voltage
+                if pass_voltages is not None and _is_pass_element(regulator, by_name):
+                    propagated = pass_voltages.get(rail.net_name)
+                    if propagated is not None:
+                        voltage = propagated
+                sources.extend({'node_id': node, 'voltage': voltage} for node in nodes)
     for load in rail.loads:
         nodes = locate(load.component_ref.ref_des, load.pad_names)
         if nodes:
             current = load.total_current / len(nodes)
             loads.extend({'node_id': node, 'current': current, 'ref_des': load.component_ref.ref_des} for node in nodes)
+    regulator_input_nodes = {}
     for regulator, input_current in regulator_demands:
         nodes = locate(regulator.input_ref_des, regulator.input_pad_names)
         if not nodes:
@@ -475,7 +510,37 @@ def _rail_injections(rail, rails, regulator_demands, locate, emit):
             continue
         current = input_current / len(nodes)
         loads.extend({'node_id': node, 'current': current, 'ref_des': regulator.input_ref_des} for node in nodes)
-    return sources, loads
+        regulator_input_nodes[regulator.output_rail_name] = list(nodes)
+    return sources, loads, regulator_input_nodes
+
+
+def _propagated_pass_voltages(rail, rails, demands, regulator_input_nodes, voltages, pass_voltages):
+    """Update *pass_voltages* in place with what this rail's solve found.
+
+    For every pass-element regulator this rail feeds, the propagated source
+    for its output rail is the mean solved voltage at its own input pad on
+    *this* (upstream, already-solved) rail, minus its own ``r_pass_ohm``
+    drop at the current it draws -- 0 V of extra drop when undeclared, which
+    still beats resetting to nominal.
+    """
+    by_name = {item.net_name: item for item in rails}
+    current_by_output_rail = {
+        regulator.output_rail_name: input_current for regulator, input_current in demands
+    }
+    for regulator in rail.child_regulators:
+        if not _is_pass_element(regulator, by_name):
+            continue
+        nodes = regulator_input_nodes.get(regulator.output_rail_name)
+        if not nodes:
+            continue
+        seen = [voltages[node] for node in nodes if node in voltages]
+        if not seen:
+            continue
+        input_voltage = sum(seen) / len(seen)
+        current = current_by_output_rail.get(regulator.output_rail_name, 0.0)
+        pass_voltages[regulator.output_rail_name] = (
+            input_voltage - current * float(getattr(regulator, "r_pass_ohm", 0.0) or 0.0)
+        )
 
 
 def _load_point_drop(voltages, sources, loads):
@@ -544,20 +609,36 @@ class DCSolverEngine:
     def solve(self, request, emit, progress, cancelled):
         rails = list(request.rails)
         emit(f"--- Starting System Simulation ({len(rails)} rails) ---")
+        # _sorted_rails is downstream-first (a regulator's own demand needs
+        # its output rail's current already totalled), so this loop is what
+        # _regulator_input_currents needs -- but DC-3's voltage propagation
+        # needs the opposite: an upstream rail solved before the downstream
+        # one whose pass-element source it feeds. Demands are computed here,
+        # once, in the order current aggregation requires; the mesh/solve
+        # loop below then runs the reverse of it -- upstream first -- reading
+        # these demands back rather than recomputing them out of order.
         sorted_rails = _sorted_rails(rails)
-        emit("Rail solve order: " + " -> ".join(rail.net_name for rail in sorted_rails))
+        rail_current = {rail.net_name: 0.0 for rail in rails}
+        demands_by_rail = {
+            rail.net_name: _regulator_input_currents(rail, rails, rail_current)
+            for rail in sorted_rails
+        }
+        solve_order = list(reversed(sorted_rails))
+        emit("Rail solve order: " + " -> ".join(rail.net_name for rail in solve_order))
         context = self._begin(request, emit)
         results = {}
-        rail_current = {rail.net_name: 0.0 for rail in rails}
-        demands_by_rail = {}
+        # DC-3: a pass element's (fuse, eFuse, shunt, switch, net-tie) output
+        # rail source, propagated from its own input pad once that rail is
+        # solved -- {output_rail_name: volts}. Filled in solve_order, upstream
+        # first, so it is always ready by the time a downstream rail needs it.
+        pass_voltages = {}
         check_grid = bool(getattr(request, "grid_sensitivity_check", False))
-        total = max(1, len(sorted_rails) * (4 if check_grid else 3))
+        total = max(1, len(solve_order) * (4 if check_grid else 3))
         completed = 0
-        for rail in sorted_rails:
+        for rail in solve_order:
             if cancelled(): raise DCAnalysisCancelled("DC analysis cancelled.")
             emit(f"Processing Rail: {rail.net_name} (Sources: {len(rail.sources)}, Loads: {len(rail.loads)})")
-            demands = _regulator_input_currents(rail, rails, rail_current)
-            demands_by_rail[rail.net_name] = demands
+            demands = demands_by_rail[rail.net_name]
             completed += 1
             progress(completed, total, f"{rail.net_name}: geometry")
             mesh = self._build_mesh(rail, request, context, emit)
@@ -574,9 +655,10 @@ class DCSolverEngine:
                 progress(completed, total, f"{rail.net_name}: skipped")
                 continue
 
-            sources, loads = _rail_injections(
+            sources, loads, regulator_input_nodes = _rail_injections(
                 rail, rails, demands,
                 self._locator(rail, mesh, request, context, emit), emit,
+                pass_voltages=pass_voltages,
             )
             if not sources:
                 emit(f"  Warning: No sources for {rail.net_name}. Skipping solve.")
@@ -589,6 +671,9 @@ class DCSolverEngine:
                 compute_settings=request.compute_settings,
             )
             detailed = solver.solve_detailed(mesh, sources, loads)
+            _propagated_pass_voltages(
+                rail, rails, demands, regulator_input_nodes, detailed.voltages, pass_voltages,
+            )
             self._publish_mesh(mesh, context)
             from application.dc_current_density import calculate_current_density
             current_density = calculate_current_density(
@@ -604,6 +689,11 @@ class DCSolverEngine:
                     'stats': (min(values), max(values), max(values) - min(values)),
                     'load_drop_v': worst_load_drop,
                     'source_voltage_v': source_voltage,
+                    # DC-3: source_voltage_v is the propagated chain voltage
+                    # when a pass element feeds this rail, and equals
+                    # nominal_voltage_v otherwise -- the gap between the two
+                    # is the cumulative drop from the top of the chain.
+                    'nominal_voltage_v': float(rail.nominal_voltage or 0.0),
                     'engine': self.engine_name,
                     'sources': sources, 'loads': loads, 'detailed_result': detailed,
                     'current_density': current_density,
@@ -644,11 +734,15 @@ class DCSolverEngine:
                 done[0] += 1
                 progress(min(done[0], total), total, detail)
 
-            self._grid_sensitivity(request, rails, results, demands_by_rail, context, emit, advance, cancelled)
+            self._grid_sensitivity(
+                request, rails, results, demands_by_rail, context, emit, advance, cancelled,
+                pass_voltages,
+            )
             progress(total, total, "grid check done")
         return results
 
-    def _grid_sensitivity(self, request, rails, results, demands_by_rail, context, emit, advance, cancelled):
+    def _grid_sensitivity(self, request, rails, results, demands_by_rail, context, emit, advance,
+                           cancelled, pass_voltages=None):
         """The worst-load drop again at half the grid step, on the rails where it counts.
 
         The drop had no error bar. Solved at twice the step instead, the P02
@@ -689,9 +783,10 @@ class DCSolverEngine:
             if mesh is None or not mesh.nodes or float(mesh.grid_step) >= step:
                 emit(f"[grid check] {name}: no finer mesh than {step:g} mm could be built; not checked.")
                 continue
-            sources, loads = _rail_injections(
+            sources, loads, _regulator_input_nodes = _rail_injections(
                 rail, rails, demands_by_rail.get(name, []),
                 self._locator(rail, mesh, fine_request, context, quiet), quiet,
+                pass_voltages=pass_voltages,
             )
             if not sources:
                 continue

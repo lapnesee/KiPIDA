@@ -68,6 +68,13 @@ class VoltageRegulator:
     # Optional physical loss model.  Older project files omit it and retain
     # the legacy efficiency fallback in ``efficiency``.
     loss_model: Dict[str, Any] = field(default_factory=dict)
+    # On-resistance of a pass element -- a fuse, eFuse, shunt, switch or
+    # net-tie, i.e. a non-SWITCHING regulator whose output rail has the same
+    # nominal voltage as its input (DC-3). The DC solve propagates the input
+    # pad's own solved voltage minus input_current * r_pass_ohm to the output
+    # rail's source, instead of resetting it to nominal; 0.0 (undeclared)
+    # still propagates the upstream drop, just without the element's own.
+    r_pass_ohm: float = 0.0
 
 
 @dataclass

@@ -1582,6 +1582,38 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
                 "WARN" if drop_pct > float(maximum_drop_pct) else "PASS",
             ))
             drop_text = f"Calculated drop is {drop_pct:.3f}%"
+        # DC-3: a pass element (fuse, eFuse, shunt, switch, net-tie) propagates
+        # its input pad's real solved voltage to its output rail rather than
+        # resetting to nominal (application/dc_controller.py's pass_voltages);
+        # nominal_voltage_v is what the rail would read with no chain drop, so
+        # the gap against source_voltage_v is the cumulative drop from the top
+        # of the chain to this rail's own source. Rails with no pass-element
+        # ancestor read the same value in both and raise nothing.
+        nominal_voltage = float(data.get("nominal_voltage_v", 0.0) or 0.0)
+        if nominal_voltage > 0.0 and source_voltage > 0.0:
+            chain_drop_v = nominal_voltage - source_voltage
+            if chain_drop_v > 1e-6:
+                chain_drop_pct = chain_drop_v / nominal_voltage * 100.0
+                metrics.append(AnalysisMetric(
+                    f"rail_{index}_chain_drop",
+                    f"{rail} cumulative drop from its chain's pass elements",
+                    chain_drop_pct, "%",
+                    "WARN" if chain_drop_pct > float(maximum_drop_pct) else "INFO",
+                ))
+                findings.append(_finding(
+                    "DC-006", index, "VOLTAGE_DROP",
+                    FindingSeverity.HIGH if chain_drop_pct > float(maximum_drop_pct)
+                    else FindingSeverity.MEDIUM,
+                    f"{rail} carries {chain_drop_v * 1000.0:.1f} mV of upstream chain drop",
+                    f"{rail}'s source reads {source_voltage:.3f} V against a {nominal_voltage:.3f} V "
+                    f"nominal, {chain_drop_v * 1000.0:.1f} mV ({chain_drop_pct:.2f}%) lost in the "
+                    "fuses, eFuses, shunts, switches or net-ties between it and the regulator "
+                    "actually setting the voltage -- copper this rail's own worst-load drop above "
+                    "does not include.",
+                    "Add the declared R_on of each pass element on the chain (sidecar "
+                    "r_pass_ohm) if it is not already, and budget this drop alongside the "
+                    "rail's own.",
+                ))
         if data.get("engine") != "hybrid":
             metrics.extend(_raster_track_metrics(
                 f"rail_{index}_", str(rail), data.get("track_summary"),

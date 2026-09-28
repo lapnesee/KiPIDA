@@ -225,6 +225,7 @@ def _regulator_to_dict(reg: VoltageRegulator) -> dict:
         "efficiency": reg.efficiency,
         "thermal_ref_des": reg.thermal_ref_des,
         "loss_model": reg.loss_model,
+        "r_pass_ohm": reg.r_pass_ohm,
     }
 
 def _dict_to_regulator(data: dict) -> VoltageRegulator:
@@ -241,6 +242,7 @@ def _dict_to_regulator(data: dict) -> VoltageRegulator:
         efficiency=data.get("efficiency", 0.85),
         thermal_ref_des=data.get("thermal_ref_des", ""),
         loss_model=dict(data.get("loss_model", {}) or {}),
+        r_pass_ohm=data.get("r_pass_ohm", 0.0),
     )
 
 

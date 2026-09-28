@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed DC-3: a pass element (fuse, eFuse, shunt, switch, net-tie) now
+  propagates its input pad's real solved voltage (minus a declarable
+  r_pass_ohm, default 0) to its output rail instead of resetting to
+  nominal, and a rail's cumulative chain drop is published as DC-006.
+  P02 Rev E (2026-09-23): /J2_VBUS_PORT (U12 -> U7 -> F2) now reads
+  22.79 mV of chain drop, previously invisible; /+5V_RAIL (R49 -> U15)
+  reads 22.74 mV.
 - Fixed the 2-D differential/coplanar field solver reading Zdiff 5-9% low
   (P02 Rev E USB pair: reference 85.36 ohm, tool 76.86 -> 83.25 ohm) by
   giving an exposed pair's copper-thickness band air/mask instead of

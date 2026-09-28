@@ -395,6 +395,28 @@ class AnalysisAdapterTests(unittest.TestCase):
         finding = next(item for item in beyond.findings if item.rule_id == "DC-003")
         self.assertIn("250.0 mV", finding.description)
 
+    def test_dc_006_reports_the_chain_drop_a_pass_element_hid(self):
+        # DC-3. P02 Rev E's J2 chain (buck -> fuse -> eFuse -> shunt -> switch
+        # -> J2) totals 56.1 mV that used to be invisible because every link
+        # reset to nominal; this rail's source_voltage_v (now propagated,
+        # dc_controller.py's pass_voltages) sits 56.1 mV below nominal_voltage_v.
+        result = adapt_dc_result({"/J2_PD_HV": {
+            "stats": (4.9439, 4.9439, 0.0), "load_drop_v": 0.0002,
+            "source_voltage_v": 4.9439, "nominal_voltage_v": 5.0,
+        }}, 5.0)
+        finding = next(item for item in result.findings if item.rule_id == "DC-006")
+        self.assertIn("56.1 mV", finding.description)
+        metric = next(item for item in result.metrics if item.key == "rail_1_chain_drop")
+        self.assertAlmostEqual(metric.value, 0.0561 / 5.0 * 100.0, places=6)
+
+        # A rail with no pass-element ancestor reads the same value in both
+        # fields and raises nothing.
+        clean = adapt_dc_result({"+3V3": {
+            "stats": (3.3, 3.3, 0.0), "load_drop_v": 0.0,
+            "source_voltage_v": 3.3, "nominal_voltage_v": 3.3,
+        }}, 5.0)
+        self.assertNotIn("DC-006", {item.rule_id for item in clean.findings})
+
     def test_every_dc_finding_names_its_rail(self):
         # The advisor finds a voltage-drop finding's rail by its nets. Without
         # them no finding from this adapter was ever given a sized fix.

@@ -495,7 +495,11 @@ class RegulatorCascade(unittest.TestCase):
         engine = DCSolverEngine(mesher_factory=OneNodeMesher, solver_factory=RecordingSolver)
         results, _logs = _solve(engine, request)
         self.assertEqual(set(results), {"VIN", "OUT"})
-        vin_loads = seen[max(seen)]
+        # DC-3 solves upstream-first (VIN, then OUT) rather than in the
+        # downstream-first order _sorted_rails uses for current aggregation,
+        # so VIN's call is found by its own load ref_des (LDO1's input, U1)
+        # rather than by position.
+        vin_loads = next(loads for loads in seen.values() if any(item["ref_des"] == "U1" for item in loads))
         # LDO1 carries MID's own 0.2 A plus LDO2's 0.5 A input.
         self.assertAlmostEqual(sum(item["current"] for item in vin_loads), 0.7)
 
