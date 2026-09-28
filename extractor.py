@@ -421,6 +421,37 @@ class GeometryExtractor:
         max_x, max_y = max(x for x, _ in points), max(y for _, y in points)
         return (min_x - margin_mm, min_y - margin_mm, max_x + margin_mm, max_y + margin_mm)
 
+    @staticmethod
+    def _solder_masks_from_file(board_path):
+        """Top/bottom solder-mask thickness (and er when written) from the file.
+
+        IPC's stackup is read for copper and dielectrics only, so the mask the
+        differential solver models above an outer-layer pair fell back to a
+        0.02 mm / er 3.3 default; P02 Rev E's file says 0.01 mm on both sides
+        (audit-2026-09-23.md SI-6). KiCad writes epsilon_r for a mask only when
+        the user set one, so it is optional.
+        """
+        try:
+            text = Path(board_path).read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError, TypeError):
+            return {}
+        masks = {}
+        pattern = re.compile(
+            r'\(layer\s+"([FB])\.Mask"\s*\(type\s+"[^"]*Solder Mask"\)(.*?)\n\s*\)',
+            re.S,
+        )
+        for match in pattern.finditer(text):
+            body = match.group(2)
+            thickness = re.search(r'\(thickness\s+([-+]?\d*\.?\d+)', body)
+            epsilon = re.search(r'\(epsilon_r\s+([-+]?\d*\.?\d+)', body)
+            if not thickness:
+                continue
+            masks["top" if match.group(1) == "F" else "bottom"] = {
+                'thickness_mm': float(thickness.group(1)),
+                'epsilon_r': float(epsilon.group(1)) if epsilon else 0.0,
+            }
+        return masks
+
     def get_board_stackup(self):
         """
         Extracts physical stackup properties.
@@ -584,6 +615,9 @@ class GeometryExtractor:
                 'source': 'KICAD_IPC',
                 'trustworthy': bool(copper_data and substrates) and not warnings,
                 'warnings': warnings,
+                'solder_masks': (
+                    self._solder_masks_from_file(self.board_path) if self.board_path else {}
+                ),
             }
             
             if self.debug:
@@ -691,6 +725,20 @@ class GeometryExtractor:
                     epsilon_r=float(dielectric.get('epsilon_r', 4.4)),
                     loss_tangent=float(dielectric.get('loss_tangent', 0.0)),
                 ))
+        masks = data.get('solder_masks') or {}
+        for side, name in (("top", "F.Mask"), ("bottom", "B.Mask")):
+            mask = masks.get(side)
+            if not mask:
+                continue
+            layer = StackupLayerModel(
+                name=name, kind='SOLDER_MASK',
+                thickness_mm=float(mask.get('thickness_mm', 0.0)),
+                material='Solder mask', epsilon_r=float(mask.get('epsilon_r', 0.0)),
+            )
+            if side == "top":
+                layers.insert(0, layer)
+            else:
+                layers.append(layer)
         warnings = list(data.get('warnings', []))
         if any(layer.kind == 'DIELECTRIC' and layer.thickness_mm <= 0 for layer in layers):
             warnings.append('One or more dielectric thicknesses are missing.')

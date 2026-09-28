@@ -53,6 +53,13 @@ class DifferentialImpedanceTests(unittest.TestCase):
         self.assertEqual(result.length_symmetry_status, "PASS")
         self.assertEqual(result.skew_limit_ps, 25.0)
 
+    def test_the_stackup_solder_mask_replaces_the_settings_default(self):
+        # P02 Rev E's file states F.Mask and B.Mask at 0.01 mm; the solver
+        # used the 0.02 mm / er 3.3 settings default instead (SI-6).
+        self.stackup.layers.insert(0, StackupLayerModel("F.Mask", "SOLDER_MASK", 0.01))
+        solver = DifferentialImpedanceSolver(None, self.stackup, self.settings)
+        self.assertEqual(solver._solder_mask(0), (0.01, 3.3))
+
     def test_excessive_length_skew_forces_pair_fail(self):
         # Mismatch must clear the USB 25 ps limit using the *effective*
         # dielectric constant from the 2-D microstrip field solve (~2.7 for

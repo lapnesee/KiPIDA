@@ -213,13 +213,29 @@ class DifferentialImpedanceSolver:
                 best_net, best_coverage = net_name, coverage
         return best_net, best_coverage
 
-    def _mask_adjusted_epsilon(self, epsilon_r, height_mm):
-        if not self.settings.include_solder_mask or height_mm <= 0:
-            return epsilon_r
-        ratio = min(0.25, self.settings.solder_mask_thickness_mm / height_mm)
-        return epsilon_r + ratio * 0.15 * (
-            self.settings.solder_mask_epsilon_r - 1.0
-        )
+    def _solder_mask(self, layer_id):
+        """Mask thickness and er over an outer copper layer.
+
+        The stackup's own F.Mask / B.Mask wins over the settings default
+        (0.02 mm / er 3.3); P02 Rev E's file says 0.01 mm (SI-6). A mask whose
+        er the file does not state keeps the configured er.
+        """
+        thickness = float(self.settings.solder_mask_thickness_mm)
+        epsilon = float(self.settings.solder_mask_epsilon_r)
+        layers = list(getattr(self.stackup, "layers", []) or [])
+        copper = [layer.layer_id for layer in layers if layer.kind.upper() == "COPPER"]
+        masks = [layer for layer in layers if layer.kind.upper() == "SOLDER_MASK"]
+        side = None
+        if copper and layer_id == copper[0]:
+            side = "F.Mask"
+        elif copper and layer_id == copper[-1]:
+            side = "B.Mask"
+        mask = next((layer for layer in masks if layer.name == side), None)
+        if mask is not None and mask.thickness_mm > 0.0:
+            thickness = float(mask.thickness_mm)
+            if mask.epsilon_r > 1.0:
+                epsilon = float(mask.epsilon_r)
+        return thickness, epsilon
 
     @staticmethod
     def _microstrip(width, gap, thickness, height, epsilon_r):
@@ -264,6 +280,7 @@ class DifferentialImpedanceSolver:
         reference_epsilon = 4.4
         effective_epsilon = 0.0
         requested_geometry = normalize_geometry(self.settings.geometry_mode)
+        mask_thickness, mask_epsilon = self._solder_mask(layer_id)
         solved_topology = context.topology
         ground_clearance = 0.0
         reported_coverage = context.coverage_pct
@@ -358,8 +375,8 @@ class DifferentialImpedanceSolver:
                         copper_thickness_mm=thickness, height_above_mm=height_above,
                         epsilon_above=epsilon_above,
                         include_solder_mask=self.settings.include_solder_mask,
-                        solder_mask_thickness_mm=self.settings.solder_mask_thickness_mm,
-                        solder_mask_epsilon_r=self.settings.solder_mask_epsilon_r,
+                        solder_mask_thickness_mm=mask_thickness,
+                        solder_mask_epsilon_r=mask_epsilon,
                         backing_plane=not coplanar_without_backing,
                     )
                     z0, zdiff = coplanar.odd_mode_impedance_ohm, coplanar.differential_impedance_ohm
@@ -391,15 +408,16 @@ class DifferentialImpedanceSolver:
                     height = context.distance_below_mm
                     epsilon = context.epsilon_r_below
                 reference_distance = height
-                if context.topology == "MICROSTRIP":
-                    epsilon = self._mask_adjusted_epsilon(epsilon, height)
+                # The 2-D solve models the mask explicitly; raising the
+                # substrate er for it as well counted it twice (-0.7 % on
+                # P02 Rev E, SI-6).
                 reference_epsilon = epsilon
                 try:
                     solved = EdgeCoupledDifferentialSolver.solve_microstrip(
                         width, gap_mm, thickness, height, epsilon,
                         include_solder_mask=self.settings.include_solder_mask,
-                        solder_mask_thickness_mm=self.settings.solder_mask_thickness_mm,
-                        solder_mask_epsilon_r=self.settings.solder_mask_epsilon_r,
+                        solder_mask_thickness_mm=mask_thickness,
+                        solder_mask_epsilon_r=mask_epsilon,
                     )
                     z0 = solved.odd_mode_impedance_ohm
                     zdiff = solved.differential_impedance_ohm
@@ -465,6 +483,8 @@ class DifferentialImpedanceSolver:
             effective_epsilon_r=effective_epsilon,
             two_d_impedance_ohm=zdiff,
             three_d_impedance_ohm=zdiff,
+            solder_mask_thickness_mm=mask_thickness,
+            solder_mask_epsilon_r=mask_epsilon,
             trustworthy=bool((context.trustworthy or coplanar_without_backing) and zdiff > 0),
             warnings=warnings,
         )

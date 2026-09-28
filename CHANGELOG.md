@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed the differential solver ignoring the board's solder mask: IPC's
+  stackup carries no mask, so it modelled 0.02 mm / er 3.3 over P02 Rev E's
+  USB pairs whose file states 0.01 mm, and it also raised the substrate er
+  for a mask the 2-D solve already models (-0.7 % each). The mask is read
+  from the board file and applied once.
 - Fixed the 2-D differential field solver taking 5-10 s per cross-section
   after its grid was refined to h/20 for accuracy: red-black SOR needed up
   to 20,000 sweeps and the test suite went from 31 s to 488 s. It now

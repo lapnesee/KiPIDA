@@ -332,6 +332,11 @@ class DifferentialSectionResult:
     three_d_impedance_ohm: float = 0.0
     refinement_status: str = "NOT_SELECTED"
     refinement_reason: str = ""
+    # The mask actually modelled over this section (stackup value when the
+    # board states one, else the settings default), so a recommendation
+    # re-solves the same cross-section the measurement did.
+    solder_mask_thickness_mm: float = 0.02
+    solder_mask_epsilon_r: float = 3.3
     trustworthy: bool = False
     warnings: List[str] = field(default_factory=list)
 
