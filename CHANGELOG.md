@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed the near-field E estimate charging every trace through one
+  nominal 100 pF/m: each routed element now uses its microstrip
+  capacitance over its reference plane (Hammerstad-Jensen), ~117 pF/m for
+  P02 Rev E's 0.2 mm USB traces and several times that for switch-node
+  strips; 100 pF/m remains only where no plane or width is known.
 - Fixed three EMC measurements: the switch-node area now takes the union
   of tracks and pours (P02 Rev E's /J2_SRC_SW read 41.8 mm2 for 31.8, a
   track on its own pour counted twice), ESD distance is pin to pin on the

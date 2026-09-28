@@ -36,7 +36,34 @@ except (ImportError, ValueError):
 
 
 EPSILON_0 = 8.8541878128e-12
+# Fallback only, for an element with no reference plane under it or no
+# known width; routed tracks over a plane use microstrip_capacitance_f_m.
 LINE_CAPACITANCE_F_M = 100.0e-12
+SPEED_OF_LIGHT_M_S = 299792458.0
+
+
+def microstrip_capacitance_f_m(width_mm, height_mm, epsilon_r):
+    """Per-unit-length capacitance of a microstrip, C = sqrt(e_eff) / (c Z0).
+
+    Hammerstad-Jensen Z0 and effective permittivity (zero thickness). The
+    near-field solver turned every trace's voltage into charge through one
+    nominal 100 pF/m whatever its width or height above the plane (old
+    audit item, audit-2026-09-23.md): a 0.2 mm trace 0.1 mm over its plane
+    on P02 Rev E's er 4.1 prepreg is ~117 pF/m, a 2 mm switch-node strip
+    several times that.
+    """
+    if width_mm <= 0.0 or height_mm <= 0.0:
+        return LINE_CAPACITANCE_F_M
+    u = width_mm / height_mm
+    epsilon_r = max(1.0, float(epsilon_r))
+    effective = (epsilon_r + 1.0) / 2.0 + (epsilon_r - 1.0) / 2.0 / math.sqrt(1.0 + 12.0 / u)
+    if u <= 1.0:
+        z0 = 60.0 / math.sqrt(effective) * math.log(8.0 / u + u / 4.0)
+    else:
+        z0 = 120.0 * math.pi / (
+            math.sqrt(effective) * (u + 1.393 + 0.667 * math.log(u + 1.444))
+        )
+    return math.sqrt(effective) / (SPEED_OF_LIGHT_M_S * z0)
 ELECTRIC_CONSTANT = 1.0 / (4.0 * math.pi * EPSILON_0)
 MAGNETIC_CONSTANT = 1.0 / (4.0 * math.pi)
 
@@ -47,13 +74,15 @@ class _FieldElement:
     direction_length_m: tuple
     length_m: float
     polarity: float = 1.0
+    capacitance_f_m: float = LINE_CAPACITANCE_F_M
 
 
 class EMNearFieldSolver:
     """Estimate E/H magnitude on a plane above the board.
 
-    The electric model uses a nominal 100 pF/m trace capacitance to turn each
-    configured source voltage into line charge.  The magnetic model integrates
+    The electric model turns each configured source voltage into line charge
+    through the trace's microstrip capacitance over its reference plane
+    (a nominal 100 pF/m only where there is no plane or width).  The magnetic model integrates
     vector Biot-Savart contributions for the configured trace current.  A
     continuous adjacent GND zone is represented by an ideal image return and
     differential conductors use opposite polarity.  Finite-plane current
@@ -80,6 +109,13 @@ class EMNearFieldSolver:
                 positions[int(layer_id)] = -(cursor_mm + thickness_mm / 2.0) * 1.0e-3
             cursor_mm += thickness_mm
         return positions
+
+    def _dielectric_epsilon_r(self):
+        values = [
+            float(layer.epsilon_r) for layer in getattr(self.snapshot.stackup, "layers", []) or []
+            if str(getattr(layer, "kind", "")).upper() == "DIELECTRIC" and float(layer.epsilon_r or 0.0) > 1.0
+        ]
+        return sum(values) / len(values) if values else 4.4
 
     def _stackup_thickness_mm(self):
         return sum(
@@ -199,19 +235,21 @@ class EMNearFieldSolver:
                 continue
             for track in self.snapshot.tracks_by_net.get(net_name, []):
                 routes.append((net_name, track.start, track.end, track.layer_id,
-                               track.length_mm, polarity, "ROUTED_TRACKS"))
+                               track.length_mm, polarity, "ROUTED_TRACKS",
+                               float(getattr(track, "width_mm", 0.0) or 0.0)))
         geometry_source = "ROUTED_TRACKS"
         if not routes and str(source.kind).upper() == "SWITCHING":
             fallback = self._fallback_pad_path(source.net_name)
             if fallback is not None:
                 start, end, layer_id, _coverage = fallback
                 routes.append((source.net_name, start, end, layer_id,
-                               math.dist(start, end), 1.0, "PAD_TO_PAD_ZONE_PATH"))
+                               math.dist(start, end), 1.0, "PAD_TO_PAD_ZONE_PATH", 0.0))
                 geometry_source = "PAD_TO_PAD_ZONE_PATH"
         elements = []
         segments = []
         maximum_element_mm = max(0.25, min(2.0, step_mm, self.settings.field_probe_height_mm))
-        for net_name, start, end, layer_id, route_length, polarity, route_source in routes:
+        epsilon_r = self._dielectric_epsilon_r()
+        for net_name, start, end, layer_id, route_length, polarity, route_source, width_mm in routes:
             x0, y0 = start
             x1, y1 = end
             length_mm = max(float(route_length), math.hypot(x1 - x0, y1 - y0))
@@ -239,16 +277,21 @@ class EMNearFieldSolver:
                     # than mirror it, instead of the x15.4-only attenuation a
                     # same-side image gave it.
                     continue
+                capacitance = (
+                    microstrip_capacitance_f_m(width_mm, abs(z_m - image_z) * 1.0e3 / 2.0, epsilon_r)
+                    if image_z is not None else LINE_CAPACITANCE_F_M
+                )
                 elements.append(_FieldElement(
                     (midpoint_mm[0] * 1.0e-3, midpoint_mm[1] * 1.0e-3, z_m),
                     (dx_m, dy_m, dz_m),
                     element_length_m,
                     polarity,
+                    capacitance,
                 ))
                 if image_z is not None:
                     elements.append(_FieldElement(
                         (midpoint_mm[0] * 1.0e-3, midpoint_mm[1] * 1.0e-3, image_z),
-                        (dx_m, dy_m, dz_m), element_length_m, -polarity,
+                        (dx_m, dy_m, dz_m), element_length_m, -polarity, capacitance,
                     ))
         return elements, segments, geometry_source
 
@@ -326,6 +369,7 @@ class EMNearFieldSolver:
         dl = np.asarray([item.direction_length_m for item in elements], dtype=np.float64)
         lengths = np.asarray([item.length_m for item in elements], dtype=np.float64)
         polarities = np.asarray([item.polarity for item in elements], dtype=np.float64)
+        capacitances = np.asarray([item.capacitance_f_m for item in elements], dtype=np.float64)
         inductor_fields = [
             (model, footprint, xp.zeros(cell_count, dtype=xp.float64))
             for model, footprint in source_inductors
@@ -342,12 +386,13 @@ class EMNearFieldSolver:
                 line = xp.asarray(dl[element_start:element_stop])
                 length = xp.asarray(lengths[element_start:element_stop])
                 polarity = xp.asarray(polarities[element_start:element_stop])
+                capacitance = xp.asarray(capacitances[element_start:element_stop])
                 rx = ox - mid[None, :, 0]
                 ry = oy - mid[None, :, 1]
                 rz = observation_z - mid[None, :, 2]
                 radius_squared = xp.maximum(rx * rx + ry * ry + rz * rz, 1.0e-18)
                 inverse_radius = 1.0 / xp.sqrt(radius_squared)
-                charge = LINE_CAPACITANCE_F_M * voltage * length[None, :] * polarity[None, :]
+                charge = capacitance[None, :] * voltage * length[None, :] * polarity[None, :]
                 electric_scale = ELECTRIC_CONSTANT * charge * inverse_radius / radius_squared
                 accumulated_e[:, 0] += xp.sum(electric_scale * rx, axis=1)
                 accumulated_e[:, 1] += xp.sum(electric_scale * ry, axis=1)

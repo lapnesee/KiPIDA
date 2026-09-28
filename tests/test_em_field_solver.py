@@ -313,5 +313,15 @@ class EMFieldSolverTests(unittest.TestCase):
         self.assertAlmostEqual(shielded / plain, 0.1, places=3)
 
 
+
+class LineCapacitanceTests(unittest.TestCase):
+    def test_trace_charge_uses_its_own_microstrip_capacitance(self):
+        # The E field used one nominal 100 pF/m for every trace (old audit
+        # item). A 50-ohm-class microstrip, 0.2 mm over 0.1 mm of er 4.1 as on
+        # P02 Rev E, is C = sqrt(e_eff)/(c Z0) ~ 117 pF/m; a 2 mm strip ~783.
+        from em_field_solver import microstrip_capacitance_f_m
+        self.assertAlmostEqual(microstrip_capacitance_f_m(0.2, 0.1, 4.1) * 1e12, 117.0, delta=1.0)
+        self.assertGreater(microstrip_capacitance_f_m(2.0, 0.1, 4.1), 6 * 100e-12)
+
 if __name__ == "__main__":
     unittest.main()
