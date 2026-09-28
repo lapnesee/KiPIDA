@@ -10,7 +10,9 @@ from analysis_contract import (
     normalize_evidence_confidence,
 )
 from cfd_model import enclosure_air_rise_k
-from physical_constants import COPPER_RESISTIVITY_OHM_M, COPPER_RESISTIVITY_REFERENCE_C
+from physical_constants import (
+    COPPER_RESISTIVITY_OHM_M, COPPER_RESISTIVITY_REFERENCE_C, PLATING_THICKNESS_FALLBACK_MM,
+)
 from raster_fidelity import DISCLOSE_BELOW_STEPS, track_limitation, width_in_steps
 
 
@@ -1890,6 +1892,13 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
             f"{COPPER_RESISTIVITY_REFERENCE_C:g} C; the DC solve applies no temperature correction, "
             "which the coupled electro-thermal analysis does.",
             "Connector and contact resistances are included only when explicitly modeled.",
+            # Both open since the 2026-09-13 audit and stated nowhere in the
+            # drop's own limitations (audit-2026-09-23.md, DC section).
+            "The drop is the supply side only: the ground return is not solved, so ground "
+            "bounce between a load and its source is not included.",
+            f"Via and plated-hole barrels use {PLATING_THICKNESS_FALLBACK_MM * 1000.0:g} um of "
+            "plating, since the board file does not record it; a thinner finish raises their "
+            "resistance in proportion.",
             "Current density is a DC mesh diagnostic, not an IPC ampacity certification; AC skin/proximity effects, contact details, and measured copper temperature are excluded.",
         ] + raster_limitations + _dc_grid_check_limitations(grid_checked, grid_not_refined),
     ).finish()

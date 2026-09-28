@@ -546,5 +546,16 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertEqual(lost.components, ["U9"])
         self.assertIn("U9 (0.25 A)", lost.description)
 
+    def test_dc_states_the_missing_ground_return_and_the_assumed_plating(self):
+        # Open since the 2026-09-13 audit and never said in the drop's own
+        # limitations: the return path is not solved, and barrel plating is
+        # the 20 um fallback.
+        result = adapt_dc_result({"/+5V_RAIL": {
+            "stats": (5.0, 5.08, 0.015), "engine": "hybrid", "load_drop_v": 0.015,
+            "source_voltage_v": 5.08,
+        }}, 5.0)
+        self.assertTrue(any("ground return is not solved" in item for item in result.limitations))
+        self.assertTrue(any("20 um of plating" in item for item in result.limitations))
+
 if __name__ == "__main__":
     unittest.main()

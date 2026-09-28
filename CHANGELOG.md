@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed the DC result to state two limits it carried silently since
+  the 2026-09-13 audit: the drop is the supply side only (the ground
+  return is not solved), and via barrels assume 20 um of plating because
+  the board file does not record it.
 - Changed the hybrid DC mesher to cut each layer's copper to the row band
   before testing cells against it, and to mint lattice nodes by index:
   P02 Rev E's /VBUS_SYS meshes in 13.5 s instead of 29.2 s, /+3V3AO in
