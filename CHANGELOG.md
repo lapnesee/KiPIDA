@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed thermal actions never carrying a remediation: the thermal-via
+  advisor was imported by no production code. A junction over its limit
+  now gets a sized ADD_THERMAL_VIAS remediation (1-D barrel sizing,
+  marked unverified) and names its component.
 - Fixed the thermal mesh cache ignoring a via's drill: the board
   signature that decides whether the cached mesh is reused left out
   drill_diameter, which sets the barrel's thermal conductance since vias

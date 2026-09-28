@@ -11,8 +11,13 @@ from analysis_contract import (
 )
 from cfd_model import enclosure_air_rise_k
 from physical_constants import (
-    COPPER_RESISTIVITY_OHM_M, COPPER_RESISTIVITY_REFERENCE_C, PLATING_THICKNESS_FALLBACK_MM,
+    COPPER_RESISTIVITY_OHM_M, COPPER_RESISTIVITY_REFERENCE_C, DEFAULT_BOARD_THICKNESS_MM,
+    PLATING_THICKNESS_FALLBACK_MM,
 )
+
+# The drill a thermal-via recommendation is sized for: 0.3 mm, the common
+# small via (P02 Rev E's own vias are 0.3 and 0.4 mm).
+THERMAL_VIA_DRILL_MM = 0.3
 from raster_fidelity import DISCLOSE_BELOW_STEPS, track_limitation, width_in_steps
 
 
@@ -1131,6 +1136,28 @@ def _thermal_enclosure_metrics_evidence_limitations(
     return metrics, evidence, []
 
 
+def _thermal_via_remediation(component: Any, ambient_c: Any):
+    """Thermal vias for a part over its junction limit, or None."""
+    if ambient_c is None:
+        return None
+    power = float(getattr(component, "power_w", 0.0) or 0.0)
+    allowed_rise = (
+        float(getattr(component, "max_junction_c", 0.0) or 0.0)
+        - power * float(getattr(component, "theta_jb_c_per_w", 0.0) or 0.0)
+        - float(ambient_c)
+    )
+    if power <= 0.0 or allowed_rise <= 0.0:
+        return None
+    try:
+        from advisor.thermal_advisor import build_thermal_via_remediation
+        return build_thermal_via_remediation(
+            str(component.ref_des), power, allowed_rise,
+            DEFAULT_BOARD_THICKNESS_MM, THERMAL_VIA_DRILL_MM, existing_via_count=None,
+        )
+    except (ImportError, ValueError):
+        return None
+
+
 def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seconds: float = 0.0,
                          *, copper_loss_source: str = "", mesh_sensitivity: Any = None,
                          mesh: Any = None, power_stage_reports: Any = None,
@@ -1170,6 +1197,20 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
                 finding.confidence = EvidenceConfidence.DATASHEET_BACKED
             elif "measur" in source:
                 finding.confidence = EvidenceConfidence.MEASURED
+            finding.components = [str(component.ref_des)]
+            # The thermal advisor sized thermal vias and was imported by no
+            # production module, so no thermal action ever carried a
+            # remediation (COH-1). Its 1-D sizing: the barrels that would
+            # carry the part's heat through the board within the rise its
+            # junction limit still allows above the ambient.
+            effective_ambient = (
+                None if ambient_c is None else float(ambient_c) + (
+                    float(enclosure_air_rise_k or 0.0) if enclosure_ambient_applied else 0.0
+                )
+            )
+            remediation = _thermal_via_remediation(component, effective_ambient)
+            if remediation is not None:
+                finding.remediations.append(remediation)
             findings.append(finding)
     if not bool(getattr(domain_result, "converged", True)):
         findings.append(_finding(

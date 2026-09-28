@@ -557,5 +557,22 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertTrue(any("ground return is not solved" in item for item in result.limitations))
         self.assertTrue(any("20 um of plating" in item for item in result.limitations))
 
+    def test_a_junction_over_its_limit_gets_a_sized_thermal_via_remediation(self):
+        # COH-1: advisor.thermal_advisor was imported by no production code,
+        # so no thermal action ever carried a structured remediation.
+        from models import ComponentThermalResult
+        part = ComponentThermalResult(
+            "Q10", board_temperature_c=150.0, junction_temperature_c=151.1, power_w=1.4,
+            max_junction_c=150.0, margin_c=-1.1, theta_jb_c_per_w=0.8,
+            thermal_source="datasheet",
+        )
+        result = adapt_thermal_result(
+            ThermalResult(component_results=[part]), ambient_c=45.0,
+        )
+        finding = next(item for item in result.findings if item.rule_id == "TH-001")
+        self.assertEqual(finding.components, ["Q10"])
+        self.assertEqual(finding.remediations[0].action, "ADD_THERMAL_VIAS")
+        self.assertIn("existing vias not counted", finding.remediations[0].predicted_gain)
+
 if __name__ == "__main__":
     unittest.main()

@@ -95,19 +95,22 @@ def _effort_for_added_vias(added: int) -> RemediationEffort:
 
 def build_thermal_via_remediation(
     component_ref: str, power_w: float, target_delta_t_c: float,
-    height_mm: float, drill_mm: float, existing_via_count: int = 0,
+    height_mm: float, drill_mm: float, existing_via_count: Optional[int] = 0,
     plating_mm: float = PLATING_THICKNESS_FALLBACK_MM,
 ) -> Optional[Remediation]:
     """Advise adding thermal vias under *component_ref*, or ``None`` if enough.
 
     ``verified`` is always ``False``: this is a 1-D analytical sizing, and the
-    returned ``predicted_gain`` says so explicitly.
+    returned ``predicted_gain`` says so explicitly. ``existing_via_count=None``
+    means the vias already under the part were not counted: the remediation
+    then states the total the part needs rather than claiming it has none.
     """
     required = vias_required_for_delta_t(
         power_w, target_delta_t_c, height_mm, drill_mm, plating_mm,
     )
-    existing = max(0, int(existing_via_count))
-    if required <= existing:
+    counted = existing_via_count is not None
+    existing = max(0, int(existing_via_count)) if counted else 0
+    if counted and required <= existing:
         return None
 
     r_single = via_thermal_resistance_c_per_w(height_mm, drill_mm, plating_mm)
@@ -115,7 +118,8 @@ def build_thermal_via_remediation(
         power_w * r_single / existing if existing > 0 else float("inf")
     )
     current_text = (
-        f"{current_rise:.1f} °C" if existing > 0 else "no thermal path"
+        f"{current_rise:.1f} °C" if existing > 0 else
+        "no thermal path" if counted else "existing vias not counted"
     )
     achieved_rise = power_w * r_single / required
 
@@ -129,7 +133,7 @@ def build_thermal_via_remediation(
             f"conducted rise {current_text} -> {achieved_rise:.1f} °C at "
             f"{power_w:.3g} W (1-D barrel sizing, not simulated)"
         ),
-        effort=_effort_for_added_vias(required - existing),
+        effort=_effort_for_added_vias(required - existing if counted else required),
         verified=False,
         alternatives=[
             "Increase the copper pour area connected to the pad",

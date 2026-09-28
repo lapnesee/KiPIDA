@@ -1768,6 +1768,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                 power_stage_reports=list(
                     getattr(self.thermal_panel.settings, "power_stage_reports", []) or []
                 ),
+                ambient_c=getattr(self.thermal_panel.settings, "ambient_c", None),
             ),
         )
         page.show_rendering("Rendering thermal plots in background...")
