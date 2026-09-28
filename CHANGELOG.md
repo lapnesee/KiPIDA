@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed via and plated-hole barrels in the DC mesh being the whole board
+  thickness, solder masks included, split equally between layer hops: on
+  P02 Rev E, F.Cu -> In1 was modelled 0.232 mm for 0.125 mm (x1.86) and
+  In1 -> In2 0.232 mm for 0.366 mm (x0.63). Each hop now spans the copper
+  and dielectric between its two layers' centres, from the stackup.
 - Fixed a DC rail drawing no current reading "0.0 % PASS" (P02 Rev E's
   /J2_LDO3V3, /+3V3AON, /J2_PP5V): it is now NO_DATA. A configured load or
   regulator input whose pads find no copper, which the hybrid engine only

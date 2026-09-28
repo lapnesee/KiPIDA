@@ -38,6 +38,10 @@ class Stackup:
     # "layers" when the board has none and they come from its layer table --
     # thicknesses are then unknown (0.0) rather than read.
     source: str = "stackup"
+    # Depth of each copper layer's centre below the top copper surface, in
+    # mm, counting copper and dielectrics only (not mask or silk): what a
+    # via barrel actually spans between two layers. Empty without a stackup.
+    copper_depth_mm: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -276,6 +280,8 @@ def _parse_stackup(root: list) -> Stackup:
                     pass
 
     # Stackup gives us thickness and dielectric properties
+    copper_depth = {}
+    depth = 0.0
     if stackup_node:
         for layer_node in find_all(stackup_node, "layer"):
             if not layer_node or len(layer_node) < 2:
@@ -293,7 +299,11 @@ def _parse_stackup(root: list) -> Stackup:
             loss_node = find(layer_node, "loss_tangent")
             loss = float(loss_node[1]) if loss_node and len(loss_node) > 1 else None
 
+            if ltype_str in ("core", "prepreg"):
+                depth += thick
             if ltype_str == "copper":
+                copper_depth[lname] = depth + 0.5 * thick
+                depth += thick
                 layer_id = layer_id_map.get(lname, -1)
                 layer_type = layer_type_map.get(lname, "signal")
                 copper_layers.append(CopperLayer(
@@ -340,6 +350,7 @@ def _parse_stackup(root: list) -> Stackup:
         total_thickness_mm=total_thickness,
         copper_layer_count=len(copper_layers),
         source=source,
+        copper_depth_mm=copper_depth if source == "stackup" else {},
     )
 
 

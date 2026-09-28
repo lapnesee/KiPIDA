@@ -503,17 +503,16 @@ class HybridMesher:
             span = self._layers_spanned(board, top_layer, bot_layer)
             if len(span) < 2:
                 continue
-            # The barrel resistance is for the full board thickness; give each
-            # inter-layer hop its share so the total across the stack is right.
-            hops = len(span) - 1
-            g = hops / R_via
+            hop_conductances = self._hop_conductances(
+                board, span, board_height_mm, drill_mm, plating_mm, R_via,
+            )
             via_radius_mm = via.size_mm / 2.0 if getattr(via, "size_mm", 0.0) > 0.0 else 0.0
             via_label = f"via:{top_layer}-{bot_layer}"
             previous = attach(vx, vy, span[0][1], contact_radius_mm=via_radius_mm,
                                contact_thickness_mm=_thickness_for_layer(board, span[0][0]),
                                contact_label=via_label)
             added = False
-            for name, layer_id in span[1:]:
+            for (name, layer_id), g in zip(span[1:], hop_conductances):
                 node = attach(vx, vy, layer_id, contact_radius_mm=via_radius_mm,
                                contact_thickness_mm=_thickness_for_layer(board, name),
                                contact_label=via_label)
@@ -585,13 +584,14 @@ class HybridMesher:
                     )
                 except ValueError:
                     continue
-                hops = len(span) - 1
-                conductance = hops / barrel
+                hop_conductances = self._hop_conductances(
+                    board, span, board_height_mm, drill, PAD_PLATING_MM, barrel,
+                )
                 previous = attach(px, py, span[0][1], contact_radius_mm=pad_radius_mm,
                                    contact_thickness_mm=_thickness_for_layer(board, span[0][0]),
                                    contact_label=pad_label)
                 added = False
-                for _name, layer_id in span[1:]:
+                for (_name, layer_id), conductance in zip(span[1:], hop_conductances):
                     node = attach(px, py, layer_id, contact_radius_mm=pad_radius_mm,
                                    contact_thickness_mm=_thickness_for_layer(board, _name),
                                    contact_label=pad_label)
@@ -701,6 +701,31 @@ class HybridMesher:
         on. Anything unrecognised yields nothing rather than a guess.
         """
         return [(cl.name, cl.layer_id) for cl in pad_copper_layers(board.stackup, pad)]
+
+    def _hop_conductances(self, board, span, board_height_mm, drill_mm, plating_mm,
+                          full_resistance):
+        """Conductance of each barrel hop between consecutive spanned layers.
+
+        Each hop is as long as the copper and dielectric between the two
+        layers' centres, from the stackup. The barrel used to be the whole
+        board thickness, solder masks included, split equally between hops:
+        on P02 Rev E's six layers F.Cu -> In1 was modelled 0.232 mm for
+        0.125 mm real (x1.86) and In1 -> In2 0.232 mm for 0.366 mm (x0.63)
+        (audit-2026-09-23.md DC-5). Without a stackup the equal split stays.
+        """
+        hops = len(span) - 1
+        depths = getattr(board.stackup, "copper_depth_mm", None) or {}
+        if hops > 0 and all(name in depths for name, _ in span):
+            conductances = []
+            for (upper, _), (lower, _) in zip(span[:-1], span[1:]):
+                length = abs(depths[lower] - depths[upper])
+                try:
+                    conductances.append(1.0 / via_resistance(length, drill_mm, plating_mm, self._rho))
+                except ValueError:
+                    break
+            else:
+                return conductances
+        return [hops / full_resistance] * hops
 
     @staticmethod
     def _layers_spanned(board: ParsedBoard, top_layer: str, bottom_layer: str):

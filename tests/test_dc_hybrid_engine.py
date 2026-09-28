@@ -113,7 +113,9 @@ def _route_resistance(track_mm):
     from physical_constants import COPPER_RESISTIVITY_OHM_M, PLATING_THICKNESS_FALLBACK_MM
 
     track = COPPER_RESISTIVITY_OHM_M * track_mm * 1e-3 / (0.5e-3 * 0.035e-3)
-    return track + via_resistance(1.6, 0.3, PLATING_THICKNESS_FALLBACK_MM)
+    # The barrel spans the copper and dielectric between the two layers'
+    # centres, 0.0175 + 1.53 + 0.0175 mm, not the whole 1.6 mm (DC-5).
+    return track + via_resistance(1.565, 0.3, PLATING_THICKNESS_FALLBACK_MM)
 
 
 @unittest.skipUnless(_DEPS, "numpy/scipy/shapely not available")
@@ -136,6 +138,21 @@ class HybridEngineOnARoute(unittest.TestCase):
         data = results["VCC"]
         self.assertAlmostEqual(data["load_drop_v"], expected, delta=1e-6 * expected)
         self.assertAlmostEqual(data["source_voltage_v"], 5.0)
+
+    def test_each_barrel_hop_is_as_long_as_the_stackup_between_its_layers(self):
+        # P02 Rev E: F.Cu -> In1.Cu is 0.1245 mm centre to centre and In1 ->
+        # In2 0.365 mm, but every hop got an equal share of the whole board
+        # thickness, masks included (DC-5).
+        from mesh_hybrid import HybridMesher
+        from physical_constants import COPPER_RESISTIVITY_OHM_M
+        board = SimpleNamespace(stackup=SimpleNamespace(copper_depth_mm={
+            "F.Cu": 0.0175, "In1.Cu": 0.142, "In2.Cu": 0.5072,
+        }))
+        span = [("F.Cu", 0), ("In1.Cu", 1), ("In2.Cu", 2)]
+        mesher = HybridMesher.__new__(HybridMesher)
+        mesher._rho = COPPER_RESISTIVITY_OHM_M
+        first, second = mesher._hop_conductances(board, span, 1.1584, 0.3, 0.02, 1.0)
+        self.assertAlmostEqual(first / second, 0.3652 / 0.1245, places=3)
 
     def test_lands_shorten_the_track_only_where_they_cover_it(self):
         # The pads (1 mm) and via land (0.6 mm) lie over 0.5 + 0.3 mm of each
