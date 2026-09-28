@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed three EMC measurements: the switch-node area now takes the union
+  of tracks and pours (P02 Rev E's /J2_SRC_SW read 41.8 mm2 for 31.8, a
+  track on its own pour counted twice), ESD distance is pin to pin on the
+  protected lines (J1 -> U2: 15.5 mm, not 17.3 centre to centre), and each
+  threshold states its basis and that it is the tool's heuristic.
 - Fixed the EMC virtual receiver presenting relative levels as field
   strengths: its points carried level_dbuv_m under a QUASI_PEAK detector
   although they are a relative peak with no quasi-peak weighting and no

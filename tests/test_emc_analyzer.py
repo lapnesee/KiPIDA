@@ -238,6 +238,17 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertNotIn("TE-001", result.score_penalties_by_rule)
         self.assertFalse(any("editable defaults" in item for item in result.limitations))
 
+    def test_a_track_on_its_own_pour_counts_once_in_the_switch_node_area(self):
+        # P02 Rev E's /J2_SRC_SW read 41.8 mm2 for 31.8 mm2 of copper,
+        # because tracks lying on the pour were added to it (EMC-7).
+        from types import SimpleNamespace
+        from shapely.geometry import box
+        from emc_analyzer import EMCTrack
+        analyzer = EMCAnalyzer.__new__(EMCAnalyzer)
+        analyzer.snapshot = SimpleNamespace(zones_by_net={"SW": {0: box(0, 0, 10, 2)}})
+        track = EMCTrack("SW", (1.0, 1.0), (9.0, 1.0), 0.5, 0, 8.0)
+        self.assertAlmostEqual(analyzer._copper_area_mm2("SW", [track]), 20.0, places=6)
+
     def test_jst_and_df_harness_connectors_are_recognised(self):
         # The pattern held literal backspace characters where  was meant,
         # so no JST or DF connector ever matched (found by the 2026-09-23

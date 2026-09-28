@@ -61,6 +61,29 @@ except (ImportError, ValueError):
 
 
 SEVERITY_WEIGHT = {"CRITICAL": 25, "HIGH": 12, "MEDIUM": 6, "LOW": 2, "INFO": 0}
+
+# Where each numeric threshold comes from, quoted in its finding. None of
+# them is a value a standard prescribes: each is this tool's reading of the
+# layout guidance named, and says so (audit-2026-09-23.md EMC-7).
+THRESHOLD_BASIS = {
+    "DE-001": (
+        "Thresholds 5 mm (MEDIUM) and 8 mm (HIGH) are this tool's heuristic for the "
+        "'at the supply pin' placement that capacitor and IC makers recommend; not a "
+        "standard value."
+    ),
+    "ES-001": (
+        "The 10 mm threshold is this tool's heuristic for the 'as close to the connector "
+        "as possible' placement of TI SLVA680 (ESD layout guide); not a standard value."
+    ),
+    "SW-002": (
+        "Thresholds 25 mm2 (MEDIUM) and 100 mm2 (HIGH) are this tool's heuristic for the "
+        "'minimise switch-node area' guidance of TI SLVA959; not a standard value."
+    ),
+    "SW-001": (
+        "Severity follows this tool's heuristic: HIGH for a harmonic order up to 10 or "
+        "within 20 dB of the envelope, MEDIUM up to order 30 or a 0.25 V*A drive index."
+    ),
+}
 CONFIDENCE_WEIGHT = {"HIGH": 1.0, "MEDIUM": 0.65, "LOW": 0.25}
 
 # Near-end coupling, as a fraction of the aggressor swing, above which XT-001
@@ -1393,7 +1416,8 @@ class EMCAnalyzer:
                     )
                     self._add("DE-001", "DECOUPLING", severity, title,
                               f"The nearest capacitor sharing {', '.join(nearest[2])} with "
-                              f"{ic.reference} is {nearest[1].reference} at {nearest[0]:.2f} mm.",
+                              f"{ic.reference} is {nearest[1].reference} at {nearest[0]:.2f} mm "
+                              f"(pad to pad). {THRESHOLD_BASIS['DE-001']}",
                               recommendation,
                               "LOW" if power_management else "MEDIUM",
                               components=[ic.reference, nearest[1].reference], location=(*ic.position, None))
@@ -1434,13 +1458,20 @@ class EMCAnalyzer:
                               "LOW", components=[connector.reference], location=(*connector.position, None))
                 if self._enabled("ESD") and likely_external:
                     protectors = [item for item in connected_filters if is_esd_protector(item)]
-                    protector = min(
-                        protectors, key=lambda item: math.dist(connector.position, item.position),
-                        default=None,
-                    )
-                    protector_distance = (
-                        math.dist(connector.position, protector.position) if protector else float("inf")
-                    )
+                    def pin_distance(item):
+                        # Pad to pad on the lines the part protects, not
+                        # footprint centre to centre: P02 Rev E's J1 -> U2
+                        # read 17.3 mm centre to centre, 15.5 mm pin to pin
+                        # (audit-2026-09-23.md EMC-7).
+                        shared = connector_signals & set(item.nets)
+                        ours = [(x, y) for net, x, y in connector.net_positions if net in shared]
+                        theirs = [(x, y) for net, x, y in item.net_positions if net in shared]
+                        if ours and theirs:
+                            return min(math.dist(a, b) for a in ours for b in theirs)
+                        return math.dist(connector.position, item.position)
+
+                    protector = min(protectors, key=pin_distance, default=None)
+                    protector_distance = pin_distance(protector) if protector else float("inf")
                     if protector is None:
                         self._add("ES-001", "ESD", "HIGH", "ESD path is missing or too long",
                                   f"No TVS/diode protection was detected on the lines of {connector.reference}.",
@@ -1451,7 +1482,8 @@ class EMCAnalyzer:
                         # through U2, an ECMF02 filter with ESD, 17 mm away.
                         self._add("ES-001", "ESD", "MEDIUM", "ESD path is missing or too long",
                                   f"{protector.reference} ({protector.value}) protects lines of "
-                                  f"{connector.reference} but sits {protector_distance:.1f} mm from it.",
+                                  f"{connector.reference} but sits {protector_distance:.1f} mm from it, "
+                                  f"pin to pin. {THRESHOLD_BASIS['ES-001']}",
                                   "Move the protection next to the connector, or keep the line to it short "
                                   "and clear of other nets.",
                                   "MEDIUM", components=[connector.reference, protector.reference],
@@ -1499,6 +1531,29 @@ class EMCAnalyzer:
                       "Add ground stitching around board edges, connectors and reference transitions.",
                       "MEDIUM", location=(*worst.position, None))
 
+    def _copper_area_mm2(self, net_name, tracks):
+        """Copper area of a net: the union of its tracks and pours per layer.
+
+        Summing track length x width and pour areas counted a track lying on
+        its own pour twice: P02 Rev E's /J2_SRC_SW read 41.8 mm2 for 31.8 in
+        union (+31 %), /SYS_5V_SW1 112.9 for 108.8 (audit EMC-7).
+        """
+        if LineString is None or unary_union is None:
+            area = sum(track.length_mm * track.width_mm for track in tracks)
+            for geometry in self.snapshot.zones_by_net.get(net_name, {}).values():
+                area += float(geometry.area)
+            return area
+        by_layer = defaultdict(list)
+        for track in tracks:
+            if track.width_mm > 0.0 and track.start != track.end:
+                by_layer[track.layer_id].append(
+                    LineString([track.start, track.end]).buffer(track.width_mm / 2.0)
+                )
+        for layer_id, geometry in self.snapshot.zones_by_net.get(net_name, {}).items():
+            if geometry is not None and not geometry.is_empty:
+                by_layer[int(layer_id)].append(geometry)
+        return float(sum(unary_union(parts).area for parts in by_layer.values()))
+
     def _hot_loop_components(self, source):
         return hot_loop_components(self.snapshot, source.name, source.net_name)
 
@@ -1531,9 +1586,7 @@ class EMCAnalyzer:
                     if pads:
                         source_location = (*pads[0], None)
             self._check(2)
-            area = sum(track.length_mm * track.width_mm for track in tracks)
-            for geometry in self.snapshot.zones_by_net.get(source.net_name, {}).values():
-                area += float(geometry.area)
+            area = self._copper_area_mm2(source.net_name, tracks)
             if area > 25.0:
                 severity = "HIGH" if area > 100.0 else "MEDIUM"
                 # An IC with 2+ other components on its own switch node is an
@@ -1552,7 +1605,8 @@ class EMCAnalyzer:
                     "Restrict SW/PH/LX copper to the shortest IC-to-inductor connection."
                 )
                 self._add("SW-002", "SWITCHING", severity, "Large switching-node copper area",
-                          f"{source.net_name} occupies approximately {area:.1f} mm2 of copper.",
+                          f"{source.net_name} occupies approximately {area:.1f} mm2 of copper. "
+                          f"{THRESHOLD_BASIS['SW-002']}",
                           recommendation,
                           "MEDIUM", [source.net_name], location=source_location)
             if len(hot_loop) >= 2:
@@ -1613,7 +1667,8 @@ class EMCAnalyzer:
                               "Switching harmonics enter the emissions band",
                               f"Harmonic {first} of {source.name} is {harmonic / 1e6:.3f} MHz; "
                               f"the configured edge model estimates {relative_db:.1f} dB relative "
-                              f"to its low-frequency square-wave envelope (drive index {drive_index:.3g} V*A).",
+                              f"to its low-frequency square-wave envelope (drive index {drive_index:.3g} V*A). "
+                              f"{THRESHOLD_BASIS['SW-001']}",
                               "Minimise hot-loop area and verify this band with a near-field probe.",
                               # A stated frequency places the harmonic; its level
                               # is still an uncalibrated edge model (+/-10-20 dB),
