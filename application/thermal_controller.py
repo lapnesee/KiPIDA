@@ -9,6 +9,7 @@ from application.dc_controller import DefaultDCSolverEngine, unsolved_rails_reas
 from electrothermal import ElectroThermalSolver
 from thermal_mesh import ThermalMesher
 from thermal_model import CopperLossPoint
+from physical_constants import COPPER_RESISTIVITY_REFERENCE_C, COPPER_TEMPERATURE_COEFFICIENT_PER_C
 from thermal_solver import ThermalSolver
 from application.background_controller import BackgroundAnalysisController
 
@@ -121,7 +122,15 @@ def thermal_cache_key(settings, compute_settings, coupled, copper_losses,
     return bool(coupled), thermal, runtime
 
 
-def dc_copper_loss_points(system_results):
+def dc_copper_loss_points(system_results, resistance_scale=1.0):
+    """Branch losses as heat points, scaled to the copper's temperature.
+
+    The DC is solved at the resistivity reference, 20 C. An uncoupled thermal
+    run at another ambient takes those losses as they are: on P02 Rev E, at
+    45 C, about 10 % low (0.00393/K x 25 K), and unstated (TH-10). With the
+    load currents fixed, I^2 R scales with R, so *resistance_scale* is the
+    copper's resistance ratio at the ambient.
+    """
     losses = []
     for data in system_results.values():
         mesh = data.get("mesh")
@@ -139,7 +148,7 @@ def dc_copper_loss_points(system_results):
                 x_mm=(coord_a[0] + coord_b[0]) / 2.0,
                 y_mm=(coord_a[1] + coord_b[1]) / 2.0,
                 layer_id=coord_a[2],
-                power_w=power,
+                power_w=power * resistance_scale,
             ))
     return losses
 
@@ -258,10 +267,22 @@ class ThermalSolverEngine:
         if cancelled():
             raise ThermalAnalysisCancelled("Thermal analysis cancelled.")
 
+        resistance_scale = max(0.2, 1.0 + float(getattr(
+            request.settings, "copper_temp_coefficient_per_c", COPPER_TEMPERATURE_COEFFICIENT_PER_C,
+        )) * (
+            float(getattr(request.settings, "ambient_c", COPPER_RESISTIVITY_REFERENCE_C))
+            - COPPER_RESISTIVITY_REFERENCE_C
+        ))
         copper_losses = [] if request.coupled else (
-            dc_copper_loss_points(system_results)
+            dc_copper_loss_points(system_results, resistance_scale)
             if request.settings.include_dc_copper_losses else []
         )
+        if copper_losses and abs(resistance_scale - 1.0) > 1e-9:
+            emit(
+                f"Copper losses scaled x{resistance_scale:.3f} from the DC's "
+                f"{COPPER_RESISTIVITY_REFERENCE_C:g} C resistivity to the "
+                f"{float(request.settings.ambient_c):g} C ambient."
+            )
         model = replace(request.board_model, copper_losses=list(copper_losses))
 
         # COH-4: a sealed enclosure raises the air the board actually sits in

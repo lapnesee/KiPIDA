@@ -98,7 +98,8 @@ class ThermalTakesAHandedOverResult(unittest.TestCase):
         outcome = self._engine(seen).solve(request, logs.append, lambda *_: None, lambda: False)
         self.assertEqual(_NoDC.calls, 0)
         self.assertEqual(len(seen["losses"]), 1)
-        self.assertAlmostEqual(seen["losses"][0].power_w, 0.25)
+        # The 20 C DC loss, scaled to the 25 C ambient (TH-10).
+        self.assertAlmostEqual(seen["losses"][0].power_w, 0.25 * (1.0 + 0.00393 * 5.0))
         self.assertEqual(outcome.copper_loss_source, "this campaign's DC result (hybrid mesh)")
         self.assertTrue(any("not solved again" in line for line in logs))
 

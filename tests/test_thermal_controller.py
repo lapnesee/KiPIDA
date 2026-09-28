@@ -108,6 +108,22 @@ class ThermalControllerTests(unittest.TestCase):
         self.assertNotEqual(first, second)
 
 
+class UncoupledCopperLossTests(unittest.TestCase):
+    def test_losses_follow_the_copper_to_the_ambient(self):
+        # TH-10: the DC is solved at 20 C; an uncoupled run at P02 Rev E's
+        # 45 C took its losses unchanged, about 10 % low.
+        from application.thermal_controller import dc_copper_loss_points
+        from mesh import Mesh
+        mesh = Mesh()
+        mesh.nodes = [0, 1]
+        mesh.node_coords = {0: (0.0, 0.0, 0), 1: (1.0, 0.0, 0)}
+        mesh.add_edge_direct(0, 1, g=1.0)
+        results = {"VCC": {"mesh": mesh, "detailed_result": SimpleNamespace(branch_losses_w=[0.4])}}
+        scale = 1.0 + 0.00393 * (45.0 - 20.0)
+        points = dc_copper_loss_points(results, scale)
+        self.assertAlmostEqual(points[0].power_w, 0.4 * 1.09825)
+
+
 class EnclosureAirRiseTests(unittest.TestCase):
     def test_matches_p02_rev_e_measured_rise(self):
         # P02 Rev E sidecar: sealed 165 x 100 x 50 mm box, walls 5 W/m2K,

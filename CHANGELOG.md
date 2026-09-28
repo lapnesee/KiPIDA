@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed an uncoupled thermal run taking copper losses at the DC's 20 C
+  resistivity whatever the ambient: at P02 Rev E's 45 C they were about
+  10 % low. They are now scaled by the copper's resistance ratio at the
+  ambient, and the log says by how much.
 - Fixed the thermal energy balance being blind to heat that never reached
   the mesh: it compared deposited heat with what left, so an unplaced
   component or a copper loss off the copper vanished silently. The model's
