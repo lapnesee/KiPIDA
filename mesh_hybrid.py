@@ -929,6 +929,22 @@ class HybridMesher:
                 fraction[crossing] = shapely.area(shapely_intersect(geometry, cells[crossing])) / h2
             return fraction
 
+        x0, y0 = int(math.floor(xmin / h)), int(math.floor(ymin / h))
+        lattice: dict[tuple[int, int], int] = {}
+
+        def lattice_node(ix: int, iy: int) -> int:
+            """node_at for lattice point (ix, iy), minted once per point.
+
+            Each lattice point is shared by up to four edges; looking it up by
+            its integer index instead of re-snapping its coordinates each time
+            took 5.4 M round() calls, 8.5 s of /VBUS_SYS's 39 s mesh on P02
+            Rev E (audit-2026-09-23.md DC-6).
+            """
+            nid = lattice.get((ix, iy))
+            if nid is None:
+                nid = lattice[(ix, iy)] = node_at(xs[ix], ys[iy])
+            return nid
+
         def node_at(x: float, y: float) -> int:
             """Lattice node at a point, minted only when copper attaches to it.
 
@@ -954,21 +970,40 @@ class HybridMesher:
                 zone_index[(int(round(x / h)), int(round(y / h)), layer_id)] = nid
             return nid
 
+        whole = geometry
         for iy, y in enumerate(ys):
-            # Horizontal edges (x, y) -> (x+h, y); vertical edges (x, y) -> (x, y+h).
-            horizontal = fractions(shapely_box(xs[:-1], y - h / 2, xs[1:], y + h / 2))
-            vertical = (
-                fractions(shapely_box(xs - h / 2, y, xs + h / 2, ys[iy + 1]))
-                if iy + 1 < len(ys) else np.zeros(len(xs))
+            # The cells of this row lie in the band [y - h/2, y + h]. Testing
+            # them against the layer's whole copper was the other half of
+            # DC-6: every clipped cell of /VBUS_SYS was intersected with the
+            # entire In2.Cu pour, 22,383 vertices. The copper is cut to the
+            # band once per row, and cells are made only across its extent.
+            band = shapely_intersect(
+                whole, shapely_box(xs[0] - h, y - h, xs[-1] + h, y + 1.5 * h),
             )
+            if band.is_empty:
+                continue
+            bx0, _by0, bx1, _by1 = band.bounds
+            lo = max(0, int(math.floor(bx0 / h)) - x0 - 1)
+            hi = min(len(xs), int(math.ceil(bx1 / h)) - x0 + 2)
+            if hi <= lo:
+                continue
+            geometry = band
+            shapely_prepare(geometry)
+            span = xs[lo:hi]
+            # Horizontal edges (x, y) -> (x+h, y); vertical edges (x, y) -> (x, y+h).
+            horizontal = np.zeros(len(xs))
+            vertical = np.zeros(len(xs))
+            if len(span) > 1:
+                horizontal[lo:hi - 1] = fractions(shapely_box(span[:-1], y - h / 2, span[1:], y + h / 2))
+            if iy + 1 < len(ys):
+                vertical[lo:hi] = fractions(shapely_box(span - h / 2, y, span + h / 2, ys[iy + 1]))
             if not horizontal.any() and not vertical.any():
                 continue
-            for ix in np.flatnonzero((np.append(horizontal, 0.0) > 1e-9) | (vertical > 1e-9)):
-                x = xs[ix]
+            for ix in np.flatnonzero((horizontal > 1e-9) | (vertical > 1e-9)):
                 if ix + 1 < len(xs) and horizontal[ix] > 1e-9:
                     frac = float(horizontal[ix])
                     mesh.add_edge_direct(
-                        node_at(x, y), node_at(xs[ix + 1], y), sigma * thickness_mm * frac,
+                        lattice_node(ix, iy), lattice_node(ix + 1, iy), sigma * thickness_mm * frac,
                         kind="lateral",
                         cross_section_mm2=frac * h * thickness_mm,
                         geometry_source=f"{label}:{layer}:h",
@@ -977,7 +1012,7 @@ class HybridMesher:
                 if vertical[ix] > 1e-9:
                     frac = float(vertical[ix])
                     mesh.add_edge_direct(
-                        node_at(x, y), node_at(x, ys[iy + 1]), sigma * thickness_mm * frac,
+                        lattice_node(ix, iy), lattice_node(ix, iy + 1), sigma * thickness_mm * frac,
                         kind="lateral",
                         cross_section_mm2=frac * h * thickness_mm,
                         geometry_source=f"{label}:{layer}:v",

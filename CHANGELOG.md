@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Changed the hybrid DC mesher to cut each layer's copper to the row band
+  before testing cells against it, and to mint lattice nodes by index:
+  P02 Rev E's /VBUS_SYS meshes in 13.5 s instead of 29.2 s, /+3V3AO in
+  5.0 s instead of 14.5 s, with the same nodes and branches (resistances
+  equal to 3e-10).
 - Fixed via and plated-hole barrels in the DC mesh being the whole board
   thickness, solder masks included, split equally between layer hops: on
   P02 Rev E, F.Cu -> In1 was modelled 0.232 mm for 0.125 mm (x1.86) and
