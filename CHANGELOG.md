@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Removed transmission_line_abcd.py, an ABCD transmission-line module no
+  production code imported: three audits (2026-09-04, -13, -23) found it
+  unwired, and its nine tests exercised only themselves.
 - Fixed AUTO differential geometry ignoring a same-layer ground pour
   running alongside the pair: it solved plain microstrip although P02
   Rev E's USB pairs have GND 0.2 mm away along ~90 % of their length.
