@@ -67,6 +67,25 @@ class _NetworkStamps:
         self.inductance = np.maximum(np.fromiter(
             (float(branch.inductance_h) for branch in branches), dtype=float, count=count,
         ), 0.0)
+
+        # Plane-pair (cavity) capacitance: one jw*C admittance per rail/return
+        # node pair the mesh found overlapping (mesh.Mesher.cavity_capacitor_pairs,
+        # via ac_model.ACModelBuilder.build()). Stamped vectorized here, next
+        # to the R+jwL branches, rather than through the lumped mechanism
+        # below: lumped elements cost one Python-level impedance() call per
+        # DISTINCT element at every frequency, fine for a handful of ports
+        # and capacitors but not for the tens of thousands of cavity pairs a
+        # real board mesh produces.
+        cavity = list(getattr(network, "cavity_capacitors", None) or ())
+        cavity_count = len(cavity)
+        cavity_a = np.fromiter((item[0] for item in cavity), dtype=np.int64, count=cavity_count)
+        cavity_b = np.fromiter((item[1] for item in cavity), dtype=np.int64, count=cavity_count)
+        self.cavity_capacitance = np.fromiter(
+            (float(item[2]) for item in cavity), dtype=float, count=cavity_count,
+        )
+        end_a.append(cavity_a)
+        end_b.append(cavity_b)
+
         # A lumped element (the source, a capacitor) spreads its admittance
         # evenly over every rail/return node pair it connects.
         self.impedances = []
@@ -105,6 +124,7 @@ class _NetworkStamps:
         )
         admittance = np.concatenate([
             1.0 / (self.resistance + 1j * omega * self.inductance),
+            1j * omega * self.cavity_capacitance,
             lumped[self.lumped_owner] * self.lumped_share,
         ])
         stamped = np.concatenate([admittance, admittance, -admittance, -admittance])

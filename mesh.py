@@ -699,13 +699,13 @@ class Mesher:
         if h <= 0: h = 0.5 
         return area / (rho * h)
 
-    def _distance_to_layers_mm(self, layer, target_layers, stackup):
-        """Shortest cumulative dielectric thickness (mm) from `layer` to any
-        layer in `target_layers`, walking the stackup's substrate list as a
-        1-D graph of copper layers linked by their dielectrics. Returns None
-        if no path is found (e.g. missing substrate data)."""
+    def _nearest_layer_and_distance_mm(self, layer, target_layers, stackup):
+        """(nearest layer in `target_layers`, cumulative dielectric thickness
+        mm to it), walking the stackup's substrate list as a 1-D graph of
+        copper layers linked by their dielectrics. (None, None) if no path
+        is found (e.g. missing substrate data)."""
         if layer in target_layers:
-            return 0.0
+            return layer, 0.0
 
         adjacency = {}
         for sub in stackup.get('substrate', []):
@@ -728,11 +728,71 @@ class Mesher:
                 continue
             seen.add(node)
             if node in target_layers:
-                return dist
+                return node, dist
             for neighbour, thickness in adjacency.get(node, []):
                 if neighbour not in seen:
                     heapq.heappush(heap, (dist + thickness, neighbour))
-        return None
+        return None, None
+
+    def _distance_to_layers_mm(self, layer, target_layers, stackup):
+        """Shortest cumulative dielectric thickness (mm) from `layer` to any
+        layer in `target_layers`, or None if no path is found."""
+        _nearest, dist = self._nearest_layer_and_distance_mm(layer, target_layers, stackup)
+        return dist
+
+    def cavity_capacitor_pairs(self, rail_mesh, ground_mesh, stackup, ground_layers):
+        """Plane-pair (cavity) capacitance: C = eps0*er*A_cell/h between each
+        rail-mesh node and the return-mesh node directly beneath/above it.
+
+        Only DIRECTLY adjacent layer pairs (rail layer and its nearest
+        return layer joined by a single stackup substrate entry) are
+        stamped: a path through an intervening copper layer would need a
+        series combination across each segment's own epsilon_r, which this
+        does not attempt -- those pairs are skipped rather than stamped with
+        a wrong epsilon_r. A_cell is the rail mesh's own grid cell area; the
+        return node is looked up within a radius covering either mesh's grid
+        step, since the two meshes can each adapt to a different resolution.
+
+        Returns a list of (rail_node_id, ground_node_id, capacitance_f)
+        using each mesh's OWN node ids -- the caller offsets the ground id
+        the same way _translate_mesh does for branches.
+        """
+        epsilon0 = 8.8541878128e-12
+        substrate_by_pair = {}
+        for sub in stackup.get('substrate', []):
+            between = sub.get('between', [])
+            if len(between) != 2 or between[0] is None or between[1] is None:
+                continue
+            key = frozenset(between)
+            substrate_by_pair[key] = (
+                float(sub.get('thickness_mm', 0.0) or 0.0),
+                float(sub.get('epsilon_r', 4.4) or 4.4),
+            )
+
+        radius_mm = max(rail_mesh.grid_step, ground_mesh.grid_step, 1e-6) * 1.5
+        cell_area_m2 = (float(rail_mesh.grid_step) ** 2) * 1.0e-6
+        pairs = []
+        layer_cache = {}
+        for rail_node_id, (x_mm, y_mm, layer) in rail_mesh.node_coords.items():
+            if layer not in layer_cache:
+                nearest, _dist = self._nearest_layer_and_distance_mm(layer, ground_layers, stackup)
+                entry = substrate_by_pair.get(frozenset((layer, nearest))) if nearest is not None else None
+                layer_cache[layer] = (nearest, entry)
+            nearest_layer, entry = layer_cache[layer]
+            if nearest_layer is None or entry is None:
+                continue
+            thickness_mm, epsilon_r = entry
+            if thickness_mm <= 0:
+                continue
+            ground_node_id = self._get_best_node_in_radius(
+                ground_mesh, x_mm, y_mm, nearest_layer, radius_mm,
+            )
+            if ground_node_id is None:
+                continue
+            capacitance_f = epsilon0 * epsilon_r * cell_area_m2 / (thickness_mm * 1.0e-3)
+            if capacitance_f > 0:
+                pairs.append((rail_node_id, ground_node_id, capacitance_f))
+        return pairs
 
     def _estimate_lateral_l(self, layer, stackup, return_layers=None):
         """Estimate this layer's share of the plane-pair loop inductance.

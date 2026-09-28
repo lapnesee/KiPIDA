@@ -311,6 +311,11 @@ class ACNetwork:
     # Rail and return tracks as the raster error depends on them (see
     # raster_fidelity.track_limitation).
     track_summary: Dict[str, float] = field(default_factory=dict)
+    # Plane-pair (cavity) capacitance: (rail_node, ground_node, farads) for
+    # every rail-mesh cell overlapping return copper, stamped by ACSolver as
+    # a vectorized jw*C admittance alongside the R+jwL branches above (see
+    # mesh.Mesher.cavity_capacitor_pairs).
+    cavity_capacitors: List[Tuple[int, int, float]] = field(default_factory=list)
 
 
 def parse_capacitance(value) -> Optional[float]:
@@ -989,6 +994,14 @@ class ACModelBuilder:
         offset = len(rail_mesh.nodes)
         rail_branches, rail_coords = self._translate_mesh(rail_mesh, 0)
         ground_branches, ground_coords = self._translate_mesh(ground_mesh, offset)
+        # Plane-pair (cavity) capacitance, C = eps0*er*A_cell/h between each
+        # rail node and the return node directly beneath/above it (old open
+        # item: previously absent from the model entirely).
+        cavity_capacitors = [
+            (rail_node, ground_node + offset, capacitance_f)
+            for rail_node, ground_node, capacitance_f in
+            mesher.cavity_capacitor_pairs(rail_mesh, ground_mesh, stackup, ground_layers)
+        ]
 
         source_ref, source_rail_pads, source_rule = self.resolve_source(
             rail, settings, all_rails=all_rails,
@@ -1101,4 +1114,5 @@ class ACModelBuilder:
             source_ref_des=source_ref,
             source_resolution=source_rule,
             quasi_static_limit_hz=limit_hz,
+            cavity_capacitors=cavity_capacitors,
         )

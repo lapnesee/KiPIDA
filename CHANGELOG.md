@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added plane-pair (cavity) capacitance to the AC model: each rail cell
+  gets C = eps0 er A / h to the return copper on the directly adjacent
+  layer, stamped as a vectorised admittance next to the R + jwL
+  branches. It was missing entirely, and stated as missing since the
+  2026-09-04 audit.
 - Fixed thermal cells being all copper or all laminate by their centre:
   a trace narrower than a cell was a full-cell strip or nothing, and a
   pour edge moved by up to half a cell. Cells on a copper edge now carry
