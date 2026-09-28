@@ -253,7 +253,12 @@ class ThermalModelBuilder:
                 return helper._get_val(current, "name", "")
             return current
 
-        fields = ("position", "start", "mid", "end", "layer", "width", "diameter", "net")
+        # drill_diameter: the via barrel's thermal conductance comes from its
+        # drill (TH-4), so a changed drill must invalidate the cached mesh.
+        fields = (
+            "position", "start", "mid", "end", "layer", "width", "diameter",
+            "drill_diameter", "net",
+        )
         for collection in ("tracks", "vias", "zones", "footprints", "shapes"):
             try:
                 items = list(helper._items(collection))

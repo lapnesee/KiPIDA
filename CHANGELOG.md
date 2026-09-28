@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed the thermal mesh cache ignoring a via's drill: the board
+  signature that decides whether the cached mesh is reused left out
+  drill_diameter, which sets the barrel's thermal conductance since vias
+  are sized from their drill.
 - Fixed the thermal model spreading every small part's heat over at least
   3 x 3 mm: an estimated component now uses its pads' extent plus
   0.5 mm, so an 0402 or SOT-23 is as hot as its footprint; a size the

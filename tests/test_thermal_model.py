@@ -201,6 +201,27 @@ class FootprintSizeTests(unittest.TestCase):
         self.assertEqual(builder._footprint_size(footprint, 3.0, 3.0, user_sized=True), (3.0, 3.0))
 
 
+class GeometrySignatureTests(unittest.TestCase):
+    def test_the_cache_key_follows_the_copper(self):
+        # The dialog keeps a thermal mesh while this signature is unchanged,
+        # and nothing tested it: a signature that missed an edit would serve
+        # a stale result. A via's drill sets its conductance since TH-4 and
+        # was not part of it.
+        from types import SimpleNamespace
+
+        def board(width=0.25, drill=0.3):
+            track = SimpleNamespace(start=SimpleNamespace(x=0.0, y=0.0), end=SimpleNamespace(x=5.0, y=0.0),
+                                    layer=0, width=width, net=SimpleNamespace(name="VCC"))
+            via = SimpleNamespace(position=SimpleNamespace(x=5.0, y=0.0), diameter=0.6,
+                                  drill_diameter=drill, net=SimpleNamespace(name="VCC"))
+            return SimpleNamespace(tracks=[track], vias=[via], zones=[], footprints=[], shapes=[])
+
+        signature = ThermalModelBuilder.board_geometry_signature
+        self.assertEqual(signature(board()), signature(board()))
+        self.assertNotEqual(signature(board()), signature(board(width=0.5)))
+        self.assertNotEqual(signature(board()), signature(board(drill=0.4)))
+
+
 class ViaDiameterTests(unittest.TestCase):
     """TH-4: kipy's Via has no ``width`` attribute, only ``diameter`` and
     ``drill_diameter`` (kipy/board_types.py). thermal_model.py:514 used to
