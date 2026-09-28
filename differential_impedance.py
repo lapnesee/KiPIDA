@@ -12,7 +12,7 @@ try:
     from .physical_constants import DEFAULT_COPPER_THICKNESS_MM
     from .differential_length import assess_length_symmetry
     from .differential_geometry import (
-        COPLANAR_GEOMETRIES, GEOMETRY_MICROSTRIP, GEOMETRY_STRIPLINE,
+        COPLANAR_GEOMETRIES, GEOMETRY_AUTO, GEOMETRY_MICROSTRIP, GEOMETRY_STRIPLINE,
         EdgeCoupledDifferentialSolver, GroundedCoplanarDifferentialSolver,
         normalize_geometry,
     )
@@ -22,7 +22,7 @@ except (ImportError, ValueError):
     from physical_constants import DEFAULT_COPPER_THICKNESS_MM
     from differential_length import assess_length_symmetry
     from differential_geometry import (
-        COPLANAR_GEOMETRIES, GEOMETRY_MICROSTRIP, GEOMETRY_STRIPLINE,
+        COPLANAR_GEOMETRIES, GEOMETRY_AUTO, GEOMETRY_MICROSTRIP, GEOMETRY_STRIPLINE,
         EdgeCoupledDifferentialSolver, GroundedCoplanarDifferentialSolver,
         normalize_geometry,
     )
@@ -62,6 +62,9 @@ class DifferentialGeometrySnapshot:
 # Share of a pair's solved length that must have a qualified reference for
 # the pair to be judged rather than reported as an estimate.
 QUALIFIED_LENGTH_PCT = 90.0
+# Same-layer ground coverage along a pair above which AUTO solves it as
+# coplanar rather than plain microstrip/stripline.
+COPLANAR_AUTO_COVERAGE_PCT = 90.0
 
 
 class DifferentialImpedanceSolver:
@@ -320,8 +323,17 @@ class DifferentialImpedanceSolver:
                 reference_below_epsilon_r=context.epsilon_r_below,
                 trustworthy=False, warnings=warnings,
             )
+        use_coplanar = requested_geometry in COPLANAR_GEOMETRIES
+        if requested_geometry == GEOMETRY_AUTO:
+            # A same-layer ground running alongside the pair is part of the
+            # cross-section: AUTO ignored it and solved plain microstrip. On
+            # P02 Rev E a GND pour runs 0.2 mm from the USB pairs along ~90 %
+            # of their length (-0.8 % on Zdiff, SI-8).
+            if self._measured_coplanar_ground_gap(layer_id, positive, negative) is not None:
+                _net, coverage = self._coplanar_ground_coverage(layer_id, positive, negative)
+                use_coplanar = coverage >= COPLANAR_AUTO_COVERAGE_PCT
         try:
-            if requested_geometry in COPLANAR_GEOMETRIES:
+            if use_coplanar:
                 configured_ground_gap = max(
                     0.001, float(self.settings.coplanar_ground_gap_mm)
                 )
@@ -366,7 +378,7 @@ class DifferentialImpedanceSolver:
                         warnings.append("No same-layer ground pour was detected; the configured coplanar ground gap is used as design intent.")
                     else:
                         ground_clearance = measured_ground_gap
-                    if measured_ground_gap is not None and abs(measured_ground_gap - configured_ground_gap) > max(
+                    if requested_geometry != GEOMETRY_AUTO and measured_ground_gap is not None and abs(measured_ground_gap - configured_ground_gap) > max(
                         0.02, 0.2 * configured_ground_gap
                     ):
                         warnings.append(

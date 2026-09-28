@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed AUTO differential geometry ignoring a same-layer ground pour
+  running alongside the pair: it solved plain microstrip although P02
+  Rev E's USB pairs have GND 0.2 mm away along ~90 % of their length.
+  Coverage of 90 % or more now selects the coplanar cross-section.
 - Fixed identical differential pairs getting different verdicts: one
   partly referenced connector escape turned a whole pair into an
   "estimate" (P02 Rev E: two USB pairs FAIL/HIGH, three ESTIMATE/MEDIUM on

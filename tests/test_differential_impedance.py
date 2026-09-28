@@ -258,5 +258,17 @@ class DifferentialImpedanceTests(unittest.TestCase):
         self.assertTrue(any("connector/breakout" in warning for warning in result.warnings))
 
 
+    def test_auto_solves_a_pair_flanked_by_same_layer_ground_as_coplanar(self):
+        # P02 Rev E: a GND pour runs 0.2 mm from the USB pairs along ~90 % of
+        # their length; AUTO ignored it and solved plain microstrip (SI-8).
+        from shapely.geometry import box
+        flanks = box(-1, -2, 11, 2).difference(box(-1, -0.25, 11, 0.55))
+        snapshot = DifferentialGeometrySnapshot(
+            tracks_by_net={"USB_DP": [segment(0.0)], "USB_DM": [segment(0.3)]},
+            zones_by_net={"GND": {0: flanks, 1: box(-1, -2, 11, 2)}},
+        )
+        result = DifferentialImpedanceSolver(snapshot, self.stackup, self.settings).solve_pair(self.pair)
+        self.assertTrue(result.sections[0].topology.startswith("COPLANAR"))
+
 if __name__ == "__main__":
     unittest.main()
