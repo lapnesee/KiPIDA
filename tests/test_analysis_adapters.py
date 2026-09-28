@@ -166,6 +166,25 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertEqual(result.status, AnalysisStatus.FAIL)
         self.assertEqual(result.metrics[0].unit, "ohm")
 
+    def test_each_failing_pair_is_its_own_finding_and_the_tolerance_is_published(self):
+        # P02 Rev E: five SI-DIFF-001 findings without nets shared one
+        # identity, and the 10 % verdict tolerance appeared nowhere (COH-7,
+        # COH-2).
+        def failing(name, positive, negative):
+            return SimpleNamespace(
+                pair=SimpleNamespace(name=name, positive_net=positive, negative_net=negative,
+                                     target_impedance_ohm=90.0),
+                status="FAIL", weighted_impedance_ohm=76.7, error_pct=-14.7,
+                estimated_skew_ps=0.1, length_symmetry_status="PASS", warnings=[],
+            )
+        stackup = SimpleNamespace(warnings=[], source="FAB", trustworthy=True)
+        result = adapt_differential_result(
+            [failing("A", "/A+", "/A-"), failing("B", "/B+", "/B-")], stackup, 10.0,
+        )
+        self.assertEqual([finding.nets for finding in result.findings], [["/A+", "/A-"], ["/B+", "/B-"]])
+        tolerance = next(metric for metric in result.metrics if metric.key == "target_tolerance")
+        self.assertEqual(tolerance.value, 10.0)
+
     def test_a_failing_pair_states_its_impedance_and_the_geometry_that_fixes_it(self):
         # P02 Rev E's /USB_DEVICE_D: 76.7 ohm for 90, and the recommender's
         # 0.155 mm was nowhere in the finding.

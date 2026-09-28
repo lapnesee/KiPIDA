@@ -549,6 +549,7 @@ def adapt_differential_result(results: Any, stackup: Any, tolerance_pct: float) 
         metrics.extend([
             AnalysisMetric(f"pair_{index}_zdiff", f"{prefix} Zdiff", float(getattr(item, "weighted_impedance_ohm", 0.0)), "ohm", status),
             AnalysisMetric(f"pair_{index}_skew", f"{prefix} skew", float(getattr(item, "estimated_skew_ps", 0.0)), "ps", str(getattr(item, "length_symmetry_status", "NO_DATA"))),
+            AnalysisMetric(f"pair_{index}_qualified", f"{prefix} length with a qualified reference", float(getattr(item, "qualified_length_pct", 0.0) or 0.0), "%", "INFO"),
         ])
         if status != "PASS":
             severity = FindingSeverity.HIGH if status == "FAIL" else FindingSeverity.MEDIUM
@@ -569,7 +570,7 @@ def adapt_differential_result(results: Any, stackup: Any, tolerance_pct: float) 
                 if getattr(rec, "action", "") == "SET_PRIMARY_ROUTE"
                 and float(getattr(rec, "recommended_width_mm", 0.0) or 0.0) > 0.0
             ), None)
-            findings.append(_finding(
+            finding = _finding(
                 "SI-DIFF-001", index, "DIFFERENTIAL", severity,
                 f"{prefix}: {status.replace('_', ' ').title()}",
                 " ".join(part for part in (lead, notes) if part) or
@@ -581,13 +582,24 @@ def adapt_differential_result(results: Any, stackup: Any, tolerance_pct: float) 
                     "continuity and length matching."
                 ) if primary is not None else
                 "Review stackup, reference continuity, width, gap, and length matching.",
-            ))
+            )
+            # Each pair is its own defect: without its nets, the five failing
+            # P02 Rev E pairs shared one identity, so fixing four of them
+            # compared as "resolved 0" (COH-7).
+            finding.nets = [
+                net for net in (getattr(pair, "positive_net", ""), getattr(pair, "negative_net", ""))
+                if net
+            ]
+            findings.append(finding)
     stackup_warnings = list(getattr(stackup, "warnings", ()) or ())
     for offset, warning in enumerate(stackup_warnings, start=len(findings) + 1):
         findings.append(_finding(
             "SI-STACKUP-001", offset, "STACKUP", FindingSeverity.MEDIUM,
             "Stackup confidence limitation", str(warning), "Import a fabrication stackup.",
         ))
+    metrics.append(AnalysisMetric(
+        "target_tolerance", "Impedance verdict tolerance", float(tolerance_pct), "+/- %", "INFO",
+    ))
     if not results:
         overall = AnalysisStatus.NO_DATA
     elif any(status == "FAIL" for status in statuses):
@@ -604,7 +616,15 @@ def adapt_differential_result(results: Any, stackup: Any, tolerance_pct: float) 
             "stackup", str(getattr(stackup, "source", "unknown")),
             reference="trusted" if getattr(stackup, "trustworthy", False) else "estimate",
         )],
-        limitations=["Via and connector-launch discontinuities require 3-D or measured validation."],
+        limitations=[
+            "Via and connector-launch discontinuities require 3-D or measured validation.",
+            f"A pair passes within +/-{float(tolerance_pct):g} % of its target, the "
+            "project's setting; interface standards differ (USB 2.0 allows +/-15 %).",
+            "Traces are modelled with a rectangular cross-section; a trapezoidal etch "
+            "(narrower top) typically raises Zdiff by 1-3 %.",
+            f"A pair is judged on its routed length with a qualified reference plane; "
+            f"below {90:g} % of the length it is reported as an estimate.",
+        ],
     ).finish()
 
 

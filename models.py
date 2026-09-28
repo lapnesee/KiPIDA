@@ -380,6 +380,9 @@ class DifferentialPairResult:
     skew_margin_ps: float = 0.0
     length_symmetry_status: str = "NO_DATA"
     shorter_net: str = ""
+    # Share of the solved length whose reference plane qualifies; the
+    # verdict is taken on that length.
+    qualified_length_pct: float = 0.0
     status: str = "NO_DATA"
     trustworthy: bool = False
     warnings: List[str] = field(default_factory=list)

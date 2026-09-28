@@ -182,6 +182,37 @@ class DifferentialImpedanceTests(unittest.TestCase):
         self.assertFalse(result.trustworthy)
         self.assertTrue(any("cannot qualify" in warning for warning in result.warnings))
 
+    def test_a_short_partly_referenced_escape_does_not_make_the_pair_an_estimate(self):
+        # P02 Rev E: identical USB geometry read FAIL/HIGH on two pairs and
+        # ESTIMATE/MEDIUM on three, only because a connector escape had a
+        # partial plane. The verdict now rests on the qualified length.
+        snapshot = DifferentialGeometrySnapshot(
+            tracks_by_net={"USB_DP": [segment(0.0)], "USB_DM": [segment(0.3)]},
+        )
+        solver = DifferentialImpedanceSolver(snapshot, self.stackup, self.settings)
+        positive, negative = segment(0.0), segment(0.3)
+        solver._match_sections = lambda *_args: [
+            (positive, negative, 0.2, 19.0),
+            (positive, negative, 0.2, 1.0),
+        ]
+        contexts = iter([
+            ReferencePlaneContext(
+                topology="MICROSTRIP", reference_below="GND", distance_below_mm=0.2,
+                epsilon_r_below=4.2, coverage_below_pct=100.0, trustworthy=True,
+            ),
+            ReferencePlaneContext(
+                topology="MICROSTRIP", reference_below="GND", distance_below_mm=0.2,
+                epsilon_r_below=4.2, coverage_below_pct=70.0, trustworthy=False,
+            ),
+        ])
+        solver.plane_analyzer = type(
+            "PlaneAnalyzer", (), {"analyze": lambda self, *_args: next(contexts)}
+        )()
+        result = solver.solve_pair(self.pair)
+        self.assertAlmostEqual(result.qualified_length_pct, 95.0)
+        self.assertIn(result.status, {"PASS", "FAIL"})
+        self.assertEqual(result.weighted_impedance_ohm, result.sections[0].differential_impedance_ohm)
+
     def test_sub_width_section_is_diagnostic_not_aggregate_impedance(self):
         snapshot = DifferentialGeometrySnapshot(
             tracks_by_net={"USB_DP": [segment(0.0)], "USB_DM": [segment(0.3)]},

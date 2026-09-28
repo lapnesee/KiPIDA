@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed identical differential pairs getting different verdicts: one
+  partly referenced connector escape turned a whole pair into an
+  "estimate" (P02 Rev E: two USB pairs FAIL/HIGH, three ESTIMATE/MEDIUM on
+  the same geometry). A pair is judged on its length with a qualified
+  reference (>= 90 %, published per pair); each failing pair now carries
+  its P/N nets, and the verdict tolerance is published with the results.
 - Fixed pair discovery taking power and LED nets for differential pairs:
   KiCad's +/-/P/N suffix rule made BAT+/BAT-, VREFP/VREFN or SPK_P/N
   "likely" 100-ohm pairs, and LED_DP/LED_DM became USB because "DP"

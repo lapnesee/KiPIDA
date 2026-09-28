@@ -59,6 +59,11 @@ class DifferentialGeometrySnapshot:
         return dict(self.zones_by_net.get(net_name, {}))
 
 
+# Share of a pair's solved length that must have a qualified reference for
+# the pair to be judged rather than reported as an estimate.
+QUALIFIED_LENGTH_PCT = 90.0
+
+
 class DifferentialImpedanceSolver:
     """Analyze routed pair sections using edge-coupled planar-line estimates."""
 
@@ -575,6 +580,19 @@ class DifferentialImpedanceSolver:
             section.differential_impedance_ohm * max(section.length_mm, 1e-12)
             for section in solved
         ) / total_length
+        # The verdict rests on the routed length whose reference is
+        # qualified. A short connector escape with a partial plane made the
+        # whole pair "ESTIMATE" while an identical pair without one was
+        # judged: on P02 Rev E two USB pairs read FAIL/HIGH and three
+        # ESTIMATE/MEDIUM on the same geometry (audit-2026-09-23.md).
+        qualified = [section for section in solved if section.trustworthy]
+        qualified_length = sum(max(section.length_mm, 1e-12) for section in qualified)
+        result.qualified_length_pct = 100.0 * qualified_length / total_length
+        if qualified and result.qualified_length_pct >= QUALIFIED_LENGTH_PCT:
+            result.weighted_impedance_ohm = sum(
+                section.differential_impedance_ohm * max(section.length_mm, 1e-12)
+                for section in qualified
+            ) / qualified_length
         values = [section.differential_impedance_ohm for section in solved]
         result.minimum_impedance_ohm = min(values)
         result.maximum_impedance_ohm = max(values)
@@ -583,7 +601,7 @@ class DifferentialImpedanceSolver:
         result.trustworthy = bool(
             self.stackup.trustworthy
             and not unresolved
-            and all(section.trustworthy for section in result.sections)
+            and result.qualified_length_pct >= QUALIFIED_LENGTH_PCT
         )
         if unresolved:
             result.status = "FAIL"
