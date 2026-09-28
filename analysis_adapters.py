@@ -1732,12 +1732,32 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
                     " connected at that step, so the island may be the mesh's rather than the board's."
                     if step > 0.0 else ""
                 )
-            excluded = ", ".join(getattr(detailed, "excluded_load_references", ()) or ())
-            findings.append(_finding(
+            excluded_refs = list(getattr(detailed, "excluded_load_references", ()) or ())
+            excluded_current = float(getattr(detailed, "excluded_load_current_a", 0.0) or 0.0)
+            total_current = float(getattr(detailed, "total_load_current_a", 0.0) or 0.0)
+            # What is excluded is loads and their current, not nodes: P02 Rev
+            # E's "81 load node(s)" were U14's input alone, 0.848 A of the
+            # rail's 2.04 A (DC-7).
+            if excluded_current > 0.0:
+                share = (
+                    f", {100.0 * excluded_current / total_current:.0f} % of the rail's "
+                    f"{total_current:.3g} A" if total_current > 0.0 else ""
+                )
+                what = (
+                    f"{', '.join(excluded_refs) or 'Loads'} ({excluded_current:.3g} A{share}) "
+                    f"{'are' if len(excluded_refs) != 1 else 'is'} on copper no source reaches "
+                    f"and were left out of the solve ({getattr(detailed, 'excluded_load_node_count', 0)} "
+                    "mesh node(s))"
+                )
+            else:
+                what = (
+                    f"{getattr(detailed, 'excluded_load_node_count', 0)} load node(s) were excluded"
+                    + (f" ({', '.join(excluded_refs)})" if excluded_refs else "")
+                )
+            dc001 = _finding(
                 "DC-001", index, "CONNECTIVITY", FindingSeverity.HIGH,
                 f"{rail} contains source-free loads",
-                f"{getattr(detailed, 'excluded_load_node_count', 0)} load node(s) were excluded"
-                + (f" ({excluded})" if excluded else "") + "." + step_text,
+                what + "." + step_text,
                 # A finer grid cannot join what the hybrid mesh keeps apart:
                 # on P02 Rev E each such island was an unrouted connection in
                 # KiCad's DRC.
@@ -1747,7 +1767,11 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
                 if data.get("engine") == "hybrid" else
                 "Check the copper between the source and these loads in the editor. If it "
                 "is continuous, rerun with a finer DC grid before editing the board.",
-            ))
+            )
+            # The excluded parts, so the campaign can join this finding to
+            # every other one about them (COH-5).
+            dc001.components = excluded_refs
+            findings.append(dc001)
         if compute is not None and not getattr(compute, "converged", True):
             findings.append(_finding(
                 "DC-002", index, "NUMERICS", FindingSeverity.HIGH,

@@ -202,6 +202,8 @@ class TestSolver(unittest.TestCase):
         self.assertFalse(result.valid)
         self.assertEqual(result.excluded_load_node_count, 1)
         self.assertEqual(result.excluded_load_references, ["U99"])
+        self.assertAlmostEqual(result.excluded_load_current_a, 0.5)
+        self.assertAlmostEqual(result.total_load_current_a, 1.5)
         self.assertTrue(result.warnings)
         self.assertAlmostEqual(result.branch_losses_w[1], 0.0, places=12)
 

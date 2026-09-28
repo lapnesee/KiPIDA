@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed the source-free load finding counting mesh nodes: P02 Rev E's
+  "/VBUS_SYS: 81 load node(s) were excluded" was one load, U14's input,
+  drawing 0.848 A of the rail's 2.04 A. It now names the excluded loads,
+  their current and their share of the rail, and lists them as the
+  finding's components so other findings on U14 group with it.
 - Removed transmission_line_abcd.py, an ABCD transmission-line module no
   production code imported: three audits (2026-09-04, -13, -23) found it
   unwired, and its nine tests exercised only themselves.

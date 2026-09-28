@@ -846,6 +846,8 @@ class DCSolveResult:
     valid: bool = True
     excluded_load_node_count: int = 0
     excluded_load_references: List[str] = field(default_factory=list)
+    excluded_load_current_a: float = 0.0
+    total_load_current_a: float = 0.0
     warnings: List[str] = field(default_factory=list)
 
 

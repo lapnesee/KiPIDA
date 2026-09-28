@@ -510,5 +510,20 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertIn("(U13, U7)", island.description)
 
 
+    def test_an_island_finding_states_the_load_and_current_left_out(self):
+        # P02 Rev E /VBUS_SYS: "81 load node(s) were excluded" was one load,
+        # U14's input, 0.848 A of the rail's 2.04 A (DC-7).
+        detail = SimpleNamespace(
+            valid=False, excluded_load_node_count=81, excluded_load_references=["U14"],
+            excluded_load_current_a=0.848, total_load_current_a=2.04,
+        )
+        result = adapt_dc_result({"/VBUS_SYS": {
+            "stats": (20.0, 20.0, 0.008), "detailed_result": detail, "engine": "hybrid",
+            "load_drop_v": 0.008, "source_voltage_v": 20.0,
+        }}, 5.0)
+        island = next(item for item in result.findings if item.rule_id == "DC-001")
+        self.assertIn("U14 (0.848 A, 42 % of the rail's 2.04 A)", island.description)
+        self.assertEqual(island.components, ["U14"])
+
 if __name__ == "__main__":
     unittest.main()
