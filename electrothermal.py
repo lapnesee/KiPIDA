@@ -155,6 +155,24 @@ class ElectroThermalSolver:
         # The mesh already contains the room-temperature stage estimate.  Strip
         # only that portion, retain loads/manual heat, then replace it from the
         # temperature-coupled model on every iteration.
+        # Each coupled iteration writes the temperature-dependent power back
+        # onto the mesh's component models. A mesh reused from the session
+        # cache then started its next run from the last run's hot values, so
+        # the stage power stripped below was not the one deposited and every
+        # junction drifted by the hot-cold difference (< 0.5 K on P02 Rev E,
+        # TH-11). The first solve records the models' own power; later
+        # solves on the same mesh restore it.
+        pristine = getattr(thermal_mesh, "pristine_component_power_w", None)
+        if pristine is None:
+            thermal_mesh.pristine_component_power_w = {
+                ref_des: float(component.power_w)
+                for ref_des, component in thermal_mesh.component_models.items()
+            }
+        else:
+            for ref_des, power in pristine.items():
+                component = thermal_mesh.component_models.get(ref_des)
+                if component is not None:
+                    component.power_w = power
         initial_stages = list(getattr(settings, "power_stage_reports", []) or [])
         initial_stage_power = self._stage_power_by_component(initial_stages)
         component_nonstage_power = {}

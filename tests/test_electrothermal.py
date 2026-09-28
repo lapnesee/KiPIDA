@@ -79,6 +79,13 @@ class TestElectroThermalSolver(unittest.TestCase):
             thermal_mesh, settings, contexts, rails=rails
         )
 
+        first_power = thermal_mesh.component_models["L1"].power_w
+        # TH-11: the same cached mesh solved again must start from the model's
+        # own power, not the hot value the first run wrote back.
+        settings.power_stage_reports = initial.stages
+        ElectroThermalSolver().solve(thermal_mesh, settings, contexts, rails=rails)
+        self.assertAlmostEqual(thermal_mesh.component_models["L1"].power_w, first_power, places=9)
+
         final_stage = next(stage for stage in settings.power_stage_reports if stage.name == "buck")
         final_l1 = next(loss for loss in final_stage.losses if loss.ref_des == "L1")
         self.assertGreater(final_l1.provenance["temperature_c"], 25.0)

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed a cached thermal mesh carrying one coupled run's hot component
+  powers into the next: each run now restores the models' own power
+  before stripping the stage estimate, instead of drifting junctions by
+  the hot-cold difference (under 0.5 K on P02 Rev E).
 - Fixed an uncoupled thermal run taking copper losses at the DC's 20 C
   resistivity whatever the ambient: at P02 Rev E's 45 C they were about
   10 % low. They are now scaled by the copper's resistance ratio at the
