@@ -389,10 +389,10 @@ def format_emc_summary_lines(settings, result):
     lines = [
         "EMI / EMC Pre-compliance Results",
         "================================",
-        f"Target: {settings.standard} ({settings.market})",
+        f"Reference standard (not evaluated): {settings.standard} ({settings.market})",
         f"Frequency band: {settings.frequency_start_hz / 1e6:g} .. "
         f"{settings.frequency_stop_hz / 1e6:g} MHz",
-        f"Risk score: {result.risk_score}/100",
+        f"Relative risk score (uncalibrated, not a compliance margin): {result.risk_score}/100",
         "Risk scoring: severity weighted by evidence confidence; repeated rules capped.",
         f"Checks evaluated: {result.total_checks}",
         f"Findings: {len(result.findings)} — critical {counts.get('CRITICAL', 0)}, "

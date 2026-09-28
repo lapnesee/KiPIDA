@@ -184,7 +184,7 @@ class ReportPresenterTests(unittest.TestCase):
         )
         summary = "\n".join(format_emc_summary_lines(settings, result))
         details = "\n".join(format_emc_findings_lines(result))
-        self.assertIn("Target: CISPR 32 (EU)", summary)
+        self.assertIn("Reference standard (not evaluated): CISPR 32 (EU)", summary)
         self.assertIn("EMC-01 -7", summary)
         self.assertIn("geometry-only analysis", summary)
         self.assertIn("No finding was generated", details)

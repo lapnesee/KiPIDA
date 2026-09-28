@@ -284,6 +284,9 @@ Time for 8000 iterations with 399562.00 cells : 117.83 sec
         self.assertIsNone(points[0].limit_dbuv_m)
         self.assertIsNone(points[0].margin_db)
         self.assertIn("RELATIVE", points[0].provenance)
+        # A relative peak, not a quasi-peak field strength (EMC-8).
+        self.assertEqual(points[0].detector, "PEAK_RELATIVE")
+        self.assertAlmostEqual(points[0].level_rel_db, -8.0)
 
     def test_pipeline_routes_full_wave_execution_to_remote_palace_backend(self):
         settings = self.settings()

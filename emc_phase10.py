@@ -873,7 +873,11 @@ class VirtualEMIReceiver:
 
     def process_relative(self, frequency_risks):
         points = []
-        detector = self.settings.receiver_detector.upper()
+        requested = self.settings.receiver_detector.upper()
+        # No quasi-peak weighting is applied: the level is the bin's peak (or
+        # its average), and the label says so rather than the requested
+        # detector's name (EMC-8).
+        detector = "AVERAGE_RELATIVE" if requested == "AVERAGE" else "PEAK_RELATIVE"
         rbw = max(float(self.settings.receiver_rbw_hz), 1.0)
         bins = {}
         for risk in frequency_risks:
@@ -882,14 +886,14 @@ class VirtualEMIReceiver:
         for key in sorted(bins):
             risks = bins[key]
             dominant = max(risks, key=lambda item: item.level_db)
-            if detector == "AVERAGE":
+            if requested == "AVERAGE":
                 linear = sum(10.0 ** (item.level_db / 20.0) for item in risks) / len(risks)
                 level = 20.0 * math.log10(max(linear, 1e-30))
             else:
                 level = dominant.level_db
             points.append(EMCVirtualReceiverPoint(
                 frequency_hz=dominant.frequency_hz, detector=detector,
-                level_dbuv_m=level, limit_dbuv_m=None, margin_db=None,
+                level_rel_db=level, limit_dbuv_m=None, margin_db=None,
                 source_name=dominant.source_name,
                 provenance="RELATIVE_RISK_ONLY_NO_COMPLIANCE_MARGIN",
             ))

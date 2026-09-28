@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed the EMC virtual receiver presenting relative levels as field
+  strengths: its points carried level_dbuv_m under a QUASI_PEAK detector
+  although they are a relative peak with no quasi-peak weighting and no
+  far field. They are now level_rel_db, PEAK_RELATIVE (or
+  AVERAGE_RELATIVE); the score reads "relative, uncalibrated" and the
+  standard "reference (not evaluated)" in the reports.
 - Fixed the EMC domain scoring P02 Rev E's 114.7 C hotspot a second time
   (TE-001 cost 4 points the thermal domain already charges; it is now
   informational), and replaced two stale limitations with what the

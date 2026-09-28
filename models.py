@@ -710,7 +710,10 @@ class EMCSpiceModelAudit:
 class EMCVirtualReceiverPoint:
     frequency_hz: float
     detector: str
-    level_dbuv_m: float
+    # A level relative to the strongest estimate, not a field strength: no
+    # far field is computed and no limit line exists to compare it with. It
+    # was named level_dbuv_m under a QUASI_PEAK detector (EMC-8).
+    level_rel_db: float
     limit_dbuv_m: Optional[float]
     margin_db: Optional[float]
     source_name: str

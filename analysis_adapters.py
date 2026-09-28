@@ -90,7 +90,7 @@ def adapt_emc_result(settings: Any, domain_result: Any) -> AnalysisResult:
         findings=findings,
         metrics=[
             AnalysisMetric(
-                "risk_score", "Risk score",
+                "risk_score", "Relative risk score (uncalibrated)",
                 int(getattr(domain_result, "risk_score", 0)), "/100",
                 overall_status.value,
             ),
