@@ -334,13 +334,6 @@ def format_differential_report(results, stackup, target_tolerance_pct):
                 f"refs={section.reference_above or '-'} / {section.reference_below or '-'}, "
                 f"coverage={section.reference_coverage_pct:.1f}%{coplanar_detail}"
             )
-            if section.refinement_status not in {"2D_BASELINE", "NOT_APPLICABLE"}:
-                lines.append(
-                    f"    3-D refinement: {section.refinement_status}; "
-                    f"2-D={section.two_d_impedance_ohm:.3f} ohm -> "
-                    f"refined={section.three_d_impedance_ohm:.3f} ohm; "
-                    f"reason={section.refinement_reason}"
-                )
             section_warnings.update(section.warnings)
         section_warnings.update(result.warnings)
         lines.extend(f"  WARNING: {warning}" for warning in sorted(section_warnings))

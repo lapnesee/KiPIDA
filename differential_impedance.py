@@ -10,7 +10,6 @@ except ImportError:
 
 try:
     from .physical_constants import DEFAULT_COPPER_THICKNESS_MM
-    from .differential_3d import Targeted3DRefiner
     from .differential_length import assess_length_symmetry
     from .differential_geometry import (
         COPLANAR_GEOMETRIES, GEOMETRY_MICROSTRIP, GEOMETRY_STRIPLINE,
@@ -21,7 +20,6 @@ try:
     from .reference_plane_analyzer import ReferencePlaneAnalyzer
 except (ImportError, ValueError):
     from physical_constants import DEFAULT_COPPER_THICKNESS_MM
-    from differential_3d import Targeted3DRefiner
     from differential_length import assess_length_symmetry
     from differential_geometry import (
         COPLANAR_GEOMETRIES, GEOMETRY_MICROSTRIP, GEOMETRY_STRIPLINE,
@@ -604,38 +602,21 @@ class DifferentialImpedanceSolver:
         return result
 
     def _refine_problem_sections(self, result):
-        """Apply bounded 3-D refinement only to the highest-risk sections."""
+        """Record the 2-D solve as the section's only impedance.
+
+        A "targeted 3-D quasi-static refinement" used to rescale the sections
+        already more than 10 % off target by Z/(1+c), an empirical end-effect
+        factor applied at every bend as if the line ended there. It was not a
+        3-D solve and pushed the pairs it touched further off: P02 Rev E's
+        79.16 ohm sections read 76.48 (audit-2026-09-23.md SI-4). The 2-D
+        cross-section is the answer the tool can stand behind.
+        """
         for section in result.sections:
             section.two_d_impedance_ohm = section.differential_impedance_ohm
             section.three_d_impedance_ohm = section.differential_impedance_ohm
             section.refinement_status = (
                 "NOT_APPLICABLE" if section.topology == "BREAKOUT_TRANSITION"
                 else "2D_BASELINE"
-            )
-        if not self.settings.enable_targeted_3d_refinement:
-            return
-        refiner = Targeted3DRefiner(self.settings)
-        candidates = [
-            section for section in result.sections
-            if section.topology != "BREAKOUT_TRANSITION"
-            and refiner.select(section, result.pair.target_impedance_ohm)
-        ]
-        candidates.sort(key=lambda item: (
-            item.reference_coverage_pct,
-            -abs(item.differential_impedance_ohm - result.pair.target_impedance_ohm),
-            -item.length_mm,
-        ))
-        for section in candidates[:self.settings.targeted_3d_max_sections]:
-            refined = refiner.refine(section, result.pair.target_impedance_ohm)
-            if refined is None:
-                continue
-            section.refinement_status = refined.status
-            section.refinement_reason = refined.reason
-            section.three_d_impedance_ohm = refined.impedance_ohm
-            if refined.impedance_ohm > 0:
-                section.differential_impedance_ohm = refined.impedance_ohm
-            section.warnings.append(
-                f"Targeted 3-D quasi-static refinement: {refined.reason}."
             )
 
     def solve(self, pairs, progress_callback=None):

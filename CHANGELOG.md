@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Removed the "targeted 3-D quasi-static refinement" of differential
+  pairs: it was an empirical Z/(1+c) factor, applied at every bend as if
+  the line ended there and only to sections already 10 % off target, and
+  it pushed them further off (P02 Rev E: 79.16 -> 76.48 ohm). The 2-D
+  cross-section is the published impedance; its three settings are gone.
 - Fixed the differential recommender inverting the IPC-D-317A closed form
   instead of the 2-D field solve that measured the pair: on P02 Rev E it
   promised 90.6 ohm at 0.155 mm, which the field solve puts at 94.3 ohm

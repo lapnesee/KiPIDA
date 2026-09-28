@@ -53,6 +53,21 @@ class DifferentialImpedanceTests(unittest.TestCase):
         self.assertEqual(result.length_symmetry_status, "PASS")
         self.assertEqual(result.skew_limit_ps, 25.0)
 
+    def test_an_off_target_pair_keeps_its_2d_impedance(self):
+        # P02 Rev E: the "targeted 3-D refinement" rescaled sections already
+        # more than 10 % off target by an empirical factor, 79.16 -> 76.48
+        # ohm, pushing them further off (SI-4). The 2-D solve now stands.
+        snapshot = DifferentialGeometrySnapshot(
+            tracks_by_net={"USB_DP": [segment(0.0)], "USB_DM": [segment(0.3)]},
+            zones_by_net={"GND": {1: Polygon([(-1, -2), (11, -2), (11, 2), (-1, 2)])}},
+        )
+        self.pair.target_impedance_ohm = 50.0
+        result = DifferentialImpedanceSolver(snapshot, self.stackup, self.settings).solve_pair(self.pair)
+        section = result.sections[0]
+        self.assertEqual(section.three_d_impedance_ohm, section.two_d_impedance_ohm)
+        self.assertEqual(section.differential_impedance_ohm, section.two_d_impedance_ohm)
+        self.assertFalse(any("3-D" in warning for warning in result.warnings))
+
     def test_the_stackup_solder_mask_replaces_the_settings_default(self):
         # P02 Rev E's file states F.Mask and B.Mask at 0.01 mm; the solver
         # used the 0.02 mm / er 3.3 settings default instead (SI-6).

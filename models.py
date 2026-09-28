@@ -296,9 +296,6 @@ class DifferentialAnalysisSettings:
     fabrication_profile: str = "GENERIC"
     geometry_mode: str = "AUTO"
     coplanar_ground_gap_mm: float = 0.15
-    enable_targeted_3d_refinement: bool = True
-    targeted_3d_max_sections: int = 4
-    targeted_3d_error_threshold_pct: float = 10.0
     minimum_width_mm: float = 0.10
     minimum_gap_mm: float = 0.10
     minimum_ground_clearance_mm: float = 0.15
