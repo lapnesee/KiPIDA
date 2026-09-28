@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed the differential recommender inverting the IPC-D-317A closed form
+  instead of the 2-D field solve that measured the pair: on P02 Rev E it
+  promised 90.6 ohm at 0.155 mm, which the field solve puts at 94.3 ohm
+  (an independent reference, 97.1). It now re-solves the section's own
+  cross-section, mask included; 90 ohm lands near 0.171 mm.
 - Fixed the differential solver ignoring the board's solder mask: IPC's
   stackup carries no mask, so it modelled 0.02 mm / er 3.3 over P02 Rev E's
   USB pairs whose file states 0.01 mm, and it also raised the substrate er

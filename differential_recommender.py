@@ -3,17 +3,21 @@
 from dataclasses import replace
 
 try:
-    from .differential_geometry import COPLANAR_GEOMETRIES, GroundedCoplanarDifferentialSolver
+    from .differential_geometry import (
+        COPLANAR_GEOMETRIES, EdgeCoupledDifferentialSolver, GroundedCoplanarDifferentialSolver,
+    )
     from .differential_impedance import DifferentialImpedanceSolver
     from .models import DifferentialRecommendation
 except (ImportError, ValueError):
-    from differential_geometry import COPLANAR_GEOMETRIES, GroundedCoplanarDifferentialSolver
+    from differential_geometry import (
+        COPLANAR_GEOMETRIES, EdgeCoupledDifferentialSolver, GroundedCoplanarDifferentialSolver,
+    )
     from differential_impedance import DifferentialImpedanceSolver
     from models import DifferentialRecommendation
 
 
 class DifferentialRecommendationEngine:
-    """Invert the Phase 5 closed-form model without altering PCB geometry."""
+    """Invert the section's 2-D field solve without altering PCB geometry."""
 
     def __init__(self, settings):
         self.settings = settings
@@ -79,18 +83,41 @@ class DifferentialRecommendationEngine:
                 solder_mask_epsilon_r=self.settings.solder_mask_epsilon_r,
                 backing_plane=section.topology != "COPLANAR_WAVEGUIDE",
             ).differential_impedance_ohm
+        # The prediction re-solves the cross-section the measurement solved,
+        # with the same 2-D field solver and the same mask. It used to invert
+        # the IPC-D-317A closed form (+/-10-25 %): on P02 Rev E that promised
+        # 90.6 ohm at 0.155 mm, which the field solve and an independent
+        # reference put at 86.3 and 97.1 ohm (audit-2026-09-23.md SI-3).
+        # The closed form remains only where the field solve refuses the
+        # geometry, as the measurement itself does.
         if section.topology in {"MICROSTRIP", "EMBEDDED_MICROSTRIP"}:
-            return DifferentialImpedanceSolver._microstrip(
-                width, gap, section.copper_thickness_mm,
-                section.reference_distance_mm, section.reference_epsilon_r,
-            )[1]
+            try:
+                return EdgeCoupledDifferentialSolver.solve_microstrip(
+                    width, gap, section.copper_thickness_mm,
+                    section.reference_distance_mm, section.reference_epsilon_r,
+                    include_solder_mask=self.settings.include_solder_mask,
+                    solder_mask_thickness_mm=section.solder_mask_thickness_mm,
+                    solder_mask_epsilon_r=section.solder_mask_epsilon_r,
+                ).differential_impedance_ohm
+            except ValueError:
+                return DifferentialImpedanceSolver._microstrip(
+                    width, gap, section.copper_thickness_mm,
+                    section.reference_distance_mm, section.reference_epsilon_r,
+                )[1]
         if section.topology in {"STRIPLINE", "ASYMMETRIC_STRIPLINE"}:
-            return DifferentialImpedanceSolver._stripline(
-                width, gap, section.copper_thickness_mm,
-                section.reference_above_distance_mm,
-                section.reference_below_distance_mm,
-                section.reference_epsilon_r,
-            )[1]
+            try:
+                return EdgeCoupledDifferentialSolver.solve_stripline(
+                    width, gap, section.copper_thickness_mm,
+                    section.reference_above_distance_mm, section.reference_above_epsilon_r,
+                    section.reference_below_distance_mm, section.reference_below_epsilon_r,
+                ).differential_impedance_ohm
+            except ValueError:
+                return DifferentialImpedanceSolver._stripline(
+                    width, gap, section.copper_thickness_mm,
+                    section.reference_above_distance_mm,
+                    section.reference_below_distance_mm,
+                    section.reference_epsilon_r,
+                )[1]
         raise ValueError("No continuous reference plane is available.")
 
     @staticmethod

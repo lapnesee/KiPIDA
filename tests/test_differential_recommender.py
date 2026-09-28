@@ -51,6 +51,20 @@ class DifferentialRecommendationTests(unittest.TestCase):
         self.assertLess(recommendation.recommended_width_mm, 0.20)
         self.assertAlmostEqual(recommendation.predicted_impedance_ohm, 90.0, delta=1.5)
 
+    def test_the_prediction_is_the_field_solve_not_the_closed_form(self):
+        # P02 Rev E: the recommender promised 90.6 ohm at 0.155 mm by
+        # inverting IPC-D-317A; the 2-D field solve the measurement uses puts
+        # that width at 94.3 ohm (SI-3). The drawn 0.200 mm must predict what
+        # the measurement solved, 83.25 ohm.
+        section = self._result().sections[0]
+        section.width_mm, section.gap_mm = 0.20, 0.25
+        section.reference_distance_mm = 0.0994
+        section.reference_epsilon_r = 4.1
+        section.solder_mask_thickness_mm = 0.01
+        engine = DifferentialRecommendationEngine(self.settings)
+        self.assertAlmostEqual(engine._predict(section, 0.20, 0.25), 83.25, delta=0.05)
+        self.assertAlmostEqual(engine._predict(section, 0.155, 0.25), 94.34, delta=0.05)
+
     def test_passing_pair_keeps_geometry(self):
         result = self._result(impedance=91.0)
         engine = DifferentialRecommendationEngine(self.settings)
