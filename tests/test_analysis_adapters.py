@@ -525,5 +525,26 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertIn("U14 (0.848 A, 42 % of the rail's 2.04 A)", island.description)
         self.assertEqual(island.components, ["U14"])
 
+    def test_a_rail_without_current_is_no_data_and_a_lost_load_is_named(self):
+        # P02 Rev E's /J2_LDO3V3 carried no load current and read "0.0 %
+        # PASS"; a load whose pads found no copper vanished silently (DC-4).
+        result = adapt_dc_result({
+            "/J2_LDO3V3": {
+                "stats": (3.3, 3.3, 0.0), "engine": "hybrid", "load_drop_v": 0.0,
+                "source_voltage_v": 3.3, "loads": [], "configured_loads": [],
+            },
+            "/+5V_RAIL": {
+                "stats": (5.0, 5.08, 0.015), "engine": "hybrid", "load_drop_v": 0.015,
+                "source_voltage_v": 5.08,
+                "loads": [{"node_id": 1, "current": 1.0, "ref_des": "J6"}],
+                "configured_loads": [("J6", 1.0), ("U9", 0.25)],
+            },
+        }, 5.0)
+        metrics = {metric.key: metric for metric in result.metrics}
+        self.assertEqual(metrics["rail_1_drop"].status, "NO_DATA")
+        lost = next(item for item in result.findings if item.rule_id == "DC-007")
+        self.assertEqual(lost.components, ["U9"])
+        self.assertIn("U9 (0.25 A)", lost.description)
+
 if __name__ == "__main__":
     unittest.main()

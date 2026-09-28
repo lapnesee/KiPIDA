@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed a DC rail drawing no current reading "0.0 % PASS" (P02 Rev E's
+  /J2_LDO3V3, /+3V3AON, /J2_PP5V): it is now NO_DATA. A configured load or
+  regulator input whose pads find no copper, which the hybrid engine only
+  logged, is now finding DC-007 naming the part and the current left out.
 - Fixed the source-free load finding counting mesh nodes: P02 Rev E's
   "/VBUS_SYS: 81 load node(s) were excluded" was one load, U14's input,
   drawing 0.848 A of the rail's 2.04 A. It now names the excluded loads,

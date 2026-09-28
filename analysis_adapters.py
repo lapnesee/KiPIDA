@@ -1607,10 +1607,42 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
             # a drop within budget says nothing about them: P02 Rev E's /+3V3AO,
             # every load excluded, read "0.0 % PASS".
             incomplete = detailed_result is not None and not getattr(detailed_result, "valid", True)
+            # A rail that injects no current has no drop to judge: P02 Rev
+            # E's /J2_LDO3V3, /+3V3AON and /J2_PP5V read "0.0 % PASS" (DC-4).
+            injected = sum(
+                abs(float(load.get("current", 0.0) or 0.0)) for load in data.get("loads") or ()
+            ) if "loads" in data else None
+            no_current = injected is not None and injected <= 0.0
             metrics.append(AnalysisMetric(
                 f"rail_{index}_drop", f"{rail} voltage drop at the worst load", drop_pct, "%",
-                "WARN" if drop_pct > float(maximum_drop_pct) else ("INCOMPLETE" if incomplete else "PASS"),
+                "NO_DATA" if no_current else (
+                    "WARN" if drop_pct > float(maximum_drop_pct)
+                    else ("INCOMPLETE" if incomplete else "PASS")
+                ),
             ))
+            configured = [
+                (str(reference), float(current)) for reference, current in data.get("configured_loads") or ()
+                if float(current) > 0.0
+            ]
+            located = {
+                str(load.get("ref_des")) for load in data.get("loads") or ()
+                if load.get("ref_des") and float(load.get("current", 0.0) or 0.0) > 0.0
+            }
+            missing = [(reference, current) for reference, current in configured if reference not in located]
+            if missing:
+                missing_current = sum(current for _reference, current in missing)
+                finding = _finding(
+                    "DC-007", index, "MODEL_INPUT", FindingSeverity.MEDIUM,
+                    f"{rail}: {len(missing)} configured load(s) were not placed on the copper",
+                    ", ".join(f"{reference} ({current:.3g} A)" for reference, current in missing)
+                    + f" -- {missing_current:.3g} A in total -- have no {rail} copper under "
+                    "their pads, so the solve did not draw their current and the drop above "
+                    "is low by that much.",
+                    "Check the load's component reference and pad names in the power tree "
+                    "against the board.",
+                )
+                finding.components = [reference for reference, _current in missing]
+                findings.append(finding)
             metrics.append(AnalysisMetric(
                 f"rail_{index}_spread", f"{rail} voltage spread across the net",
                 spread_pct, "%", "INFO",

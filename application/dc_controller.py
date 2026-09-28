@@ -696,6 +696,16 @@ class DCSolverEngine:
                     'nominal_voltage_v': float(rail.nominal_voltage or 0.0),
                     'engine': self.engine_name,
                     'sources': sources, 'loads': loads, 'detailed_result': detailed,
+                    # What the rail was asked to deliver, per part, so the
+                    # adapter can tell a load it never located from one that
+                    # draws nothing (DC-4).
+                    'configured_loads': [
+                        (load.component_ref.ref_des, float(load.total_current or 0.0))
+                        for load in rail.loads
+                    ] + [
+                        (regulator.input_ref_des, float(input_current or 0.0))
+                        for regulator, input_current in demands
+                    ],
                     'current_density': current_density,
                     'compute_metadata': solver.last_compute,
                     'grid_size_mm': mesh.grid_step,
