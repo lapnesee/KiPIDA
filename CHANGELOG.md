@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed Phase 10 printing a solving progress line in export-only mode,
+  reporting plain COMPLETED while regions were GEOMETRY_EXPORTED or
+  spice_model_audit held MODEL_FILE_MISSING/TRANSIENT_UNSTABLE entries
+  (P02 Rev E: U4/U14 and U5), and labelling an ideal-pulse ngspice run
+  PARAMETRIC_NGSPICE. Added PH-001/PH-002 findings for a missing or
+  unstable SPICE model (old audit item A), verified with a lean test
+  reproducing P02 Rev E's exact U4/U5 audit statuses.
 - Fixed DC-3: a pass element (fuse, eFuse, shunt, switch, net-tie) now
   propagates its input pad's real solved voltage (minus a declarable
   r_pass_ohm, default 0) to its output rail instead of resetting to

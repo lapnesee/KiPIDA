@@ -3,8 +3,9 @@ import unittest
 
 from application.emc_controller import (
     EMCAnalysisCancelled, EMCAnalysisController, EMCControllerCallbacks,
-    EMCRunOutcome,
+    EMCRunOutcome, _phase10_spice_findings,
 )
+from models import EMCPhase10Result, EMCSpiceModelAudit
 
 
 class FakeEngine:
@@ -71,6 +72,27 @@ class EMCControllerTests(unittest.TestCase):
         self.assertTrue(controller.wait(2.0))
         self.assertFalse(completed)
         self.assertEqual(str(errors[0]), "bad emc snapshot")
+
+
+class Phase10FindingsTests(unittest.TestCase):
+    def test_missing_and_unstable_spice_models_become_findings(self):
+        # Old audit item A + EMC-6, P02 Rev E: U4/U14 read MODEL_FILE_MISSING
+        # and U5 read MAPPING_VERIFIED_NGSPICE_TRANSIENT_UNSTABLE in
+        # phase10-result.json, invisible anywhere in the report until this.
+        phase10 = EMCPhase10Result(spice_model_audit=[
+            EMCSpiceModelAudit("U4", "TPS562200", "U4 SW1 buck leg", "MODEL_FILE_MISSING"),
+            EMCSpiceModelAudit(
+                "U5", "TPS562200DDCT", "U5 SW (+3V3_MAIN buck)",
+                "MAPPING_VERIFIED_NGSPICE_TRANSIENT_UNSTABLE",
+            ),
+            EMCSpiceModelAudit("U14", "TPS562201", "U14 SW (J2 source buck)", "AVAILABLE_VERIFIED_MAPPING"),
+        ])
+        findings = _phase10_spice_findings(phase10)
+        by_ref = {finding.components[0]: finding for finding in findings}
+        self.assertEqual(set(by_ref), {"U4", "U5"})
+        self.assertEqual(by_ref["U4"].rule_id, "PH-001")
+        self.assertEqual(by_ref["U5"].rule_id, "PH-002")
+        self.assertTrue(all(finding.severity == "INFO" for finding in findings))
 
 
 if __name__ == "__main__":

@@ -346,7 +346,10 @@ Time for 8000 iterations with 399562.00 cells : 117.83 sec
                 r"C:\Spice64\bin\ngspice_con.exe"
             ).run(self.settings().sources[0], directory)
             self.assertEqual(result.status, "SIMULATED")
-            self.assertEqual(result.provenance, "PARAMETRIC_NGSPICE")
+            # EMC-6: this is an ideal pulse into a resistive load, not a
+            # device-model circuit simulation; "PARAMETRIC_NGSPICE" said
+            # otherwise.
+            self.assertEqual(result.provenance, "IDEAL_PULSE")
             self.assertTrue(Path(result.waveform_path).is_file())
 
     @unittest.skipUnless(

@@ -6,11 +6,49 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from emc_analyzer import EMCAnalyzer
 from em_field_solver import EMNearFieldSolver
 from emc_phase10 import EMCPhase10Pipeline
+from models import EMCFinding
 from application.background_controller import BackgroundAnalysisController
 
 
 class EMCAnalysisCancelled(RuntimeError):
     pass
+
+
+def _phase10_spice_findings(phase10_result):
+    """EMCFindings for SPICE excitation models Phase 10 could not trust.
+
+    Old audit item A: Phase 10 outcomes never became EMCFindings, so a
+    missing or unstable model was visible only in phase10-result.json and
+    the run log, not in the report the score and action list are built
+    from. INFO severity, since Phase 10 runs after EMCAnalyzer._finalize()
+    already fixed this run's score and severity counts, and a missing
+    model is a data-availability gap in the excitation, not a new
+    geometry/physics risk for the score to weigh (SEVERITY_WEIGHT gives
+    INFO 0, so this cannot silently change a score already computed).
+    """
+    findings = []
+    for audit in getattr(phase10_result, "spice_model_audit", None) or []:
+        if audit.status == "MODEL_FILE_MISSING":
+            findings.append(EMCFinding(
+                "PH-001", "SWITCHING", "INFO",
+                "Phase 10 SPICE model unavailable",
+                f"{audit.component_ref} ({audit.mpn or 'MPN unknown'}), used by {audit.source_name}, "
+                "has no resolvable SPICE model file"
+                + (f": {audit.notes}" if audit.notes else "."),
+                "Add the manufacturer's SPICE model to the library search path, or supply one manually.",
+                "HIGH", [], [audit.component_ref],
+            ))
+        elif "UNSTABLE" in str(audit.status or "").upper():
+            findings.append(EMCFinding(
+                "PH-002", "SWITCHING", "INFO",
+                "Phase 10 SPICE model is transient-unstable",
+                f"{audit.component_ref} ({audit.mpn or 'MPN unknown'})'s model, used by {audit.source_name}, "
+                f"did not produce a stable ngspice transient ({audit.status}).",
+                "Verify the model's convergence settings or substitute a validated model before "
+                "trusting its excitation.",
+                "HIGH", [], [audit.component_ref],
+            ))
+    return findings
 
 
 @dataclass(frozen=True)
@@ -110,6 +148,7 @@ class EMCSolverEngine:
                 result.phase10_result = phase10_result
                 result.elapsed_seconds += phase10_result.elapsed_seconds
                 result.limitations.extend(phase10_result.limitations)
+                result.findings.extend(_phase10_spice_findings(phase10_result))
             except EMCAnalysisCancelled:
                 raise
             except Exception as exc:

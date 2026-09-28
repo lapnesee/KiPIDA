@@ -369,7 +369,11 @@ class SpiceExcitationRunner:
             )
             if completed.returncode == 0 and waveform.is_file():
                 result.status = "SIMULATED"
-                result.provenance = "PARAMETRIC_NGSPICE"
+                # EMC-6: ngspice only numerically renders an ideal pulse
+                # into a resistive load here (no real device model is
+                # involved), so "PARAMETRIC_NGSPICE" overstated it as a
+                # circuit simulation.
+                result.provenance = "IDEAL_PULSE"
             else:
                 result.status = "FAILED"
                 result.notes.append((completed.stderr or completed.stdout)[-600:])
@@ -1055,8 +1059,15 @@ class EMCPhase10Pipeline:
                         timeout=phase.solver_timeout_s, cwd=region_dir, environment=env,
                         cancellation_callback=self.cancellation_callback,
                         progress_interval_s=phase.progress_interval_s,
-                        log_callback=lambda detail, name=region.name: self.log(
-                            f"[PHASE 10] {name}: {detail}"
+                        # EMC-6: a "running 0 s / 600 s" line in export-only
+                        # mode (auto_run_full_wave off) claimed a solve was
+                        # under way when the worker only ever writes geometry
+                        # and exits; only report progress while actually
+                        # solving.
+                        log_callback=(
+                            (lambda detail, name=region.name: self.log(
+                                f"[PHASE 10] {name}: {detail}"
+                            )) if solve_region else None
                         ),
                     )
                     if execution_status == "CANCELLED":
@@ -1144,13 +1155,33 @@ class EMCPhase10Pipeline:
             item.status in {"FAILED", "TIMEOUT", "VALIDATION_FAILED"}
             for item in result.excitations + result.regions + result.palace_runs
         )
-        warned = any(
+        # EMC-6: MODEL_FILE_MISSING and an unstable ngspice transient never
+        # reached this check before -- a run reporting them (P02 Rev E:
+        # U4/U14 MODEL_FILE_MISSING, U5 TRANSIENT_UNSTABLE) still said
+        # COMPLETED.
+        spice_issue = any(
+            audit.status == "MODEL_FILE_MISSING" or "UNSTABLE" in str(audit.status or "").upper()
+            for audit in result.spice_model_audit
+        )
+        warned = spice_issue or any(
             "NOT_CONVERGED" in item.status or "CONVERGENCE_UNKNOWN" in item.status
             for item in result.regions
         )
+        # A run whose regions only ever had geometry exported (every region
+        # GEOMETRY_EXPORTED, no Palace run) never actually solved anything,
+        # by the user's own auto_run_full_wave=False choice or because no
+        # region had a supported source -- COMPLETED implies a finished
+        # solve that did not happen.
+        export_only = (
+            bool(result.regions)
+            and all(item.status == "GEOMETRY_EXPORTED" for item in result.regions)
+            and not result.palace_runs
+        )
         result.status = "CANCELLED" if cancelled else (
             "COMPLETED_WITH_ERRORS" if failed else (
-                "COMPLETED_WITH_WARNINGS" if warned else "COMPLETED"
+                "EXPORT_ONLY" if export_only else (
+                    "COMPLETED_WITH_WARNINGS" if warned else "COMPLETED"
+                )
             )
         )
         result.elapsed_seconds = time.perf_counter() - started
