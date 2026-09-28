@@ -46,5 +46,25 @@ class DesignNetlistCacheTests(unittest.TestCase):
         self.assertIsNotNone(design_netlist(self.project, size_limit_mb=None))
 
 
+
+class ProtectionClassTests(unittest.TestCase):
+    def test_tvs_and_esd_parts_are_classified_from_their_symbols(self):
+        # TVS/ESD protection was recognised only by a regex on the value
+        # (previous audits' item B); the schematic now names it.
+        from types import SimpleNamespace
+        from ingest.declarations import PROTECTION, component_classes
+
+        def part(reference, symbol):
+            return SimpleNamespace(reference=reference, symbol_lib_id=symbol, lib_id="",
+                                   pin_types_by_pad={})
+        netlist = SimpleNamespace(components=[
+            part("U2", "Power_Protection:USBLC6-2SC6"), part("D5", "Device:D_TVS"),
+            part("D6", "Device:D_Schottky"),
+        ])
+        classes = component_classes(netlist)
+        self.assertIn(PROTECTION, classes["U2"])
+        self.assertIn(PROTECTION, classes["D5"])
+        self.assertNotIn(PROTECTION, classes["D6"])
+
 if __name__ == "__main__":
     unittest.main()

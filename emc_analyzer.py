@@ -1355,13 +1355,20 @@ class EMCAnalyzer:
 
         def is_filter(item):
             return bool(
-                re.match(r"^(FB|FL|TVS|CMC)", item.reference, re.I)
+                "protection" in (self._classes(item) or ())
+                or re.match(r"^(FB|FL|TVS|CMC)", item.reference, re.I)
                 or protection_value.search(item.value)
             )
 
         def is_esd_protector(item):
+            # The schematic's symbol (KiCad's Power_Protection library or a
+            # D_TVS) recognises the part first; the reference/value pattern
+            # still covers parts drawn from private libraries (previous
+            # audits' item B: TVS/ESD recognised by a regex on the value
+            # alone).
             return bool(
-                re.match(r"^(TVS|ESD)", item.reference, re.I)
+                "protection" in (self._classes(item) or ())
+                or re.match(r"^(TVS|ESD)", item.reference, re.I)
                 or _ESD_PROTECTOR_VALUE_RE.search(item.value)
             )
 

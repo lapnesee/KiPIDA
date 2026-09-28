@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed EMC to recognise TVS and ESD protection from the schematic's
+  symbols (KiCad's Power_Protection library, D_TVS) before the value
+  pattern it relied on alone; the pattern still covers parts from private
+  libraries.
 - Fixed the near-field E estimate charging every trace through one
   nominal 100 pF/m: each routed element now uses its microstrip
   capacitance over its reference plane (Hammerstad-Jensen), ~117 pF/m for

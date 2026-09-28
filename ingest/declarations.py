@@ -73,11 +73,16 @@ def design_netlist(project: BoardProject, *, size_limit_mb=AUTOMATIC_READ_LIMIT_
 CAPACITOR = "capacitor"
 POWERED = "powered"
 CONNECTOR = "connector"
+PROTECTION = "protection"
 
 # KiCad's capacitor symbols by name (Device:C, C_Small, C_Polarized, CP, CP1...).
 _CAPACITOR_SYMBOL_RE = re.compile(r"^(C|CP\d?)(_\w+)?$")
 _CAPACITOR_FOOTPRINT_RE = re.compile(r"^Capacitor", re.IGNORECASE)
 _CONNECTOR_LIBRARY_RE = re.compile(r"^Connector", re.IGNORECASE)
+# KiCad's TVS/ESD parts: the Power_Protection library (USBLC6, TPD4E, ESD9L...)
+# and the generic Device:D_TVS symbols.
+_PROTECTION_LIBRARY_RE = re.compile(r"^Power_Protection$", re.IGNORECASE)
+_PROTECTION_SYMBOL_RE = re.compile(r"^D_TVS", re.IGNORECASE)
 
 
 def component_classes(netlist) -> dict[str, set[str]]:
@@ -101,6 +106,8 @@ def component_classes(netlist) -> dict[str, set[str]]:
             found.add(CAPACITOR)
         if _CONNECTOR_LIBRARY_RE.match(symbol_library) or _CONNECTOR_LIBRARY_RE.match(footprint_library):
             found.add(CONNECTOR)
+        if _PROTECTION_LIBRARY_RE.match(symbol_library) or _PROTECTION_SYMBOL_RE.match(symbol_name):
+            found.add(PROTECTION)
         if any(pin_type == "power_in" for pin_type in component.pin_types_by_pad.values()):
             found.add(POWERED)
         if symbol_name or found:
