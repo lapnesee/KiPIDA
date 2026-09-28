@@ -49,9 +49,26 @@ class KiCadConventionTests(unittest.TestCase):
         self.assertEqual((usb.negative_net, usb.confidence, usb.target_impedance_ohm), ("/USB/D-", "LIKELY", 90.0))
         self.assertIn("netclass:90ohm", usb.evidence)
         lane = by_positive["LANE0_P"]
-        self.assertEqual((lane.confidence, lane.evidence), ("LIKELY", ["kicad_pair_suffix"]))
+        # A suffix alone, on no identified interface, only suggests a pair
+        # (SI-7): it is kept but not analysed until confirmed.
+        self.assertEqual((lane.confidence, lane.evidence), ("SUSPECTED", ["kicad_pair_suffix"]))
+        self.assertFalse(lane.enabled)
         # Evidence labels are read by the interface classifier; one containing "D-" made this USB.
         self.assertEqual(lane.interface, "GENERIC")
+
+    def test_power_and_led_pins_are_not_analysed_as_differential_pairs(self):
+        # audit-2026-09-23.md SI-7: BAT+/BAT- matched KiCad's suffix rule and
+        # took a GENERIC 100-ohm target, and LED_DP/LED_DM became USB because
+        # "DP" occurs in the name. P02 Rev E's five USB pairs must stay.
+        board = Obj(nets=[Obj(name=n) for n in (
+            "BAT+", "BAT-", "LED_DP", "LED_DM", "/USB_HOST_D+", "/USB_HOST_D-",
+        )], tracks=[], zones=[], vias=[], footprints=[])
+        pairs = {pair.positive_net: pair for pair in DifferentialPairDiscoverer(board).discover()}
+        self.assertFalse(pairs["BAT+"].enabled)
+        self.assertEqual(pairs["LED_DP"].interface, "GENERIC")
+        self.assertFalse(pairs["LED_DP"].enabled)
+        usb = pairs["/USB_HOST_D+"]
+        self.assertEqual((usb.interface, usb.enabled), ("USB", True))
 
 
 class DifferentialDiscoveryTests(unittest.TestCase):

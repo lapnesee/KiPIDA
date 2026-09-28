@@ -179,23 +179,42 @@ class DifferentialPairDiscoverer:
         return None
 
     @staticmethod
-    def _classify_interface(*labels):
+    def _has_token(text, token):
+        """*token* as a whole word: no letter immediately before or after.
+
+        Substring matching classified LED_DP / LED_DM as USB because "DP"
+        occurs in it (audit-2026-09-23.md SI-7). Digits may follow a token
+        (DDR3, ETH0) since interface names carry them.
+        """
+        return re.search(
+            r"(?<![A-Z])" + re.escape(token) + r"(?![A-Z])", text,
+        ) is not None
+
+    @classmethod
+    def _classify_interface(cls, *labels):
         text = " ".join(str(label).upper() for label in labels if label)
         rules = (
             ("PCIE", ("PCIE", "PCI_E", "PERST")),
             ("SATA", ("SATA",)),
             ("HDMI", ("HDMI", "TMDS")),
             ("MIPI", ("MIPI", "D-PHY", "DPHY")),
-            ("ETHERNET", ("ETH", "MDI", "TRD", "1000BASE")),
+            ("ETHERNET", ("ETH", "ETHERNET", "MDI", "TRD", "1000BASE")),
             ("LVDS", ("LVDS",)),
-            ("CAN", ("CANH", "CANL", "CAN_")),
+            ("CAN", ("CANH", "CANL", "CAN")),
             ("RS485", ("RS485", "RS422")),
             ("DDR", ("DDR", "DQS", "CK_T", "CK_C")),
-            ("USB", ("USB", "D+", "D-", "DP", "DM")),
+            ("USB", ("USB",)),
         )
         for interface, tokens in rules:
-            if any(token in text for token in tokens):
+            if any(cls._has_token(text, token) for token in tokens):
                 return interface
+        # A bare D+/D- or DP/DM names USB's data pair only when that is the
+        # whole name: LED_DP and LED_DM are a LED's drive pins.
+        base = str(labels[0] if labels else "").upper().strip("_-./ ")
+        if base.rsplit("/", 1)[-1] in {"D", ""} and any(
+            cls._has_token(text, token) for token in ("D+", "D-", "DP", "DM")
+        ):
+            return "USB"
         return "GENERIC"
 
     def _all_net_names(self):
@@ -368,6 +387,27 @@ class DifferentialPairDiscoverer:
             polarity_swappable=swappable,
         )
 
+    @staticmethod
+    def _qualify(candidates):
+        """A pair named by suffix alone, on no interface, is only suspected.
+
+        KiCad's +/-/P/N suffix rule also matches BAT+/BAT-, CS+/CS-,
+        VREFP/VREFN, ISENSE_P/N, SPK_P/N and OUTP/OUTN, which then took a
+        GENERIC 100-ohm target and could fail as HIGH differential findings
+        on power and analogue nets (SI-7). Such a pair stays SUSPECTED and is
+        not analysed until a netclass, an identified interface or the user
+        confirms it.
+        """
+        for candidate in candidates:
+            if candidate.interface != "GENERIC":
+                continue
+            if any(item.startswith("netclass:") for item in candidate.evidence):
+                continue
+            if any(item.startswith("pin-functions:") for item in candidate.evidence):
+                continue
+            candidate.confidence = "SUSPECTED"
+            candidate.enabled = False
+
     def discover(self, existing_pairs=None, ignored_signatures=None):
         """Discover and merge candidates while preserving user decisions."""
         ignored = set(ignored_signatures or [])
@@ -391,6 +431,7 @@ class DifferentialPairDiscoverer:
                 previous.target_impedance_ohm = candidate.target_impedance_ohm
                 previous.polarity_swappable = candidate.polarity_swappable
 
+        self._qualify(merged.values())
         existing = {pair.signature: pair for pair in (existing_pairs or [])}
         for signature, candidate in list(merged.items()):
             saved = existing.get(signature)

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed pair discovery taking power and LED nets for differential pairs:
+  KiCad's +/-/P/N suffix rule made BAT+/BAT-, VREFP/VREFN or SPK_P/N
+  "likely" 100-ohm pairs, and LED_DP/LED_DM became USB because "DP"
+  occurs in the name. A suffix alone on no identified interface is now
+  "suspected" and not analysed until confirmed; interface tokens match
+  whole words. P02 Rev E's five USB pairs are unchanged.
 - Fixed crosstalk NEXT below saturation carrying a factor 2: it grew as
   2L/L_sat instead of L/L_sat (Bogatin), so XT-001 read 0.50 Kb where the
   coupling is 0.25 Kb at a quarter of the saturation length, the usual
