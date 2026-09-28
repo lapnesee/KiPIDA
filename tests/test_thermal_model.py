@@ -188,6 +188,19 @@ class EmptyLiveBoardTests(unittest.TestCase):
         self.assertIn("retry", str(refusal.exception))
 
 
+class FootprintSizeTests(unittest.TestCase):
+    def test_a_small_part_keeps_its_own_footprint(self):
+        # The heat of an 0402 was spread over the model's 3 x 3 mm default,
+        # floored there whatever its pads measured (previous audits' "3 mm
+        # package floor").
+        from types import SimpleNamespace
+        builder = ThermalModelBuilder.__new__(ThermalModelBuilder)
+        pad = lambda x: SimpleNamespace(position=SimpleNamespace(x=x, y=0.0))
+        footprint = SimpleNamespace(pads=[pad(0.0), pad(1.0)])
+        self.assertEqual(builder._footprint_size(footprint, 3.0, 3.0), (1.5, 0.5))
+        self.assertEqual(builder._footprint_size(footprint, 3.0, 3.0, user_sized=True), (3.0, 3.0))
+
+
 class ViaDiameterTests(unittest.TestCase):
     """TH-4: kipy's Via has no ``width`` attribute, only ``diameter`` and
     ``drill_diameter`` (kipy/board_types.py). thermal_model.py:514 used to

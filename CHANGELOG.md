@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed the thermal model spreading every small part's heat over at least
+  3 x 3 mm: an estimated component now uses its pads' extent plus
+  0.5 mm, so an 0402 or SOT-23 is as hot as its footprint; a size the
+  user entered is still honoured as a minimum.
 - Fixed a cached thermal mesh carrying one coupled run's hot component
   powers into the next: each run now restores the models' own power
   before stripping the stage estimate, instead of drifting junctions by

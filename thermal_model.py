@@ -343,13 +343,23 @@ class ThermalModelBuilder:
             pads = self._get_val(self._get_val(footprint, "definition"), "pads", [])
         return pads or []
 
-    def _footprint_size(self, footprint, default_width, default_depth):
+    def _footprint_size(self, footprint, default_width, default_depth, user_sized=False):
+        """Body size a component's heat is spread over, in mm.
+
+        The pads' extent (+0.5 mm) when there are two or more. It used to be
+        floored at the component model's size, which defaults to 3 x 3 mm, so
+        an 0402 or SOT-23 spread its heat over several times its real
+        footprint and ran cooler than it is (previous audits' "3 mm package
+        floor"). A size the user set is still honoured as a minimum.
+        """
         points = [self._position(pad) for pad in self._pads(footprint)]
         points = [point for point in points if point is not None]
         if len(points) >= 2:
-            width = max(point[0] for point in points) - min(point[0] for point in points)
-            depth = max(point[1] for point in points) - min(point[1] for point in points)
-            return max(default_width, width + 0.5), max(default_depth, depth + 0.5)
+            width = max(point[0] for point in points) - min(point[0] for point in points) + 0.5
+            depth = max(point[1] for point in points) - min(point[1] for point in points) + 0.5
+            if user_sized:
+                return max(default_width, width), max(default_depth, depth)
+            return width, depth
         return default_width, default_depth
 
     @staticmethod
@@ -481,7 +491,10 @@ class ThermalModelBuilder:
             if not ref_des or position is None:
                 continue
             component = saved_components.get(ref_des, ThermalComponentModel(ref_des=ref_des))
-            width, depth = self._footprint_size(footprint, component.width_mm, component.depth_mm)
+            width, depth = self._footprint_size(
+                footprint, component.width_mm, component.depth_mm,
+                user_sized=component.model_source == "user",
+            )
             layer = self._get_val(footprint, "layer", 0)
             placements[ref_des] = ThermalPlacement(
                 ref_des=ref_des,
