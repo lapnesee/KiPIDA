@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed the 2-D differential/coplanar field solver reading Zdiff 5-9% low
+  (P02 Rev E USB pair: reference 85.36 ohm, tool 76.86 -> 83.25 ohm) by
+  giving an exposed pair's copper-thickness band air/mask instead of
+  substrate, scaling the mirror boundary margin to the trace gap, and
+  tightening the grid to h/20. Full test suite runtime rises to ~495s
+  as a result; solve_potential_sor now warns instead of silently
+  returning an under-converged potential.
 - Added SW-003, a switching hot-loop spread rule, and sized Phase 10's
   SWITCHING regions on the net's own copper plus every hot-loop
   footprint instead of one evidence point +/- a fixed margin: P02 Rev

@@ -7,6 +7,8 @@ and the edge-coupled microstrip/stripline solver for the same numerical
 core, so both geometries share one validated implementation.
 """
 
+import warnings
+
 import numpy as np
 
 
@@ -27,29 +29,48 @@ def dielectric_map(y_values, signal_y, conductor_top_y, top_reference_y,
     """Per-row relative permittivity for a stack with dielectric *below* the
     signal conductors, optionally a second dielectric/reference *above*
     (``top_reference_y`` not None), or a thin solder-mask layer capping an
-    open top boundary."""
+    open top boundary.
+
+    Grid rows exactly at the trace faces are Dirichlet-fixed where a
+    conductor sits, so their nominal epsilon only matters for the free
+    (gap) nodes at that height -- the fringing field between and beside the
+    traces, which dominates coupled-line capacitance.
+    """
     epsilon = np.ones(len(y_values), dtype=np.float64)
-    # The conductor-thickness band [signal_y, conductor_top_y] is not copper
-    # everywhere: between and beside the traces it is substrate (or air, for
-    # an unbacked open top). It must carry epsilon_below, not the default
-    # vacuum, or the fringing field in the trace-to-trace gap -- the region
-    # most influential for coupled-line capacitance -- is under-permittized.
-    # Grid rows exactly at the trace faces are Dirichlet-fixed where a
-    # conductor sits, so their nominal epsilon only matters for the free
-    # (gap) nodes at that height.
-    epsilon[y_values <= conductor_top_y] = epsilon_below
+    epsilon[y_values < signal_y] = epsilon_below
     if top_reference_y is not None:
+        # Buried/internal conductor (stripline): resin flows around the
+        # trace during lamination, so the copper-thickness band is the same
+        # laminate as above and below, not air.
+        epsilon[(y_values >= signal_y) & (y_values < conductor_top_y)] = epsilon_below
         epsilon[y_values >= conductor_top_y] = epsilon_above
-    elif include_solder_mask and solder_mask_thickness > 0.0:
-        mask = (y_values >= conductor_top_y) & (
+        return epsilon
+    # Exposed conductor (microstrip, or a coplanar pair on the surface
+    # layer): the copper-thickness band [signal_y, conductor_top_y] is air
+    # between and beside the traces, not the substrate below. Filling it
+    # with epsilon_below (as a buried conductor's band correctly is) was
+    # SI-2 in audit-2026-09-23.md: on P02 Rev E (0.200/0.250 mm, er 4.1,
+    # 0.01 mm mask) it read Zdiff 6.2% low with no mask modelled, 3.1% low
+    # with the real mask -- part of the tool's 76.86-ohm-vs-85.4-ohm gap.
+    # A solder mask coats whatever surface is exposed at its own local
+    # height: on the substrate beside the trace, that is up to
+    # solder_mask_thickness above signal_y (this block); on top of the
+    # trace, that is up to solder_mask_thickness above conductor_top_y
+    # (the block below).
+    if include_solder_mask and solder_mask_thickness > 0.0:
+        gap_mask = (y_values >= signal_y) & (
+            y_values <= min(conductor_top_y, signal_y + solder_mask_thickness)
+        )
+        epsilon[gap_mask] = solder_mask_epsilon
+        mask_above = (y_values >= conductor_top_y) & (
             y_values <= conductor_top_y + solder_mask_thickness
         )
-        epsilon[mask] = solder_mask_epsilon
+        epsilon[mask_above] = solder_mask_epsilon
     return epsilon
 
 
 def solve_potential_sor(x_values, y_values, epsilon_rows, fixed, fixed_values,
-                         relaxation=1.82, max_iterations=3000, tolerance=2.0e-7):
+                         relaxation=1.82, max_iterations=20000, tolerance=2.0e-7):
     """Solve the non-uniform finite-volume Laplace grid with red-black SOR.
 
     ``fixed`` is a boolean (ny, nx) mask of Dirichlet nodes; ``fixed_values``
@@ -99,6 +120,18 @@ def solve_potential_sor(x_values, y_values, epsilon_rows, fixed, fixed_values,
         potential[fixed] = fixed_values[fixed]
         if maximum_delta < tolerance:
             break
+    else:
+        # SI-2 old open item: the solver stays silent about a relaxation
+        # that never reached `tolerance`, so a caller sees a plausible-
+        # looking but under-converged potential with no signal to act on.
+        # Cheap because it costs nothing on the (default-grid, converging)
+        # common path -- only the final iteration's residual is reused.
+        warnings.warn(
+            f"solve_potential_sor: did not converge in {max_iterations} "
+            f"iterations (max update {maximum_delta:.3g}, tolerance "
+            f"{tolerance:.3g}); result may be inaccurate.",
+            RuntimeWarning, stacklevel=2,
+        )
     return potential
 
 

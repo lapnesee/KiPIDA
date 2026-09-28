@@ -51,6 +51,27 @@ def geometry_label(value):
     return GEOMETRY_LABELS.get(normalize_geometry(value), GEOMETRY_LABELS[GEOMETRY_AUTO])
 
 
+def _vertical_boundaries(signal_y, conductor_top_y, total_height, internal,
+                          include_solder_mask, solder_mask_thickness_mm):
+    """Y boundaries for the vertical grid, splitting off a sub-layer inside
+    (and, unbacked, above) the copper-thickness band when a solder mask
+    thinner than the copper coats the exposed substrate there. Matches the
+    two mask regions field_solver_2d.dielectric_map() now models (SI-2)."""
+    boundaries = [0.0, signal_y]
+    mask_active = (not internal) and include_solder_mask and solder_mask_thickness_mm > 0.0
+    if mask_active:
+        band_mask_top = signal_y + solder_mask_thickness_mm
+        if band_mask_top < conductor_top_y:
+            boundaries.append(band_mask_top)
+    boundaries.append(conductor_top_y)
+    if mask_active:
+        top_mask = conductor_top_y + solder_mask_thickness_mm
+        if top_mask < total_height:
+            boundaries.append(top_mask)
+    boundaries.append(total_height)
+    return boundaries
+
+
 @dataclass(frozen=True)
 class CoplanarSolveResult:
     differential_impedance_ohm: float
@@ -118,15 +139,31 @@ class GroundedCoplanarDifferentialSolver:
         vertical_scale = min(height_below_mm, height_above_mm if internal else height_below_mm)
         pair_half_width = pair_gap_mm / 2.0 + width_mm
         ground_edge = pair_half_width + ground_gap_mm
-        side_margin = max(4.0 * vertical_scale, 2.0 * width_mm)
+        # SI-2: the mirror (zero-normal-field) side boundary has to be far
+        # enough from the ground trace that its image charge does not
+        # perturb the near-field solution; it was independent of the gap
+        # (max(4*h, 2*w), as little as 0.4 mm on P02) instead of scaling
+        # with it.
+        side_margin = max(10.0 * vertical_scale + ground_gap_mm, 2.0 * width_mm)
         half_span = ground_edge + side_margin
         signal_y, conductor_top_y = height_below_mm, height_below_mm + copper_thickness_mm
         if internal:
             total_height, top_reference_y = conductor_top_y + height_above_mm, conductor_top_y + height_above_mm
         else:
-            total_height, top_reference_y = conductor_top_y + max(4.0 * height_below_mm, 2.0 * width_mm), None
-        target_step = min(width_mm, pair_gap_mm, ground_gap_mm, vertical_scale) / 7.0
-        def count(length, minimum=7, maximum=56):
+            # Same reasoning for the open top boundary: keep it far instead
+            # of pinned to 4*h.
+            total_height, top_reference_y = conductor_top_y + max(10.0 * height_below_mm, 2.0 * width_mm), None
+        # SI-2: grid step <= h/20 (was h/7, -2.4% on Zdiff alone at P02's
+        # geometry when compared against a doubled grid).
+        target_step = min(width_mm, pair_gap_mm, ground_gap_mm, vertical_scale) / 20.0
+        # 90 (was 56) so the far margin above stays resolved at close to
+        # target_step instead of jumping straight to a coarse cell size at
+        # the segment boundary once the margin fix widened it: on the P02
+        # stripline-analogue Cohn check (w/s/b=0.15/0.15/0.5, er 4.2) that
+        # discontinuity alone cost ~1 pp of the remaining error. Runtime
+        # stays in the single-digit seconds per solve; lru_cache absorbs
+        # repeats within one recommender sweep.
+        def count(length, minimum=7, maximum=90):
             return max(minimum, min(maximum, int(math.ceil(length / target_step))))
         x_values = cls._piecewise_grid(
             (-half_span, -ground_edge, -pair_half_width, -pair_gap_mm / 2.0,
@@ -134,12 +171,13 @@ class GroundedCoplanarDifferentialSolver:
             (count(side_margin, 14), count(ground_gap_mm), count(width_mm),
              count(pair_gap_mm, 10), count(width_mm), count(ground_gap_mm), count(side_margin, 14)),
         )
-        if internal:
-            y_values = cls._piecewise_grid((0.0, signal_y, conductor_top_y, total_height), (20, 3, 20))
-        elif include_solder_mask and 0.0 < solder_mask_thickness_mm < total_height - conductor_top_y:
-            y_values = cls._piecewise_grid((0.0, signal_y, conductor_top_y, conductor_top_y + solder_mask_thickness_mm, total_height), (20, 3, 3, 18))
-        else:
-            y_values = cls._piecewise_grid((0.0, signal_y, conductor_top_y, total_height), (20, 3, 22))
+        y_boundaries = _vertical_boundaries(
+            signal_y, conductor_top_y, total_height, internal,
+            include_solder_mask and not internal, solder_mask_thickness_mm,
+        )
+        y_values = cls._piecewise_grid(
+            y_boundaries, [count(b - a) for a, b in zip(y_boundaries[:-1], y_boundaries[1:])],
+        )
         nx, ny = len(x_values), len(y_values)
         conductor_rows = (y_values >= signal_y - 1.0e-12) & (y_values <= conductor_top_y + 1.0e-12)
         fixed, values = np.zeros((ny, nx), dtype=bool), np.zeros((ny, nx), dtype=np.float64)
@@ -260,30 +298,33 @@ class EdgeCoupledDifferentialSolver:
         internal = height_above_mm > 0.0
         vertical_scale = min(height_below_mm, height_above_mm) if internal else height_below_mm
         pair_half_width = gap_mm / 2.0 + width_mm
-        side_margin = max(4.0 * vertical_scale, 2.0 * width_mm)
+        # SI-2: keep the mirror side boundary scaled to the gap, not pinned
+        # to max(4*h, 2*w) (0.4 mm on P02's 0.0994 mm / 0.25 mm geometry).
+        side_margin = max(10.0 * vertical_scale + gap_mm, 2.0 * width_mm)
         half_span = pair_half_width + side_margin
         signal_y, conductor_top_y = height_below_mm, height_below_mm + copper_thickness_mm
         if internal:
             total_height, top_reference_y = conductor_top_y + height_above_mm, conductor_top_y + height_above_mm
         else:
-            total_height, top_reference_y = conductor_top_y + max(4.0 * height_below_mm, 2.0 * width_mm), None
-        target_step = min(width_mm, gap_mm, vertical_scale) / 7.0
-        def count(length, minimum=7, maximum=56):
+            total_height, top_reference_y = conductor_top_y + max(10.0 * height_below_mm, 2.0 * width_mm), None
+        # SI-2: grid step <= h/20 (was h/7).
+        target_step = min(width_mm, gap_mm, vertical_scale) / 20.0
+        # 90 (was 56): see the matching comment in
+        # GroundedCoplanarDifferentialSolver._solve_cached.
+        def count(length, minimum=7, maximum=90):
             return max(minimum, min(maximum, int(math.ceil(length / target_step))))
         x_values = piecewise_grid(
             (-half_span, -pair_half_width, -gap_mm / 2.0, gap_mm / 2.0, pair_half_width, half_span),
             (count(side_margin, 14), count(width_mm), count(gap_mm, 10),
              count(width_mm), count(side_margin, 14)),
         )
-        if internal:
-            y_values = piecewise_grid((0.0, signal_y, conductor_top_y, total_height), (20, 3, 20))
-        elif include_solder_mask and 0.0 < solder_mask_thickness_mm < total_height - conductor_top_y:
-            y_values = piecewise_grid(
-                (0.0, signal_y, conductor_top_y, conductor_top_y + solder_mask_thickness_mm, total_height),
-                (20, 3, 3, 18),
-            )
-        else:
-            y_values = piecewise_grid((0.0, signal_y, conductor_top_y, total_height), (20, 3, 22))
+        y_boundaries = _vertical_boundaries(
+            signal_y, conductor_top_y, total_height, internal,
+            include_solder_mask, solder_mask_thickness_mm,
+        )
+        y_values = piecewise_grid(
+            y_boundaries, [count(b - a) for a, b in zip(y_boundaries[:-1], y_boundaries[1:])],
+        )
         nx, ny = len(x_values), len(y_values)
         conductor_rows = (y_values >= signal_y - 1.0e-12) & (y_values <= conductor_top_y + 1.0e-12)
         fixed, values = np.zeros((ny, nx), dtype=bool), np.zeros((ny, nx), dtype=np.float64)
