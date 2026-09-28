@@ -969,6 +969,10 @@ class ThermalResult:
     total_input_power_w: float = 0.0
     total_boundary_power_w: float = 0.0
     energy_balance_error_pct: float = 0.0
+    # What the model asked for (enabled components + copper losses) and
+    # how much of it never reached a mesh cell (TH-9).
+    intended_input_power_w: float = 0.0
+    undeposited_power_w: float = 0.0
     convection_coefficient_w_m2k: float = 0.0
     # The surface exchange as actually applied, per exposed face, plus the
     # correlation it came from. A hotspot is only as good as the coefficient

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed the thermal energy balance being blind to heat that never reached
+  the mesh: it compared deposited heat with what left, so an unplaced
+  component or a copper loss off the copper vanished silently. The model's
+  intended power is now tallied, and any shortfall is finding TH-005.
 - Changed EMC to say what its sources rest on: switching findings quote
   where the source's parameters came from, and the limitations name every
   source still on the assumed 0.1 A current, which its magnetic field and

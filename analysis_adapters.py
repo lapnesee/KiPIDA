@@ -1185,6 +1185,23 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
             "Thermal energy balance is weak", f"Energy balance error is {balance:.3f}%.",
             "Refine the mesh or boundary conditions before relying on hotspots.",
         ))
+    # The energy balance above is the linear solve's row-sum identity: it
+    # compares deposited heat with what left, and cannot see heat that never
+    # reached a cell (an unplaced component, a copper loss off the mesh). On
+    # P02 Rev E nothing was lost (4.471 W + 0.4475 W = 4.9186 W checked by
+    # hand), but nothing would have said so either (TH-9).
+    undeposited = float(getattr(domain_result, "undeposited_power_w", 0.0) or 0.0)
+    intended = float(getattr(domain_result, "intended_input_power_w", 0.0) or 0.0)
+    if undeposited > max(1e-3, 0.001 * intended):
+        findings.append(_finding(
+            "TH-005", 1, "MODEL_INPUT", FindingSeverity.MEDIUM,
+            "Heat left out of the thermal model",
+            f"{undeposited:.3g} W of the {intended:.3g} W the model was given never reached a "
+            "mesh cell: a component without a placement on the board, or a copper loss off "
+            "the meshed copper. Temperatures are low by that much heat.",
+            "Check that every heat-dissipating component is placed on the board and enabled.",
+            confidence=EvidenceConfidence.DETERMINISTIC,
+        ))
     hotspot = getattr(domain_result, "hotspot", None)
     status = AnalysisStatus.FAIL if any(item.severity == FindingSeverity.CRITICAL for item in findings) else (
         AnalysisStatus.WARN if findings else AnalysisStatus.PASS

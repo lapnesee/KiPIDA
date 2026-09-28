@@ -270,6 +270,14 @@ class ThermalMesh:
     surface_area_m2: Dict[str, float] = field(default_factory=dict)
     characteristic_length_m: float = 0.0
     convection_basis: str = ""
+    # TH-9: total power the model actually asked for (enabled components
+    # plus copper losses), tallied independently of whether each one found a
+    # mesh cell to deposit into. heat_sources_w can fall short of this when
+    # a component has no placement or its window/nearest-node fallback both
+    # come up empty, or a copper-loss point's nearest cell is not found --
+    # none of which the row-sum energy balance below can see, since it only
+    # checks what was deposited against what left through the boundaries.
+    intended_input_power_w: float = 0.0
 
     def add_heat(self, node_id, power_w):
         self.heat_sources_w[node_id] = self.heat_sources_w.get(node_id, 0.0) + float(power_w)
@@ -982,9 +990,20 @@ class ThermalMesher:
                                 on_copper.append(candidate)
             return nodes, on_copper
 
+        # TH-9: the energy-balance check thermal_solver.py publishes only
+        # compares what was deposited to what the linear solve's own row
+        # sums say left through the boundaries -- a component that never
+        # made it onto the mesh (no placement, or window_cells and the
+        # nearest-node fallback both empty) or a copper-loss point whose
+        # nearest cell was not found deposits nothing and that check cannot
+        # see it, because it never looks at what the model actually asked
+        # for. intended_input_power_w is that ask, tallied independently of
+        # whether the deposit below actually lands.
+        intended_power_w = 0.0
         for component in model.components:
             if not component.enabled or component.power_w <= 0:
                 continue
+            intended_power_w += component.power_w
             placement = model.placements.get(component.ref_des)
             if placement is None:
                 continue
@@ -1016,10 +1035,14 @@ class ThermalMesher:
                 mesh.add_heat(candidate, component.power_w / len(nodes))
 
         for loss in model.copper_losses:
+            if loss.power_w <= 0:
+                continue
+            intended_power_w += loss.power_w
             candidate = mesh.nearest_node(loss.x_mm, loss.y_mm, loss.layer_id)
-            if candidate is not None and loss.power_w > 0:
+            if candidate is not None:
                 mesh.add_heat(candidate, loss.power_w)
 
+        mesh.intended_input_power_w = intended_power_w
         self._log(
             f"Generated {len(mesh.nodes):,} nodes, {len(mesh.branches):,} branches, "
             f"{sum(mesh.heat_sources_w.values()):.4g} W heat."

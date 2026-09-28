@@ -242,6 +242,36 @@ class TestElectroThermalSolver(unittest.TestCase):
         self.assertTrue(result.converged)
         self.assertLessEqual(result.iterations, 3)
 
+    def test_heat_that_never_reaches_the_mesh_is_reported(self):
+        # TH-9: the energy balance only compares deposited heat with what
+        # leaves, so a component with no placement lost its heat silently.
+        from thermal_solver import ThermalSolver
+        from analysis_adapters import adapt_thermal_result
+        settings = ThermalAnalysisSettings(
+            ambient_c=45.0, grid_size_mm=2.0,
+            airflow=AirflowSettings(mode="CUSTOM", custom_h_w_m2k=20.0,
+                                    expose_top=True, expose_bottom=True, expose_edges=True),
+            include_radiation=False,
+        )
+        board_model = ThermalBoardModel(
+            bounds_mm=(0.0, 0.0, 10.0, 10.0), outline=box(0.0, 0.0, 10.0, 10.0),
+            stackup={"copper": {0: {"name": "F.Cu", "thickness_mm": 0.035}},
+                     "layer_order": [0], "substrate": []},
+            copper_by_layer={0: box(0.0, 0.0, 10.0, 10.0)},
+            placements={"Q1": ThermalPlacement("Q1", 5.0, 5.0, 3.0, 3.0)},
+            components=[
+                ThermalComponentModel("Q1", power_w=0.18, width_mm=3.0, depth_mm=3.0,
+                                      theta_jb_c_per_w=0.0, model_source="user"),
+                ThermalComponentModel("U9", power_w=0.5, width_mm=3.0, depth_mm=3.0,
+                                      theta_jb_c_per_w=0.0, model_source="user"),
+            ],
+        )
+        mesh = ThermalMesher().generate_mesh(board_model, settings)
+        result = ThermalSolver().solve(mesh, settings.ambient_c)
+        self.assertAlmostEqual(result.undeposited_power_w, 0.5, places=6)
+        adapted = adapt_thermal_result(result)
+        self.assertIn("TH-005", {item.rule_id for item in adapted.findings})
+
     def test_thermal_sampling_uses_configured_workers_as_row_bands(self):
         settings = ThermalAnalysisSettings(
             ambient_c=25.0, grid_size_mm=1.0,

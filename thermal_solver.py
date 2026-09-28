@@ -368,11 +368,26 @@ class ThermalSolver:
             )
         denominator = max(abs(input_power), 1e-12)
         balance_error = abs(boundary_power - input_power) / denominator * 100.0
+        # TH-9: the check above only proves the linear solve is internally
+        # consistent -- everything deposited eventually leaves through a
+        # boundary -- not that everything the model asked for was deposited
+        # in the first place. A component with no placement, or whose
+        # window and nearest-node fallback both came up empty, or a
+        # copper-loss point whose nearest cell was not found (an unplaced or
+        # disabled component, or a copper branch without a cell,
+        # electrothermal.py:241) is invisible to it: it just deposits less
+        # heat, and a smaller total balances against itself just as cleanly.
+        intended_power = float(getattr(mesh, "intended_input_power_w", 0.0) or 0.0)
+        deposit_shortfall = max(0.0, intended_power - input_power)
         if progress_callback:
             progress_callback(3, 3, "results")
+        shortfall_note = (
+            f", {deposit_shortfall:.4g} W of {intended_power:.4g} W intended never reached a cell"
+            if deposit_shortfall > 1e-9 else ""
+        )
         self._log(
             f"Solved {count:,} nodes; hotspot {hotspot.temperature_c:.2f} C, "
-            f"energy error {balance_error:.3g}%; backend {compute.metadata.backend}, "
+            f"energy error {balance_error:.3g}%{shortfall_note}; backend {compute.metadata.backend}, "
             f"residual {compute.metadata.relative_residual:.3g}."
         )
         result_temperatures = ({
@@ -386,6 +401,8 @@ class ThermalSolver:
             total_input_power_w=input_power,
             total_boundary_power_w=float(boundary_power),
             energy_balance_error_pct=float(balance_error),
+            intended_input_power_w=intended_power,
+            undeposited_power_w=float(deposit_shortfall),
             convection_coefficient_w_m2k=float(mesh.convection_coefficient_w_m2k),
             surface_h_w_m2k=dict(getattr(mesh, "surface_h_w_m2k", {}) or {}),
             surface_correlation_in_range=dict(
