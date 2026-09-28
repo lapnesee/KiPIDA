@@ -12,6 +12,7 @@ from crosstalk_2d import (
     far_end_crosstalk_ratio,
     near_end_crosstalk_coefficient,
     near_end_crosstalk_ratio,
+    saturation_length_m,
 )
 from differential_geometry import EdgeCoupledDifferentialSolver
 
@@ -71,6 +72,17 @@ class NearEndRatioSaturationTests(unittest.TestCase):
         ratio = near_end_crosstalk_ratio(modes, coupled_length_m=10.0, rise_time_s=1e-12)
         self.assertAlmostEqual(ratio, kb_sat, places=9)
 
+
+    def test_below_saturation_next_grows_as_length_over_saturation_length(self):
+        # Bogatin: NEXT = Kb * L / L_sat below saturation. The code used
+        # 2L / L_sat, reading 0.50 Kb at L_sat/4 (SI-5).
+        modes = CoupledModeResult(
+            odd_mode_impedance_ohm=45.0, even_mode_impedance_ohm=55.0,
+            odd_mode_velocity_m_s=1.5e8, even_mode_velocity_m_s=1.5e8,
+        )
+        l_sat = saturation_length_m(modes, 1e-9)
+        ratio = near_end_crosstalk_ratio(modes, coupled_length_m=l_sat / 4.0, rise_time_s=1e-9)
+        self.assertAlmostEqual(ratio, 0.25 * near_end_crosstalk_coefficient(modes), places=12)
 
 class InputGuardTests(unittest.TestCase):
     def test_non_positive_rise_time_raises_on_both_ratio_functions(self):

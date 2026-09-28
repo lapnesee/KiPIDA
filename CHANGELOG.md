@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed crosstalk NEXT below saturation carrying a factor 2: it grew as
+  2L/L_sat instead of L/L_sat (Bogatin), so XT-001 read 0.50 Kb where the
+  coupling is 0.25 Kb at a quarter of the saturation length, the usual
+  case (L_sat is 79 mm at a 1 ns edge).
 - Removed the "targeted 3-D quasi-static refinement" of differential
   pairs: it was an empirical Z/(1+c) factor, applied at every bend as if
   the line ended there and only to sections already 10 % off target, and

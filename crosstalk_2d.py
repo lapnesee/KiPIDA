@@ -103,7 +103,11 @@ def saturation_length_m(modes: CoupledModeResult, rise_time_s: float) -> float:
 
 def near_end_crosstalk_ratio(modes: CoupledModeResult, coupled_length_m: float, rise_time_s: float) -> float:
     """NEXT/V_agg, accounting for saturation:
-    Kb_sat * min(1.0, 2*coupled_length/L_sat)."""
+    Kb_sat * min(1.0, coupled_length/L_sat), with L_sat = v * t_r / 2
+    (Bogatin, "Signal and Power Integrity -- Simplified", ch. 10). The
+    factor was 2*L/L_sat, which doubled NEXT below saturation: 0.50 Kb
+    instead of 0.25 Kb at L_sat/4, and the short couplings XT-001 judges
+    are the common case (L_sat is 79 mm at a 1 ns edge; SI-5)."""
     if rise_time_s <= 0.0:
         raise ValueError("rise_time_s must be positive.")
     if coupled_length_m < 0.0:
@@ -112,7 +116,7 @@ def near_end_crosstalk_ratio(modes: CoupledModeResult, coupled_length_m: float, 
     l_sat = saturation_length_m(modes, rise_time_s)
     if l_sat <= 0.0:
         return 0.0
-    saturation_fraction = min(1.0, 2.0 * coupled_length_m / l_sat)
+    saturation_fraction = min(1.0, coupled_length_m / l_sat)
     return kb_sat * saturation_fraction
 
 

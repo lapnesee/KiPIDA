@@ -736,11 +736,12 @@ class TestQuantifiedCrosstalk(unittest.TestCase):
         self.assertEqual(self.crosstalk(snapshot).confidence, "LOW")
 
     def test_a_sensitive_victim_escalates_on_a_tenth_of_the_budget(self):
-        # 0.55 mm sits inside the 3H gate and couples ~9 %: over the 1 %
+        # 0.35 mm sits inside the 3H gate and couples ~8.4 %: over the 1 %
         # sensitive budget but under the 10 % logic budget, so the same
-        # coupling escalates for an ADC input and not for a data bus.
-        ordinary = self.crosstalk(self.snapshot(0.55, victim="DATA_BUS"))
-        sensitive = self.crosstalk(self.snapshot(0.55, victim="ADC_IN"))
+        # coupling escalates for an ADC input and not for a data bus. (It was
+        # 0.55 mm while NEXT carried a spurious factor 2 below saturation.)
+        ordinary = self.crosstalk(self.snapshot(0.35, victim="DATA_BUS"))
+        sensitive = self.crosstalk(self.snapshot(0.35, victim="ADC_IN"))
         self.assertEqual(ordinary.severity, "MEDIUM")
         self.assertEqual(sensitive.severity, "HIGH")
         # Same geometry, so the coupling itself must be identical.
