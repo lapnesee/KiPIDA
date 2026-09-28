@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed the EMC domain scoring P02 Rev E's 114.7 C hotspot a second time
+  (TE-001 cost 4 points the thermal domain already charges; it is now
+  informational), and replaced two stale limitations with what the
+  analyzer does: component roles from the schematic, unknown frequencies
+  excluded. The score and the near-field maps are now stated to be
+  relative, uncalibrated rankings, and the standard a reference only.
 - Fixed the EMC wire-to-board connector pattern never matching JST or DF
   connectors: it held literal backspace characters where word boundaries
   were meant, so such connectors were taken for user-facing ports. It

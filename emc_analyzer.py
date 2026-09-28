@@ -1944,7 +1944,10 @@ class EMCAnalyzer:
         hotspot = getattr(self.thermal_result, "hotspot", None)
         if hotspot is not None and hotspot.temperature_c > 85.0:
             self._check()
-            self._add("TE-001", "THERMAL", "MEDIUM", "High temperature may alter EMC components",
+            # INFO, not MEDIUM: the thermal domain already judges the hotspot,
+            # and taking 4 points off the EMC score for it counted it twice
+            # (P02 Rev E, 114.7 C; audit-2026-09-23.md EMC-9).
+            self._add("TE-001", "THERMAL", "INFO", "High temperature may alter EMC components",
                       f"The latest thermal hotspot is {hotspot.temperature_c:.1f} C.",
                       "Verify MLCC DC-bias/SRF and ferrite impedance at the local operating temperature.",
                       "MEDIUM", location=(hotspot.x_mm, hotspot.y_mm, None))
@@ -1995,16 +1998,31 @@ class EMCAnalyzer:
         if not self.result.test_plan:
             self.result.test_plan.append("Perform a baseline conducted and radiated pre-scan across the configured band.")
         self.result.regulatory_coverage = [
-            f"Target profile: {self.settings.standard} ({self.settings.market}).",
+            # No limit line is evaluated: the standard is a reference, not a
+            # target this analysis checks against (EMC-8).
+            f"Reference standard (not evaluated): {self.settings.standard} ({self.settings.market}).",
             "PCB geometry, return paths, PDN reuse and relative source harmonics are covered.",
             "Absolute emissions, immunity, enclosure seams and cable routing require physical tests.",
         ]
+        classes_from_schematic = bool(getattr(self.snapshot, "component_classes", None))
         self.result.limitations = [
             "Risk analyzer only; it cannot certify FCC/CISPR/MIL compliance.",
             "Relative emission estimates typically carry at least +/-10 to 20 dB uncertainty.",
-            "Footprint-name decoupling and connector checks have low confidence without schematic pin metadata.",
-            "Automatically detected source frequencies are editable defaults until confirmed by the designer.",
-            "Risk-score penalties are confidence-weighted; low-confidence heuristics cannot dominate the score.",
+            # The two statements this replaces were stale: component classes
+            # come from the schematic's symbols when it is available, and an
+            # unknown source frequency is excluded (EE-003), not defaulted.
+            (
+                "Decoupling, protection and connector roles come from the schematic's symbols."
+                if classes_from_schematic else
+                "No schematic data was available: decoupling, protection and connector roles "
+                "are inferred from footprint names and values, with low confidence."
+            ),
+            "Sources without a known frequency are excluded from harmonic and near-field "
+            "estimates (EE-003) rather than given a default.",
+            "The score out of 100 is a relative, uncalibrated risk ranking weighted by "
+            "confidence; it is not a compliance margin.",
+            "Near-field maps are an uncalibrated quasi-static ranking of where fields "
+            "concentrate; their V/m and A/m are not comparable to an emission limit.",
         ]
         self.result.elapsed_seconds = time.perf_counter() - started
         self.log(f"EMI/EMC analysis completed: {len(self.result.findings)} findings, score {self.result.risk_score}/100.")

@@ -227,8 +227,19 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertTrue(any("cannot certify" in item for item in result.limitations))
         self.assertTrue(result.test_plan)
 
+    def test_a_hot_board_is_noted_not_scored_twice(self):
+        # P02 Rev E: TE-001 took 4 EMC points for the 114.7 C hotspot the
+        # thermal domain already judges (EMC-9).
+        from types import SimpleNamespace
+        hot = SimpleNamespace(hotspot=SimpleNamespace(temperature_c=114.7, x_mm=274.8, y_mm=86.6))
+        result = EMCAnalyzer(self.snapshot(), self.settings(), thermal_result=hot).analyze()
+        te = next(item for item in result.findings if item.rule_id == "TE-001")
+        self.assertEqual(te.severity, "INFO")
+        self.assertNotIn("TE-001", result.score_penalties_by_rule)
+        self.assertFalse(any("editable defaults" in item for item in result.limitations))
+
     def test_jst_and_df_harness_connectors_are_recognised(self):
-        # The pattern held literal backspace characters where \\b was meant,
+        # The pattern held literal backspace characters where  was meant,
         # so no JST or DF connector ever matched (found by the 2026-09-23
         # fixes); an underscore after JST must not break the match either.
         from emc_analyzer import _HARNESS_CONNECTOR_RE
