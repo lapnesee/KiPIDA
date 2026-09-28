@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed the convection correlation's stated Rayleigh/Reynolds range
+  never being checked (surface_convection.py's *_in_range functions
+  had 0 callers). P02 Rev E's Ra ~ 8.0e3 is below the 1e4 laminar
+  lower bound; out-of-range faces are now named in a limitation
+  instead of publishing the coefficient as if it were validated.
 - Fixed Phase 10 printing a solving progress line in export-only mode,
   reporting plain COMPLETED while regions were GEOMETRY_EXPORTED or
   spice_model_audit held MODEL_FILE_MISSING/TRANSIENT_UNSTABLE entries

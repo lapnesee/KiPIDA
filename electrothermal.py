@@ -262,6 +262,11 @@ class ElectroThermalSolver:
             if surface_base and str(settings.airflow.mode or "").upper() != "CUSTOM":
                 thermal_solver._refine_surface_exchange(thermal_mesh, settings, thermal_result)
                 thermal_result.surface_refined = True
+                # TH-8: this result was already built by the solve() a few
+                # lines up, before the refine call above evaluated in-range.
+                thermal_result.surface_correlation_in_range = dict(
+                    getattr(thermal_mesh, "surface_correlation_in_range", {}) or {}
+                )
             current_temperatures = thermal_result.temperature_vector_c
             if current_temperatures is None:
                 current_temperatures = np.fromiter(

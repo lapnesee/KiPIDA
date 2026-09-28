@@ -300,6 +300,21 @@ class AnalysisAdapterTests(unittest.TestCase):
         limitation = next(item for item in result.limitations if "ambient-rise correction" in item)
         self.assertIn("16.5 K", limitation)
 
+    def test_out_of_range_correlation_is_a_named_limitation(self):
+        # TH-8: P02 Rev E's Ra ~ 8.0e3 sits below the 1e4 laminar-correlation
+        # lower bound; the coefficient used to be published with no hint it
+        # was extrapolated rather than looked up inside a validated range.
+        thermal = ThermalResult(
+            hotspot=ThermalHotspot(1, 0.0, 0.0, 0.1, 100.0),
+            total_input_power_w=1.0, energy_balance_error_pct=0.1,
+            surface_correlation_in_range={"top": False, "bottom": True, "edge": False},
+        )
+        result = adapt_thermal_result(thermal)
+        limitation = next(item for item in result.limitations if "Rayleigh/Reynolds range" in item)
+        self.assertIn("top", limitation)
+        self.assertIn("edge", limitation)
+        self.assertNotIn("bottom", limitation)
+
     def test_cfd_adapter_reports_convergence_and_balance(self):
         mesh = SimpleNamespace(cell_count=1000)
         cfd = SimpleNamespace(

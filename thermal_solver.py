@@ -93,6 +93,13 @@ class ThermalSolver:
             f"Surface exchange settled at W/m2K: {applied} "
             f"({getattr(mesh, 'convection_basis', 'unspecified basis')})."
         )
+        # TH-8: _refine_surface_exchange always evaluates in-range (even when
+        # it finds nothing left to move, in which case the loop above never
+        # re-solves after it), so this must be copied on unconditionally
+        # rather than only on the result built by the next solve().
+        result.surface_correlation_in_range = dict(
+            getattr(mesh, "surface_correlation_in_range", {}) or {}
+        )
         return result
 
     def _refine_surface_exchange(self, mesh, settings, result):
@@ -125,6 +132,14 @@ class ThermalSolver:
         ambient = float(settings.ambient_c)
         worst_change = 0.0
         updated = False
+        # TH-8: natural_convection_in_range/forced_convection_in_range existed
+        # but were never called anywhere, so a board whose Rayleigh number
+        # sits outside the laminar horizontal-plate correlations' stated
+        # range (P02 Rev E: Ra ~ 8.0e3, below the 1e4 lower bound) got the
+        # correlation's number with no caveat that it was extrapolated.
+        # Evaluated here, at the operating point the solve actually settles
+        # on, rather than the mesh's nominal ambient + 30 K guess.
+        in_range = {}
         for kind, current_h in list(mesh.surface_h_w_m2k.items()):
             mask = mesh.boundaries.kind_mask(kind)
             if not mask.any():
@@ -138,6 +153,16 @@ class ThermalSolver:
                 continue
             face_mean_c = float(np.mean(temperatures[indices]))
             delta_t = max(0.0, face_mean_c - ambient)
+            film_c = ambient + delta_t / 2.0
+            rayleigh = surface_convection.rayleigh_number(delta_t, length_m, film_c)
+            kind_in_range = surface_convection.natural_convection_in_range(rayleigh)
+            velocity = getattr(mesh, "air_velocity_m_s", None)
+            if str(settings.airflow.mode or "").upper() == "FORCED" or velocity:
+                reynolds = surface_convection.reynolds_number(
+                    velocity if velocity else settings.airflow.velocity_m_s, length_m, film_c,
+                )
+                kind_in_range = kind_in_range and surface_convection.forced_convection_in_range(reynolds)
+            in_range[kind] = kind_in_range
             convective = ThermalMesher.surface_coefficient(
                 settings, kind, delta_t, length_m,
                 air_velocity_m_s=getattr(mesh, "air_velocity_m_s", None),
@@ -158,6 +183,7 @@ class ThermalSolver:
             mesh.surface_h_w_m2k[kind] = new_h
             updated = True
 
+        mesh.surface_correlation_in_range = in_range
         if updated:
             # Boundary conductances are baked into the assembled matrix, so a
             # rescale invalidates it.  Dropping the cache is what makes the
@@ -362,6 +388,9 @@ class ThermalSolver:
             energy_balance_error_pct=float(balance_error),
             convection_coefficient_w_m2k=float(mesh.convection_coefficient_w_m2k),
             surface_h_w_m2k=dict(getattr(mesh, "surface_h_w_m2k", {}) or {}),
+            surface_correlation_in_range=dict(
+                getattr(mesh, "surface_correlation_in_range", {}) or {}
+            ),
             convection_basis=str(getattr(mesh, "convection_basis", "") or ""),
             characteristic_length_m=float(
                 getattr(mesh, "characteristic_length_m", 0.0) or 0.0

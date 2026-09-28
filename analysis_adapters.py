@@ -864,6 +864,26 @@ def _thermal_surface_detail(domain_result: Any) -> str:
     return f"{provenance}: {applied}. Basis: {basis}.{length_note}"
 
 
+def _thermal_correlation_range_limitations(domain_result: Any) -> list:
+    """Say which faces' convection correlation is being extrapolated.
+
+    TH-8: natural_convection_in_range/forced_convection_in_range existed in
+    surface_convection.py but were never called. P02 Rev E's Ra ~ 8.0e3 sits
+    below the 1e4 lower bound the laminar horizontal-plate correlations
+    (Incropera) are stated for; the coefficient was published with no hint
+    that it was extrapolated rather than looked up inside a validated range.
+    """
+    in_range = dict(getattr(domain_result, "surface_correlation_in_range", {}) or {})
+    out_of_range = sorted(kind for kind, ok in in_range.items() if not ok)
+    if not out_of_range:
+        return []
+    return [
+        f"The natural/forced convection correlation is being applied outside its stated "
+        f"Rayleigh/Reynolds range for the {', '.join(out_of_range)} face(s); the coefficient "
+        "there is an extrapolation, not a value read from inside a validated range."
+    ]
+
+
 def _thermal_grid_limitations(domain_result: Any) -> list:
     """Say so when the mesh was coarsened below the requested resolution.
 
@@ -1213,7 +1233,8 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
         limitations=[
             "Compact thermal models require datasheet and measurement validation.",
         ] + _thermal_grid_limitations(domain_result) + sensitivity_limitations
-        + _thermal_fallback_stage_limitations(power_stage_reports) + enclosure_limitations,
+        + _thermal_fallback_stage_limitations(power_stage_reports) + enclosure_limitations
+        + _thermal_correlation_range_limitations(domain_result),
     ).finish()
 
 

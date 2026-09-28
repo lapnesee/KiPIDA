@@ -155,6 +155,19 @@ class TestThermalSolver(unittest.TestCase):
         result = ThermalSolver().solve(mesh, ambient_c=25.0)
         self.assertFalse(result.surface_refined)
 
+    def test_out_of_range_correlation_is_flagged_not_silent(self):
+        # TH-8: natural_convection_in_range existed but nothing called it.
+        # P02 Rev E's own Ra ~ 8.0e3 sits below the 1e4 laminar-correlation
+        # lower bound (Incropera); this 10x10 mm test board's is smaller
+        # still (L = A/P = 2.5 mm), so it is naturally the same case.
+        model = self._model()
+        settings = self._settings()
+        mesh = ThermalMesher().generate_mesh(model, settings)
+        result = ThermalSolver().solve_with_surface_refinement(mesh, settings)
+
+        self.assertIn("top", result.surface_correlation_in_range)
+        self.assertFalse(result.surface_correlation_in_range["top"])
+
     def test_reuses_same_host_csr_matrix_between_coupled_iterations(self):
         mesh = ThermalMesher().generate_mesh(self._model(), self._settings())
         solver = ThermalSolver()

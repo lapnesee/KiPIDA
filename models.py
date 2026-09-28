@@ -971,6 +971,12 @@ class ThermalResult:
     # The coupled path used to leave this False while still describing the
     # coefficients as "refined" (TH-2).
     surface_refined: bool = False
+    # Per-face kind ("top"/"bottom"/"edge"), whether the laminar correlation
+    # actually applies at the temperature the solve settled on -- P02 Rev E's
+    # Ra ~ 8.0e3 sits below the 1e4 lower bound the top/bottom-face
+    # correlations are stated for (TH-8). Empty when never evaluated (no
+    # refinement ran, e.g. CUSTOM airflow, where h is user-specified anyway).
+    surface_correlation_in_range: Dict[str, bool] = field(default_factory=dict)
     convection_basis: str = ""
     characteristic_length_m: float = 0.0
     iterations: int = 1
