@@ -1675,7 +1675,7 @@ class EMCAnalyzer:
                               f"Harmonic {first} of {source.name} is {harmonic / 1e6:.3f} MHz; "
                               f"the configured edge model estimates {relative_db:.1f} dB relative "
                               f"to its low-frequency square-wave envelope (drive index {drive_index:.3g} V*A). "
-                              f"{THRESHOLD_BASIS['SW-001']}",
+                              f"{THRESHOLD_BASIS['SW-001']} Source parameters: {source.parameter_notes}",
                               "Minimise hot-loop area and verify this band with a near-field probe.",
                               # A stated frequency places the harmonic; its level
                               # is still an uncalibrated edge model (+/-10-20 dB),
@@ -2067,6 +2067,14 @@ class EMCAnalyzer:
             "Absolute emissions, immunity, enclosure seams and cable routing require physical tests.",
         ]
         classes_from_schematic = bool(getattr(self.snapshot, "component_classes", None))
+        # A source whose current nobody stated runs on the 0.1 A default; the
+        # H field and drive index of those sources scale with that guess
+        # (previous audits: the default was assumed, never said).
+        assumed_current = [
+            item.name for item in self.settings.sources
+            if item.enabled and item.source not in ("manual", "power-tree")
+            and abs(float(item.current_a) - 0.1) < 1e-12
+        ]
         self.result.limitations = [
             "Risk analyzer only; it cannot certify FCC/CISPR/MIL compliance.",
             "Relative emission estimates typically carry at least +/-10 to 20 dB uncertainty.",
@@ -2085,7 +2093,12 @@ class EMCAnalyzer:
             "confidence; it is not a compliance margin.",
             "Near-field maps are an uncalibrated quasi-static ranking of where fields "
             "concentrate; their V/m and A/m are not comparable to an emission limit.",
-        ]
+        ] + ([
+            f"{len(assumed_current)} source(s) use an assumed 0.1 A current, which their "
+            "magnetic field and drive index scale with: "
+            + ", ".join(assumed_current[:10]) + (", ..." if len(assumed_current) > 10 else "")
+            + ". Enter the real current to replace it."
+        ] if assumed_current else [])
         self.result.elapsed_seconds = time.perf_counter() - started
         self.log(f"EMI/EMC analysis completed: {len(self.result.findings)} findings, score {self.result.risk_score}/100.")
         return self.result

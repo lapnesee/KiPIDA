@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed EMC to say what its sources rest on: switching findings quote
+  where the source's parameters came from, and the limitations name every
+  source still on the assumed 0.1 A current, which its magnetic field and
+  drive index scale with.
 - Changed EMC to recognise TVS and ESD protection from the schematic's
   symbols (KiCad's Power_Protection library, D_TVS) before the value
   pattern it relied on alone; the pattern still covers parts from private

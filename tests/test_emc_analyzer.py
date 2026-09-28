@@ -249,6 +249,16 @@ class TestEMCAnalyzer(unittest.TestCase):
         track = EMCTrack("SW", (1.0, 1.0), (9.0, 1.0), 0.5, 0, 8.0)
         self.assertAlmostEqual(analyzer._copper_area_mm2("SW", [track]), 20.0, places=6)
 
+    def test_sources_on_the_default_current_are_named_and_findings_carry_provenance(self):
+        # The 0.1 A default current was assumed and never said, and a
+        # finding about a source did not say where its parameters came from
+        # (previous audits' items).
+        result = EMCAnalyzer(self.snapshot(), self.settings()).analyze()
+        assumed = next(item for item in result.limitations if "assumed 0.1 A" in item)
+        self.assertIn("CLK", assumed)
+        switching = [item for item in result.findings if item.rule_id == "SW-001"]
+        self.assertTrue(all("Source parameters:" in item.description for item in switching))
+
     def test_jst_and_df_harness_connectors_are_recognised(self):
         # The pattern held literal backspace characters where  was meant,
         # so no JST or DF connector ever matched (found by the 2026-09-23
