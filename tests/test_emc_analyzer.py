@@ -227,6 +227,15 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertTrue(any("cannot certify" in item for item in result.limitations))
         self.assertTrue(result.test_plan)
 
+    def test_jst_and_df_harness_connectors_are_recognised(self):
+        # The pattern held literal backspace characters where \\b was meant,
+        # so no JST or DF connector ever matched (found by the 2026-09-23
+        # fixes); an underscore after JST must not break the match either.
+        from emc_analyzer import _HARNESS_CONNECTOR_RE
+        for value in ("JST_PH_S4B", "Connector_JST:JST_XH_B2B", "DF13-6P"):
+            self.assertTrue(_HARNESS_CONNECTOR_RE.search(value), value)
+        self.assertFalse(_HARNESS_CONNECTOR_RE.search("ADJUSTER"))
+
     def test_source_scan_rejects_switched_dc_rail_and_uses_verified_frequency(self):
         sources = EMCSourceDiscoverer.discover(
             {"VBUS_PD_SW", "/P02 Alimentation/U4_SW", "Net-(U5-SW)", "USB_HOST_D_+"},

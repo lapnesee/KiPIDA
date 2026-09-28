@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed the EMC wire-to-board connector pattern never matching JST or DF
+  connectors: it held literal backspace characters where word boundaries
+  were meant, so such connectors were taken for user-facing ports. It
+  now matches JST_PH, JST_XH and DF13 as whole words.
 - Changed the DC result to state two limits it carried silently since
   the 2026-09-13 audit: the drop is the supply side only (the ground
   return is not solved), and via barrels assume 20 um of plating because

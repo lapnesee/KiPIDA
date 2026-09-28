@@ -99,7 +99,7 @@ _ESD_PROTECTOR_VALUE_RE = re.compile(
 # A wire-to-board connector: its cable goes to another board or a panel part,
 # and what it carries is not taken for a port the user plugs into.
 _HARNESS_CONNECTOR_RE = re.compile(
-    r"PICO.?CLASP|PICO.?BLADE|PICO.?LOCK|MICRO.?LOCK|CLIK.?MATE|JST|DF\d{2}|"
+    r"PICO.?CLASP|PICO.?BLADE|PICO.?LOCK|MICRO.?LOCK|CLIK.?MATE|(?<![A-Z])JST(?![A-Z])|(?<![A-Z])DF\d{2}(?!\d)|"
     r"WIRE.?TO.?BOARD|HARNESS",
     re.I,
 )
