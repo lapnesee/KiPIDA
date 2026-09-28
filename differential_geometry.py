@@ -15,12 +15,12 @@ import numpy as np
 try:
     from .physical_constants import DEFAULT_COPPER_THICKNESS_MM
     from .field_solver_2d import (
-        dielectric_map, energy_from_potential, piecewise_grid, solve_potential_sor,
+        dielectric_map, energy_from_potential, piecewise_grid, solve_potential,
     )
 except (ImportError, ValueError):
     from physical_constants import DEFAULT_COPPER_THICKNESS_MM
     from field_solver_2d import (
-        dielectric_map, energy_from_potential, piecewise_grid, solve_potential_sor,
+        dielectric_map, energy_from_potential, piecewise_grid, solve_potential,
     )
 
 
@@ -103,8 +103,8 @@ class GroundedCoplanarDifferentialSolver:
 
     @classmethod
     def _solve_potential(cls, x_values, y_values, epsilon_rows, fixed, fixed_values):
-        """Solve the non-uniform finite-volume grid with red-black SOR."""
-        return solve_potential_sor(x_values, y_values, epsilon_rows, fixed, fixed_values)
+        """Solve the non-uniform finite-volume grid (direct sparse solve)."""
+        return solve_potential(x_values, y_values, epsilon_rows, fixed, fixed_values)
 
     @classmethod
     def _energy(cls, potential, epsilon_rows, x_values, y_values):
@@ -161,7 +161,7 @@ class GroundedCoplanarDifferentialSolver:
         # the segment boundary once the margin fix widened it: on the P02
         # stripline-analogue Cohn check (w/s/b=0.15/0.15/0.5, er 4.2) that
         # discontinuity alone cost ~1 pp of the remaining error. Runtime
-        # stays in the single-digit seconds per solve; lru_cache absorbs
+        # stays a fraction of a second per solve; lru_cache absorbs
         # repeats within one recommender sweep.
         def count(length, minimum=7, maximum=90):
             return max(minimum, min(maximum, int(math.ceil(length / target_step))))
@@ -227,7 +227,7 @@ class EdgeCoupledDifferentialSolver:
     same-layer ground conductor: the reference is one plane below
     (microstrip) or two planes above and below (stripline). This replaces
     the IPC-D-317A closed-form estimates in ``differential_impedance.py``
-    with an actual finite-volume field solve, sharing the SOR/energy core
+    with an actual finite-volume field solve, sharing the Laplace/energy core
     in ``field_solver_2d.py``.
     """
 
@@ -341,8 +341,8 @@ class EdgeCoupledDifferentialSolver:
             float(epsilon_below), float(epsilon_above), include_solder_mask and not internal,
             solder_mask_thickness_mm, solder_mask_epsilon_r,
         )
-        potential = solve_potential_sor(x_values, y_values, epsilon_rows, fixed, values)
-        vacuum = solve_potential_sor(x_values, y_values, np.ones_like(epsilon_rows), fixed, values)
+        potential = solve_potential(x_values, y_values, epsilon_rows, fixed, values)
+        vacuum = solve_potential(x_values, y_values, np.ones_like(epsilon_rows), fixed, values)
         capacitance = 2.0 * energy_from_potential(potential, epsilon_rows, x_values, y_values)
         vacuum_capacitance = 2.0 * energy_from_potential(vacuum, np.ones_like(epsilon_rows), x_values, y_values)
         if min(capacitance, vacuum_capacitance) <= 0.0:

@@ -1,5 +1,5 @@
 """Shared 2-D quasi-static Laplace field solver for transmission-line
-cross-sections (non-uniform finite-volume grid, red-black SOR relaxation,
+cross-sections (non-uniform finite-volume grid, direct sparse solve,
 energy-based capacitance extraction).
 
 Used by both the coplanar differential solver (differential_geometry.py)
@@ -7,9 +7,9 @@ and the edge-coupled microstrip/stripline solver for the same numerical
 core, so both geometries share one validated implementation.
 """
 
-import warnings
-
 import numpy as np
+import scipy.sparse
+import scipy.sparse.linalg
 
 
 def piecewise_grid(boundaries, intervals):
@@ -69,23 +69,62 @@ def dielectric_map(y_values, signal_y, conductor_top_y, top_reference_y,
     return epsilon
 
 
-def solve_potential_sor(x_values, y_values, epsilon_rows, fixed, fixed_values,
-                         relaxation=1.82, max_iterations=20000, tolerance=2.0e-7):
-    """Solve the non-uniform finite-volume Laplace grid with red-black SOR.
+def solve_potential(x_values, y_values, epsilon_rows, fixed, fixed_values):
+    """Solve the non-uniform finite-volume Laplace grid directly.
 
     ``fixed`` is a boolean (ny, nx) mask of Dirichlet nodes; ``fixed_values``
-    holds their potential. Free nodes start at their ``fixed_values`` entry
-    (usually 0) and are relaxed toward the finite-volume stencil average
-    until the maximum update falls below *tolerance* or *max_iterations* is
-    reached. The left/right domain edges use a zero-normal-field (mirror)
-    boundary; the top/bottom edges do too unless a row is entirely fixed.
+    holds their potential. The left/right domain edges use a zero-normal-field
+    (mirror) boundary; the top/bottom edges do too unless a row holds a fixed
+    node, in which case that row's free nodes keep their ``fixed_values``
+    entry.
+
+    This is the exact fixed point the red-black SOR it replaces converged to,
+    solved as one sparse system. The SOR needed up to 20,000 sweeps once the
+    grid was refined to h/20 with the wider mirror margins (SI-2): 3-13 s per
+    cross-section, and the suite went from 31 s to 488 s. A sparse LU of the
+    same stencil is exact to round-off in a fraction of that.
     """
     ny, nx = fixed.shape
-    potential = np.array(fixed_values, copy=True)
-    yy, xx = np.indices((ny - 2, nx - 2))
-    free = ~fixed[1:-1, 1:-1]
-    red = free & ((xx + yy) % 2 == 0)
-    black = free & ~red
+    index = np.arange(ny * nx).reshape(ny, nx)
+    rows, cols, vals = [], [], []
+    rhs = np.zeros(ny * nx, dtype=np.float64)
+
+    def couple(mask, own, other, weight):
+        rows.append(index[own][mask])
+        cols.append(index[other][mask])
+        vals.append(np.broadcast_to(weight, mask.shape)[mask])
+
+    handled = np.array(fixed, copy=True)
+    rhs[fixed.ravel()] = fixed_values[fixed]
+    identity = handled.copy()
+
+    def mirror(mask, own, other):
+        # V(own) - V(other) = 0 for the masked nodes not already handled.
+        take = mask & ~handled[own]
+        full = np.zeros_like(handled)
+        full[own] = take
+        identity[full] = True
+        couple(take, own, other, -1.0)
+        handled[full] = True
+
+    row_edges = []
+    if not np.any(fixed[0, :]):
+        mirror(np.ones(nx, dtype=bool), (0, slice(None)), (1, slice(None)))
+    else:
+        row_edges.append(0)
+    if not np.any(fixed[-1, :]):
+        mirror(np.ones(nx, dtype=bool), (ny - 1, slice(None)), (ny - 2, slice(None)))
+    else:
+        row_edges.append(ny - 1)
+    mirror(np.ones(ny, dtype=bool), (slice(None), 0), (slice(None), 1))
+    mirror(np.ones(ny, dtype=bool), (slice(None), nx - 1), (slice(None), nx - 2))
+    for row in row_edges:
+        # A partly fixed edge row: its free nodes are never relaxed.
+        free = ~handled[row, :]
+        identity[row, free] = True
+        rhs[index[row, free]] = fixed_values[row, free]
+        handled[row, free] = True
+
     dx_left = x_values[1:-1] - x_values[:-2]
     dx_right = x_values[2:] - x_values[1:-1]
     dx_control = 0.5 * (dx_left + dx_right)
@@ -98,41 +137,23 @@ def solve_potential_sor(x_values, y_values, epsilon_rows, fixed, fixed_values,
                 * dx_control[None, :] / dy_down[:, None])
     upward = (0.5 * (epsilon_rows[1:-1] + epsilon_rows[2:])[:, None]
               * dx_control[None, :] / dy_up[:, None])
-    denominator = horizontal_left + horizontal_right + downward + upward
-    for _iteration in range(max_iterations):
-        maximum_delta = 0.0
-        for color in (red, black):
-            center = potential[1:-1, 1:-1]
-            target = (horizontal_left * potential[1:-1, :-2]
-                      + horizontal_right * potential[1:-1, 2:]
-                      + downward * potential[:-2, 1:-1]
-                      + upward * potential[2:, 1:-1]) / denominator
-            delta = relaxation * (target - center)
-            if np.any(color):
-                maximum_delta = max(maximum_delta, float(np.max(np.abs(delta[color]))))
-                center[color] += delta[color]
-        potential[:, 0] = potential[:, 1]
-        potential[:, -1] = potential[:, -2]
-        if not np.any(fixed[0, :]):
-            potential[0, :] = potential[1, :]
-        if not np.any(fixed[-1, :]):
-            potential[-1, :] = potential[-2, :]
-        potential[fixed] = fixed_values[fixed]
-        if maximum_delta < tolerance:
-            break
-    else:
-        # SI-2 old open item: the solver stays silent about a relaxation
-        # that never reached `tolerance`, so a caller sees a plausible-
-        # looking but under-converged potential with no signal to act on.
-        # Cheap because it costs nothing on the (default-grid, converging)
-        # common path -- only the final iteration's residual is reused.
-        warnings.warn(
-            f"solve_potential_sor: did not converge in {max_iterations} "
-            f"iterations (max update {maximum_delta:.3g}, tolerance "
-            f"{tolerance:.3g}); result may be inaccurate.",
-            RuntimeWarning, stacklevel=2,
-        )
-    return potential
+    interior = ~handled[1:-1, 1:-1]
+    centre = (slice(1, -1), slice(1, -1))
+    couple(interior, centre, centre, horizontal_left + horizontal_right + downward + upward)
+    couple(interior, centre, (slice(1, -1), slice(None, -2)), -horizontal_left)
+    couple(interior, centre, (slice(1, -1), slice(2, None)), -horizontal_right)
+    couple(interior, centre, (slice(None, -2), slice(1, -1)), -downward)
+    couple(interior, centre, (slice(2, None), slice(1, -1)), -upward)
+    diagonal = identity.ravel()
+    rows.append(index.ravel()[diagonal])
+    cols.append(index.ravel()[diagonal])
+    vals.append(np.ones(int(diagonal.sum())))
+    matrix = scipy.sparse.csr_matrix(
+        (np.concatenate(vals), (np.concatenate(rows), np.concatenate(cols))),
+        shape=(ny * nx, ny * nx),
+    )
+    potential = scipy.sparse.linalg.spsolve(matrix.tocsc(), rhs)
+    return potential.reshape(ny, nx)
 
 
 def energy_from_potential(potential, epsilon_rows, x_values, y_values):

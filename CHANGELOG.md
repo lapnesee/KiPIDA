@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed the 2-D differential field solver taking 5-10 s per cross-section
+  after its grid was refined to h/20 for accuracy: red-black SOR needed up
+  to 20,000 sweeps and the test suite went from 31 s to 488 s. It now
+  solves the same finite-volume system directly with a sparse LU: P02
+  Rev E's USB pair gives the same 83.2478 ohm in 0.22 s instead of 9.5 s.
 - Fixed the convection correlation's stated Rayleigh/Reynolds range
   never being checked (surface_convection.py's *_in_range functions
   had 0 callers). P02 Rev E's Ra ~ 8.0e3 is below the 1e4 laminar

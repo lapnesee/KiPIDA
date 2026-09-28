@@ -96,8 +96,8 @@ class EdgeCoupledFieldSolverTests(unittest.TestCase):
         # solver's physics, not just code organization.
         GroundedCoplanarDifferentialSolver._solve_cached.cache_clear()
         result = GroundedCoplanarDifferentialSolver.solve(0.145, 0.18, 0.15, 0.0994, 4.1, 0.035)
-        self.assertAlmostEqual(result.differential_impedance_ohm, 88.96915239351569, places=6)
-        self.assertAlmostEqual(result.effective_epsilon_r, 3.0207920690677543, places=6)
+        self.assertAlmostEqual(result.differential_impedance_ohm, 88.96915109753839, places=6)
+        self.assertAlmostEqual(result.effective_epsilon_r, 3.020792026000798, places=6)
 
     def test_matches_cohn_coupled_stripline_reference(self):
         # Cohn (1955) exact zero-thickness edge-coupled symmetric stripline,

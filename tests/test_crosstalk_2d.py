@@ -42,7 +42,7 @@ class FarEndCrosstalkTests(unittest.TestCase):
             odd_mode_velocity_m_s=1.55e8, even_mode_velocity_m_s=1.55e8,
         )
         fext = far_end_crosstalk_ratio(modes, coupled_length_m=0.05, rise_time_s=1e-9)
-        self.assertEqual(fext, 0.0)
+        self.assertAlmostEqual(fext, 0.0, places=12)
 
     def test_solved_homogeneous_stripline_has_zero_fext(self):
         # A homogeneous symmetric stripline (same epsilon and spacing above
@@ -60,7 +60,7 @@ class FarEndCrosstalkTests(unittest.TestCase):
         )
         self.assertAlmostEqual(modes.even_mode_velocity_m_s, modes.odd_mode_velocity_m_s, places=6)
         fext = far_end_crosstalk_ratio(modes, coupled_length_m=0.05, rise_time_s=1e-9)
-        self.assertEqual(fext, 0.0)
+        self.assertAlmostEqual(fext, 0.0, places=12)
 
 
 class NearEndRatioSaturationTests(unittest.TestCase):
