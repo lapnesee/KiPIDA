@@ -18,7 +18,7 @@ from advisor.rail_sources import (
 from extractor import GeometryExtractor, live_capture_has_no_copper
 from ingest.board_reader import read_board
 from mesh import Mesher
-from mesh_hybrid import HybridMesher
+from mesh_hybrid import HybridMesher, relabel_layers as _relabel_layers
 from solver import Solver
 from application.background_controller import BackgroundAnalysisController
 
@@ -861,27 +861,6 @@ def live_layer_ids(file_stackup, live_stackup):
                 positional.append(layer.name)
     unmatched = [layer.name for layer in file_layers if layer.layer_id not in mapping]
     return mapping, positional, unmatched
-
-
-def _relabel_layers(mesh, mapping):
-    """Rewrite the mesh's layer ids through *mapping*, in place.
-
-    A layer with no live counterpart gets a negative id, which no live layer
-    uses, rather than keeping a file ordinal that may name another live layer.
-    """
-    def live(layer_id):
-        if layer_id in mapping:
-            return mapping[layer_id]
-        return -1000 - int(layer_id) if int(layer_id) >= 0 else int(layer_id)
-
-    mesh.node_coords = {
-        node_id: (x, y, live(layer_id))
-        for node_id, (x, y, layer_id) in mesh.node_coords.items()
-    }
-    mesh.node_map = {
-        (ix, iy, live(layer_id)): node_id
-        for (ix, iy, layer_id), node_id in mesh.node_map.items()
-    }
 
 
 def _snapshot_mm(value):

@@ -625,6 +625,7 @@ class ACSolver:
             requested_grid_size_mm=float(network.requested_grid_size_mm),
             effective_grid_size_mm=float(network.effective_grid_size_mm),
             track_summary=dict(getattr(network, "track_summary", None) or {}),
+            mesh_engine=str(getattr(network, "mesh_engine", "") or "raster"),
             quasi_static_limit_hz=limit_hz,
             points_beyond_quasi_static=beyond,
             worst_at_sweep_edge=worst_at_edge,

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Changed the AC network to be built on the hybrid mesh of the saved
+  board file when it matches the open board, as the DC report is: tracks
+  and barrels at their analytic resistance, pours a cut-cell lattice
+  whose edge nodes carry only the cavity their copper covers. On P02
+  Rev E's /VBUS_SYS the worst case reads 252.8 mohm at 100 MHz against
+  271.8 on the raster mesh. The raster mesh remains the fallback.
 - Fixed the AC model losing all plane inductance and cavity capacitance
   when the return net has copper on the rail's own layer: P02 Rev E's GND
   via lands on In2.Cu put /VBUS_SYS's return 0 mm away. Each node now

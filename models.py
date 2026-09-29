@@ -787,6 +787,9 @@ class ImpedanceSweepResult:
     # The meshed nets' tracks as the raster error depends on them:
     # {"track_count", "finest_width_mm", "oblique_count"}.
     track_summary: Dict[str, Any] = field(default_factory=dict)
+    # "hybrid" when the network came from the saved board file's hybrid mesh,
+    # "raster" when from the open board's raster mesh.
+    mesh_engine: str = "raster"
     # Populated by a multi-port sweep: one sweep per observation point, keyed
     # by reference designator, plus which one produced this worst case. Left
     # empty by a single-port solve, so existing consumers are unaffected.

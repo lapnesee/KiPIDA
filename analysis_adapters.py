@@ -517,6 +517,11 @@ def adapt_ac_result(
             "Capacitor mounting inductance (the pad and via loop) is only partially modelled -- the rail and ground meshes each add their own via/pad inductance with no mutual term between them (see AC-8) -- and MLCC DC-bias derating uses a single generic retention curve (ac_model.dc_bias_retention), not a per-part datasheet or case-size table (see AC-7). Both can leave the real impedance above the swept one from a few MHz upward, so a passing sweep is optimistic there.",
             "AC-8: a via's inductance (mesh.Mesher._calculate_vertical_l) is a self inductance with no mutual term against a nearby return via on the other net -- a rail/ground via pair 1 mm apart with a 1 mm dielectric span measured about 2.6x the two-wire loop formula (mu0*h/pi * ln(s/r)). Placement and spacing are not seen by that function, so this is stated rather than corrected: a tightly stitched decoupling via pair's loop inductance is overestimated here.",
             "The AC mesh is intentionally independent from the finer DC voltage-drop mesh; refine it only after validating runtime and convergence.",
+            (
+                "The AC network is built on the hybrid mesh of the saved board file: tracks and via barrels carry their analytic resistance and pours a cut-cell lattice. A track's loop inductance is taken as mu0*h/2 per square like a pour's, which ignores its fringing field, and only pours carry cavity capacitance."
+                if getattr(final, "mesh_engine", "raster") == "hybrid" else
+                "The AC network is built on the raster mesh of the open board, the saved board file being unknown, unreadable or different from it (the run log says which)."
+            ),
             "Plane-pair (cavity) capacitance is stamped as C = eps0*er*A/h between each rail cell and the return copper on the directly adjacent layer; a return reached through another copper layer is not given one.",
         ] + [
             # A dropped observation point narrows what the sweep actually

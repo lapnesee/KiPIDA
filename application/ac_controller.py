@@ -1,15 +1,54 @@
 """UI-independent orchestration for AC analysis and decoupling optimization."""
 
 from dataclasses import dataclass
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable, Optional, Tuple
 
 from ac_solver import ACSolver
 from decoupling_optimizer import DecouplingOptimizer
 from application.background_controller import BackgroundAnalysisController
+from application.dc_controller import capture_dc_board, live_layer_ids, saved_board_differences
+from ingest.board_reader import read_board
 
 
 class ACAnalysisCancelled(RuntimeError):
     pass
+
+
+def saved_board_for_ac(board_path, live_board, live_stackup, net_names, emit=lambda _message: None):
+    """``(parsed board, layer mapping)`` for a hybrid AC network, or ``(None, None)``.
+
+    The hybrid mesh reads the saved board file, as the DC report's does. A
+    file that cannot be read, whose copper layers do not all pair with the
+    open board's, or whose vias and pads on the swept nets differ from the
+    open board's is not the board on screen: the network is then built on
+    the open board's raster mesh, and *emit* says why.
+    """
+    fallback = "the AC network uses the raster mesh of the open board"
+    if not board_path:
+        emit(f"The board file is not known: {fallback}.")
+        return None, None
+    name = Path(board_path).name
+    try:
+        board = read_board(Path(board_path))
+    except (OSError, ValueError, UnicodeDecodeError) as exc:
+        emit(f"{name} could not be read ({exc}): {fallback}.")
+        return None, None
+    mapping, _positional, unmatched = live_layer_ids(board.stackup, live_stackup)
+    if unmatched:
+        emit(f"{name} has copper layers the open board lacks ({', '.join(unmatched)}): {fallback}.")
+        return None, None
+    capture = SimpleNamespace(board=capture_dc_board(live_board), classification_geometry_by_rail=None)
+    differences = [
+        f"{net}: {difference}"
+        for net in net_names
+        for difference in saved_board_differences(board, net, capture, mapping)
+    ]
+    if differences:
+        emit(f"The open board differs from {name} ({'; '.join(differences)}): {fallback}.")
+        return None, None
+    return board, mapping
 
 
 @dataclass(frozen=True)

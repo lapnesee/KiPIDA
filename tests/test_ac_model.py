@@ -107,5 +107,36 @@ class TestCapacitorDiscovery(unittest.TestCase):
         self.assertGreater(capacitors["C1"].esr_ohm, capacitors["C2"].esr_ohm)
 
 
+class TestHybridACMesh(unittest.TestCase):
+    def test_a_pour_edge_node_stands_for_the_copper_it_covers(self):
+        # On P02 Rev E's /VBUS_SYS the hybrid lattice counted a whole cell of
+        # cavity per node: 0.600 nF against 0.360 nF on the raster mesh.
+        # Each node now stands for its share of a cell, so a 10 x 10 mm pour
+        # off the grid covers 100 mm2 of cavity.
+        from pathlib import Path
+        from ingest.board_reader import (
+            BoardBounds, CopperLayer, ParsedBoard, Stackup, Zone,
+        )
+        from mesh import Mesher
+
+        square = lambda x0, y0, size: [(x0, y0), (x0 + size, y0), (x0 + size, y0 + size), (x0, y0 + size)]
+        board = ParsedBoard(
+            Path("synthetic.kicad_pcb"),
+            Stackup([CopperLayer(0, "F.Cu", "signal", 0.035),
+                     CopperLayer(31, "B.Cu", "signal", 0.035)], 1.6, 2),
+            BoardBounds(0.0, 0.0, 30.0, 30.0), [], [], [],
+            [Zone("VCC", "F.Cu", filled_polygon=square(5.23, 5.37, 10.0)),
+             Zone("GND", "B.Cu", filled_polygon=square(0.0, 0.0, 25.0))],
+        )
+        stackup = {"substrate": [{"between": [0, 1], "thickness_mm": 1.53, "epsilon_r": 4.4}]}
+        settings = SimpleNamespace(rail_name="VCC", ground_net_name="GND")
+
+        rail, _ground, cells = ACModelBuilder(None)._hybrid_meshes(
+            board, {0: 0, 31: 1}, settings, stackup, 0.5, Mesher.__new__(Mesher),
+        )
+
+        self.assertAlmostEqual(sum(cells.values()) * rail.grid_step ** 2, 100.0, delta=1.0)
+
+
 if __name__ == "__main__":
     unittest.main()

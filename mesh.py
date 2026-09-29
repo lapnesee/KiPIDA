@@ -826,7 +826,7 @@ class Mesher:
             squares = branch.resistance_ohm * thickness / rho
             branch.inductance_h = squares * mu0 * (sum(heights) / 4.0) * 1.0e-3
 
-    def cavity_capacitor_pairs(self, rail_mesh, ground_mesh, stackup):
+    def cavity_capacitor_pairs(self, rail_mesh, ground_mesh, stackup, rail_cell_share=None):
         """Plane-pair (cavity) capacitance: C = eps0*er*A_cell/h between each
         rail-mesh node and the return-mesh node directly beneath/above it.
 
@@ -836,6 +836,12 @@ class Mesher:
         combination across each segment's own epsilon_r, which this does not
         attempt -- those nodes are skipped rather than stamped with a wrong
         epsilon_r. A_cell is the rail mesh's own grid cell area.
+
+        ``rail_cell_share`` maps the rail nodes that stand for a cell to the
+        fraction of that cell their copper covers: on the hybrid mesh only
+        the pour lattice does, a track or pad node being no cell of the grid,
+        and a lattice node on a pour's edge covers part of one. Without it,
+        every rail node stands for a whole cell, as on the raster grid.
 
         Returns a list of (rail_node_id, ground_node_id, capacitance_f)
         using each mesh's OWN node ids -- the caller offsets the ground id
@@ -858,6 +864,9 @@ class Mesher:
         for rail_node_id, (_height, return_layer) in self.return_paths(
             rail_mesh, ground_mesh, stackup,
         ).items():
+            share = 1.0 if rail_cell_share is None else rail_cell_share.get(rail_node_id, 0.0)
+            if share <= 0.0:
+                continue
             x_mm, y_mm, layer = rail_mesh.node_coords[rail_node_id]
             thickness_mm, epsilon_r = substrate_by_pair.get(
                 frozenset((layer, return_layer)), (0.0, 0.0),
@@ -869,7 +878,7 @@ class Mesher:
             )
             if ground_node_id is None:
                 continue
-            capacitance_f = epsilon0 * epsilon_r * cell_area_m2 / (thickness_mm * 1.0e-3)
+            capacitance_f = share * epsilon0 * epsilon_r * cell_area_m2 / (thickness_mm * 1.0e-3)
             if capacitance_f > 0:
                 pairs.append((rail_node_id, ground_node_id, capacitance_f))
         return pairs

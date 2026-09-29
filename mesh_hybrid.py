@@ -151,6 +151,29 @@ def _thickness_for_layer(parsed_board: ParsedBoard, name: str) -> float:
     return DEFAULT_COPPER_THICKNESS_MM
 
 
+def relabel_layers(mesh: Mesh, mapping: dict) -> None:
+    """Rewrite the mesh's layer ids through *mapping*, in place.
+
+    The mesh is built with the board file's layer ids; the live board, its
+    stackup and its pads use IPC's. A layer with no live counterpart gets a
+    negative id, which no live layer uses, rather than keeping a file ordinal
+    that may name another live layer.
+    """
+    def live(layer_id):
+        if layer_id in mapping:
+            return mapping[layer_id]
+        return -1000 - int(layer_id) if int(layer_id) >= 0 else int(layer_id)
+
+    mesh.node_coords = {
+        node_id: (x, y, live(layer_id))
+        for node_id, (x, y, layer_id) in mesh.node_coords.items()
+    }
+    mesh.node_map = {
+        (ix, iy, live(layer_id)): node_id
+        for (ix, iy, layer_id), node_id in mesh.node_map.items()
+    }
+
+
 class HybridMesher:
     """Build a :class:`~mesh.Mesh` from a :class:`~ingest.board_reader.ParsedBoard`.
 

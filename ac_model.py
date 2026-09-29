@@ -316,6 +316,8 @@ class ACNetwork:
     # a vectorized jw*C admittance alongside the R+jwL branches above (see
     # mesh.Mesher.cavity_capacitor_pairs).
     cavity_capacitors: List[Tuple[int, int, float]] = field(default_factory=list)
+    # "hybrid": the saved board file's hybrid mesh; "raster": the open board's.
+    mesh_engine: str = "raster"
 
 
 def parse_capacitance(value) -> Optional[float]:
@@ -965,8 +967,79 @@ class ACModelBuilder:
         coords = {node_id + offset: coord for node_id, coord in mesh.node_coords.items()}
         return branches, coords
 
+    def _hybrid_meshes(self, parsed_board, layer_mapping, settings, stackup,
+                       grid_size_mm, mesher):
+        """Rail and return meshes from the saved board's hybrid mesher.
+
+        The raster mesh modelled a track as the grid rows its outline
+        happened to cover: x0.5 to x2.1 on its resistance at the AC grid, and
+        an oblique track one step wide could conduct nothing at all
+        (raster_fidelity). The hybrid mesh the DC report already uses gives
+        tracks and via barrels their analytic resistance and pours a
+        cut-cell lattice. It carries no inductance: a barrel gets the raster
+        mesh's _calculate_vertical_l here, and every lateral branch its loop
+        inductance in build(), as the raster mesh's do.
+
+        Returns ``(rail_mesh, ground_mesh, rail_cells)``, the meshes
+        relabelled to live layer ids and ``rail_cells`` the share of a grid
+        cell each of the rail's pour-lattice nodes covers, the only nodes
+        that stand for a cell of cavity: a quarter of the copper fraction of
+        each lattice edge it ends, whose section is that fraction of a cell
+        width times the copper thickness.
+        """
+        try:
+            from .mesh_hybrid import HybridMesher, relabel_layers
+            from .physical_constants import (
+                DEFAULT_COPPER_THICKNESS_MM, PLATING_THICKNESS_FALLBACK_MM,
+            )
+        except (ImportError, ValueError):
+            from mesh_hybrid import HybridMesher, relabel_layers
+            from physical_constants import (
+                DEFAULT_COPPER_THICKNESS_MM, PLATING_THICKNESS_FALLBACK_MM,
+            )
+
+        hybrid = HybridMesher(
+            parsed_board, grid_step_mm=grid_size_mm, log_callback=self.log_callback,
+        )
+        rail_mesh = hybrid.build_mesh(settings.rail_name)
+        ground_mesh = hybrid.build_mesh(settings.ground_net_name)
+        for mesh in (rail_mesh, ground_mesh):
+            relabel_layers(mesh, layer_mapping)
+        plating = PLATING_THICKNESS_FALLBACK_MM
+        for mesh in (rail_mesh, ground_mesh):
+            for branch in mesh.branches:
+                if branch.kind != "vertical":
+                    continue
+                # The barrel section is pi*(d*p + p^2); d back from it.
+                drill = branch.cross_section_mm2 / (math.pi * plating) - plating
+                branch.inductance_h = mesher._calculate_vertical_l(
+                    mesh.node_coords[branch.node_a][2], mesh.node_coords[branch.node_b][2],
+                    stackup, max(drill, 0.05),
+                )
+        thickness = {
+            layer_mapping[layer.layer_id]: layer.thickness_mm or DEFAULT_COPPER_THICKNESS_MM
+            for layer in parsed_board.stackup.layers if layer.layer_id in layer_mapping
+        }
+        step = float(rail_mesh.grid_step)
+        rail_cells = defaultdict(float)
+        for branch in rail_mesh.branches:
+            if branch.geometry_source.endswith((":h", ":v")):
+                layer = rail_mesh.node_coords[branch.node_a][2]
+                fraction = branch.cross_section_mm2 / (
+                    step * thickness.get(layer, DEFAULT_COPPER_THICKNESS_MM)
+                )
+                for node in (branch.node_a, branch.node_b):
+                    rail_cells[node] += min(1.0, fraction) / 4.0
+        return rail_mesh, ground_mesh, dict(rail_cells)
+
     def build(self, rail: PowerRail, settings: ACAnalysisSettings, grid_size_mm=0.5,
-              all_rails=None):
+              all_rails=None, parsed_board=None, layer_mapping=None):
+        """The rail's AC network.
+
+        With *parsed_board* (the saved board file) and *layer_mapping* (its
+        layer ids onto the live board's), the network is built on the hybrid
+        mesh; without them, on the raster mesh of the open board.
+        """
         extractor = GeometryExtractor(self.board, debug=self.debug, log_callback=self.log_callback)
         stackup = extractor.get_board_stackup()
         rail_geometry = extractor.get_net_geometry(settings.rail_name)
@@ -977,17 +1050,19 @@ class ACModelBuilder:
             raise ValueError(f"No copper geometry found for return net '{settings.ground_net_name}'.")
 
         mesher = Mesher(self.board, debug=self.debug, log_callback=self.log_callback)
-        # Each mesh is told which copper layers carry the OTHER net so the
-        # plane-pair loop inductance can be split by return distance instead
-        # of double counted per mesh (AC-3, mesh.py:_estimate_lateral_l).
-        rail_layers = {lid for lid, poly in rail_geometry.items() if not poly.is_empty}
-        ground_layers = {lid for lid, poly in ground_geometry.items() if not poly.is_empty}
-        rail_mesh = mesher.generate_mesh(
-            settings.rail_name, rail_geometry, stackup, grid_size_mm, return_layers=ground_layers
-        )
-        ground_mesh = mesher.generate_mesh(
-            settings.ground_net_name, ground_geometry, stackup, grid_size_mm, return_layers=rail_layers
-        )
+        rail_cells = None
+        if parsed_board is not None:
+            rail_mesh, ground_mesh, rail_cells = self._hybrid_meshes(
+                parsed_board, dict(layer_mapping or {}), settings, stackup,
+                grid_size_mm, mesher,
+            )
+        else:
+            rail_mesh = mesher.generate_mesh(
+                settings.rail_name, rail_geometry, stackup, grid_size_mm,
+            )
+            ground_mesh = mesher.generate_mesh(
+                settings.ground_net_name, ground_geometry, stackup, grid_size_mm,
+            )
         if not rail_mesh.nodes or not ground_mesh.nodes:
             raise ValueError("The AC rail-to-ground mesh is empty.")
         # Each node's loop inductance is measured to the return copper
@@ -1005,7 +1080,9 @@ class ACModelBuilder:
         cavity_capacitors = [
             (rail_node, ground_node + offset, capacitance_f)
             for rail_node, ground_node, capacitance_f in
-            mesher.cavity_capacitor_pairs(rail_mesh, ground_mesh, stackup)
+            mesher.cavity_capacitor_pairs(
+                rail_mesh, ground_mesh, stackup, rail_cell_share=rail_cells,
+            )
         ]
 
         source_ref, source_rail_pads, source_rule = self.resolve_source(
@@ -1092,16 +1169,19 @@ class ACModelBuilder:
         epsilon = max(epsilon_values) if epsilon_values else 4.4
         limit_hz = quasi_static_limit_hz(network_span_mm(combined_coords), epsilon)
 
-        summaries = [
-            extractor.get_track_summary(name)
-            for name in (settings.rail_name, settings.ground_net_name)
-        ]
-        widths = [item["finest_width_mm"] for item in summaries if item["track_count"]]
-        track_summary = {
-            "track_count": sum(item["track_count"] for item in summaries),
-            "finest_width_mm": min(widths) if widths else 0.0,
-            "oblique_count": sum(item["oblique_count"] for item in summaries),
-        }
+        # The raster error depends on the tracks; the hybrid mesh has none.
+        track_summary = {}
+        if parsed_board is None:
+            summaries = [
+                extractor.get_track_summary(name)
+                for name in (settings.rail_name, settings.ground_net_name)
+            ]
+            widths = [item["finest_width_mm"] for item in summaries if item["track_count"]]
+            track_summary = {
+                "track_count": sum(item["track_count"] for item in summaries),
+                "finest_width_mm": min(widths) if widths else 0.0,
+                "oblique_count": sum(item["oblique_count"] for item in summaries),
+            }
 
         return ACNetwork(
             track_summary=track_summary,
@@ -1120,4 +1200,5 @@ class ACModelBuilder:
             source_resolution=source_rule,
             quasi_static_limit_hz=limit_hz,
             cavity_capacitors=cavity_capacitors,
+            mesh_engine="raster" if parsed_board is None else "hybrid",
         )

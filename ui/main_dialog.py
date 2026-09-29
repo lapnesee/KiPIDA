@@ -15,6 +15,7 @@ if plugin_dir not in sys.path:
 
 from extractor import GeometryExtractor
 from ac_model import ACModelBuilder, resolve_target_impedance
+from application.ac_controller import saved_board_for_ac
 from cfd_model import fit_unset_enclosure
 from differential_impedance import DifferentialGeometrySnapshot
 from emc_analyzer import EMCGeometrySnapshot
@@ -988,13 +989,19 @@ class KiPIDA_MainDialog(wx.Dialog):
         )
         self.log(f"AC target impedance: {target_provenance}.")
         debug_mode = self.chk_debug.GetValue()
+        parsed_board, layer_mapping = saved_board_for_ac(
+            self._board_file_path(), self.board,
+            GeometryExtractor(self.board, debug=debug_mode, log_callback=self.log).get_board_stackup(),
+            (settings.rail_name, settings.ground_net_name), emit=self.log,
+        )
         builder = ACModelBuilder(self.board, debug=debug_mode, log_callback=self.log)
         network = builder.build(
             rail, settings, grid_size_mm=max(0.1, float(settings.mesh_resolution_mm)),
             all_rails=self.power_tree.rails,
+            parsed_board=parsed_board, layer_mapping=layer_mapping,
         )
         self.log(
-            f"AC network: {network.node_count:,} nodes, requested grid "
+            f"AC network ({network.mesh_engine} mesh): {network.node_count:,} nodes, requested grid "
             f"{network.requested_grid_size_mm:g} mm, effective grid "
             f"{network.effective_grid_size_mm:g} mm, "
             f"{settings.frequency_points} frequency points."
