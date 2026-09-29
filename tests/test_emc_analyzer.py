@@ -554,7 +554,7 @@ class TestEMCAnalyzer(unittest.TestCase):
             snap = EMCGeometrySnapshot(
                 bounds_mm=(0.0, 0.0, 20.0, 20.0),
                 stackup=StackupProfile(layers=layers, source="TEST", trustworthy=True),
-                tracks=tracks,
+                tracks=tracks, power_nets={"+5V"},
                 zones_by_net={"GND": {4: plane, 7: plane}, "+5V": {5: plane, 6: plane}},
             )
             findings = EMCAnalyzer(snap, EMCAnalysisSettings(sources=[])).analyze().findings
@@ -563,6 +563,9 @@ class TestEMCAnalyzer(unittest.TestCase):
         outer = [EMCTrack("SDA", (1.0, 1.0), (9.0, 1.0), 0.2, 3, 8.0),
                  EMCTrack("SCL", (1.0, 2.0), (9.0, 2.0), 0.2, 34, 8.0)]
         self.assertEqual(stackup_findings(outer), [])
+        # A rail routed on the planes (P02's /J2_VBUS_FUSED) is no signal.
+        rail = [EMCTrack("+5V", (1.0, 5.0), (9.0, 5.0), 0.5, layer, 8.0) for layer in (5, 6)]
+        self.assertEqual(stackup_findings(outer + rail), [])
         inner = [EMCTrack("CLK", (1.0, 3.0), (9.0, 3.0), 0.2, 5, 8.0),
                  EMCTrack("DATA", (1.0, 4.0), (9.0, 4.0), 0.2, 6, 8.0)]
         self.assertIn("SU-001", stackup_findings(outer + inner))

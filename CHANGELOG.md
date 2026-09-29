@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed EMC SU-001/SU-002 calling a power plane a signal layer because a
+  rail is routed on it: P02 Rev E's /J2_VBUS_FUSED runs 11.4 and 46.4 mm
+  on PWR.L3 and PWR.L4, and "Adjacent signal layers" (HIGH) was the
+  campaign's first action. Rail and ground tracks no longer count.
 - Changed the DC verdict to judge a load's drop from its regulator's set
   point, pass-element chain included, and DC-006 to INFO below the
   budget: P02 Rev E showed 8 MEDIUM actions for chain drops of 0.5 to

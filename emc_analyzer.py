@@ -1130,10 +1130,15 @@ class EMCAnalyzer:
         if not self._copper_layers:
             return
         plane_layers = set(self._ground_zones)
-        # A signal layer carries tracks. One with pours alone is a plane --
-        # P02 Rev E's PWR.L3 and PWR.L4 hold its rails and no track at all --
-        # and has no signal to couple or to reference.
-        routed_layers = {track.layer_id for track in self.snapshot.tracks}
+        # A signal layer carries signal tracks. One with pours alone is a
+        # plane -- P02 Rev E's PWR.L3 and PWR.L4 hold its rails -- and has no
+        # signal to couple or to reference; so is one whose only tracks are
+        # rails or grounds: the 2026-09-29 board routes /J2_VBUS_FUSED on
+        # both, 11.4 and 46.4 mm, and SU-001 came back as the first action.
+        non_signal = set(self.snapshot.power_nets) | set(self.settings.reference_net_names)
+        routed_layers = {
+            track.layer_id for track in self.snapshot.tracks if track.net_name not in non_signal
+        }
         signal_layers = [layer for layer in self._copper_layers
                          if layer.layer_id not in plane_layers and layer.layer_id in routed_layers]
         signal_ids = {layer.layer_id for layer in signal_layers}
