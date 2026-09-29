@@ -1871,10 +1871,29 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
                     chain_drop_pct, "%",
                     "WARN" if chain_drop_pct > float(maximum_drop_pct) else "INFO",
                 ))
+                # The load sees the chain's drop and its own: the budget runs
+                # from the regulator's set point, so the verdict takes both.
+                # DC-006 told the reader to add them and was an action of its
+                # own, MEDIUM for 0.5 mV (P02 Rev E, 8 such actions at 0.003
+                # to 0.23 % of a 5 % budget); it is now the breakdown, INFO,
+                # unless the chain alone exceeds the budget.
+                own_drop_v = drop_pct / 100.0 * source_voltage
+                total_pct = (chain_drop_v + own_drop_v) / nominal_voltage * 100.0
+                metrics.append(AnalysisMetric(
+                    f"rail_{index}_drop_from_nominal",
+                    f"{rail} worst load below the regulator's {nominal_voltage:g} V set point",
+                    total_pct, "%",
+                    "WARN" if total_pct > float(maximum_drop_pct) else "INFO",
+                ))
+                drop_text += (
+                    f", plus {chain_drop_v * 1000.0:.1f} mV upstream in its pass-element chain: "
+                    f"{total_pct:.3f}% below the {nominal_voltage:g} V set point in all"
+                )
+                drop_pct = total_pct
                 findings.append(_finding(
                     "DC-006", index, "VOLTAGE_DROP",
                     FindingSeverity.HIGH if chain_drop_pct > float(maximum_drop_pct)
-                    else FindingSeverity.MEDIUM,
+                    else FindingSeverity.INFO,
                     f"{rail} carries {chain_drop_v * 1000.0:.1f} mV of upstream chain drop",
                     f"{rail}'s source reads {source_voltage:.3f} V against a {nominal_voltage:.3f} V "
                     f"nominal, {chain_drop_v * 1000.0:.1f} mV ({chain_drop_pct:.2f}%) lost in the "

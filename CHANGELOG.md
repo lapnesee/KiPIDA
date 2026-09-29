@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed the DC verdict to judge a load's drop from its regulator's set
+  point, pass-element chain included, and DC-006 to INFO below the
+  budget: P02 Rev E showed 8 MEDIUM actions for chain drops of 0.5 to
+  11.7 mV; /+5V_RAIL's worst load now reads 31.0 mV (0.61 %) in all.
 - Fixed Phase 10 outcomes reported twice and as actions: P10-001
   repeated the EMC analysis's own PH-001/PH-002, and P10-002 put P02
   Rev E's three unsolved regions in the action list as LOW. Both are now

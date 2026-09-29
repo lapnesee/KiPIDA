@@ -409,6 +409,11 @@ class AnalysisAdapterTests(unittest.TestCase):
         }}, 5.0)
         finding = next(item for item in result.findings if item.rule_id == "DC-006")
         self.assertIn("56.1 mV", finding.description)
+        # Under the budget, the chain is the breakdown of the verdict, not an
+        # action of its own (P02 Rev E, 2026-09-29: 8 MEDIUM for <= 11.7 mV).
+        self.assertEqual(finding.severity, FindingSeverity.INFO)
+        total = next(item for item in result.metrics if item.key == "rail_1_drop_from_nominal")
+        self.assertAlmostEqual(total.value, (0.0561 + 0.0002) / 5.0 * 100.0, places=6)
         metric = next(item for item in result.metrics if item.key == "rail_1_chain_drop")
         self.assertAlmostEqual(metric.value, 0.0561 / 5.0 * 100.0, places=6)
 
