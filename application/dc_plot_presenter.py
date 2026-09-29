@@ -1,8 +1,11 @@
 """wx-independent PNG generation for DC rail results."""
 
+from layer_labels import copper_layer_label
+
+
 def layer_name(stackup, layer_id):
     if stackup and layer_id in stackup.get("copper", {}):
-        return str(stackup["copper"][layer_id].get("name", layer_id))
+        return copper_layer_label(stackup["copper"][layer_id], layer_id)
     return str(layer_id)
 
 

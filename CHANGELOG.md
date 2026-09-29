@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed the DC hotspots and the thermal layer maps naming a copper layer
+  by the name IPC reports ("F.Signal" on P02 Rev E) while the campaign
+  named it by KiCad's own ("F.Cu"): the stackup now keeps both, and both
+  places write "F.Signal (F.Cu)", as the HTML report does (COH-12).
 - Fixed the CFD solid-air film (CFD-6): each face now takes its own
   obstacle's plate length instead of the mean cell size, reads the air
   speed outside its boundary layer instead of in the adjacent cell, and,

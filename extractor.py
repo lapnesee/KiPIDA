@@ -25,11 +25,13 @@ try:
         COPPER_RESISTIVITY_OHM_MM, DEFAULT_BOARD_THICKNESS_MM, DEFAULT_COPPER_THICKNESS_MM,
     )
     from .ingest.board_reader import arc_polyline
+    from .layer_labels import canonical_copper_name
 except (ImportError, ValueError):
     from physical_constants import (
         COPPER_RESISTIVITY_OHM_MM, DEFAULT_BOARD_THICKNESS_MM, DEFAULT_COPPER_THICKNESS_MM,
     )
     from ingest.board_reader import arc_polyline
+    from layer_labels import canonical_copper_name
 
 # Constants mapping (approximate)
 # Needs to be verified against kipy enums
@@ -546,6 +548,7 @@ class GeometryExtractor:
                     
                     copper_data[lid] = {
                         'name': name,
+                        'canonical_name': canonical_copper_name(lid),
                         'thickness_mm': thickness_mm if thickness_mm > 0 else DEFAULT_COPPER_THICKNESS_MM
                     }
                     layer_order.append(lid)

@@ -180,6 +180,8 @@ def _layer_name(raw: str) -> str:
     canonical = f"{match.group(1)}.Cu"
     if match.group(2).lower() == "cu" or text == canonical:
         return canonical
+    if text.endswith(f"({canonical})"):
+        return text
     return f"{text} ({canonical})"
 
 

@@ -37,6 +37,13 @@ class DCPlotPresenterTests(unittest.TestCase):
         self.assertEqual(layer_name(stackup, 2), "In1.Cu")
         self.assertEqual(layer_name(stackup, 7), "7")
 
+    def test_a_designer_layer_name_carries_kicads_own(self):
+        # COH-12: P02 Rev E's DC hotspots named F.Cu "F.Signal", the name
+        # IPC reports, while the campaign named it "F.Cu".
+        from layer_labels import canonical_copper_name
+        stackup = {"copper": {3: {"name": "F.Signal", "canonical_name": canonical_copper_name(3)}}}
+        self.assertEqual(layer_name(stackup, 3), "F.Signal (F.Cu)")
+
     def test_render_groups_rails_and_sorts_layers(self):
         mesh = SimpleNamespace(
             node_coords={1: (0, 0, 2), 2: (1, 0, 0)}, nodes=[1, 2],

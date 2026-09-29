@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 import math
 from typing import Dict, List, Optional
 
+from layer_labels import copper_layer_label
+
 try:
     from shapely.geometry import Point
     from shapely.prepared import prep
@@ -208,7 +210,7 @@ def calculate_current_density(mesh, detailed_result, stackup, classification_geo
                 )
             sample = PlanarCurrentDensitySample(
                 index, x_mm, y_mm, layer_id,
-                str(copper.get("name", layer_id)), current, density, copper_kind,
+                copper_layer_label(copper, layer_id), current, density, copper_kind,
                 float(losses[index]) if index < len(losses) else 0.0,
                 copper_fraction,
             )

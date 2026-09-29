@@ -32,6 +32,7 @@ except ImportError:
 try:
     from .models import ThermalAnalysisSettings
     from . import surface_convection
+    from .layer_labels import copper_layer_label
     from .physical_constants import (
         COPPER_THERMAL_CONDUCTIVITY_W_MK, DEFAULT_BOARD_THICKNESS_MM,
         DEFAULT_COPPER_THICKNESS_MM, PLATING_THICKNESS_FALLBACK_MM,
@@ -39,6 +40,7 @@ try:
 except (ImportError, ValueError):
     from models import ThermalAnalysisSettings
     import surface_convection
+    from layer_labels import copper_layer_label
     from physical_constants import (
         COPPER_THERMAL_CONDUCTIVITY_W_MK, DEFAULT_BOARD_THICKNESS_MM,
         DEFAULT_COPPER_THICKNESS_MM, PLATING_THICKNESS_FALLBACK_MM,
@@ -595,7 +597,7 @@ class ThermalMesher:
         for index, layer_id in enumerate(order):
             info = copper.get(layer_id, {})
             specs.append(ThermalLayerSpec(
-                name=info.get("name", str(layer_id)),
+                name=copper_layer_label(info, layer_id),
                 thickness_mm=max(0.005, float(info.get("thickness_mm", DEFAULT_COPPER_THICKNESS_MM))),
                 layer_id=layer_id,
                 material="copper-layer",
