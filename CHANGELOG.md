@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed a campaign domain's own status disagreeing with the synthesis
+  table: P02 Rev E's DC logged and headed its report section WARN on
+  eight INFO DC-006 findings while the synthesis scored it PASS 100/100.
+  The campaign now applies the one status rule to every result.
 - Changed Phase 10 to mesh a full-wave region coarser, up to 1 mm, when
   the configured step would exceed the cell limit, instead of skipping
   it: both of P02 Rev E's regions (9.2M and 2.1M cells at 0.25 mm for a

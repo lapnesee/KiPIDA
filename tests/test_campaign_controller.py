@@ -252,6 +252,17 @@ class AggregationTests(unittest.TestCase):
                          "findings on the same component must deduplicate")
         self.assertEqual(sorted(campaign.actions[0].domains), ["DC", "EMC"])
 
+    def test_a_domain_of_informational_findings_passes(self):
+        # P02 Rev E, 2026-09-29 17:15: eight INFO DC-006 made DC log and head
+        # its report section WARN, while the synthesis scored it PASS.
+        engine = build({"DC": FakeEngine(findings=[
+            {"rule_id": "DC-006", "severity": FindingSeverity.INFO},
+        ])}, ["DC"])
+        campaign, logs, _ = run(engine, CampaignRunRequest(domain_requests={"DC": FakeRequest()}))
+
+        self.assertEqual(campaign.results[0].status, AnalysisStatus.PASS)
+        self.assertTrue(any("(PASS)" in line for line in logs))
+
     def test_campaign_carries_project_identity(self):
         engine = build({"DC": FakeEngine()}, ["DC"])
         request = CampaignRunRequest(

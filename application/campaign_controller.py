@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from analysis_contract import AnalysisResult, AnalysisStatus
 from analysis_registry import DEFAULT_ANALYSES
-from campaign import CampaignResult
+from campaign import CampaignResult, domain_status_from_findings
 from application.background_controller import BackgroundAnalysisController
 
 import analysis_adapters
@@ -752,6 +752,12 @@ class CampaignEngine:
     @staticmethod
     def _stamp(result: AnalysisResult, request, elapsed: float) -> None:
         """Fill campaign-level provenance the domain adapter could not know."""
+        # The status rule the synthesis table applies. The DC adapter WARNs
+        # on any finding: P02 Rev E, 2026-09-29 17:15, DC logged "completed
+        # (WARN)" and headed its report section WARN on eight INFO DC-006,
+        # while the synthesis scored it PASS 100/100.
+        if result.status in (AnalysisStatus.PASS, AnalysisStatus.WARN, AnalysisStatus.FAIL):
+            result.status = domain_status_from_findings(result.findings)
         if not result.board_fingerprint and request.board_fingerprint:
             result.board_fingerprint = request.board_fingerprint
         if not result.elapsed_seconds:
