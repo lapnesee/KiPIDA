@@ -74,6 +74,9 @@ class _Stub:
     def _set_interaction_status(self, message):
         self.status.append(message)
 
+    def _wait_for_live_board(self):
+        pass
+
     def _batch_request_builders(self, selected):
         return self.builders
 
@@ -106,6 +109,32 @@ def _dialog():
     from ui.main_dialog import KiPIDA_MainDialog
 
     return KiPIDA_MainDialog
+
+
+class LiveBoardSync(unittest.TestCase):
+    def setUp(self):
+        try:
+            from ui.main_dialog import KiPIDA_MainDialog  # noqa: F401
+        except Exception as exc:  # pragma: no cover - depends on import order
+            self.skipTest(f"ui.main_dialog unavailable: {exc}")
+
+    def test_an_empty_board_is_probed_again_before_capture(self):
+        # P02 Rev E, 2026-09-29 16:50: the batch captured an empty board while
+        # the PCB editor synchronised, and every live analysis refused.
+        from types import SimpleNamespace as NS
+        from unittest import mock
+        answers = iter([(0, 0, 0, 0), (2200, 666, 35, 225)])
+        logs, refreshed = [], []
+        stub = NS(
+            LIVE_BOARD_SYNC_ATTEMPTS=6, LIVE_BOARD_SYNC_DELAY_S=0.0,
+            _live_board_counts=lambda: next(answers), log=logs.append,
+            _refresh_live_board_state=lambda: refreshed.append(True),
+        )
+        with mock.patch("ui.main_dialog.wx.SafeYield"):
+            _dialog()._wait_for_live_board(stub)
+
+        self.assertEqual(len(refreshed), 1)
+        self.assertIn("after 1 retry", logs[-1])
 
 
 class ACCampaignProfiles(unittest.TestCase):

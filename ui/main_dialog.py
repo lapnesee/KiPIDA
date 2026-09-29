@@ -3,6 +3,7 @@ import wx.dataview
 import sys
 import os
 import threading
+import time
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime
@@ -598,6 +599,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         builders = self._batch_request_builders(selected)
         labels = dict(self.BATCH_ANALYSES)
         requests = {}
+        self._wait_for_live_board()
         # Every capture happens here, before the first solve, so the window is
         # unresponsive for the sum of them rather than between analyses. Say
         # which one is running or a slow geometry capture reads as a freeze.
@@ -621,6 +623,53 @@ class KiPIDA_MainDialog(wx.Dialog):
         finally:
             self._batch_dc_capture = None
         return requests
+
+    LIVE_BOARD_SYNC_ATTEMPTS = 6
+    LIVE_BOARD_SYNC_DELAY_S = 1.0
+
+    def _live_board_counts(self):
+        """(tracks, vias, zones, footprints) KiCad's IPC returns right now."""
+        extractor = GeometryExtractor(self.board)
+        return tuple(
+            len(extractor._get_board_items(name) or ())
+            for name in ("tracks", "vias", "zones", "footprints")
+        )
+
+    def _wait_for_live_board(self):
+        """Give KiCad a few seconds to synchronise before capturing the board.
+
+        While the PCB editor synchronises, IPC answers every collection empty.
+        A campaign started then on P02 Rev E (2026-09-29 16:50) captured no
+        track, via, zone or pad: AC, differential, thermal and CFD refused one
+        by one, and EMC scored a partial capture 87/100. The board is probed
+        until it answers, up to LIVE_BOARD_SYNC_ATTEMPTS times.
+        """
+        for attempt in range(1, self.LIVE_BOARD_SYNC_ATTEMPTS + 1):
+            try:
+                counts = self._live_board_counts()
+            except Exception as exc:
+                self.log(f"Batch: live board probe failed -- {exc}")
+                return
+            if any(counts):
+                if attempt > 1:
+                    self.log(
+                        f"Batch: KiCad answered after {attempt - 1} retry(ies): "
+                        f"{counts[0]:,} tracks, {counts[1]:,} vias, {counts[2]:,} zones, "
+                        f"{counts[3]:,} footprints."
+                    )
+                return
+            self.log(
+                f"Batch: KiCad IPC returned an empty board (attempt {attempt}/"
+                f"{self.LIVE_BOARD_SYNC_ATTEMPTS}); waiting for PCB Editor synchronisation."
+            )
+            if attempt < self.LIVE_BOARD_SYNC_ATTEMPTS:
+                wx.SafeYield()
+                time.sleep(self.LIVE_BOARD_SYNC_DELAY_S)
+                self._refresh_live_board_state()
+        self.log(
+            "Batch: KiCad IPC still returns an empty board; analyses that read the "
+            "live board will refuse to run. Retry once the PCB Editor has synchronised."
+        )
 
     def _copper_loss_dc_request(self, rails, grid_size_mm, compute_settings,
                                 debug_mode, board_path, purpose="the enclosure CFD"):

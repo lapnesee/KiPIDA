@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed a campaign started while KiCad synchronises: the batch now waits
+  up to 6 s for the live board to answer before capturing it, EMC
+  refuses a capture with copper but no footprint (P02 Rev E scored 87/100
+  on one), and AC names the empty board instead of trying the raster mesh.
 - Changed the AC network build to reuse the ground net's hybrid mesh
   across a campaign's profiles and grid checks instead of meshing GND
   again for each: P02 Rev E's /+5V_RAIL network builds in 2.2 s instead

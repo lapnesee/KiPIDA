@@ -46,6 +46,13 @@ def saved_board_for_ac(board_path, live_board, live_stackup, net_names, emit=lam
         for net in net_names
         for difference in saved_board_differences(board, net, capture, mapping)
     ]
+    if any("live capture empty" in item for item in differences):
+        # Not a different board: no board at all yet. Falling back to the
+        # raster mesh of that empty capture only failed later with "No copper
+        # geometry found" (P02 Rev E, 2026-09-29 16:51).
+        raise ValueError(
+            "KiCad IPC returned an empty board; wait for PCB Editor synchronisation and retry"
+        )
     if differences:
         emit(f"The open board differs from {name} ({'; '.join(differences)}): {fallback}.")
         return None, None, None

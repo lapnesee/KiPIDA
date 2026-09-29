@@ -447,6 +447,17 @@ class EMCGeometrySnapshot:
                 for name, data in zones.items()
             }
         zones = {name: data for name, data in zones.items() if data}
+        if not footprints and (tracks or zones):
+            # A partial capture: copper arrived, no footprint did. P02 Rev E,
+            # 2026-09-29 16:50: the switch node's copper was measured (SW-002)
+            # while every converter read COMPONENT_NOT_IDENTIFIED and no
+            # decoupling, ESD or connector rule had a part to check -- scored
+            # 87/100 against 25 for the full board an hour earlier.
+            raise ValueError(
+                "KiCad IPC returned copper but no footprint, a capture taken while the "
+                "PCB Editor was still synchronising; the component rules would read a "
+                "board without parts. Wait for synchronisation and retry."
+            )
         inductors = resolve_inductor_models(
             settings.inductor_models, footprints, rails or [], settings.sources,
         )
