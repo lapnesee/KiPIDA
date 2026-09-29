@@ -6,6 +6,7 @@ import time
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from application.dc_controller import DefaultDCSolverEngine, unsolved_rails_reason
+from cfd_model import enclosure_air_rise_k
 from electrothermal import ElectroThermalSolver
 from thermal_mesh import ThermalMesher
 from thermal_model import CopperLossPoint
@@ -170,33 +171,14 @@ def dc_copper_loss_points(system_results, resistance_scale=1.0):
 
 
 def enclosure_internal_air_rise_k(enclosure, heat_w):
-    """Steady mean rise of a sealed enclosure's internal air above the
-    ambient its walls see outside, from one lumped heat balance across every
-    interior wall: at steady state Q = h * A_walls * rise, so
-    rise = Q / (h * A_walls).
+    """Steady mean rise of a sealed enclosure's internal air above ambient.
 
-    This is a TODO-free stand-in for the CFD domain's planned
-    ``cfd_model.enclosure_air_rise_k`` (COH-4): the CFD agent had not added
-    it in this worktree when this fix landed, so it is written here, local
-    to thermal, using the same ``models.EnclosureCFDSettings`` geometry the
-    CFD domain already persists. The integrator should fold this call site
-    onto the CFD version once it exists, rather than keep two formulas.
-
-    On P02 Rev E's sealed 165 x 100 x 50 mm box (walls 5 W/m2K, ~4.9 W
-    total board heat): A_walls = 0.0595 m2, rise = 4.9 / (5 * 0.0595) =
-    16.5 K -- matching the audit's measured ~16 K (CFD-4).
+    The CFD report's own lumped balance, Q = h * A_walls * rise
+    (cfd_model.enclosure_air_rise_k), so both analyses state one number.
+    On P02 Rev E's sealed 165 x 100 x 50 mm box (walls 5 W/m2K, ~4.9 W of
+    board heat) it is 16.5 K, the audit's measured ~16 K (CFD-4).
     """
-    geometry = enclosure.geometry
-    width_m = max(0.0, float(geometry.width_mm)) * 1.0e-3
-    depth_m = max(0.0, float(geometry.depth_mm)) * 1.0e-3
-    height_m = max(0.0, float(geometry.height_mm)) * 1.0e-3
-    wall_area_m2 = 2.0 * (
-        width_m * depth_m + width_m * height_m + depth_m * height_m
-    )
-    wall_h_w_m2k = max(1.0e-9, float(geometry.wall_heat_transfer_w_m2k))
-    if wall_area_m2 <= 0.0:
-        return 0.0
-    return max(0.0, float(heat_w)) / (wall_h_w_m2k * wall_area_m2)
+    return enclosure_air_rise_k(enclosure, heat_w)
 
 
 def _estimate_total_heat_w(model, coupled, system_results):

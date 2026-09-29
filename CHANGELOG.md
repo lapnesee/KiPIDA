@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Changed the thermal analysis to take its enclosure air rise from the
+  CFD's own formula instead of a copy of it (P02 Rev E: 16.53 K).
 - Added the DC ground return: the hybrid engine solves the main ground
   net with every load's current returning to the top-level sources, and
   judges each load on its supply drop plus its ground rise less its
