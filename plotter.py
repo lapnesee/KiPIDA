@@ -3,6 +3,7 @@ import matplotlib
 # Use Agg backend to avoid GUI requirement for matplotlib, since we just want images
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
 from matplotlib.colors import LogNorm
 from mpl_toolkits.mplot3d import Axes3D
 import io
@@ -445,11 +446,16 @@ class Plotter:
         try:
             bounds = snapshot.bounds_mm
             fig, axis = plt.subplots(figsize=self._figsize(bounds), constrained_layout=True)
-            for track in snapshot.tracks:
-                axis.plot(
-                    [track.start[0], track.end[0]], [track.start[1], track.end[1]],
-                    color="#b8bec8", linewidth=max(0.35, min(1.2, track.width_mm)), alpha=0.45,
-                )
+            # One collection, not one line per track: P02 Rev E's 2,199
+            # tracks as separate lines took the map 5.5 s to draw, twice
+            # under constrained layout, and "best" legend placement tested
+            # every one of them.
+            if snapshot.tracks:
+                axis.add_collection(LineCollection(
+                    [(track.start, track.end) for track in snapshot.tracks],
+                    colors="#b8bec8", alpha=0.45,
+                    linewidths=[max(0.35, min(1.2, track.width_mm)) for track in snapshot.tracks],
+                ))
             colours = {"CRITICAL": "#7a0019", "HIGH": "#d62728", "MEDIUM": "#ff9800",
                        "LOW": "#f4d03f", "INFO": "#3498db"}
             sizes = {"CRITICAL": 130, "HIGH": 100, "MEDIUM": 75, "LOW": 55, "INFO": 40}

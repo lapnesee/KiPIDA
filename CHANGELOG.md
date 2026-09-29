@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Changed the EMC risk map to draw the board's tracks as one collection:
+  one line per track kept P02 Rev E's EMC plots 12 s behind Phase 10 at
+  18:31, the map alone taking 6.2 s; it now draws in 0.34 s.
 - Changed the DC rail log line to count the regulators a rail is fed by
   and feeds: "Sources: 0, Loads: 0" headed 10 of P02 Rev E's 17 rails,
   /VBUS_SYS among them, which then reported a 4.8 mV drop.

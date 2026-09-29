@@ -255,6 +255,20 @@ class TestPlotter(unittest.TestCase):
         )
         self.assertEqual(heuristic.click_probe.points[0][2].confidence, "HEURISTIC")
 
+    def test_the_risk_map_draws_its_tracks_as_one_collection(self):
+        # P02 Rev E, 2026-09-29 18:31: 2,199 tracks drawn one line each kept
+        # the EMC plots 12 s behind Phase 10; the map alone took 6.2 s.
+        from unittest import mock
+        snapshot = SimpleNamespace(bounds_mm=(0.0, 0.0, 100.0, 80.0), tracks=[
+            SimpleNamespace(start=(5.0, y), end=(95.0, y), width_mm=0.2) for y in (10.0, 20.0, 30.0)
+        ])
+        with mock.patch.object(type(self.plotter), "_fig_to_png", lambda _self, fig: fig):
+            fig = self.plotter.plot_emc_risk_map(snapshot, SimpleNamespace(findings=[]), as_png=True)
+        axis = fig.axes[0]
+
+        self.assertEqual(len(axis.lines), 0)
+        self.assertEqual([len(item.get_segments()) for item in axis.collections], [3])
+
     def test_plot_em_near_field_with_hover_probe(self):
         result = SimpleNamespace(
             x_coordinates_mm=[0.0, 1.0, 2.0],
