@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Changed the decoupling optimizer to evaluate its trials by a Woodbury
+  update of one block solve per frequency instead of a full network
+  sweep per footprint, value and round. On a 28,800-node two-plane rail
+  with 6 DNP footprints, 4 values and 3 rounds, the trials fell from
+  about 118 s to 11 s, with the same picks and a 6e-10 deviation from a
+  full sweep.
 - Added plane-pair (cavity) capacitance to the AC model: each rail cell
   gets C = eps0 er A / h to the return copper on the directly adjacent
   layer, stamped as a vectorised admittance next to the R + jwL

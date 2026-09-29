@@ -46,16 +46,6 @@ class DecouplingOptimizer:
         return [replace(capacitor) for capacitor in capacitors]
 
     def optimize(self, network, settings, progress_callback=None):
-        # Every trial below still calls solve_sweep_multiport from scratch
-        # (fresh Python _connectivity, fresh stamps, a fresh LU
-        # factorisation per frequency point) rather than reusing the current
-        # LU as a preconditioner across trials, though adding one capacitor
-        # is a low-rank update to the network. AC-9 asked for that reuse;
-        # it is NOT implemented here -- it needs ACSolver's recycled-LU
-        # machinery to accept a factorisation carried across capacitor
-        # configurations, not just across frequency points, which is a
-        # solver-level change out of scope for this fix. Cost stays
-        # max_additions x N_DNP x N_values solve_sweep_multiport calls.
         if np is None:
             raise ImportError("NumPy is required for decoupling optimization.")
 
@@ -89,7 +79,15 @@ class DecouplingOptimizer:
         recommendations = []
 
         coarse_settings = replace(settings, frequency_points=min(41, settings.frequency_points))
-        current_result = self.solver.solve_sweep_multiport(network, coarse_settings, capacitors=working)
+        # Each trial used to be a full sweep of the network: max_additions x
+        # N_DNP x N_values of them. One block solve per frequency now serves
+        # every covered footprint, and each trial is the Woodbury update of
+        # that solution (AC-9). A footprint off the source's copper is not
+        # covered and still gets a full sweep; selecting one rebuilds the
+        # base, since the update assumes the anchors do not move.
+        base = self.solver.candidate_impedances(network, coarse_settings, working, available_refs)
+        added = []
+        current_result = base.sweep(added)
         current_score = self._score(current_result, target)
         total_trials = max(1, max_additions * max(1, len(available_refs)) * max(1, len(values)))
         completed_trials = 0
@@ -106,7 +104,10 @@ class DecouplingOptimizer:
                     selected.enabled = True
                     selected.candidate = False
                     selected.capacitance_f = capacitance
-                    result = self.solver.solve_sweep_multiport(network, coarse_settings, capacitors=trial)
+                    if base.covers(ref_des):
+                        result = base.sweep(added + [selected])
+                    else:
+                        result = self.solver.solve_sweep_multiport(network, coarse_settings, capacitors=trial)
                     score = self._score(result, target)
                     completed_trials += 1
                     if progress_callback:
@@ -124,6 +125,11 @@ class DecouplingOptimizer:
 
             _, ref_des, capacitance, working = best
             available_refs.remove(ref_des)
+            if base.covers(ref_des):
+                added.append(next(cap for cap in working if cap.ref_des == ref_des))
+            else:
+                base = self.solver.candidate_impedances(network, coarse_settings, working, available_refs)
+                added = []
             current_result = best_result
             current_score = best_score
             recommendations.append(OptimizationRecommendation(

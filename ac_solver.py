@@ -238,6 +238,103 @@ class _RecycledLUSolver:
         )
 
 
+class CandidateImpedances:
+    """Port impedances of one configuration plus any candidate capacitors.
+
+    Populating a footprint adds its admittance between a handful of mesh
+    nodes: a low-rank change ``P C P^T`` to the network matrix ``A``. With
+    ``U = A^-1 P`` solved once per frequency, the Woodbury identity gives the
+    port voltages of ``A + P C P^T`` exactly from ``U`` and the base solution,
+    through a system as small as the nodes touched. Every trial of the
+    decoupling optimizer, over every footprint, value and round, is then
+    dense algebra on those few nodes instead of a sweep of the whole network
+    (AC-9).
+
+    The identity holds only while populating a footprint leaves the anchors
+    alone, i.e. while every node it touches already lies on the source's
+    copper: :meth:`covers` says which footprints qualify.
+    """
+
+    def __init__(self, network, settings, frequencies, ports, excluded,
+                 nodes, pinned, base, node_side, transfer, covered):
+        self.network = network
+        self.settings = settings
+        self.frequencies = frequencies
+        self.ports = ports
+        self.excluded = excluded
+        self._position = {node: index for index, node in enumerate(nodes)}
+        self._pinned = pinned
+        self._base = base            # (F, ports): port impedances of A
+        self._node_side = node_side  # (F, nodes, ports): A^-1 J at the nodes
+        self._transfer = transfer    # (F, ports + nodes, nodes): w^T U, then U at the nodes
+        self._covered = covered
+
+    def covers(self, ref_des):
+        return ref_des in self._covered
+
+    def _coupling(self, capacitors):
+        """Touched positions and the added admittance on them, per frequency."""
+        stamps = []
+        for capacitor in capacitors:
+            if capacitor.capacitance_f <= 0:
+                continue
+            if capacitor.ref_des not in self._covered:
+                raise ValueError(f"{capacitor.ref_des} is not a covered candidate.")
+            connection = self.network.capacitor_nodes[capacitor.ref_des]
+            admittance = np.array([
+                1.0 / ACSolver.capacitor_impedance(capacitor, frequency)
+                for frequency in self.frequencies
+            ], dtype=np.complex128)
+            # Same spread as _NetworkStamps: evenly over every rail/return
+            # pair, with the rows and columns of anchored nodes dropped.
+            share = 1.0 / (len(connection.rail_nodes) * len(connection.ground_nodes))
+            for rail in connection.rail_nodes:
+                for ground in connection.ground_nodes:
+                    stamps.append((rail, ground, admittance * share))
+        touched = sorted({
+            node for rail, ground, _ in stamps for node in (rail, ground)
+            if node not in self._pinned
+        })
+        local = {node: index for index, node in enumerate(touched)}
+        coupling = np.zeros((len(self.frequencies), len(touched), len(touched)), dtype=np.complex128)
+        for rail, ground, admittance in stamps:
+            a, b = local.get(rail), local.get(ground)
+            if a is not None:
+                coupling[:, a, a] += admittance
+            if b is not None:
+                coupling[:, b, b] += admittance
+            if a is not None and b is not None:
+                coupling[:, a, b] -= admittance
+                coupling[:, b, a] -= admittance
+        return np.array([self._position[node] for node in touched], dtype=np.int64), coupling
+
+    def sweep(self, additions):
+        """The worst-port sweep with *additions* populated, as a multiport sweep."""
+        positions, coupling = self._coupling(additions)
+        impedances = self._base.copy()
+        if positions.size:
+            port_count = self._base.shape[1]
+            green = self._transfer[:, port_count + positions][:, :, positions]
+            node_side = self._node_side[:, positions, :]
+            port_side = self._transfer[:, :port_count][:, :, positions]
+            system = np.eye(positions.size)[None, :, :] + coupling @ green
+            correction = np.linalg.solve(system, coupling @ node_side)
+            impedances = impedances - np.einsum("fpm,fmp->fp", port_side, correction)
+        results = {
+            ref: ACSolver._summarize(
+                self.frequencies, [complex(value) for value in impedances[:, index]],
+                self.settings, self.network,
+            )
+            for index, ref in enumerate(self.ports)
+        }
+        worst_ref = max(results, key=lambda ref: results[ref].worst_impedance_ohm)
+        worst = results[worst_ref]
+        worst.per_port_results = results
+        worst.worst_port_ref_des = worst_ref
+        worst.excluded_ports = list(self.excluded)
+        return worst
+
+
 class ACSolver:
     def __init__(self, debug=False, log_callback=None, compute_settings=None):
         self.debug = debug
@@ -676,6 +773,91 @@ class ACSolver:
                 f"{worst.worst_impedance_ohm:.6g} ohm."
             )
         return worst
+
+    def candidate_impedances(self, network, settings, capacitors, candidates):
+        """A :class:`CandidateImpedances` over *capacitors* for *candidates*.
+
+        One factorisation per frequency serves every port and every node the
+        covered candidates touch, as a single block of right-hand sides.
+        """
+        if settings.frequency_points < 2:
+            raise ValueError("At least two frequency points are required.")
+        capacitors = list(capacitors)
+        anchors, component_by_node, source_component = self._connectivity(network, capacitors)
+        ports = dict(getattr(network, "ports", None) or {}) or {"": network.measurement}
+        usable, excluded = {}, []
+        for ref in sorted(ports):
+            reason = self._port_disconnection(
+                network, ports[ref], component_by_node, source_component,
+            )
+            if reason is None:
+                usable[ref] = ports[ref]
+            else:
+                excluded.append({"ref_des": ref, "reason": reason})
+        if not usable:
+            raise ValueError("No measurement port is connected to the AC network.")
+
+        covered = set()
+        for ref in candidates:
+            connection = network.capacitor_nodes.get(ref)
+            if connection is not None and self._port_disconnection(
+                network, connection, component_by_node, source_component,
+            ) is None:
+                covered.add(ref)
+        pinned = set(int(node) for node in anchors)
+        nodes = sorted({
+            int(node) for ref in covered
+            for node in list(network.capacitor_nodes[ref].rail_nodes)
+            + list(network.capacitor_nodes[ref].ground_nodes)
+            if int(node) not in pinned
+        })
+
+        frequencies = self._frequencies(settings)
+        started = time.perf_counter()
+        stamps = self._stamps(network, settings, capacitors, anchors)
+        weights = np.array([self._injection(network, usable[ref]) for ref in usable])
+        block = np.zeros((network.node_count, len(usable) + len(nodes)), dtype=np.complex128)
+        block[:, :len(usable)] = weights.T
+        block[stamps.anchors, :len(usable)] = 0.0
+        block[nodes, len(usable) + np.arange(len(nodes))] = 1.0
+        base, node_side, transfer = [], [], []
+        for frequency in frequencies:
+            try:
+                solution = self._solve_block(stamps.matrix(frequency), block)
+            except Exception as exc:
+                raise ValueError(f"AC solve failed at {frequency:g} Hz: {exc}") from exc
+            # A port's voltage is its injection pattern applied to the node
+            # voltages (anchored nodes sit at zero either way).
+            at_ports = weights @ solution
+            base.append(np.diagonal(at_ports[:, :len(usable)]))
+            node_side.append(solution[nodes, :len(usable)])
+            transfer.append(np.vstack([
+                at_ports[:, len(usable):], solution[nodes, len(usable):],
+            ]))
+        self._log(
+            f"{len(frequencies)} frequency point(s) solved for {len(usable)} port(s) "
+            f"and {len(nodes)} candidate node(s) in {time.perf_counter() - started:.1f} s."
+        )
+        return CandidateImpedances(
+            network, settings, frequencies, list(usable), excluded, nodes, pinned,
+            np.array(base), np.array(node_side), np.array(transfer), covered,
+        )
+
+    def _solve_block(self, matrix, block):
+        """Every column of *block* solved on one fresh factorisation of *matrix*."""
+        rtol = self._solver_rtol()
+        scale = np.maximum(np.linalg.norm(block, axis=0), 1.0e-30)
+        for pivoting in (False, True):
+            try:
+                solution = _RecycledLUSolver._factorize(matrix, pivoting).solve(block)
+            except RuntimeError:
+                continue
+            residual = np.linalg.norm(matrix @ solution - block, axis=0) / scale
+            if np.all(np.isfinite(solution)) and float(residual.max()) <= rtol:
+                return solution
+        # Neither factorisation alone reached the tolerance: let GMRES refine.
+        solutions, _metadata = _RecycledLUSolver(rtol).solve(matrix, list(block.T))
+        return np.column_stack(solutions)
 
     def solve_sweep(self, network, settings: ACAnalysisSettings, capacitors=None, progress_callback=None):
         if settings.frequency_start_hz <= 0:

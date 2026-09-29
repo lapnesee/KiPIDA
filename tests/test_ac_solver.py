@@ -174,6 +174,49 @@ class TestACSolver(unittest.TestCase):
         self.assertLess(splu.call_count, 61 // 4, "the factorisation was not reused")
         self.assertEqual(result.compute_backend, ac_solver.RECYCLED_LU_BACKEND)
 
+    def test_a_candidate_update_matches_a_full_sweep(self):
+        # AC-9: every optimizer trial was a full sweep of the network. The
+        # Woodbury update of one base solve must give the same impedances.
+        np = ac_solver.np
+        from models import MeshBranch
+
+        size = 6
+        node = {(layer, i, j): (layer * size + i) * size + j
+                for layer in (0, 1) for i in range(size) for j in range(size)}
+        branches = [
+            MeshBranch(node[(layer, i, j)], node[(layer, i + di, j + dj)],
+                       resistance_ohm=1.1e-3, inductance_h=0.12e-9)
+            for (layer, i, j) in node for di, dj in ((1, 0), (0, 1))
+            if i + di < size and j + dj < size
+        ]
+        pair = lambda i, j: ACNodeConnection([node[(0, i, j)]], [node[(1, i, j)]])
+        capacitors = [
+            CapacitorModel(ref_des=f"C{k}", capacitance_f=100e-9, esr_ohm=0.01,
+                           esl_h=0.5e-9, enabled=k == 0, candidate=k > 0)
+            for k in range(3)
+        ]
+        network = ACNetwork(
+            node_count=len(node), branches=branches, source=pair(0, 0),
+            measurement=pair(size - 1, size - 1),
+            capacitor_nodes={cap.ref_des: pair(k + 1, size - 2)
+                             for k, cap in enumerate(capacitors)},
+        )
+        settings = self.settings(
+            frequency_start_hz=1e3, frequency_stop_hz=1e9, frequency_points=21,
+            source=ACSourceModel(resistance_ohm=5e-3, inductance_h=2e-9),
+            capacitors=capacitors,
+        )
+        solver = ACSolver()
+        base = solver.candidate_impedances(network, settings, capacitors, ["C1", "C2"])
+        trial = [CapacitorModel(**{**vars(cap), "enabled": True}) for cap in capacitors]
+        trial[2].capacitance_f = 10e-6
+
+        fast = base.sweep(trial[1:])
+        full = solver.solve_sweep_multiport(network, settings, capacitors=trial)
+
+        deviation = np.abs(np.subtract(fast.impedance_ohm, full.impedance_ohm))
+        self.assertLess(float(np.max(deviation / np.abs(full.impedance_ohm))), 1e-7)
+
     def test_optimizer_populates_existing_candidate(self):
         candidate = CapacitorModel(
             ref_des="C_DNP", capacitance_f=100e-9, esr_ohm=0.01,
