@@ -93,9 +93,12 @@ class EdgeCoupledFieldSolverTests(unittest.TestCase):
         # test_matches_kirschning_jansen_microstrip_within_tolerance below):
         # 76.86 -> ~85 ohm once er, the field solver and the recommender are
         # all fixed. Any further drift here means a real change to the field
-        # solver's physics, not just code organization.
-        GroundedCoplanarDifferentialSolver._solve_cached.cache_clear()
-        result = GroundedCoplanarDifferentialSolver.solve(0.145, 0.18, 0.15, 0.0994, 4.1, 0.035)
+        # solver's physics, not just code organization. Pinned on the
+        # rectangular section: the trapezoidal etch is a separate change.
+        import field_solver_2d
+        from unittest import mock
+        with mock.patch.object(field_solver_2d, "ETCH_FACTOR", 0.0):
+            result = GroundedCoplanarDifferentialSolver.solve(0.145, 0.18, 0.15, 0.0994, 4.1, 0.035)
         self.assertAlmostEqual(result.differential_impedance_ohm, 88.96915109753839, places=6)
         self.assertAlmostEqual(result.effective_epsilon_r, 3.020792026000798, places=6)
 

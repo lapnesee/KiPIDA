@@ -14,13 +14,17 @@ import numpy as np
 
 try:
     from .physical_constants import DEFAULT_COPPER_THICKNESS_MM
+    from . import field_solver_2d
     from .field_solver_2d import (
-        dielectric_map, energy_from_potential, piecewise_grid, solve_potential,
+        dielectric_map, energy_from_potential, etched_mask, piecewise_grid,
+        solve_potential, undercut_mm,
     )
 except (ImportError, ValueError):
     from physical_constants import DEFAULT_COPPER_THICKNESS_MM
+    import field_solver_2d
     from field_solver_2d import (
-        dielectric_map, energy_from_potential, piecewise_grid, solve_potential,
+        dielectric_map, energy_from_potential, etched_mask, piecewise_grid,
+        solve_potential, undercut_mm,
     )
 
 
@@ -123,6 +127,7 @@ class GroundedCoplanarDifferentialSolver:
                 epsilon_above if epsilon_above is not None else epsilon_below,
                 solder_mask_thickness_mm, solder_mask_epsilon_r,
             )), bool(include_solder_mask), bool(backing_plane),
+            float(field_solver_2d.ETCH_FACTOR),
         )
 
     @classmethod
@@ -130,7 +135,7 @@ class GroundedCoplanarDifferentialSolver:
     def _solve_cached(cls, width_mm, pair_gap_mm, ground_gap_mm, height_below_mm,
                       epsilon_below, copper_thickness_mm, height_above_mm,
                       epsilon_above, solder_mask_thickness_mm, solder_mask_epsilon_r,
-                      include_solder_mask, backing_plane):
+                      include_solder_mask, backing_plane, etch_factor):
         if min(width_mm, pair_gap_mm, ground_gap_mm, height_below_mm, copper_thickness_mm) <= 0.0:
             raise ValueError("Coplanar width, pair gap, ground gap and reference height must be positive.")
         if min(float(epsilon_below), float(epsilon_above)) < 1.0:
@@ -165,12 +170,28 @@ class GroundedCoplanarDifferentialSolver:
         # repeats within one recommender sweep.
         def count(length, minimum=7, maximum=90):
             return max(minimum, min(maximum, int(math.ceil(length / target_step))))
-        x_values = cls._piecewise_grid(
-            (-half_span, -ground_edge, -pair_half_width, -pair_gap_mm / 2.0,
-             pair_gap_mm / 2.0, pair_half_width, ground_edge, half_span),
-            (count(side_margin, 14), count(ground_gap_mm), count(width_mm),
-             count(pair_gap_mm, 10), count(width_mm), count(ground_gap_mm), count(side_margin, 14)),
-        )
+        undercut = min(undercut_mm(copper_thickness_mm, etch_factor), 0.25 * min(width_mm, ground_gap_mm))
+        if undercut > 0.0:
+            # A column boundary where each etched edge's top lands, so the
+            # trapezoid is resolved whatever the trace width.
+            u, cu = undercut, count(undercut, 3)
+            x_values = cls._piecewise_grid(
+                (-half_span, -ground_edge - u, -ground_edge, -pair_half_width,
+                 -pair_half_width + u, -pair_gap_mm / 2.0 - u, -pair_gap_mm / 2.0,
+                 pair_gap_mm / 2.0, pair_gap_mm / 2.0 + u, pair_half_width - u,
+                 pair_half_width, ground_edge, ground_edge + u, half_span),
+                (count(side_margin - u, 14), cu, count(ground_gap_mm), cu,
+                 count(width_mm - 2.0 * u), cu, count(pair_gap_mm, 10), cu,
+                 count(width_mm - 2.0 * u), cu, count(ground_gap_mm), cu,
+                 count(side_margin - u, 14)),
+            )
+        else:
+            x_values = cls._piecewise_grid(
+                (-half_span, -ground_edge, -pair_half_width, -pair_gap_mm / 2.0,
+                 pair_gap_mm / 2.0, pair_half_width, ground_edge, half_span),
+                (count(side_margin, 14), count(ground_gap_mm), count(width_mm),
+                 count(pair_gap_mm, 10), count(width_mm), count(ground_gap_mm), count(side_margin, 14)),
+            )
         y_boundaries = _vertical_boundaries(
             signal_y, conductor_top_y, total_height, internal,
             include_solder_mask and not internal, solder_mask_thickness_mm,
@@ -187,12 +208,17 @@ class GroundedCoplanarDifferentialSolver:
         fixed[0, :] = bool(backing_plane)
         if internal:
             fixed[-1, :] = True
-        left_trace = (x_values >= -pair_half_width) & (x_values <= -pair_gap_mm / 2.0)
-        right_trace = (x_values >= pair_gap_mm / 2.0) & (x_values <= pair_half_width)
-        side_ground = (x_values <= -ground_edge) | (x_values >= ground_edge)
-        fixed[np.ix_(conductor_rows, left_trace | right_trace | side_ground)] = True
-        values[np.ix_(conductor_rows, left_trace)] = -0.5
-        values[np.ix_(conductor_rows, right_trace)] = 0.5
+        left_trace = etched_mask(x_values, y_values, -pair_half_width, -pair_gap_mm / 2.0,
+                                 signal_y, conductor_top_y, undercut)
+        right_trace = etched_mask(x_values, y_values, pair_gap_mm / 2.0, pair_half_width,
+                                  signal_y, conductor_top_y, undercut)
+        side_ground = (
+            etched_mask(x_values, y_values, -np.inf, -ground_edge, signal_y, conductor_top_y, undercut)
+            | etched_mask(x_values, y_values, ground_edge, np.inf, signal_y, conductor_top_y, undercut)
+        )
+        fixed[left_trace | right_trace | side_ground] = True
+        values[left_trace] = -0.5
+        values[right_trace] = 0.5
         epsilon_rows = cls._dielectric_map(
             y_values, signal_y, conductor_top_y, top_reference_y,
             float(epsilon_below), float(epsilon_above), include_solder_mask and not internal,
@@ -244,7 +270,7 @@ class EdgeCoupledDifferentialSolver:
             *(round(float(value), 9) for value in (
                 width_mm, gap_mm, copper_thickness_mm, height_below_mm, epsilon_below,
                 0.0, epsilon_below, solder_mask_thickness_mm, solder_mask_epsilon_r,
-            )), bool(include_solder_mask),
+            )), bool(include_solder_mask), float(field_solver_2d.ETCH_FACTOR),
         )
 
     @classmethod
@@ -256,26 +282,28 @@ class EdgeCoupledDifferentialSolver:
             *(round(float(value), 9) for value in (
                 width_mm, gap_mm, copper_thickness_mm, height_below_mm, epsilon_below,
                 height_above_mm, epsilon_above, 0.0, 3.3,
-            )), False,
+            )), False, float(field_solver_2d.ETCH_FACTOR),
         )
 
     @classmethod
     @lru_cache(maxsize=256)
     def _solve_cached(cls, width_mm, gap_mm, copper_thickness_mm, height_below_mm,
                       epsilon_below, height_above_mm, epsilon_above,
-                      solder_mask_thickness_mm, solder_mask_epsilon_r, include_solder_mask):
+                      solder_mask_thickness_mm, solder_mask_epsilon_r, include_solder_mask,
+                      etch_factor):
         return cls._solve_common(
             width_mm, gap_mm, copper_thickness_mm, height_below_mm,
             epsilon_below, height_above_mm, epsilon_above,
             solder_mask_thickness_mm, solder_mask_epsilon_r, include_solder_mask,
-            left_trace_value=-0.5,
+            left_trace_value=-0.5, etch_factor=etch_factor,
         )
 
     @classmethod
     @lru_cache(maxsize=256)
     def _solve_cached_even(cls, width_mm, gap_mm, copper_thickness_mm, height_below_mm,
                            epsilon_below, height_above_mm, epsilon_above,
-                           solder_mask_thickness_mm, solder_mask_epsilon_r, include_solder_mask):
+                           solder_mask_thickness_mm, solder_mask_epsilon_r, include_solder_mask,
+                           etch_factor):
         """Even (common) mode: both traces driven to +0.5 V instead of the
         odd-mode +/-0.5 V split used by :meth:`_solve_cached`. Same grid,
         dielectric map, and capacitance-ratio impedance extraction."""
@@ -283,14 +311,14 @@ class EdgeCoupledDifferentialSolver:
             width_mm, gap_mm, copper_thickness_mm, height_below_mm,
             epsilon_below, height_above_mm, epsilon_above,
             solder_mask_thickness_mm, solder_mask_epsilon_r, include_solder_mask,
-            left_trace_value=0.5,
+            left_trace_value=0.5, etch_factor=etch_factor,
         )
 
     @classmethod
     def _solve_common(cls, width_mm, gap_mm, copper_thickness_mm, height_below_mm,
                       epsilon_below, height_above_mm, epsilon_above,
                       solder_mask_thickness_mm, solder_mask_epsilon_r, include_solder_mask,
-                      left_trace_value):
+                      left_trace_value, etch_factor=0.0):
         if min(width_mm, gap_mm, copper_thickness_mm, height_below_mm) <= 0.0:
             raise ValueError("Edge-coupled width, gap, thickness and reference height must be positive.")
         if min(float(epsilon_below), float(epsilon_above)) < 1.0:
@@ -313,11 +341,24 @@ class EdgeCoupledDifferentialSolver:
         # GroundedCoplanarDifferentialSolver._solve_cached.
         def count(length, minimum=7, maximum=90):
             return max(minimum, min(maximum, int(math.ceil(length / target_step))))
-        x_values = piecewise_grid(
-            (-half_span, -pair_half_width, -gap_mm / 2.0, gap_mm / 2.0, pair_half_width, half_span),
-            (count(side_margin, 14), count(width_mm), count(gap_mm, 10),
-             count(width_mm), count(side_margin, 14)),
-        )
+        undercut = min(undercut_mm(copper_thickness_mm, etch_factor), 0.25 * width_mm)
+        if undercut > 0.0:
+            # A column boundary where each etched edge's top lands, so the
+            # trapezoid is resolved whatever the trace width.
+            u, cu = undercut, count(undercut, 3)
+            x_values = piecewise_grid(
+                (-half_span, -pair_half_width, -pair_half_width + u, -gap_mm / 2.0 - u,
+                 -gap_mm / 2.0, gap_mm / 2.0, gap_mm / 2.0 + u, pair_half_width - u,
+                 pair_half_width, half_span),
+                (count(side_margin, 14), cu, count(width_mm - 2.0 * u), cu,
+                 count(gap_mm, 10), cu, count(width_mm - 2.0 * u), cu, count(side_margin, 14)),
+            )
+        else:
+            x_values = piecewise_grid(
+                (-half_span, -pair_half_width, -gap_mm / 2.0, gap_mm / 2.0, pair_half_width, half_span),
+                (count(side_margin, 14), count(width_mm), count(gap_mm, 10),
+                 count(width_mm), count(side_margin, 14)),
+            )
         y_boundaries = _vertical_boundaries(
             signal_y, conductor_top_y, total_height, internal,
             include_solder_mask, solder_mask_thickness_mm,
@@ -331,11 +372,13 @@ class EdgeCoupledDifferentialSolver:
         fixed[0, :] = True  # bottom reference plane is always present
         if internal:
             fixed[-1, :] = True  # stripline top reference plane
-        left_trace = (x_values >= -pair_half_width) & (x_values <= -gap_mm / 2.0)
-        right_trace = (x_values >= gap_mm / 2.0) & (x_values <= pair_half_width)
-        fixed[np.ix_(conductor_rows, left_trace | right_trace)] = True
-        values[np.ix_(conductor_rows, left_trace)] = left_trace_value
-        values[np.ix_(conductor_rows, right_trace)] = 0.5
+        left_trace = etched_mask(x_values, y_values, -pair_half_width, -gap_mm / 2.0,
+                                 signal_y, conductor_top_y, undercut)
+        right_trace = etched_mask(x_values, y_values, gap_mm / 2.0, pair_half_width,
+                                  signal_y, conductor_top_y, undercut)
+        fixed[left_trace | right_trace] = True
+        values[left_trace] = left_trace_value
+        values[right_trace] = 0.5
         epsilon_rows = dielectric_map(
             y_values, signal_y, conductor_top_y, top_reference_y,
             float(epsilon_below), float(epsilon_above), include_solder_mask and not internal,
@@ -363,7 +406,7 @@ class EdgeCoupledDifferentialSolver:
             *(round(float(value), 9) for value in (
                 width_mm, gap_mm, copper_thickness_mm, height_below_mm, epsilon_below,
                 0.0, epsilon_below, solder_mask_thickness_mm, solder_mask_epsilon_r,
-            )), bool(include_solder_mask),
+            )), bool(include_solder_mask), float(field_solver_2d.ETCH_FACTOR),
         )
 
     @classmethod
@@ -374,5 +417,5 @@ class EdgeCoupledDifferentialSolver:
             *(round(float(value), 9) for value in (
                 width_mm, gap_mm, copper_thickness_mm, height_below_mm, epsilon_below,
                 height_above_mm, epsilon_above, 0.0, 3.3,
-            )), False,
+            )), False, float(field_solver_2d.ETCH_FACTOR),
         )

@@ -750,8 +750,9 @@ def adapt_differential_result(results: Any, stackup: Any, tolerance_pct: float) 
             "Via and connector-launch discontinuities require 3-D or measured validation.",
             f"A pair passes within +/-{float(tolerance_pct):g} % of its target, the "
             "project's setting; interface standards differ (USB 2.0 allows +/-15 %).",
-            "Traces are modelled with a rectangular cross-section; a trapezoidal etch "
-            "(narrower top) typically raises Zdiff by 1-3 %.",
+            "Traces are modelled with a trapezoidal etch at an assumed etch factor of "
+            "2.75 (a 35 um trace's top 25 um narrower than its base, the usual 1 oz "
+            "allowance); the fabricator's own etch compensation is not known.",
             f"A pair is judged on its routed length with a qualified reference plane; "
             f"below {90:g} % of the length it is reported as an estimate.",
         ],

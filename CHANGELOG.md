@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed the 2-D differential field solvers to draw a trace as a
+  trapezoid (etch factor 2.75, the top 25 um narrower at 1 oz) instead
+  of a rectangle. P02 Rev E's USB pairs (0.200 / 0.250 mm on B.Cu) read
+  85.32 ohm instead of 83.25; 90 ohm now needs about 0.180 mm.
 - Fixed Phase 10 reaching the report only as status strings: a SPICE
   model it could not use (P02 Rev E's U5, TPS562200DDCT, unstable in
   ngspice) is a P10-001 finding and a failed or unsolved region or

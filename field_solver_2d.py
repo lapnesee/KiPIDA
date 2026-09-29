@@ -23,6 +23,35 @@ def piecewise_grid(boundaries, intervals):
     return np.asarray(values, dtype=np.float64)
 
 
+# Etch factor of a trace edge: the copper thickness over the undercut of
+# one side. 2.75 makes the top of a 35 um trace 25.4 um (1 mil) narrower
+# than its base, the usual allowance for 1 oz copper; 0 draws the trace
+# rectangular.
+ETCH_FACTOR = 2.75
+
+
+def undercut_mm(copper_thickness_mm, etch_factor):
+    """How far each edge of a trace's top sits inside its base, in mm."""
+    return copper_thickness_mm / etch_factor if etch_factor > 0.0 else 0.0
+
+
+def etched_mask(x_values, y_values, left, right, bottom_y, top_y, undercut):
+    """The grid cells of a trace whose base spans *left* to *right*.
+
+    Etching takes copper from the top of a trace's edges: its cross-section
+    is a trapezoid, each edge moving in by *undercut* from base to top. It
+    was drawn as a rectangle (a limitation the report stated).
+    """
+    rows = (y_values >= bottom_y - 1.0e-12) & (y_values <= top_y + 1.0e-12)
+    rise = np.clip((y_values - bottom_y) / max(top_y - bottom_y, 1.0e-12), 0.0, 1.0)
+    inset = (rise * undercut)[:, None]
+    columns = (
+        (x_values[None, :] >= left + inset - 1.0e-12)
+        & (x_values[None, :] <= right - inset + 1.0e-12)
+    )
+    return columns & rows[:, None]
+
+
 def dielectric_map(y_values, signal_y, conductor_top_y, top_reference_y,
                     epsilon_below, epsilon_above,
                     include_solder_mask, solder_mask_thickness, solder_mask_epsilon):
