@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fixed the AC text report judging a band-limited target flat: P02
+  Rev E's /VBUS_SYS read "Status: PASS" above "Worst/target ratio:
+  2.48x" and 9 exceeding points, all above its 35 MHz band.
 - Fixed CUDA solving a reassembled matrix with the previous one's values
   when both share a sparsity: P02 Rev E's thermal mesh, rebuilt after its
   surface coefficients were refined, solved with the old boundary

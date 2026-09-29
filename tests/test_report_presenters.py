@@ -43,6 +43,23 @@ class ReportPresenterTests(unittest.TestCase):
         self.assertIn("Rail / return: +3V3 / GND", report)
         self.assertIn("C1: 1uF", report)
 
+    def test_ac_report_judges_the_band_limited_target(self):
+        # P02 Rev E, 2026-09-29 19:30: /VBUS_SYS read "Status: PASS" above
+        # "Worst/target ratio: 2.48x" and 9 exceeding points (46-100 MHz),
+        # all above the 35 MHz band of its 0.0889 ohm target.
+        final = SimpleNamespace(
+            meets_target=True, worst_impedance_ohm=0.2204, worst_frequency_hz=1e8,
+            target_impedance_ohm=0.0888889, target_bandwidth_hz=35e6,
+            compute_backend="CPU", compute_device="host", compute_solve_seconds=0.1,
+            compute_transfer_seconds=0.0, compute_relative_residual=1e-8, compute_cache_hits=0,
+            frequencies_hz=[1e6, 46.4e6, 1e8], impedance_ohm=[0.005 + 0j, 0.095 + 0j, 0.2204 + 0j],
+        )
+        report = format_ac_report(final, None, ACAnalysisSettings(rail_name="/VBUS_SYS"))
+
+        self.assertIn("Status: PASS", report)
+        self.assertIn("Target exceedance: 0/3 point(s); 2 point(s) above the flat target", report)
+        self.assertIn("Worst/target ratio: 0.868x", report)
+
     def test_dc_report_preserves_model_and_compute_provenance(self):
         detailed = SimpleNamespace(
             valid=False, excluded_load_references=["U2"], excluded_load_node_count=3,

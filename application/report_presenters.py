@@ -1,6 +1,6 @@
 """Pure text presenters for analysis results; no wx or KiCad dependencies."""
 
-from ac_model import format_capacitance
+from ac_model import format_capacitance, target_mask
 from power_loss import format_power_stage_report
 
 
@@ -10,10 +10,19 @@ def format_ac_report(result, optimization=None, settings=None):
     worst = float(getattr(final, "worst_impedance_ohm", 0.0) or 0.0)
     frequencies = list(getattr(final, "frequencies_hz", ()) or ())
     impedance = list(getattr(final, "impedance_ohm", ()) or ())
-    failures = [
-        float(frequency) for frequency, value in zip(frequencies, impedance)
-        if target > 0.0 and abs(complex(value)) > target
-    ]
+    # Judged against the same mask as the verdict: flat to the step's
+    # bandwidth, rising with frequency above it (ac_model.target_mask).
+    # P02 Rev E's /VBUS_SYS, 2026-09-29 19:30, printed "Status: PASS" over
+    # "Worst/target ratio: 2.48x" and 9 exceeding points, all of them above
+    # its 35 MHz band.
+    bandwidth = float(getattr(final, "target_bandwidth_hz", 0.0) or 0.0)
+    points = [
+        (float(frequency), abs(complex(value)), target_mask(target, bandwidth, float(frequency)))
+        for frequency, value in zip(frequencies, impedance)
+    ] if target > 0.0 else []
+    failures = [frequency for frequency, magnitude, allowed in points if magnitude > allowed]
+    above_flat = sum(1 for _frequency, magnitude, _allowed in points if magnitude > target)
+    ratio = max((magnitude / allowed for _f, magnitude, allowed in points), default=0.0)
     capacitors = [
         item for item in (getattr(settings, "capacitors", ()) or ())
         if bool(getattr(item, "enabled", True))
@@ -24,10 +33,15 @@ def format_ac_report(result, optimization=None, settings=None):
         f"Status: {'PASS' if final.meets_target else 'TARGET NOT MET'}",
         f"Worst |Z|: {final.worst_impedance_ohm:.6g} ohm",
         f"Worst frequency: {final.worst_frequency_hz:.6g} Hz",
-        f"Target: {final.target_impedance_ohm:.6g} ohm",
-        f"Worst/target ratio: {(worst / target if target > 0 else 0.0):.3g}x",
+        f"Target: {final.target_impedance_ohm:.6g} ohm"
+        + (f", flat to {bandwidth / 1e6:.3g} MHz and rising with frequency above it"
+           if bandwidth > 0.0 else ""),
+        f"Worst/target ratio: {ratio:.3g}x"
+        + (" (against the impedance allowed at each frequency)" if bandwidth > 0.0 else ""),
         f"Target exceedance: {len(failures)}/{len(frequencies)} point(s)"
-        + (f", {failures[0]:.6g} to {failures[-1]:.6g} Hz" if failures else ""),
+        + (f", {failures[0]:.6g} to {failures[-1]:.6g} Hz" if failures else "")
+        + (f"; {above_flat} point(s) above the flat target, within its rise above the band"
+           if bandwidth > 0.0 and above_flat > len(failures) else ""),
         f"AC mesh: {int(getattr(final, 'mesh_node_count', 0)):,} nodes; requested "
         f"{float(getattr(final, 'requested_grid_size_mm', 0.0)):g} mm; effective "
         f"{float(getattr(final, 'effective_grid_size_mm', 0.0)):g} mm",
