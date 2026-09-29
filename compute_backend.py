@@ -4,6 +4,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 import os
 import time
+import weakref
 
 import numpy as np
 import scipy.sparse
@@ -20,6 +21,32 @@ except ImportError:
     ThreadpoolController = None
 
 _THREADPOOL_CONTROLLER = None
+
+
+def _resident_matrix_plan(workspace, matrix, matrix_values_static, is_coo):
+    """``(structure_matches, values_current)`` of a resident CUDA matrix for *matrix*.
+
+    ``matrix_values_static`` promises that *matrix* has not changed since it
+    was uploaded, which only holds for that very object. A matrix assembled
+    again with the same sparsity -- P02 Rev E's thermal mesh after its surface
+    coefficients were refined, 2026-09-29 19:34 -- matched the resident
+    structure and was declared reused, so CG solved with the old boundary
+    conductances: the energy balance read 7.48 % (4.695 W in, 4.343 W out).
+    The source is held by weak reference, not id(): a freed matrix's id can
+    be handed to the next one.
+    """
+    if workspace is None:
+        return False, False
+    source = workspace.get("source_ref")
+    if matrix_values_static and source is not None and source() is matrix:
+        return True, True
+    if is_coo or workspace.get("indices") is None or workspace.get("indptr") is None:
+        return False, False
+    structure_matches = bool(
+        np.array_equal(workspace["indices"], matrix.indices)
+        and np.array_equal(workspace["indptr"], matrix.indptr)
+    )
+    return structure_matches, False
 
 
 def _thread_limit(threads):
@@ -431,22 +458,12 @@ class SparseComputeBackend:
                 device_index, cache_key, matrix.shape, matrix.dtype.str, str(system_kind).upper()
             )
             workspace = self._cuda_workspaces.get(workspace_key) if workspace_key is not None else None
-            same_cached_source = bool(
-                workspace is not None and matrix_values_static and
-                workspace.get("source_identity") == id(matrix)
+            structure_matches, matrix_reused = _resident_matrix_plan(
+                workspace, matrix, matrix_values_static, is_coo,
             )
-            structure_matches = same_cached_source
-            if workspace is not None and not is_coo and not same_cached_source:
-                structure_matches = bool(
-                    workspace.get("indices") is not None and
-                    workspace.get("indptr") is not None and
-                    np.array_equal(workspace["indices"], matrix.indices) and
-                    np.array_equal(workspace["indptr"], matrix.indptr)
-                )
-            matrix_reused = bool(structure_matches and matrix_values_static)
             if structure_matches:
                 gpu_matrix = workspace["matrix"]
-                if not matrix_values_static:
+                if not matrix_reused:
                     gpu_matrix.data.set(matrix.data)
             else:
                 if is_coo:
@@ -490,7 +507,7 @@ class SparseComputeBackend:
                         "preconditioner": preconditioner,
                         "indices": None if is_coo else matrix.indices.copy(),
                         "indptr": None if is_coo else matrix.indptr.copy(),
-                        "source_identity": id(matrix),
+                        "source_ref": weakref.ref(matrix),
                         "rhs": None,
                         "last_solution": None,
                     }
@@ -498,7 +515,7 @@ class SparseComputeBackend:
                 else:
                     workspace["matrix"] = gpu_matrix
                     workspace["preconditioner"] = preconditioner
-                    workspace["source_identity"] = id(matrix)
+                    workspace["source_ref"] = weakref.ref(matrix)
             # Updating an existing device-side RHS avoids a fresh allocation
             # and preserves the CUDA workspace through all coupled passes.
             gpu_rhs = workspace.get("rhs") if workspace is not None else None
