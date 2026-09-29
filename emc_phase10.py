@@ -640,6 +640,12 @@ def _evidence_position(finding):
     return None
 
 
+# Coarsest grid step a full-wave region is meshed at to fit the cell limit;
+# past it the region is skipped rather than meshed too coarsely to resolve
+# its tracks.
+PHASE10_COARSEST_RESOLUTION_MM = 1.0
+
+
 def select_target_regions(snapshot, findings, settings):
     """Select source-linked emission regions before passive checklist findings."""
     severity_rank = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
@@ -725,15 +731,37 @@ def select_target_regions(snapshot, findings, settings):
         width = max(bounds[2] - bounds[0], settings.mesh_resolution_mm)
         depth = max(bounds[3] - bounds[1], settings.mesh_resolution_mm)
         air_margin = max(3.0, 0.5 * max(width, depth))
-        # Include air on every side plus a conservative 2 mm PCB stack.
-        cells = math.ceil((width + 2.0 * air_margin) / settings.mesh_resolution_mm) * math.ceil(
-            (depth + 2.0 * air_margin) / settings.mesh_resolution_mm
-        ) * math.ceil((2.0 + 2.0 * air_margin) / settings.mesh_resolution_mm)
+
+        def cell_count(step):
+            # Air on every side plus a conservative 2 mm PCB stack.
+            return math.ceil((width + 2.0 * air_margin) / step) * math.ceil(
+                (depth + 2.0 * air_margin) / step
+            ) * math.ceil((2.0 + 2.0 * air_margin) / step)
+
+        resolution = float(settings.mesh_resolution_mm)
+        cells = cell_count(resolution)
+        warnings = []
+        limit = int(getattr(settings, "maximum_cells", 0) or 0)
+        if limit > 0 and cells > limit:
+            # Every region of P02 Rev E exceeded the 2,000,000-cell limit at
+            # 0.25 mm (9,241,120 and 2,112,000 cells) and was skipped, so the
+            # full-wave never ran on it. The region is meshed coarser instead,
+            # up to PHASE10_COARSEST_RESOLUTION_MM, and says so.
+            coarse = resolution * (cells / limit) ** (1.0 / 3.0)
+            while cell_count(coarse) > limit and coarse <= PHASE10_COARSEST_RESOLUTION_MM:
+                coarse *= 1.02
+            if coarse <= PHASE10_COARSEST_RESOLUTION_MM:
+                warnings.append(
+                    f"Meshed at {coarse:.3g} mm instead of {resolution:g} mm to fit the "
+                    f"{limit:,}-cell limit ({cells:,} cells at {resolution:g} mm)."
+                )
+                resolution, cells = coarse, cell_count(coarse)
         sources = linked_sources(finding)
         regions.append(EMCPhase10RegionResult(
             name=f"region_{len(regions) + 1}_{finding.rule_id.lower()}",
             status="SELECTED", bounds_mm=bounds, source_names=sources,
             finding_ids=[finding.rule_id], estimated_cells=cells,
+            warnings=warnings, mesh_resolution_mm=resolution,
         ))
         if len(regions) >= max(0, int(settings.maximum_regions)):
             break
@@ -845,7 +873,7 @@ def serialize_region(snapshot, region, settings, sources, path, run_solver=False
         "region": asdict(region),
         "frequency_start_hz": settings.frequency_start_hz,
         "frequency_stop_hz": settings.frequency_stop_hz,
-        "mesh_resolution_mm": settings.phase10.mesh_resolution_mm,
+        "mesh_resolution_mm": region.mesh_resolution_mm or settings.phase10.mesh_resolution_mm,
         "maximum_cells": settings.phase10.maximum_cells,
         "openems_max_timesteps": settings.phase10.openems_max_timesteps,
         "openems_end_criteria": settings.phase10.openems_end_criteria,

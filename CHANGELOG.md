@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed Phase 10 to mesh a full-wave region coarser, up to 1 mm, when
+  the configured step would exceed the cell limit, instead of skipping
+  it: both of P02 Rev E's regions (9.2M and 2.1M cells at 0.25 mm for a
+  2M limit) were skipped on every run.
 - Fixed an empty live capture making one DC-004 action per rail (17 of
   the 20 actions of P02 Rev E's 16:50 campaign): no comparison with the
   saved board was made, and the DC result now says so once, as a

@@ -67,6 +67,23 @@ class Phase10Tests(unittest.TestCase):
         self.assertEqual(regions[0].source_names, ["U4 switch"])
         self.assertGreater(regions[0].estimated_cells, 0)
 
+    def test_a_region_over_the_cell_limit_is_meshed_coarser_not_skipped(self):
+        # P02 Rev E: both regions exceeded 2,000,000 cells at 0.25 mm (9.2M
+        # and 2.1M) and were skipped on every run.
+        settings = self.settings()
+        settings.phase10.mesh_resolution_mm = 0.1
+        settings.phase10.maximum_cells = 200000
+        settings.phase10._parent_sources = settings.sources
+        findings = [EMCFinding(
+            "SW-002", "SWITCHING", "HIGH", "Hot loop", "", "",
+            evidence=[EMCEvidence("board", "located", 10.0, 10.0, 3)], nets=["U4_SW"],
+        )]
+        (region,) = select_target_regions(self.snapshot(), findings, settings.phase10)
+        del settings.phase10._parent_sources
+        self.assertLessEqual(region.estimated_cells, 200000)
+        self.assertGreater(region.mesh_resolution_mm, 0.1)
+        self.assertIn("to fit the 200,000-cell limit", region.warnings[0])
+
     def test_source_linked_emission_region_precedes_passive_high_finding(self):
         settings = self.settings()
         settings.phase10.maximum_regions = 1

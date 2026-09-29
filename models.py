@@ -665,6 +665,9 @@ class EMCPhase10RegionResult:
     port_geometry_source: str = ""
     port_confidence: str = ""
     warnings: List[str] = field(default_factory=list)
+    # The grid step this region is meshed at: the configured one, or coarser
+    # when that would exceed the cell limit (emc_phase10.select_target_regions).
+    mesh_resolution_mm: float = 0.0
 
 
 @dataclass
