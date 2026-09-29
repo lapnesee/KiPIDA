@@ -478,7 +478,10 @@ class ThermalModelBuilder:
     def build(self, settings: ThermalAnalysisSettings, rails=None, copper_losses=None):
         if Polygon is None or unary_union is None:
             raise ImportError("Shapely is required for 3D thermal model extraction.")
-        extractor = GeometryExtractor(self.board, debug=self.debug, log_callback=self.log_callback)
+        extractor = GeometryExtractor(
+            self.board, debug=self.debug, log_callback=self.log_callback,
+            board_path=self.board_file_path,
+        )
         stackup = extractor.get_board_stackup()
         layer_order = list(stackup.get("layer_order", []))
         bottom_layer_id = layer_order[-1] if layer_order else None

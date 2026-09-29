@@ -1,5 +1,7 @@
 """wxPython configuration panel for Phase 5 differential-pair analysis."""
 
+from pathlib import Path
+
 import wx
 
 from i18n import _
@@ -91,7 +93,14 @@ class DifferentialAnalysisPanel(wx.Panel):
             board, log_callback=log_callback,
             netclasses=(lambda nets: netclass_membership(project_path, nets)) if project_path else None,
         )
-        self.extractor = GeometryExtractor(board, log_callback=log_callback)
+        # The saved board is the fallback for what IPC omits: its dielectric
+        # er. Without it P02 Rev E's pairs were solved at a default 4.4 and
+        # read 81.4 ohm (SI-STACKUP-001, campaign of 2026-09-29 14:19).
+        board_file = Path(project_path).with_suffix(".kicad_pcb") if project_path else None
+        self.extractor = GeometryExtractor(
+            board, log_callback=log_callback,
+            board_path=str(board_file) if board_file is not None and board_file.is_file() else None,
+        )
         self.stackup = None
         self.results = {}
         self.recommendations = {}

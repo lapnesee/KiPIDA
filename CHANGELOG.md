@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed the differential pairs losing the board file's dielectric er
+  again: the differential panel read its stackup without the board path,
+  so P02 Rev E's pairs fell back to er 4.4, read 81.4 ohm with 0 %
+  qualified length. The EMC capture, thermal model and AC stackup now
+  pass the board file too.
 - Added an AC grid check: with "Check Grid at Half Step", each hybrid AC
   sweep solves its worst frequency again at half its mesh step, in the
   background, and flags a move over 10% (AC-005). P02 Rev E's /VBUS_SYS

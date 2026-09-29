@@ -252,7 +252,7 @@ class EMCGeometrySnapshot:
             raise RuntimeError(
                 "No live KiCad PCB is connected; EMI/EMC geometry capture was cancelled."
             )
-        extractor = GeometryExtractor(board, log_callback=log_callback)
+        extractor = GeometryExtractor(board, log_callback=log_callback, board_path=board_file_path)
 
         def value(obj, name, default=None):
             return extractor._get_val(obj, name, default)
