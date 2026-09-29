@@ -348,6 +348,15 @@ class UnderResolvedMeshesAreReported(unittest.TestCase):
         self.assertIn("surface film", text)
         self.assertIn("not usable", text)
 
+    def test_maxima_past_fourteen_cells_are_indicative_not_passed(self):
+        # P02 Rev E, 2026-09-29: 181.0 C at 10 cells across, 190.6 C at 15,
+        # against 118.0 C from the 3D thermal analysis.
+        adapted = self._adapt(15)
+        metrics = {m.key: m for m in adapted.metrics}
+        self.assertEqual(metrics["maximum_solid_temperature"].status, "INDICATIVE")
+        self.assertEqual(metrics["maximum_air_temperature"].status, "INDICATIVE")
+        self.assertIn("3D thermal analysis", " ".join(adapted.limitations))
+
     def test_the_reference_board_resolution_is_flagged(self):
         # p02_alimentation meshes to 24 x 20 x 10. An earlier threshold warned
         # only below 10, so exactly 10 slipped through silently -- and 10 cells

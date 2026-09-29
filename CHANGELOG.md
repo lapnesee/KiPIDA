@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed the CFD solid and air maxima to read INDICATIVE, not PASS, on a
+  mesh of 14 cells or more across: P02 Rev E's rose from 181.0 C to
+  190.6 C between 10 and 15 cells across (34 s to 737 s), away from the
+  3D thermal's 118.0 C. Fourteen cells validates the flow profile only.
 - Added a first-order Richardson estimate to the AC grid check: P02 Rev
   E's /VBUS_SYS read 0.2294 ohm at 0.5 mm and 0.2597 ohm at 0.25 mm at
   100 MHz, about 0.29 ohm converged, against 0.254 ohm allowed. AC-005

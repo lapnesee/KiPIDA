@@ -1704,7 +1704,22 @@ def adapt_cfd_result(mesh: Any, domain_result: Any, *, copper_loss_source: str =
             headline_metrics = []
     # Hide/qualify, never silently trust: at this mesh size the maxima below
     # are the numbers the mesh-quality limitation above says not to use.
-    maxima_status = "NOT_USABLE" if mesh_inadequate else overall_status.value
+    # Fourteen cells across validates the flow profile, not these maxima:
+    # P02 Rev E's enclosure read solid 181.0 C / air 129.2 C at 5 mm (10
+    # cells across) and 190.6 C / 144.0 C at 3.5 mm (15 across), moving away
+    # from the 3D thermal's 118.0 C, and took 737 s instead of 34 s. Past
+    # the threshold they are indicative, never a PASS.
+    maxima_status = (
+        "NOT_USABLE" if mesh_inadequate else "INDICATIVE" if across else overall_status.value
+    )
+    if across and not mesh_inadequate:
+        mesh_quality_limitations.append(
+            "Solid and air maxima are indicative only: a mesh fine enough for the flow "
+            "profile still spreads a component's heat over a few cells, and on the reference "
+            "board they rose from 181.0 C to 190.6 C between 10 and 15 cells across, away "
+            "from the 3D thermal analysis. Take component temperatures from the 3D thermal "
+            "analysis, and the mean internal air rise from this run."
+        )
     return AnalysisResult(
         "CFD", "Enclosure CFD",
         status=overall_status,
