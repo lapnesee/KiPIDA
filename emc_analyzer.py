@@ -1946,7 +1946,12 @@ class EMCAnalyzer:
             if target <= 0:
                 continue
             if worst > target:
-                self._add("PD-001", "PDN", "HIGH", "PDN impedance exceeds target",
+                # INFO, not HIGH: the AC domain already judges the sweep this
+                # restates (AC-001), and HIGH counted it twice -- P02 Rev E's
+                # three failing rails, 2026-09-29 16:26, took the EMC score
+                # from 49 to 25 and made three top actions of AC-001's copy.
+                # TE-001 was demoted for the thermal hotspot the same way.
+                self._add("PD-001", "PDN", "INFO", "PDN impedance exceeds target",
                           f"{name}: {worst:.4g} ohm at {frequency / 1e6:.3f} MHz exceeds {target:.4g} ohm.",
                           "Optimise capacitor values/placement and rerun the AC impedance analysis.",
                           "HIGH", [name])

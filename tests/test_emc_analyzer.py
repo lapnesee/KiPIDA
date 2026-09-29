@@ -218,7 +218,10 @@ class TestEMCAnalyzer(unittest.TestCase):
         ).analyze()
         rules = {finding.rule_id for finding in result.findings}
         self.assertIn("DP-001", rules)
-        self.assertIn("PD-001", rules)
+        # The AC domain judges the sweep; EMC restates it without scoring it
+        # again (P02 Rev E: three failing rails took EMC from 49 to 25).
+        pdn = next(finding for finding in result.findings if finding.rule_id == "PD-001")
+        self.assertEqual(pdn.severity, "INFO")
 
     def test_emission_output_is_explicitly_relative(self):
         result = EMCAnalyzer(self.snapshot(), self.settings()).analyze()
