@@ -72,7 +72,7 @@ def converter_input_current(rail, all_rails):
 
 def switching_converter_step_current(rail, all_rails):
     """The largest single transient step a switching converter this rail
-    feeds directly puts on it, and that converter's name (see
+    feeds puts on it, and that converter's name (see
     :func:`switching_converter_step`)."""
     current, regulator = switching_converter_step(rail, all_rails)
     if regulator is None:
@@ -82,7 +82,7 @@ def switching_converter_step_current(rail, all_rails):
 
 def switching_converter_step(rail, all_rails):
     """The largest single transient step a switching converter this rail
-    feeds directly puts on it, and that converter.
+    feeds puts on it, and that converter.
 
     A buck/boost input current is chopped at its switching frequency between
     (about) zero and its own output current, not a smooth average: every
@@ -92,18 +92,25 @@ def switching_converter_step(rail, all_rails):
     which is what belongs in a DC or EMC-source current budget but is the
     wrong basis for an AC transient step.
 
-    Only DIRECT child regulators of *rail* matter: whatever a converter
+    Only the converters *rail* feeds itself matter: whatever a converter
     THEN feeds is already smoothed by that converter's own output
-    capacitor before the ripple could reach this rail. Among those, the
-    single largest Iout is used rather than their sum: converters switch
-    asynchronously (independent fsw and phase), so there is no shared
-    instant at which every one of them steps at once -- the credible worst
-    edge is set by whichever converter steps hardest on its own, not by all
-    of them adding up.
+    capacitor before the ripple could reach this rail. A pass element -- a
+    fuse, eFuse, shunt, switch or net tie, whose output rail keeps the
+    input's nominal voltage -- smooths nothing, so the converters behind it
+    count as fed directly: P02 Rev E's /+5V_U4 feeds U5 through the eFuse
+    U15 and /+5V_RAIL, and was judged without U5's step against a flat
+    target, 7.95x at 100 MHz. Among those, the single largest Iout is used
+    rather than their sum: converters switch asynchronously (independent
+    fsw and phase), so there is no shared instant at which every one of
+    them steps at once -- the credible worst edge is set by whichever
+    converter steps hardest on its own, not by all of them adding up.
 
     Returns ``(0.0, None)`` when *rail* feeds no switching converter.
     """
     by_name = {item.net_name: item for item in (all_rails or ())}
+
+    def nominal(name):
+        return float(getattr(by_name.get(name), "nominal_voltage", 0.0) or 0.0)
 
     def supplied(name, visiting):
         item = by_name.get(name)
@@ -116,11 +123,19 @@ def switching_converter_step(rail, all_rails):
         )
         return own + nested
 
+    def steps(item, visiting):
+        for regulator in (getattr(item, "child_regulators", ()) or ()):
+            output = regulator.output_rail_name
+            if str(getattr(regulator, "reg_type", "")).upper() == "SWITCHING":
+                yield supplied(output, visiting), regulator
+            elif (
+                output not in visiting and output in by_name
+                and nominal(output) > 0.0 and abs(nominal(output) - nominal(item.net_name)) < 1e-9
+            ):
+                yield from steps(by_name[output], visiting | {output})
+
     best_current, best_regulator = 0.0, None
-    for regulator in (getattr(rail, "child_regulators", ()) or ()):
-        if str(getattr(regulator, "reg_type", "")).upper() != "SWITCHING":
-            continue
-        iout = supplied(regulator.output_rail_name, {rail.net_name})
+    for iout, regulator in steps(rail, {rail.net_name}):
         if iout > best_current:
             best_current, best_regulator = iout, regulator
     return best_current, best_regulator
@@ -305,7 +320,8 @@ def derive_target_impedance(
             f"derived from {voltage:.2f} V x {ripple * 100.0:.1f} % ripple / "
             f"{transient_current:.3g} A transient step (the chopped input current "
             f"of switching converter '{step_name}' at its own switching frequency, "
-            "the largest such step this rail feeds directly -- not "
+            "the largest such step this rail feeds, directly or through pass "
+            "elements -- not "
             f"{transient * 100.0:.0f} % of the {total_current:.3g} A time-averaged "
             "load current, which understates a converter's input ripple)"
         )

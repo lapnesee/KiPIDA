@@ -197,6 +197,29 @@ class TransientBandwidthTests(unittest.TestCase):
         # 0.2204 ohm at 100 MHz against 0.0889 x 100/35 = 0.254 ohm allowed.
         self.assertTrue(banded.meets_target)
 
+    def test_a_pass_element_does_not_hide_the_converter_behind_it(self):
+        # P02 Rev E: /+5V_U4 feeds U5 through the eFuse U15 and /+5V_RAIL.
+        # Without U5's 0.5 A step it was judged 7.95x a flat 0.0466 ohm target
+        # at 100 MHz; with it, 1.28x the 0.290 ohm allowed there.
+        from types import SimpleNamespace as NS
+        from ac_model import resolve_target_impedance
+        from models import ACAnalysisSettings
+
+        u5 = NS(name="U5 buck +3V3_MAIN", reg_type="SWITCHING", efficiency=0.9,
+                output_rail_name="/+3V3_MAIN")
+        u15 = NS(name="U15 +5V_RAIL eFuse", reg_type="LINEAR", output_rail_name="/+5V_RAIL")
+        u4_out = NS(net_name="/+5V_U4", nominal_voltage=5.08, loads=[], child_regulators=[u15])
+        rail = NS(net_name="/+5V_RAIL", nominal_voltage=5.08, loads=[NS(total_current=4.0)],
+                  child_regulators=[u5])
+        main = NS(net_name="/+3V3_MAIN", nominal_voltage=3.32, loads=[NS(total_current=0.5)],
+                  child_regulators=[])
+
+        target, provenance = resolve_target_impedance(
+            u4_out, ACAnalysisSettings(), all_rails=[u4_out, rail, main],
+        )
+        self.assertAlmostEqual(target, 0.2032)
+        self.assertIn("'U5 buck +3V3_MAIN'", provenance)
+
     def test_the_converter_target_starts_at_its_switching_frequency(self):
         # P02 Rev E: /VBUS_SYS's 0.0889 ohm target, U4's 4.5 A chopped step,
         # applied from 1 kHz, three decades below U4's 400 kHz. Its USB-C

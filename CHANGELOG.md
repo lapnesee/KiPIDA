@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed a pass element hiding the converter behind it from the AC target:
+  P02 Rev E's /+5V_U4 feeds U5 through the eFuse U15, and was judged
+  7.95x a flat 0.0466 ohm target at 100 MHz instead of 1.28x the 0.290
+  ohm U5's 0.5 A step allows there.
 - Fixed AC-005 judging a mesh-dependent verdict against the flat target:
   P02 Rev E's /VBUS_SYS passed at 0.5 mm (0.2294 ohm against 0.254 ohm
   allowed at 100 MHz) and failed at 0.25 mm (0.2597 ohm), yet stayed
