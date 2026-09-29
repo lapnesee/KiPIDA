@@ -142,5 +142,61 @@ class SweepSummaryTests(unittest.TestCase):
         self.assertLess(result.extrapolated_crossing_hz, result.quasi_static_limit_hz)
 
 
+class TransientBandwidthTests(unittest.TestCase):
+    """A target holds flat over the step's bandwidth only (ac_model.transient_bandwidth)."""
+
+    def setUp(self):
+        try:
+            import numpy  # noqa: F401
+        except ImportError:
+            self.skipTest("NumPy not available")
+
+    def test_the_converter_edge_bounds_the_flat_target(self):
+        # P02 Rev E, 2026-09-29 18:47: /VBUS_SYS's 0.0889 ohm target comes
+        # from U4's 4.5 A chopped step; its buck leg Q10/Q11 switches
+        # /SYS_5V_SW1, whose EMC source puts a 10 ns edge on it. The sweep
+        # failed only from 46 MHz, reaching 0.2204 ohm at 100 MHz.
+        from types import SimpleNamespace as NS
+        from ac_model import transient_bandwidth
+        from ac_solver import ACSolver
+        from models import ACAnalysisSettings, EMCSignalSource
+
+        u4 = NS(
+            name="U4 buck-boost 5 V machine", reg_type="SWITCHING", input_ref_des="Q10",
+            output_ref_des="U4", thermal_ref_des="U4", output_rail_name="/SYS_5V_PRE_SENSE",
+            loss_model={"controller_ref_des": "Q10", "mosfets": [{"ref_des": "Q10"}, {"ref_des": "Q11"}]},
+        )
+        vbus = NS(net_name="/VBUS_SYS", loads=[], child_regulators=[u4])
+        pre = NS(net_name="/SYS_5V_PRE_SENSE", loads=[NS(total_current=4.5)], child_regulators=[])
+        source = EMCSignalSource(
+            "U4 SW1 buck leg (Q10/Q11/L1)", "/SYS_5V_SW1", kind="SWITCHING", rise_time_ns=10.0,
+        )
+        bandwidth, provenance = transient_bandwidth(
+            vbus, ACAnalysisSettings(), all_rails=[vbus, pre], emc_sources=[source],
+            pad_nets_by_ref={"Q10": {"/VBUS_SYS", "/SYS_5V_SW1"}, "Q11": {"GND", "/SYS_5V_SW1"}},
+        )
+        self.assertAlmostEqual(bandwidth, 35e6)
+        self.assertIn("10 ns edge", provenance)
+
+        class _Net:
+            node_count = 10
+            requested_grid_size_mm = 0.5
+            effective_grid_size_mm = 0.5
+            quasi_static_limit_hz = 140e6
+
+        frequencies, impedances = [1e6, 46.4e6, 100e6], [0.005, 0.095, 0.2204]
+        flat = ACSolver._summarize(
+            frequencies, impedances, ACAnalysisSettings(target_impedance_ohm=0.0888889), _Net(),
+        )
+        banded = ACSolver._summarize(
+            frequencies, impedances,
+            ACAnalysisSettings(target_impedance_ohm=0.0888889, transient_bandwidth_hz=bandwidth),
+            _Net(),
+        )
+        self.assertFalse(flat.meets_target)
+        # 0.2204 ohm at 100 MHz against 0.0889 x 100/35 = 0.254 ohm allowed.
+        self.assertTrue(banded.meets_target)
+
+
 if __name__ == "__main__":
     unittest.main()

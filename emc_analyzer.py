@@ -1956,7 +1956,10 @@ class EMCAnalyzer:
             frequency = float(getattr(result, "worst_frequency_hz", 0.0) or 0.0)
             if target <= 0:
                 continue
-            if worst > target:
+            # The sweep's own verdict: its target may rise above the step's
+            # bandwidth (ac_model.target_mask), which the worst |Z| alone
+            # cannot tell.
+            if not bool(getattr(result, "meets_target", worst <= target)):
                 # INFO, not HIGH: the AC domain already judges the sweep this
                 # restates (AC-001), and HIGH counted it twice -- P02 Rev E's
                 # three failing rails, 2026-09-29 16:26, took the EMC score

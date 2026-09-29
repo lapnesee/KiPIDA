@@ -231,6 +231,15 @@ class ACAnalysisSettings:
     # Filled in once the target is resolved, so the report can state where the
     # number came from instead of presenting a derived value as a chosen one.
     target_impedance_provenance: str = ""
+    # 10-90 % rise time of the step the target budgets for; zero derives it
+    # from the edge of the EMC source switching the converter whose chopped
+    # current sets the target (ac_model.transient_bandwidth). Above
+    # 0.35 / rise time the step carries little current, and the allowed
+    # impedance rises with frequency (ac_model.target_mask).
+    transient_rise_time_ns: float = 0.0
+    # Filled in when the target is resolved; zero keeps the target flat.
+    transient_bandwidth_hz: float = 0.0
+    transient_bandwidth_provenance: str = ""
     source: ACSourceModel = field(default_factory=ACSourceModel)
     measurement_port: ACMeasurementPort = field(default_factory=ACMeasurementPort)
     capacitors: List[CapacitorModel] = field(default_factory=list)
@@ -774,6 +783,9 @@ class ImpedanceSweepResult:
     frequencies_hz: List[float]
     impedance_ohm: List[complex]
     target_impedance_ohm: float = 0.0
+    # The target holds flat to here and rises with frequency above; zero is
+    # a flat target (ac_model.target_mask).
+    target_bandwidth_hz: float = 0.0
     worst_frequency_hz: float = 0.0
     worst_impedance_ohm: float = 0.0
     meets_target: bool = False

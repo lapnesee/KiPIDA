@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Changed the AC target to hold flat only over its step's bandwidth,
+  0.35 / rise time, and to rise in proportion to frequency above it. The
+  edge comes from the EMC source switching the converter whose chopped
+  current sets the target, or from the profile's transient_rise_time_ns.
+  P02 Rev E's /VBUS_SYS failed only from 46 MHz on U4's 4.5 A step, whose
+  10 ns edge puts its bandwidth at 35 MHz.
 - Added TH-006, a MEDIUM finding for a junction under its limit by less
   than 20 K: a thermal PASS needed only a margin above zero, and P02
   Rev E's U14 would pass on about 9 K once its sealed box's 15.25 K air

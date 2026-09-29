@@ -72,7 +72,17 @@ def converter_input_current(rail, all_rails):
 
 def switching_converter_step_current(rail, all_rails):
     """The largest single transient step a switching converter this rail
-    feeds directly puts on it, and that converter's name.
+    feeds directly puts on it, and that converter's name (see
+    :func:`switching_converter_step`)."""
+    current, regulator = switching_converter_step(rail, all_rails)
+    if regulator is None:
+        return current, ""
+    return current, str(getattr(regulator, "name", "") or regulator.output_rail_name)
+
+
+def switching_converter_step(rail, all_rails):
+    """The largest single transient step a switching converter this rail
+    feeds directly puts on it, and that converter.
 
     A buck/boost input current is chopped at its switching frequency between
     (about) zero and its own output current, not a smooth average: every
@@ -91,7 +101,7 @@ def switching_converter_step_current(rail, all_rails):
     edge is set by whichever converter steps hardest on its own, not by all
     of them adding up.
 
-    Returns ``(0.0, "")`` when *rail* feeds no switching converter.
+    Returns ``(0.0, None)`` when *rail* feeds no switching converter.
     """
     by_name = {item.net_name: item for item in (all_rails or ())}
 
@@ -106,15 +116,85 @@ def switching_converter_step_current(rail, all_rails):
         )
         return own + nested
 
-    best_current, best_name = 0.0, ""
+    best_current, best_regulator = 0.0, None
     for regulator in (getattr(rail, "child_regulators", ()) or ()):
         if str(getattr(regulator, "reg_type", "")).upper() != "SWITCHING":
             continue
         iout = supplied(regulator.output_rail_name, {rail.net_name})
         if iout > best_current:
-            best_current = iout
-            best_name = str(getattr(regulator, "name", "") or regulator.output_rail_name)
-    return best_current, best_name
+            best_current, best_regulator = iout, regulator
+    return best_current, best_regulator
+
+
+# The knee of a step with a 10-90 % rise time t_r sits at 0.35 / t_r.
+RISE_TIME_BANDWIDTH_FACTOR = 0.35
+
+
+def transient_bandwidth(rail, settings, all_rails=None, emc_sources=(), pad_nets_by_ref=None):
+    """``(bandwidth_hz, provenance)`` up to which *rail*'s target holds flat.
+
+    A target budgets a current step, and a step with rise time t_r carries
+    little current above 0.35 / t_r: its trapezoidal spectrum falls there by
+    40 dB per decade, and by 20 dB between the pulse-width and edge corners
+    below. A flat target judged to the stop frequency asks the rail to hold
+    a step that is not there. P02 Rev E's /VBUS_SYS failed only from
+    46 MHz, on the 4.5 A step of U4's buck leg, whose EMC source puts a
+    10 ns edge on it: about 35 MHz of bandwidth.
+
+    A configured rise time wins. Otherwise, a target derived from a
+    converter's chopped input current takes the fastest edge among the
+    enabled switching EMC sources on that converter's parts' nets. An
+    explicit target, or a step with no known edge, returns ``(0.0, "")``:
+    the target stays flat.
+    """
+    rise_ns = float(getattr(settings, "transient_rise_time_ns", 0.0) or 0.0)
+    if rise_ns > 0.0:
+        return (
+            RISE_TIME_BANDWIDTH_FACTOR / (rise_ns * 1e-9),
+            f"0.35 / the configured {rise_ns:g} ns rise time",
+        )
+    if float(getattr(settings, "target_impedance_ohm", 0.0) or 0.0) > 0.0:
+        return 0.0, ""
+    _current, regulator = switching_converter_step(rail, all_rails) if all_rails else (0.0, None)
+    if regulator is None:
+        return 0.0, ""
+    model = dict(getattr(regulator, "loss_model", {}) or {})
+    references = {
+        regulator.input_ref_des, regulator.output_ref_des,
+        getattr(regulator, "thermal_ref_des", ""), model.get("controller_ref_des", ""),
+    } | {
+        item.get("ref_des", "") for item in (model.get("mosfets") or ()) if isinstance(item, dict)
+    }
+    nets = {
+        net for reference in references if reference
+        for net in (pad_nets_by_ref or {}).get(reference, ())
+    }
+    edges = [
+        source for source in (emc_sources or ())
+        if getattr(source, "enabled", True)
+        and str(getattr(source, "kind", "")).upper() == "SWITCHING"
+        and getattr(source, "net_name", "") in nets
+        and float(getattr(source, "rise_time_ns", 0.0) or 0.0) > 0.0
+    ]
+    if not edges:
+        return 0.0, ""
+    source = min(edges, key=lambda item: float(item.rise_time_ns))
+    edge_ns = float(source.rise_time_ns)
+    confidence = str(getattr(source, "parameter_confidence", "") or "unstated").lower()
+    return (
+        RISE_TIME_BANDWIDTH_FACTOR / (edge_ns * 1e-9),
+        f"0.35 / the {edge_ns:g} ns edge of EMC source '{source.name}' ({confidence} "
+        f"confidence) switching '{regulator.name}'",
+    )
+
+
+def target_mask(target_ohm, bandwidth_hz, frequency_hz):
+    """The impedance allowed at *frequency_hz*: flat to *bandwidth_hz*, then
+    rising in proportion to frequency -- the slowest the step's current can
+    fall above its knee, so the most demanding reading of it."""
+    if bandwidth_hz <= 0.0:
+        return target_ohm
+    return target_ohm * max(1.0, frequency_hz / bandwidth_hz)
 
 
 def derive_target_impedance(

@@ -390,10 +390,28 @@ def adapt_ac_result(
     source_default = _ac_source_is_default(settings)
     verdict_confidence = EvidenceConfidence.HEURISTIC if source_default else EvidenceConfidence.ESTIMATED
     sweep = _ac_sweep_snapshot(final)
-    failing = [point for point in sweep if target > 0.0 and point["magnitude_ohm"] > target]
+    bandwidth = float(getattr(final, "target_bandwidth_hz", 0.0) or 0.0)
+    for point in sweep:
+        point["allowed_ohm"] = target * max(1.0, point["frequency_hz"] / bandwidth) if bandwidth > 0.0 else target
+    failing = [
+        point for point in sweep if target > 0.0 and point["magnitude_ohm"] > point["allowed_ohm"]
+    ]
     first_failure = failing[0]["frequency_hz"] if failing else 0.0
     last_failure = failing[-1]["frequency_hz"] if failing else 0.0
-    exceedance_ratio = worst / target if target > 0.0 else 0.0
+    peak = max(
+        sweep, key=lambda point: point["magnitude_ohm"] / point["allowed_ohm"], default=None,
+    ) if target > 0.0 else None
+    exceedance_ratio = (
+        peak["magnitude_ohm"] / peak["allowed_ohm"] if peak else
+        (worst / target if target > 0.0 else 0.0)
+    )
+    bandwidth_note = (
+        f" The {target:.6g} ohm target holds to {bandwidth / 1e6:.3g} MHz "
+        f"({getattr(settings, 'transient_bandwidth_provenance', '') or 'configured'}) and "
+        "rises in proportion to frequency above it, where the step's current falls by at "
+        "least 20 dB per decade."
+        if bandwidth > 0.0 and target > 0.0 else ""
+    )
     capacitors = _ac_capacitor_snapshot(settings)
     estimated_components = [
         item["reference"] for item in capacitors
@@ -467,12 +485,18 @@ def adapt_ac_result(
         # Where the target came from decides what the verdict is worth, so it
         # is stated with the number rather than left for the reader to assume.
         origin = f" Target {target_provenance}." if target_provenance else ""
+        headline = (
+            f"Worst impedance is {peak['magnitude_ohm']:.6g} ohm at {peak['frequency_hz']:.6g} Hz "
+            f"({exceedance_ratio:.3g}x the {peak['allowed_ohm']:.6g} ohm allowed there)."
+            if bandwidth > 0.0 and peak else
+            f"Worst impedance is {worst:.6g} ohm at "
+            f"{getattr(final, 'worst_frequency_hz', 0.0):.6g} Hz "
+            f"({exceedance_ratio:.3g}x the {target:.6g} ohm target)."
+        )
         finding = _finding(
             "AC-001", 1, "TARGET_IMPEDANCE", FindingSeverity.HIGH,
             "Target impedance is not met",
-            f"Worst impedance is {worst:.6g} ohm at "
-            f"{getattr(final, 'worst_frequency_hz', 0.0):.6g} Hz "
-            f"({exceedance_ratio:.3g}x the {target:.6g} ohm target).{band}{origin}",
+            f"{headline}{band}{bandwidth_note}{origin}",
             recommendation,
         )
         # The verdict of a lumped PDN model, which omits each capacitor's
@@ -545,6 +569,12 @@ def adapt_ac_result(
                 "target_impedance", "Target impedance",
                 float(getattr(final, "target_impedance_ohm", 0.0)), "ohm", "TARGET",
             ),
+        ] + ([
+            AnalysisMetric(
+                "target_bandwidth", "Target flat up to (then rising with frequency)",
+                bandwidth, "Hz", "INFO",
+            ),
+        ] if bandwidth > 0.0 else []) + [
             AnalysisMetric(
                 "mesh_nodes", "AC mesh nodes",
                 int(getattr(final, "mesh_node_count", 0)), status="INFO",
@@ -579,7 +609,16 @@ def adapt_ac_result(
             f"Observation point {item.get('ref_des') or '(unnamed)'} was excluded "
             f"from the sweep: it {item.get('reason', 'could not be measured')}."
             for item in (getattr(final, "excluded_ports", None) or ())
-        ] + grid_limitations + _ac_source_limitations(settings) + _ac_validity_limitations(final) + _raster_track_limitations(
+        ] + ([
+            f"The target holds flat to {bandwidth / 1e6:.3g} MHz "
+            f"({getattr(settings, 'transient_bandwidth_provenance', '') or 'configured'}) and "
+            "rises in proportion to frequency above it. The edge that sets that band is itself "
+            "an estimate unless measured; a faster edge moves the band up."
+            if bandwidth > 0.0 else
+            "The target is applied flat to the stop frequency: no rise time is known for the "
+            "step it budgets, so the check assumes one fast enough to carry current across the "
+            "whole sweep. Set the profile's transient_rise_time_ns to bound it."
+        ] if target > 0.0 else []) + grid_limitations + _ac_source_limitations(settings) + _ac_validity_limitations(final) + _raster_track_limitations(
             getattr(final, "track_summary", None),
             float(getattr(final, "effective_grid_size_mm", 0.0) or 0.0), "AC mesh",
         ),

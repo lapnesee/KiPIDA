@@ -16,7 +16,7 @@ if plugin_dir not in sys.path:
     sys.path.insert(0, plugin_dir)
 
 from extractor import GeometryExtractor
-from ac_model import ACModelBuilder, resolve_target_impedance
+from ac_model import ACModelBuilder, resolve_target_impedance, transient_bandwidth
 from application.ac_controller import AC_MAX_NETWORK_NODES, saved_board_for_ac
 from cfd_model import fit_unset_enclosure
 from differential_impedance import DifferentialGeometrySnapshot
@@ -1037,6 +1037,34 @@ class KiPIDA_MainDialog(wx.Dialog):
             raise ValueError("Select a power rail for AC analysis.")
         return self._ac_network_for(settings, defer=True)
 
+    def _with_transient_bandwidth(self, rail, profile, settings, pad_snapshot):
+        """*settings* with the band its target holds flat over (ac_model.transient_bandwidth)."""
+        try:
+            if pad_snapshot is None:
+                from application.dc_controller import capture_dc_board
+                pad_snapshot = capture_dc_board(self.board)
+            pad_nets = {}
+            for footprint in pad_snapshot.footprints:
+                pad_nets.setdefault(footprint.reference, set()).update(
+                    pad.net.name for pad in footprint.pads
+                )
+            emc_settings = getattr(getattr(self, "emc_panel", None), "settings", None)
+            bandwidth, provenance = transient_bandwidth(
+                rail, profile, all_rails=self.power_tree.rails,
+                emc_sources=getattr(emc_settings, "sources", ()) or (), pad_nets_by_ref=pad_nets,
+            )
+        except Exception as exc:
+            self.log(f"AC target band for {settings.rail_name} not resolved ({exc}); flat target kept.")
+            return settings
+        if bandwidth > 0.0:
+            self.log(
+                f"AC target for {settings.rail_name}: flat to {bandwidth / 1e6:.3g} MHz "
+                f"({provenance}), rising with frequency above it."
+            )
+        return replace(
+            settings, transient_bandwidth_hz=bandwidth, transient_bandwidth_provenance=provenance,
+        )
+
     def _ac_network_for(self, settings, defer=False):
         """The resolved settings and AC network of one rail's profile.
 
@@ -1048,6 +1076,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         rail = next((item for item in self.power_tree.rails if item.net_name == settings.rail_name), None)
         if rail is None:
             raise ValueError(f"Power rail '{settings.rail_name}' is not available.")
+        profile = settings
         # Source and port are resolved automatically when left unset. A rail
         # fed by a regulator has no UnifiedSource to select, so demanding one
         # here made every such rail unanalysable whatever the user picked.
@@ -1072,6 +1101,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             self._board_file_path(), self.board, stackup,
             (settings.rail_name, settings.ground_net_name), emit=self.log,
         )
+        settings = self._with_transient_bandwidth(rail, profile, settings, pad_snapshot)
         # A hybrid network can be built again at half the step in the
         # background from these (application.ac_controller.ac_grid_check).
         self._ac_grid_check_inputs = None if parsed_board is None else SimpleNamespace(

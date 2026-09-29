@@ -257,6 +257,7 @@ def _ac_settings_to_dict(settings: ACAnalysisSettings) -> dict:
         "target_impedance_ohm": settings.target_impedance_ohm,
         "ripple_fraction": settings.ripple_fraction,
         "transient_fraction": settings.transient_fraction,
+        "transient_rise_time_ns": settings.transient_rise_time_ns,
         "source": {
             "ref_des": settings.source.ref_des,
             "rail_pad_names": settings.source.rail_pad_names,
@@ -300,6 +301,7 @@ def _dict_to_ac_settings(data: dict) -> ACAnalysisSettings:
         target_impedance_ohm=float(data.get("target_impedance_ohm", 0.0)),
         ripple_fraction=float(data.get("ripple_fraction", 0.02)),
         transient_fraction=float(data.get("transient_fraction", 0.5)),
+        transient_rise_time_ns=float(data.get("transient_rise_time_ns", 0.0) or 0.0),
         source=ACSourceModel(
             ref_des=source_data.get("ref_des", ""),
             rail_pad_names=source_data.get("rail_pad_names", []),

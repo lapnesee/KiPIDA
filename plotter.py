@@ -349,7 +349,14 @@ class Plotter:
                 ax_phase.semilogx(frequencies, np.angle(optimized_impedance, deg=True), label="Optimized", linewidth=2)
 
             target = baseline.target_impedance_ohm
-            if target > 0:
+            bandwidth = float(getattr(baseline, "target_bandwidth_hz", 0.0) or 0.0)
+            if target > 0 and bandwidth > 0:
+                ax_mag.loglog(
+                    frequencies, target * np.maximum(1.0, frequencies / bandwidth),
+                    color="red", linestyle="--",
+                    label=f"Target ({target:g} ohm, rising above {bandwidth / 1e6:.3g} MHz)",
+                )
+            elif target > 0:
                 ax_mag.axhline(target, color="red", linestyle="--", label=f"Target ({target:g} ohm)")
 
             ax_mag.set_ylabel(_("|Z| (ohm)"))

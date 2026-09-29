@@ -592,6 +592,13 @@ class ACSolver:
         magnitudes = np.abs(np.asarray(impedances))
         worst_index = int(np.argmax(magnitudes))
         target = max(0.0, float(settings.target_impedance_ohm))
+        # Flat to the step's bandwidth, rising with frequency above it
+        # (ac_model.target_mask).
+        bandwidth = max(0.0, float(getattr(settings, "transient_bandwidth_hz", 0.0) or 0.0))
+        allowed = (
+            target * np.maximum(1.0, np.asarray(frequencies, dtype=float) / bandwidth)
+            if bandwidth > 0.0 else np.full(magnitudes.shape, target)
+        )
         # A worst case sitting on the last swept point means the impedance was
         # still climbing when the window closed: the real maximum may be
         # outside it, so the number is a lower bound rather than a maximum.
@@ -614,13 +621,18 @@ class ACSolver:
             prior = float(magnitudes[worst_index - 1])
             if last > prior > 0.0:
                 crossing_hz = float(frequencies[worst_index]) * (target / last)
+            # Above the bandwidth the allowed impedance rises as fast as an
+            # inductive tail does, so it is never crossed there.
+            if bandwidth > 0.0 and crossing_hz > bandwidth:
+                crossing_hz = 0.0
         return ImpedanceSweepResult(
             frequencies_hz=[float(value) for value in frequencies],
             impedance_ohm=list(impedances),
             target_impedance_ohm=target,
+            target_bandwidth_hz=bandwidth,
             worst_frequency_hz=float(frequencies[worst_index]),
             worst_impedance_ohm=float(magnitudes[worst_index]),
-            meets_target=bool(target > 0 and np.all(magnitudes <= target)),
+            meets_target=bool(target > 0 and np.all(magnitudes <= allowed)),
             mesh_node_count=int(network.node_count),
             requested_grid_size_mm=float(network.requested_grid_size_mm),
             effective_grid_size_mm=float(network.effective_grid_size_mm),
