@@ -16,6 +16,7 @@ from i18n import _
 from thermal_probe import ThermalMapProbe
 from field_probe import EMFieldMapProbe
 from emc_probe import EMCProbeReading, capture_axis_points
+from ac_model import target_mask
 from analysis_contract import normalize_evidence_confidence
 
 
@@ -353,12 +354,10 @@ class Plotter:
             floor_hz = float(getattr(baseline, "target_floor_hz", 0.0) or 0.0)
             below_floor = float(getattr(baseline, "target_below_floor_ohm", 0.0) or 0.0)
             if target > 0 and (bandwidth > 0 or (floor_hz > 0 and below_floor > 0)):
-                allowed = (
-                    target * np.maximum(1.0, frequencies / bandwidth)
-                    if bandwidth > 0 else np.full(frequencies.shape, target)
-                )
-                if floor_hz > 0 and below_floor > 0:
-                    allowed = np.where(frequencies < floor_hz, below_floor, allowed)
+                allowed = [
+                    target_mask(target, bandwidth, float(frequency), floor_hz, below_floor)
+                    for frequency in frequencies
+                ]
                 ax_mag.loglog(
                     frequencies, allowed, color="red", linestyle="--",
                     label=f"Target ({target:g} ohm"

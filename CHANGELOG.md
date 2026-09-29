@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed a converter's chopped input current replacing a rail's averaged
+  load step when it is the smaller of the two: P02 Rev E's /+5V_RAIL
+  feeds U5 (0.5 A chopped) and J6 (4 A), and was held to 0.2032 ohm from
+  650 kHz up, 0.04657 ohm only below. The averaged step now sets the
+  target at every frequency there, and caps a converter's rising mask.
 - Changed DE-001 to stay MEDIUM for an IC whose only signals are an
   I2C/SMBus port: P02 Rev E's EEPROM U18, with C13 22.9 mm away, ranked
   the campaign's first HIGH action on the same bar as a processor.

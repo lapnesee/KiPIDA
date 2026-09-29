@@ -70,16 +70,6 @@ def converter_input_current(rail, all_rails):
     return drawn(rail, {rail.net_name})
 
 
-def switching_converter_step_current(rail, all_rails):
-    """The largest single transient step a switching converter this rail
-    feeds puts on it, and that converter's name (see
-    :func:`switching_converter_step`)."""
-    current, regulator = switching_converter_step(rail, all_rails)
-    if regulator is None:
-        return current, ""
-    return current, str(getattr(regulator, "name", "") or regulator.output_rail_name)
-
-
 def switching_converter_step(rail, all_rails):
     """The largest single transient step a switching converter this rail
     feeds puts on it, and that converter.
@@ -141,6 +131,32 @@ def switching_converter_step(rail, all_rails):
     return best_current, best_regulator
 
 
+def governing_converter_step(rail, all_rails, transient_fraction=TRANSIENT_FRACTION_DEFAULT):
+    """The converter step that sets *rail*'s target, or ``(0.0, None)``.
+
+    A converter's chopped step replaces the transient fraction of the rail's
+    average only where it is the larger step. Where the loads step harder,
+    their step sets the target at every frequency: it has no switching
+    frequency to start from and no known edge to stop at. P02 Rev E's
+    /+5V_RAIL feeds U5 (0.5 A chopped) and J6 (4 A): it was held to U5's
+    0.2032 ohm from 650 kHz up and to 0.0466 ohm, 50 % of its 4.36 A
+    average, only below.
+    """
+    current, regulator = switching_converter_step(rail, all_rails)
+    if regulator is None:
+        return 0.0, None
+    average = sum(
+        float(getattr(load, "total_current", 0.0) or 0.0) for load in (getattr(rail, "loads", ()) or ())
+    ) + converter_input_current(rail, all_rails)
+    try:
+        averaged_step = float(transient_fraction) * average
+    except (TypeError, ValueError):
+        averaged_step = 0.0
+    if current <= averaged_step:
+        return 0.0, None
+    return current, regulator
+
+
 # The knee of a step with a 10-90 % rise time t_r sits at 0.35 / t_r.
 RISE_TIME_BANDWIDTH_FACTOR = 0.35
 
@@ -170,7 +186,9 @@ def transient_bandwidth(rail, settings, all_rails=None, emc_sources=(), pad_nets
         )
     if float(getattr(settings, "target_impedance_ohm", 0.0) or 0.0) > 0.0:
         return 0.0, ""
-    _current, regulator = switching_converter_step(rail, all_rails) if all_rails else (0.0, None)
+    _current, regulator = governing_converter_step(
+        rail, all_rails, getattr(settings, "transient_fraction", TRANSIENT_FRACTION_DEFAULT),
+    ) if all_rails else (0.0, None)
     if regulator is None:
         return 0.0, ""
     model = dict(getattr(regulator, "loss_model", {}) or {})
@@ -219,7 +237,9 @@ def converter_band_floor(rail, settings, all_rails=None):
     """
     if float(getattr(settings, "target_impedance_ohm", 0.0) or 0.0) > 0.0:
         return 0.0, 0.0, ""
-    _current, regulator = switching_converter_step(rail, all_rails) if all_rails else (0.0, None)
+    _current, regulator = governing_converter_step(
+        rail, all_rails, getattr(settings, "transient_fraction", TRANSIENT_FRACTION_DEFAULT),
+    ) if all_rails else (0.0, None)
     if regulator is None:
         return 0.0, 0.0, ""
     frequency = (getattr(regulator, "loss_model", None) or {}).get("switching_frequency_hz")
@@ -250,12 +270,17 @@ def target_mask(target_ohm, bandwidth_hz, frequency_hz, floor_hz=0.0, below_floo
     """The impedance allowed at *frequency_hz*: *below_floor_ohm* under
     *floor_hz*, then *target_ohm* flat to *bandwidth_hz*, then rising in
     proportion to frequency -- the slowest the step's current can fall above
-    its knee, so the most demanding reading of it."""
+    its knee, so the most demanding reading of it -- but never above
+    *below_floor_ohm*: the loads' averaged step, whose edge is not known,
+    stays present above the switching frequency too."""
     if floor_hz > 0.0 and below_floor_ohm > 0.0 and frequency_hz < floor_hz:
         return below_floor_ohm
     if bandwidth_hz <= 0.0:
         return target_ohm
-    return target_ohm * max(1.0, frequency_hz / bandwidth_hz)
+    rising = target_ohm * max(1.0, frequency_hz / bandwidth_hz)
+    if floor_hz > 0.0 and below_floor_ohm > 0.0:
+        return min(rising, max(below_floor_ohm, target_ohm))
+    return rising
 
 
 def derive_target_impedance(
@@ -310,10 +335,12 @@ def derive_target_impedance(
     # edge -- not by a configurable fraction of the rail's time-averaged
     # load. Where that applies, it replaces the transient-fraction heuristic
     # outright rather than adding to it (AC-5): the two are alternative
-    # models of the same step, not independent contributions.
-    step_current, step_name = (
-        switching_converter_step_current(rail, all_rails) if all_rails else (0.0, "")
+    # models of the same step, not independent contributions. It does so
+    # only where it is the larger step (governing_converter_step).
+    step_current, step_regulator = (
+        governing_converter_step(rail, all_rails, transient) if all_rails else (0.0, None)
     )
+    step_name = str(getattr(step_regulator, "name", "") or getattr(step_regulator, "output_rail_name", ""))
     if step_current > 0.0:
         transient_current = step_current
         provenance = (
@@ -334,6 +361,13 @@ def derive_target_impedance(
             + (f", {converters:.3g} A of it drawn by the converters the rail feeds" if converters > 0.0 else "")
             + ")"
         )
+        chopped, regulator = switching_converter_step(rail, all_rails) if all_rails else (0.0, None)
+        if regulator is not None:
+            provenance += (
+                f", larger than the {chopped:.3g} A chopped input current of switching "
+                f"converter '{getattr(regulator, 'name', '') or regulator.output_rail_name}', "
+                "so it holds at every frequency"
+            )
     value = (voltage * ripple) / transient_current
     return value, provenance
 

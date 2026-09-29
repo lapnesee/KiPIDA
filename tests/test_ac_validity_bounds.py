@@ -197,12 +197,13 @@ class TransientBandwidthTests(unittest.TestCase):
         # 0.2204 ohm at 100 MHz against 0.0889 x 100/35 = 0.254 ohm allowed.
         self.assertTrue(banded.meets_target)
 
-    def test_a_pass_element_does_not_hide_the_converter_behind_it(self):
-        # P02 Rev E: /+5V_U4 feeds U5 through the eFuse U15 and /+5V_RAIL.
-        # Without U5's 0.5 A step it was judged 7.95x a flat 0.0466 ohm target
-        # at 100 MHz; with it, 1.28x the 0.290 ohm allowed there.
+    def test_a_converter_step_sets_the_target_only_when_it_is_the_larger(self):
+        # P02 Rev E: /+5V_U4 feeds U5 (0.5 A chopped) through the eFuse U15
+        # and /+5V_RAIL, which also feeds J6 (4 A). The run of 2026-09-30
+        # 00:00 held it to U5's 0.2032 ohm from 650 kHz up and to 0.0466 ohm,
+        # 50 % of its 4.36 A average, only below.
         from types import SimpleNamespace as NS
-        from ac_model import resolve_target_impedance
+        from ac_model import converter_band_floor, resolve_target_impedance
         from models import ACAnalysisSettings
 
         u5 = NS(name="U5 buck +3V3_MAIN", reg_type="SWITCHING", efficiency=0.9,
@@ -217,6 +218,18 @@ class TransientBandwidthTests(unittest.TestCase):
         target, provenance = resolve_target_impedance(
             u4_out, ACAnalysisSettings(), all_rails=[u4_out, rail, main],
         )
+        self.assertAlmostEqual(target, 5.08 * 0.02 / (0.5 * 4.3631), places=4)
+        self.assertIn("larger than the 0.5 A chopped input current", provenance)
+        self.assertEqual(
+            converter_band_floor(u4_out, ACAnalysisSettings(), all_rails=[u4_out, rail, main]),
+            (0.0, 0.0, ""),
+        )
+
+        # Without J6, U5's step behind the pass element is the larger one.
+        rail.loads = []
+        target, provenance = resolve_target_impedance(
+            u4_out, ACAnalysisSettings(), all_rails=[u4_out, rail, main],
+        )
         self.assertAlmostEqual(target, 0.2032)
         self.assertIn("'U5 buck +3V3_MAIN'", provenance)
 
@@ -227,7 +240,7 @@ class TransientBandwidthTests(unittest.TestCase):
         # (scratchpad/audit/ac/source_lumped.py): a failure against the step
         # that has no content there, a pass against the 2.04 A average's.
         from types import SimpleNamespace as NS
-        from ac_model import converter_band_floor
+        from ac_model import converter_band_floor, target_mask
         from ac_solver import ACSolver
         from models import ACAnalysisSettings
 
@@ -244,6 +257,9 @@ class TransientBandwidthTests(unittest.TestCase):
         )
         self.assertEqual(floor_hz, 400e3)
         self.assertAlmostEqual(below, 0.392, places=3)  # 20 V x 2 % / (50 % of 2.04 A)
+        # U4's rising mask stops at the averaged step's 0.392 ohm (155 MHz):
+        # the loads' step, whose edge is unknown, stays present up there.
+        self.assertAlmostEqual(target_mask(0.0888889, 35e6, 200e6, floor_hz, below), below)
 
         class _Net:
             node_count = 10

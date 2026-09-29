@@ -592,20 +592,20 @@ class ACSolver:
         magnitudes = np.abs(np.asarray(impedances))
         worst_index = int(np.argmax(magnitudes))
         target = max(0.0, float(settings.target_impedance_ohm))
-        # Flat to the step's bandwidth, rising with frequency above it
-        # (ac_model.target_mask).
+        # Flat to the step's bandwidth, rising with frequency above it; below
+        # a converter's switching frequency the rail's averaged step sets it
+        # (ac_model.target_mask, ac_model.converter_band_floor).
+        try:
+            from .ac_model import target_mask
+        except ImportError:
+            from ac_model import target_mask
         bandwidth = max(0.0, float(getattr(settings, "transient_bandwidth_hz", 0.0) or 0.0))
-        allowed = (
-            target * np.maximum(1.0, np.asarray(frequencies, dtype=float) / bandwidth)
-            if bandwidth > 0.0 else np.full(magnitudes.shape, target)
-        )
-        # Below a converter's switching frequency its chopped step has no
-        # content; the rail's averaged step sets the target there
-        # (ac_model.converter_band_floor).
         floor_hz = max(0.0, float(getattr(settings, "target_floor_hz", 0.0) or 0.0))
         below_floor = max(0.0, float(getattr(settings, "target_below_floor_ohm", 0.0) or 0.0))
-        if floor_hz > 0.0 and below_floor > 0.0:
-            allowed = np.where(np.asarray(frequencies, dtype=float) < floor_hz, below_floor, allowed)
+        allowed = np.array([
+            target_mask(target, bandwidth, float(frequency), floor_hz, below_floor)
+            for frequency in frequencies
+        ], dtype=float)
         # A worst case sitting on the last swept point means the impedance was
         # still climbing when the window closed: the real maximum may be
         # outside it, so the number is a lower bound rather than a maximum.
