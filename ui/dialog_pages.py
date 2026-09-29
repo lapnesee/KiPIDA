@@ -57,7 +57,8 @@ class DialogPages:
         self.chk_dc_grid_check.SetValue(True)
         self.chk_dc_grid_check.SetToolTip(
             "Solve every rail whose drop is at least a tenth of the budget again at half "
-            "the mesh resolution, and flag a drop that moves by more than 10% (DC-005)."
+            "the mesh resolution, and flag a drop that moves by more than 10% (DC-005); "
+            "solve each AC profile's worst frequency again at half its mesh step (AC-005)."
         )
         settings.Add(self.chk_dc_grid_check, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 20)
         self.chk_debug = wx.CheckBox(self.tab_config, label="Enable Debug Log")

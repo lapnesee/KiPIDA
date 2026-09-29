@@ -66,6 +66,22 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertTrue(finding.calculation_quality)
         self.assertEqual(result.status, AnalysisStatus.PASS)
 
+    def test_an_ac_sweep_that_moves_at_half_the_grid_is_flagged(self):
+        # P02 Rev E's /VBUS_SYS on the hybrid mesh: worst |Z| 248.72 mohm at
+        # 0.5 mm, 282.20 mohm at 0.25 mm, 13.5 % apart at 100 MHz.
+        sweep = SimpleNamespace(
+            meets_target=False, worst_impedance_ohm=0.24872, worst_frequency_hz=1e8,
+            target_impedance_ohm=0.0889, frequencies_hz=[1e7, 1e8],
+            impedance_ohm=[0.04 + 0j, 0.24872 + 0j],
+            grid_check={"grid_mm": 0.5, "check_grid_mm": 0.25, "frequency_hz": 1e8,
+                        "impedance_ohm": 0.24872, "check_impedance_ohm": 0.28220,
+                        "delta_pct": 13.46},
+        )
+        result = adapt_ac_result(sweep, settings=ACAnalysisSettings(rail_name="/VBUS_SYS"))
+        finding = next(f for f in result.findings if f.rule_id == "AC-005")
+        self.assertEqual(finding.severity, FindingSeverity.MEDIUM)
+        self.assertTrue(finding.calculation_quality)
+
     def test_ac_adapter_uses_target_as_verdict(self):
         sweep = SimpleNamespace(
             meets_target=False, worst_impedance_ohm=0.12, worst_frequency_hz=1e6,

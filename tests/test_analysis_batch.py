@@ -134,7 +134,7 @@ class ACCampaignProfiles(unittest.TestCase):
             ac_panel=NS(choice_rail=NS(GetCount=lambda: 1), get_settings=lambda: shown,
                         get_profiles=lambda: {"/VBUS_SYS": shown, "/+5V_RAIL": other}),
             runtime_panel=NS(get_settings=lambda persist: "compute"),
-            chk_debug=NS(GetValue=lambda: False),
+            chk_debug=NS(GetValue=lambda: False), chk_dc_grid_check=NS(GetValue=lambda: False),
             _ac_network_for=network_for, _log_ac_backend_decision=lambda *_: None,
             log=logs.append,
         )

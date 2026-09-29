@@ -790,6 +790,10 @@ class ImpedanceSweepResult:
     # "hybrid" when the network came from the saved board file's hybrid mesh,
     # "raster" when from the open board's raster mesh.
     mesh_engine: str = "raster"
+    # The worst impedance solved again at half the grid step, when checked:
+    # {"grid_mm", "check_grid_mm", "frequency_hz", "impedance_ohm",
+    #  "check_impedance_ohm", "delta_pct"}, or {"not_checked": reason}.
+    grid_check: Dict[str, Any] = field(default_factory=dict)
     # Populated by a multi-port sweep: one sweep per observation point, keyed
     # by reference designator, plus which one produced this worst case. Left
     # empty by a single-port solve, so existing consumers are unaffected.

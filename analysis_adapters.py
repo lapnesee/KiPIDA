@@ -308,6 +308,50 @@ def _raster_track_limitations(summary: Any, step_mm: float, mesh_name: str) -> l
     return [text] if text else []
 
 
+# A worst impedance that moves more than this at half the grid step is not
+# converged in mesh, the DC check's own threshold.
+AC_GRID_SENSITIVITY_LIMIT_PCT = 10.0
+
+
+def _ac_grid_check(check: Any, target: float, rail: str) -> tuple:
+    """(metrics, findings, limitations) for the worst |Z| solved at half the grid step."""
+    data = dict(check or {})
+    if "not_checked" in data:
+        return [], [], [f"The AC mesh was not checked at half its step: {data['not_checked']}."]
+    if "delta_pct" not in data:
+        return [], [], []
+    delta = float(data["delta_pct"])
+    grid, check_grid = float(data["grid_mm"]), float(data["check_grid_mm"])
+    value, check_value = float(data["impedance_ohm"]), float(data["check_impedance_ohm"])
+    exceeded = delta > AC_GRID_SENSITIVITY_LIMIT_PCT
+    metrics = [AnalysisMetric(
+        "grid_sensitivity", f"Worst impedance change at half the grid step ({check_grid:g} mm)",
+        delta, "%", "WARN" if exceeded else "INFO",
+    )]
+    limitations = [
+        f"Grid check: the worst impedance reads {value:.4g} ohm at {grid:g} mm and "
+        f"{check_value:.4g} ohm at {check_grid:g} mm ({delta:.1f}% apart, "
+        f"{float(data['frequency_hz']):.4g} Hz)."
+    ]
+    if not exceeded:
+        return metrics, [], limitations
+    flips = target > 0.0 and (value > target) != (check_value > target)
+    finding = _finding(
+        "AC-005", 1, "NUMERICS", FindingSeverity.HIGH if flips else FindingSeverity.MEDIUM,
+        f"{rail} impedance is not converged in mesh",
+        f"The worst impedance reads {value:.4g} ohm at {grid:g} mm and {check_value:.4g} ohm "
+        f"at {check_grid:g} mm, {delta:.1f}% apart, more than the "
+        f"{AC_GRID_SENSITIVITY_LIMIT_PCT:g}% a converged sweep may move."
+        + (f" The {target:.4g} ohm target lies between the two." if flips else ""),
+        f"Rerun at an AC mesh resolution of {check_grid:g} mm or finer and read the "
+        "verdict from the finer sweep.",
+        confidence=EvidenceConfidence.DETERMINISTIC,
+    )
+    finding.calculation_quality = True
+    finding.nets = [rail] if rail else []
+    return metrics, [finding], limitations
+
+
 def _ac_validity_limitations(final: Any) -> list:
     """Say where the swept numbers stop deserving equal confidence.
 
@@ -501,6 +545,10 @@ def adapt_ac_result(
             reference=str(getattr(final, "compute_backend", "") or "frequency-domain solver"),
         )]
         findings.append(finding)
+    grid_metrics, grid_findings, grid_limitations = _ac_grid_check(
+        getattr(final, "grid_check", None), target, str(getattr(settings, "rail_name", "")),
+    )
+    findings.extend(grid_findings)
     recommendations = list(getattr(optimization, "recommendations", ()) or ())
     overall_status = AnalysisStatus.PASS if not findings else AnalysisStatus.WARN
     result = AnalysisResult(
@@ -562,7 +610,7 @@ def adapt_ac_result(
         ] + _raster_track_metrics(
             "", "AC", getattr(final, "track_summary", None),
             float(getattr(final, "effective_grid_size_mm", 0.0) or 0.0),
-        ),
+        ) + grid_metrics,
         provenance=[AnalysisEvidence(
             "PDN_MODEL",
             "The sweep uses the configured rail, source impedance, copper/via branches, and capacitor RLC models.",
@@ -585,7 +633,7 @@ def adapt_ac_result(
             f"Observation point {item.get('ref_des') or '(unnamed)'} was excluded "
             f"from the sweep: it {item.get('reason', 'could not be measured')}."
             for item in (getattr(final, "excluded_ports", None) or ())
-        ] + _ac_source_limitations(settings) + _ac_validity_limitations(final) + _raster_track_limitations(
+        ] + grid_limitations + _ac_source_limitations(settings) + _ac_validity_limitations(final) + _raster_track_limitations(
             getattr(final, "track_summary", None),
             float(getattr(final, "effective_grid_size_mm", 0.0) or 0.0), "AC mesh",
         ),

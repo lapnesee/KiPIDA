@@ -7,6 +7,7 @@ from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 # Ensure plugin dir is in path to import modules
 plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -996,10 +997,17 @@ class KiPIDA_MainDialog(wx.Dialog):
         )
         self.log(f"AC target impedance: {target_provenance}.")
         debug_mode = self.chk_debug.GetValue()
-        parsed_board, layer_mapping = saved_board_for_ac(
-            self._board_file_path(), self.board,
-            GeometryExtractor(self.board, debug=debug_mode, log_callback=self.log).get_board_stackup(),
+        stackup = GeometryExtractor(self.board, debug=debug_mode, log_callback=self.log).get_board_stackup()
+        parsed_board, layer_mapping, pad_snapshot = saved_board_for_ac(
+            self._board_file_path(), self.board, stackup,
             (settings.rail_name, settings.ground_net_name), emit=self.log,
+        )
+        # A hybrid network can be built again at half the step in the
+        # background from these (application.ac_controller.ac_grid_check).
+        self._ac_grid_check_inputs = None if parsed_board is None else SimpleNamespace(
+            parsed_board=parsed_board, layer_mapping=layer_mapping, stackup=stackup,
+            board=pad_snapshot, rail=rail, all_rails=self.power_tree.rails,
+            grid_mm=max(0.1, float(settings.mesh_resolution_mm)),
         )
         builder = ACModelBuilder(self.board, debug=debug_mode, log_callback=self.log)
         network = builder.build(
@@ -1074,6 +1082,10 @@ class KiPIDA_MainDialog(wx.Dialog):
             requests.append(ACRunRequest(
                 settings=settings, network=network, compute_settings=compute_settings,
                 debug=self.chk_debug.GetValue(), optimize=False,
+                _grid_check=(
+                    getattr(self, "_ac_grid_check_inputs", None)
+                    if self.chk_dc_grid_check.GetValue() else None
+                ),
             ))
         if not requests:
             raise ValueError(
@@ -1097,6 +1109,10 @@ class KiPIDA_MainDialog(wx.Dialog):
             compute_settings=compute_settings,
             debug=self.chk_debug.GetValue(),
             optimize=bool(optimize),
+            _grid_check=(
+                getattr(self, "_ac_grid_check_inputs", None)
+                if self.chk_dc_grid_check.GetValue() and not optimize else None
+            ),
         )
 
     def _log_ac_backend_decision(self, network, compute_settings):

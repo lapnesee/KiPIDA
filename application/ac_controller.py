@@ -1,10 +1,11 @@
 """UI-independent orchestration for AC analysis and decoupling optimization."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Optional, Tuple
 
+from ac_model import ACModelBuilder
 from ac_solver import ACSolver
 from decoupling_optimizer import DecouplingOptimizer
 from application.background_controller import BackgroundAnalysisController
@@ -17,7 +18,7 @@ class ACAnalysisCancelled(RuntimeError):
 
 
 def saved_board_for_ac(board_path, live_board, live_stackup, net_names, emit=lambda _message: None):
-    """``(parsed board, layer mapping)`` for a hybrid AC network, or ``(None, None)``.
+    """``(parsed board, layer mapping, pad snapshot)`` for a hybrid AC network, or Nones.
 
     The hybrid mesh reads the saved board file, as the DC report's does. A
     file that cannot be read, whose copper layers do not all pair with the
@@ -28,17 +29,17 @@ def saved_board_for_ac(board_path, live_board, live_stackup, net_names, emit=lam
     fallback = "the AC network uses the raster mesh of the open board"
     if not board_path:
         emit(f"The board file is not known: {fallback}.")
-        return None, None
+        return None, None, None
     name = Path(board_path).name
     try:
         board = read_board(Path(board_path))
     except (OSError, ValueError, UnicodeDecodeError) as exc:
         emit(f"{name} could not be read ({exc}): {fallback}.")
-        return None, None
+        return None, None, None
     mapping, _positional, unmatched = live_layer_ids(board.stackup, live_stackup)
     if unmatched:
         emit(f"{name} has copper layers the open board lacks ({', '.join(unmatched)}): {fallback}.")
-        return None, None
+        return None, None, None
     capture = SimpleNamespace(board=capture_dc_board(live_board), classification_geometry_by_rail=None)
     differences = [
         f"{net}: {difference}"
@@ -47,8 +48,8 @@ def saved_board_for_ac(board_path, live_board, live_stackup, net_names, emit=lam
     ]
     if differences:
         emit(f"The open board differs from {name} ({'; '.join(differences)}): {fallback}.")
-        return None, None
-    return board, mapping
+        return None, None, None
+    return board, mapping, capture.board
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,58 @@ class ACRunRequest:
     compute_settings: Any = None
     debug: bool = False
     optimize: bool = False
+    # What a hybrid network was built from -- parsed board, layer mapping,
+    # stackup, pad snapshot, rail, all rails, grid -- so the engine can build
+    # it again at half the step (ac_grid_check). Private: kept out of the
+    # campaign cache digest.
+    _grid_check: Any = None
+
+
+# Largest network the half-step check builds; past it the check is skipped.
+AC_GRID_CHECK_MAX_NODES = 400000
+
+
+def ac_grid_check(request, result, solver, emit=lambda _message: None):
+    """The worst impedance solved again on a network at half the grid step.
+
+    The AC sweep had no error bar. On P02 Rev E's /VBUS_SYS (hybrid mesh)
+    the worst |Z| read 0.248 ohm at 0.5 mm, 0.264 at 0.35 mm and 0.281 at
+    0.25 mm: 13 % apart, the mesh not converged. Only the worst frequency
+    is solved again -- one or two factorisations -- on a network rebuilt
+    from the same saved board and pad snapshot, with the source the sweep
+    resolved.
+    """
+    inputs = request._grid_check
+    grid = float(inputs.grid_mm)
+    settings = request.settings
+    if not getattr(settings.source, "ref_des", "") and getattr(request.network, "source_ref_des", ""):
+        settings = replace(settings, source=replace(settings.source, ref_des=request.network.source_ref_des))
+    fine = ACModelBuilder(inputs.board).build(
+        inputs.rail, settings, grid_size_mm=grid / 2.0, all_rails=inputs.all_rails,
+        parsed_board=inputs.parsed_board, layer_mapping=inputs.layer_mapping,
+        stackup=inputs.stackup,
+    )
+    if fine.node_count > AC_GRID_CHECK_MAX_NODES:
+        return {"not_checked": f"{fine.node_count:,} nodes at {grid / 2.0:g} mm, over "
+                               f"{AC_GRID_CHECK_MAX_NODES:,}"}
+    frequency = float(result.worst_frequency_hz)
+    point = replace(
+        settings, frequency_start_hz=frequency * 0.999, frequency_stop_hz=frequency,
+        frequency_points=2,
+    )
+    checked = solver.solve_sweep_multiport(fine, point)
+    value = abs(checked.impedance_ohm[-1])
+    worst = float(result.worst_impedance_ohm)
+    delta = abs(value - worst) / worst * 100.0 if worst > 0.0 else 0.0
+    emit(
+        f"[grid check] {settings.rail_name}: worst |Z| {worst * 1e3:.2f} mohm at {grid:g} mm, "
+        f"{value * 1e3:.2f} mohm at {grid / 2.0:g} mm ({fine.node_count:,} nodes), "
+        f"{delta:.1f} % apart at {frequency:.4g} Hz."
+    )
+    return {
+        "grid_mm": grid, "check_grid_mm": grid / 2.0, "frequency_hz": frequency,
+        "impedance_ohm": worst, "check_impedance_ohm": value, "delta_pct": delta,
+    }
 
 
 @dataclass(frozen=True)
@@ -137,6 +190,12 @@ class ACSolverEngine:
             )
         if cancelled():
             raise ACAnalysisCancelled("AC analysis cancelled.")
+        if request._grid_check is not None:
+            try:
+                result.grid_check = ac_grid_check(request, result, solver, emit)
+            except (ValueError, RuntimeError) as exc:
+                result.grid_check = {"not_checked": str(exc)}
+                emit(f"[grid check] {request.settings.rail_name}: not checked -- {exc}")
         return result, None
 
 

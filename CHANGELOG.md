@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added an AC grid check: with "Check Grid at Half Step", each hybrid AC
+  sweep solves its worst frequency again at half its mesh step, in the
+  background, and flags a move over 10% (AC-005). P02 Rev E's /VBUS_SYS
+  reads 248.7 mohm at 0.5 mm and 282.2 at 0.25 mm, 13.5% apart.
 - Changed the electro-thermal coupling to map electrical branches to
   thermal cells as arrays: P02 Rev E's 2,641,865 branches, the ground
   return included, map in 1.5 s instead of 12.1 s, to the same cells.

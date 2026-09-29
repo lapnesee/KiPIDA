@@ -1077,21 +1077,28 @@ class ACModelBuilder:
         return rail_mesh, ground_mesh, dict(rail_cells)
 
     def build(self, rail: PowerRail, settings: ACAnalysisSettings, grid_size_mm=0.5,
-              all_rails=None, parsed_board=None, layer_mapping=None):
+              all_rails=None, parsed_board=None, layer_mapping=None, stackup=None):
         """The rail's AC network.
 
         With *parsed_board* (the saved board file) and *layer_mapping* (its
         layer ids onto the live board's), the network is built on the hybrid
-        mesh; without them, on the raster mesh of the open board.
+        mesh; without them, on the raster mesh of the open board. Given
+        *stackup* as well, a hybrid build reads nothing from the live board
+        but its pads, so a detached snapshot of them serves as ``board``.
         """
-        extractor = GeometryExtractor(self.board, debug=self.debug, log_callback=self.log_callback)
-        stackup = extractor.get_board_stackup()
-        rail_geometry = extractor.get_net_geometry(settings.rail_name)
-        ground_geometry = extractor.get_net_geometry(settings.ground_net_name)
-        if not rail_geometry:
-            raise ValueError(f"No copper geometry found for rail '{settings.rail_name}'.")
-        if not ground_geometry:
-            raise ValueError(f"No copper geometry found for return net '{settings.ground_net_name}'.")
+        extractor = None
+        if stackup is None or parsed_board is None:
+            extractor = GeometryExtractor(self.board, debug=self.debug, log_callback=self.log_callback)
+        if stackup is None:
+            stackup = extractor.get_board_stackup()
+        rail_geometry = ground_geometry = None
+        if parsed_board is None:
+            rail_geometry = extractor.get_net_geometry(settings.rail_name)
+            ground_geometry = extractor.get_net_geometry(settings.ground_net_name)
+            if not rail_geometry:
+                raise ValueError(f"No copper geometry found for rail '{settings.rail_name}'.")
+            if not ground_geometry:
+                raise ValueError(f"No copper geometry found for return net '{settings.ground_net_name}'.")
 
         mesher = Mesher(self.board, debug=self.debug, log_callback=self.log_callback)
         rail_cells = None
