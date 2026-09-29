@@ -260,7 +260,7 @@ def _raster_track_limitations(summary: Any, step_mm: float, mesh_name: str) -> l
 AC_GRID_SENSITIVITY_LIMIT_PCT = 10.0
 
 
-def _ac_grid_check(check: Any, target: float, rail: str) -> tuple:
+def _ac_grid_check(check: Any, target: float, rail: str, final: Any = None) -> tuple:
     """(metrics, findings, limitations) for the worst |Z| solved at half the grid step."""
     data = dict(check or {})
     if "not_checked" in data:
@@ -282,14 +282,26 @@ def _ac_grid_check(check: Any, target: float, rail: str) -> tuple:
     ]
     if not exceeded:
         return metrics, [], limitations
-    flips = target > 0.0 and (value > target) != (check_value > target)
+    # Against the impedance allowed at the checked frequency, as the verdict
+    # reads it (ac_model.target_mask). P02 Rev E's /VBUS_SYS, 2026-09-29
+    # 21:59: 0.2294 ohm at 0.5 mm passed the 0.254 ohm allowed at 100 MHz,
+    # 0.2597 ohm at 0.25 mm did not, and the flat 0.0889 ohm below both
+    # left this MEDIUM.
+    allowed = target_mask(
+        target, float(getattr(final, "target_bandwidth_hz", 0.0) or 0.0),
+        float(data.get("frequency_hz", 0.0) or 0.0),
+        float(getattr(final, "target_floor_hz", 0.0) or 0.0),
+        float(getattr(final, "target_below_floor_ohm", 0.0) or 0.0),
+    )
+    flips = allowed > 0.0 and (value > allowed) != (check_value > allowed)
     finding = _finding(
         "AC-005", 1, "NUMERICS", FindingSeverity.HIGH if flips else FindingSeverity.MEDIUM,
         f"{rail} impedance is not converged in mesh",
         f"The worst impedance reads {value:.4g} ohm at {grid:g} mm and {check_value:.4g} ohm "
         f"at {check_grid:g} mm, {delta:.1f}% apart, more than the "
         f"{AC_GRID_SENSITIVITY_LIMIT_PCT:g}% a converged sweep may move."
-        + (f" The {target:.4g} ohm target lies between the two." if flips else ""),
+        + (f" The {allowed:.4g} ohm allowed there lies between the two: the verdict "
+           "depends on the mesh." if flips else ""),
         f"Rerun at an AC mesh resolution of {check_grid:g} mm or finer and read the "
         "verdict from the finer sweep.",
         confidence=EvidenceConfidence.DETERMINISTIC,
@@ -527,6 +539,7 @@ def adapt_ac_result(
         findings.append(finding)
     grid_metrics, grid_findings, grid_limitations = _ac_grid_check(
         getattr(final, "grid_check", None), target, str(getattr(settings, "rail_name", "")),
+        final,
     )
     findings.extend(grid_findings)
     recommendations = list(getattr(optimization, "recommendations", ()) or ())

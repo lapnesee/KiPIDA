@@ -77,6 +77,24 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertEqual(len(result.summary["sweep"]), 2)
         self.assertAlmostEqual(result.summary["sweep"][1]["real_ohm"], 0.12)
 
+    def test_a_pass_the_finer_mesh_overturns_is_a_high_grid_finding(self):
+        # P02 Rev E, 2026-09-29 21:59: /VBUS_SYS passed at 0.5 mm, 0.2294 ohm
+        # against the 0.254 ohm allowed at 100 MHz; 0.2597 ohm at 0.25 mm.
+        sweep = SimpleNamespace(
+            meets_target=True, worst_impedance_ohm=0.2294, worst_frequency_hz=1e8,
+            target_impedance_ohm=0.0888889, target_bandwidth_hz=35e6, compute_backend="CPU",
+            frequencies_hz=[1e6, 1e8], impedance_ohm=[0.005 + 0j, 0.2294 + 0j],
+            grid_check={
+                "delta_pct": 13.2, "grid_mm": 0.5, "check_grid_mm": 0.25,
+                "impedance_ohm": 0.2294, "check_impedance_ohm": 0.2597, "frequency_hz": 1e8,
+            },
+        )
+        result = adapt_ac_result(sweep, settings=ACAnalysisSettings(rail_name="/VBUS_SYS"))
+
+        finding = next(item for item in result.findings if item.rule_id == "AC-005")
+        self.assertEqual(finding.severity, FindingSeverity.HIGH)
+        self.assertIn("0.254 ohm allowed there lies between the two", finding.description)
+
     def test_ac_adapter_warns_when_pass_is_only_a_lower_bound(self):
         # AC-1: P02 Rev E /VBUS_SYS sweep -- every swept point passes, but the
         # worst (0.2947 ohm at 100 MHz) sits on the closed sweep edge and was

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed AC-005 judging a mesh-dependent verdict against the flat target:
+  P02 Rev E's /VBUS_SYS passed at 0.5 mm (0.2294 ohm against 0.254 ohm
+  allowed at 100 MHz) and failed at 0.25 mm (0.2597 ohm), yet stayed
+  MEDIUM because the flat 0.0889 ohm lay below both.
 - Changed a converter-step AC target to apply from the converter's
   switching frequency up: below it the chopped current has no content,
   and the rail's averaged step sets the target. P02 Rev E's /VBUS_SYS
