@@ -357,6 +357,24 @@ def parse_capacitance(value) -> Optional[float]:
     return capacitance if capacitance > 0 else None
 
 
+def parse_part_quantity(value, unit) -> Optional[float]:
+    """A part field such as "5m", "5 mOhm", "0.4nH" or "400p" in base units.
+
+    *unit* is the symbol the field may end with ("ohm", "h"), which is
+    optional; an SI prefix scales the number. A field that is not a positive
+    number reads as None.
+    """
+    text = str(value or "").strip().replace("µ", "u").replace("μ", "u").replace("Ω", "ohm")
+    match = re.fullmatch(
+        rf"(?i)(\d+(?:\.\d+)?)\s*([pnumk]?)\s*(?:{unit}|r)?", text,
+    )
+    if not match:
+        return None
+    scale = {"": 1.0, "p": 1e-12, "n": 1e-9, "u": 1e-6, "m": 1e-3, "k": 1e3}
+    quantity = float(match.group(1)) * scale[match.group(2).lower()]
+    return quantity if quantity > 0 else None
+
+
 _RATED_VOLTAGE_RE = re.compile(r"(?i)(?<![\w.])(\d+(?:\.\d+)?)\s*V\b")
 # EIA class II ceramics (X5R, X7R, X6S, Y5V...) lose capacitance under DC
 # bias; class I (C0G/NP0) and non-ceramic parts do not, to first order.
@@ -632,6 +650,17 @@ class ACModelBuilder:
                     names.add(name)
         return sorted(names)
 
+    def _footprint_fields(self, footprint):
+        """``{name: text}`` of the footprint's fields, as the designer filled them in."""
+        fields = {}
+        for item in self._get_val(footprint, "texts_and_fields", []) or []:
+            name = str(self._get_val(item, "name", "") or "")
+            text = self._get_val(item, "text")
+            text = self._get_val(text, "value", text) if not isinstance(text, str) else text
+            if name and isinstance(text, str):
+                fields[name.strip().upper()] = text.strip()
+        return fields
+
     def _default_esl(self, footprint_name):
         esl_by_case = {
             "0201": 0.25e-9, "0402": 0.4e-9, "0603": 0.6e-9,
@@ -681,6 +710,21 @@ class ACModelBuilder:
             footprint_name = self._get_footprint_name(footprint)
             case_size = _case_size_from_footprint_name(footprint_name)
             model_source = "value-and-package-estimate"
+            # ESR and ESL cannot be looked up from the part number offline,
+            # so a part that states them in "ESR"/"ESL" fields (from its
+            # datasheet) is taken at its word; otherwise the case-size table
+            # stands in, and the MPN is named so the reader knows what to
+            # look up.
+            fields = self._footprint_fields(footprint)
+            esr = parse_part_quantity(fields.get("ESR"), "ohm")
+            esl = parse_part_quantity(fields.get("ESL"), "h")
+            if esr is not None or esl is not None:
+                stated = " and ".join(
+                    name for name, value in (("ESR", esr), ("ESL", esl)) if value is not None
+                )
+                model_source += f"; {stated} from the part's fields"
+            elif fields.get("MPN"):
+                model_source += f"; ESR/ESL by case size, not from {fields['MPN']}"
             if capacitance is not None:
                 rated_v, dielectric = parse_capacitor_rating(value_text)
                 retention = dc_bias_retention(
@@ -698,8 +742,8 @@ class ACModelBuilder:
                 rail_pad_names=rail_pads,
                 ground_pad_names=ground_pads,
                 capacitance_f=capacitance or 100e-9,
-                esr_ohm=self._default_esr(footprint_name),
-                esl_h=self._default_esl(footprint_name),
+                esr_ohm=esr if esr is not None else self._default_esr(footprint_name),
+                esl_h=esl if esl is not None else self._default_esl(footprint_name),
                 enabled=not candidate,
                 candidate=candidate,
                 model_source=model_source,

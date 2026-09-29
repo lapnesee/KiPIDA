@@ -107,6 +107,28 @@ class TestCapacitorDiscovery(unittest.TestCase):
         self.assertGreater(capacitors["C1"].esr_ohm, capacitors["C2"].esr_ohm)
 
 
+class TestPartFields(unittest.TestCase):
+    def test_esr_and_esl_come_from_the_parts_fields_when_stated(self):
+        # ESR/ESL were never taken from the part: P02 Rev E's capacitors
+        # carry an MPN (C57: CL32A476KOJNNNE) and no ESR/ESL, so they stay
+        # case-size estimates and say which part to look up; stated fields win.
+        fields = lambda **values: [SimpleNamespace(name=k, text=SimpleNamespace(value=v)) for k, v in values.items()]
+        footprint = lambda ref, **values: SimpleNamespace(
+            reference=ref, value="47u 16V X5R", footprint_name="C_1210_3225Metric",
+            pads=[pad("1", "+5V"), pad("2", "GND")], texts_and_fields=fields(**values),
+        )
+        board = SimpleNamespace(footprints=[
+            footprint("C57", MPN="CL32A476KOJNNNE"),
+            footprint("C58", ESR="5 mOhm", ESL="0.4nH"),
+        ])
+
+        c57, c58 = ACModelBuilder(board).discover_capacitors("+5V", "GND")
+
+        self.assertIn("not from CL32A476KOJNNNE", c57.model_source)
+        self.assertAlmostEqual(c58.esr_ohm, 0.005)
+        self.assertAlmostEqual(c58.esl_h, 0.4e-9)
+
+
 class TestHybridACMesh(unittest.TestCase):
     def test_a_pour_edge_node_stands_for_the_copper_it_covers(self):
         # On P02 Rev E's /VBUS_SYS the hybrid lattice counted a whole cell of

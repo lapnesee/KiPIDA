@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed AC capacitor models to take ESR and ESL from "ESR"/"ESL"
+  fields on the part when the design states them, and otherwise to name
+  the part's MPN in the model source: P02 Rev E's 75 capacitors with an
+  MPN (C57: CL32A476KOJNNNE) state no ESR/ESL and stay case-size ones.
 - Changed the thermal analysis to take its enclosure air rise from the
   CFD's own formula instead of a copy of it (P02 Rev E: 16.53 K).
 - Added the DC ground return: the hybrid engine solves the main ground
