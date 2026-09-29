@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed a campaign's thermal run ignoring the enclosure its CFD models
+  when the flow is buoyant: P02 Rev E's THERMAL solved at the 45 C
+  outside ambient while the same campaign's CFD put the sealed box's air
+  15.25 K above it, so U14's 126.1 C junction (23.9 K margin) was about
+  15 K optimistic. The box now reaches THERMAL before either runs.
 - Changed AC preparation to parse the saved board once while the file is
   unchanged: P02 Rev E's three AC profiles parsed it in turn on the UI
   thread, 0.9 s each.

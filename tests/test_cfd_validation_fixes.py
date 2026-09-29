@@ -154,22 +154,18 @@ class CFDFeedsThermalOnlyWhenTheFlowIsForced(unittest.TestCase):
             request.domain_requests["THERMAL"].air_velocity_m_s, 0.42,
         )
 
-    def test_forced_flow_also_hands_over_the_enclosure(self):
-        # COH-4: the enclosure ambient-rise correction rides the same
-        # forced-flow gate as the free-stream speed (it needs THERMAL not to
-        # have run yet, same as the velocity), so it is expected to reach
-        # THERMAL whenever the velocity does.
+    def test_a_buoyant_enclosure_reaches_thermal_before_it_runs(self):
+        # P02 Rev E, 2026-09-29 18:43: sealed box, buoyant flow; THERMAL
+        # solved at the 45 C outside ambient while the same campaign's CFD
+        # put the box's air 15.25 K above it.
         from application.campaign_controller import CampaignEngine
-        from models import CFDBoundaryPatch, EnclosureCFDResult
 
-        request = self._request([
-            CFDBoundaryPatch("Fan", "FAN", "XMIN", 0.5, 0.5, 0.5, 0.5, 0.8, 25.0),
-        ])
-        CampaignEngine(domain_engines={})._couple_cfd_into_thermal(
-            request,
-            EnclosureCFDResult(board_free_stream_velocity_m_s=0.42, board_free_stream_cells=17),
-            lambda _m: None,
-        )
+        request = self._request([])
+        order = [d.analysis_id for d in CampaignEngine(domain_engines={})._run_order(
+            request, lambda _m: None,
+        )]
+
+        self.assertLess(order.index("THERMAL"), order.index("CFD"))
         self.assertIs(
             request.domain_requests["THERMAL"].enclosure,
             request.domain_requests["CFD"].settings,

@@ -315,8 +315,29 @@ class CampaignEngine:
         way the workspace lists them.  Two couplings need more than that, and
         both are applied here so one place answers "why did CFD run third?".
         """
+        self._hand_enclosure_to_thermal(request, emit_log)
         descriptors = self._order_for_cfd_coupling(request, emit_log)
         return self._order_for_emc_inputs(descriptors, request, emit_log)
+
+    @staticmethod
+    def _hand_enclosure_to_thermal(request, emit_log):
+        """Give THERMAL the enclosure the campaign's CFD models, before either runs.
+
+        The internal air rise, Q / (h * A_walls), needs the box's walls and
+        the board's heat, not the CFD's flow field, so it does not wait for
+        CFD. It used to ride the forced-flow handover, which a buoyant
+        enclosure never takes: on P02 Rev E (2026-09-29 18:43) THERMAL solved
+        at the 45 C outside ambient while the CFD of the same campaign put
+        the sealed box's air 15.25 K above it -- U14's 126.1 C junction and
+        its 23.9 K margin were both about 15 K optimistic.
+        """
+        requests = request.domain_requests
+        thermal, cfd = requests.get("THERMAL"), requests.get("CFD")
+        enclosure = getattr(cfd, "settings", None)
+        if thermal is None or enclosure is None or getattr(thermal, "enclosure", None) is not None:
+            return
+        requests["THERMAL"] = replace(thermal, enclosure=enclosure)
+        emit_log("THERMAL will balance its ambient against the enclosure CFD's box.")
 
     def _order_for_emc_inputs(self, descriptors, request, emit_log):
         """Move EMC after every domain whose results it reads.
@@ -398,21 +419,10 @@ class CampaignEngine:
         # of THERMAL (_order_for_cfd_coupling). Under buoyancy THERMAL has
         # already run by now: on P02 Rev E at 21:58 this still logged that
         # thermal "keeps its configured airflow", as if it were yet to run.
-        #
-        # COH-4's enclosure ambient-rise correction (Q / (h * A_walls)) is
-        # not itself a flow-direction effect, but it still needs THERMAL not
-        # to have run yet to matter -- so it rides the same forced-flow gate
-        # rather than a separate one. The common buoyancy campaign therefore
-        # does not get the correction from this handover yet; told to the
-        # integrator alongside this fix.
+        # The enclosure itself was handed over before the run
+        # (_hand_enclosure_to_thermal).
         if not self._forced_flow_patches(request.domain_requests.get("CFD")):
             return
-        if getattr(thermal, "enclosure", None) is None:
-            enclosure = getattr(request.domain_requests.get("CFD"), "settings", None)
-            if enclosure is not None:
-                thermal = replace(thermal, enclosure=enclosure)
-                request.domain_requests["THERMAL"] = thermal
-                emit_log("THERMAL will balance its ambient against the enclosure CFD's box.")
         result = getattr(domain_result, "result", domain_result)
         velocity = float(getattr(result, "board_free_stream_velocity_m_s", 0.0) or 0.0)
         cells = int(getattr(result, "board_free_stream_cells", 0) or 0)
