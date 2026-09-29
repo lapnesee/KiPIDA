@@ -260,6 +260,17 @@ class PowerLossTests(unittest.TestCase):
             2 * 20e-9 * 5.2 * 400e3,
         )
 
+    def test_the_residual_warning_names_where_the_split_put_it(self):
+        # P02 Rev E's U4: the residual split onto L1 was reported "placed on Q10".
+        reg = VoltageRegulator(
+            name="U4", input_rail_name="20V", input_ref_des="Q10", input_pad_names=[],
+            output_rail_name="5V", output_ref_des="U4", output_pad_names=[], reg_type="SWITCHING",
+            loss_model={"kind": "buck", "controller_ref_des": "Q10",
+                        "fallback_efficiency": parameter(0.93), "residual_split": {"L1": 1.0}},
+        )
+        stage = estimate_stage(reg, 20.0, 5.08, 4.42)
+        self.assertTrue(any("placed on L1" in warning for warning in stage.warnings))
+
     def test_discrete_mosfet_stage_ignores_role_and_warns_nothing(self):
         # kind="mosfet" is a pass device, not a switching duty cycle: role
         # must not change its behaviour or trigger the buck-only warning.

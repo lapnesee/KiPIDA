@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fixed the efficiency-residual warning naming the controller when the
+  residual split sends it elsewhere: P02 Rev E's U4 residual, split onto
+  L1, was reported "placed on Q10".
 - Added buck switching losses from the MOSFETs' datasheet charges
   (transitions, output charge, body-diode recovery, dead time, gate
   charge): P02 Rev E's U4 leg put 1.36 W of efficiency residual on Q10;

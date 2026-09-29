@@ -537,9 +537,11 @@ def estimate_stage(regulator: VoltageRegulator, vin_v: float, vout_v: float,
                      "residual_fraction": float(fraction)},
                 ))
             target_source = "efficiency-table" if table_efficiency is not None else "efficiency-fallback"
+            # Named from the split itself: a one-part split onto L1 read
+            # "placed on Q10", the controller default it replaced.
             placement = (
                 f"across {', '.join(str(ref) for ref in split)}" if len(split) > 1
-                else f"on {default_residual_ref}"
+                else f"on {next(iter(split))}"
             )
             warnings.append(
                 f"Switching/core losses are incomplete; the {target_source} residual closes "
