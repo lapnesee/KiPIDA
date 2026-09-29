@@ -693,6 +693,24 @@ class SavedCapacitorMergeTests(unittest.TestCase):
         apply_saved_capacitor(fresh2, user_edited)
         self.assertAlmostEqual(fresh2.capacitance_f, 9.0e-6)  # explicit user edit kept
 
+    def test_a_datasheet_capacitor_model_survives_rediscovery(self):
+        # P02 Rev E: C36 rediscovers at 11.4 uF under 20 V from the generic
+        # curve; Taiyo Yuden's measured DC-bias curve gives 5.87 uF.
+        try:
+            from ui.ac_analysis_panel import apply_saved_capacitor
+        except ImportError:
+            self.skipTest("wxPython is not available")
+        from models import CapacitorModel
+
+        fresh = CapacitorModel("C36", capacitance_f=11.4023e-6, esr_ohm=0.01, esl_h=1.2e-9,
+                               model_source="value-and-package-estimate")
+        measured = CapacitorModel("C36", capacitance_f=5.87e-6, esr_ohm=0.00316, esl_h=0.398e-9,
+                                  model_source="datasheet: Taiyo Yuden GMK325BJ226MM-P")
+        apply_saved_capacitor(fresh, measured)
+        self.assertAlmostEqual(fresh.capacitance_f, 5.87e-6)
+        self.assertAlmostEqual(fresh.esl_h, 0.398e-9)
+        self.assertTrue(fresh.model_source.startswith("datasheet"))
+
 
 class LoadedProfileRailTests(unittest.TestCase):
     def test_a_loaded_project_opens_the_tab_on_a_rail_it_configured(self):

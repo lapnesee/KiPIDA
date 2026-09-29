@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed a capacitor model taken from its manufacturer's data being
+  replaced at each rediscovery by the case-size and generic DC-bias
+  estimate: P02 Rev E's C36 rediscovers at 11.4 uF under 20 V, where
+  Taiyo Yuden's curve gives 5.87 uF. A "datasheet" source now carries over.
 - Changed the CFD solid and air maxima to read INDICATIVE, not PASS, on a
   mesh of 14 cells or more across: P02 Rev E's rose from 181.0 C to
   190.6 C between 10 and 15 cells across (34 s to 737 s), away from the

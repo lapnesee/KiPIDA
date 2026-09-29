@@ -56,9 +56,16 @@ def apply_saved_capacitor(capacitor, saved):
     model_source="user" -- otherwise a stale estimate from a previous
     discovery would shadow a rediscovery's corrected derating or ESR (AC-7),
     e.g. after the rail's voltage changes or a case-size fix lands.
+
+    A model whose source starts with "datasheet" carries over too: it holds
+    the manufacturer's measured ESR, ESL and DC-biased capacitance, which no
+    rediscovery can improve on. P02 Rev E's C36 was rediscovered at 11.4 uF
+    under 20 V from the generic curve, where Taiyo Yuden's own curve gives
+    5.87 uF.
     """
     capacitor.enabled = saved.enabled
-    if saved.model_source == "user":
+    source = str(saved.model_source or "")
+    if source == "user" or source.lower().startswith("datasheet"):
         capacitor.capacitance_f = saved.capacitance_f
         capacitor.esr_ohm = saved.esr_ohm
         capacitor.esl_h = saved.esl_h
