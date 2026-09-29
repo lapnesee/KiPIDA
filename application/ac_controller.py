@@ -150,23 +150,30 @@ def ac_grid_check(request, result, solver, emit=lambda _message: None):
     if fine.node_count > AC_GRID_CHECK_MAX_NODES:
         return {"not_checked": f"{fine.node_count:,} nodes at {grid / 2.0:g} mm, over "
                                f"{AC_GRID_CHECK_MAX_NODES:,}"}
-    frequency = float(result.worst_frequency_hz)
+    # Where the verdict is decided: the least margin to the allowed
+    # impedance, not the worst |Z|. P02 Rev E's /VBUS_SYS, 2026-09-30 00:05,
+    # was checked at its 38.3 kHz source resonance, 0.2061 ohm against
+    # 0.392 ohm allowed, and not at 100 MHz, where its margin is thinnest.
+    critical = float(getattr(result, "critical_frequency_hz", 0.0) or 0.0) > 0.0
+    frequency = float(result.critical_frequency_hz if critical else result.worst_frequency_hz)
     point = replace(
         settings, frequency_start_hz=frequency * 0.999, frequency_stop_hz=frequency,
         frequency_points=2,
     )
     checked = solver.solve_sweep_multiport(fine, point)
     value = abs(checked.impedance_ohm[-1])
-    worst = float(result.worst_impedance_ohm)
+    worst = float(result.critical_impedance_ohm if critical else result.worst_impedance_ohm)
     delta = abs(value - worst) / worst * 100.0 if worst > 0.0 else 0.0
     emit(
-        f"[grid check] {settings.rail_name}: worst |Z| {worst * 1e3:.2f} mohm at {grid:g} mm, "
+        f"[grid check] {settings.rail_name}: "
+        f"{'least-margin' if critical else 'worst'} |Z| {worst * 1e3:.2f} mohm at {grid:g} mm, "
         f"{value * 1e3:.2f} mohm at {grid / 2.0:g} mm ({fine.node_count:,} nodes), "
         f"{delta:.1f} % apart at {frequency:.4g} Hz."
     )
     return {
         "grid_mm": grid, "check_grid_mm": grid / 2.0, "frequency_hz": frequency,
         "impedance_ohm": worst, "check_impedance_ohm": value, "delta_pct": delta,
+        "least_margin": critical,
     }
 
 

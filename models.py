@@ -796,6 +796,12 @@ class ImpedanceSweepResult:
     target_below_floor_ohm: float = 0.0
     worst_frequency_hz: float = 0.0
     worst_impedance_ohm: float = 0.0
+    # The point with the least margin to the allowed impedance: once the
+    # target rises with frequency it need not be the worst |Z|. Zero with no
+    # target.
+    critical_frequency_hz: float = 0.0
+    critical_impedance_ohm: float = 0.0
+    critical_allowed_ohm: float = 0.0
     meets_target: bool = False
     compute_backend: str = "CPU"
     compute_device: str = "CPU"

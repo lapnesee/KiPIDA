@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Changed the AC grid check, and the choice of worst port, to the point
+  of least margin to the allowed impedance rather than the worst |Z|:
+  P02 Rev E's /VBUS_SYS was checked at its 38.3 kHz source resonance,
+  0.2061 ohm against 0.392 ohm allowed (53 %), not at 100 MHz, where the
+  0.254 ohm allowed leaves the least margin.
 - Fixed a converter's chopped input current replacing a rail's averaged
   load step when it is the smaller of the two: P02 Rev E's /+5V_RAIL
   feeds U5 (0.5 A chopped) and J6 (4 A), and was held to 0.2032 ohm from

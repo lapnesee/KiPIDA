@@ -327,12 +327,21 @@ class CandidateImpedances:
             )
             for index, ref in enumerate(self.ports)
         }
-        worst_ref = max(results, key=lambda ref: results[ref].worst_impedance_ohm)
+        worst_ref = max(results, key=lambda ref: _port_severity(results[ref]))
         worst = results[worst_ref]
         worst.per_port_results = results
         worst.worst_port_ref_des = worst_ref
         worst.excluded_ports = list(self.excluded)
         return worst
+
+
+def _port_severity(result):
+    """How close a port comes to failing: its least margin to the allowed
+    impedance, or its worst |Z| with no target."""
+    allowed = float(getattr(result, "critical_allowed_ohm", 0.0) or 0.0)
+    if allowed > 0.0:
+        return float(result.critical_impedance_ohm) / allowed
+    return float(result.worst_impedance_ohm)
 
 
 class ACSolver:
@@ -606,6 +615,7 @@ class ACSolver:
             target_mask(target, bandwidth, float(frequency), floor_hz, below_floor)
             for frequency in frequencies
         ], dtype=float)
+        critical_index = int(np.argmax(magnitudes / allowed)) if target > 0.0 else worst_index
         # A worst case sitting on the last swept point means the impedance was
         # still climbing when the window closed: the real maximum may be
         # outside it, so the number is a lower bound rather than a maximum.
@@ -641,6 +651,9 @@ class ACSolver:
             target_below_floor_ohm=below_floor if floor_hz > 0.0 else 0.0,
             worst_frequency_hz=float(frequencies[worst_index]),
             worst_impedance_ohm=float(magnitudes[worst_index]),
+            critical_frequency_hz=float(frequencies[critical_index]) if target > 0.0 else 0.0,
+            critical_impedance_ohm=float(magnitudes[critical_index]) if target > 0.0 else 0.0,
+            critical_allowed_ohm=float(allowed[critical_index]) if target > 0.0 else 0.0,
             meets_target=bool(target > 0 and np.all(magnitudes <= allowed)),
             mesh_node_count=int(network.node_count),
             requested_grid_size_mm=float(network.requested_grid_size_mm),
@@ -772,7 +785,7 @@ class ACSolver:
             )
             for ref, impedances in per_port.items()
         }
-        worst_ref = max(results, key=lambda ref: results[ref].worst_impedance_ohm)
+        worst_ref = max(results, key=lambda ref: _port_severity(results[ref]))
         worst = results[worst_ref]
         worst.per_port_results = results
         worst.worst_port_ref_des = worst_ref

@@ -283,5 +283,31 @@ class TransientBandwidthTests(unittest.TestCase):
         self.assertTrue(floored.meets_target)
 
 
+    def test_the_least_margin_is_found_under_a_rising_mask(self):
+        # P02 Rev E's /VBUS_SYS, 2026-09-30 00:05: its grid check ran at the
+        # 38.3 kHz source resonance, 0.2061 ohm against 0.392 ohm allowed
+        # (53 %), while 100 MHz, below 0.2061 ohm, has 0.254 ohm allowed and
+        # read 0.2294 ohm on 2026-09-29 21:59.
+        from ac_solver import ACSolver
+        from models import ACAnalysisSettings
+
+        class _Net:
+            node_count = 10
+            requested_grid_size_mm = 0.5
+            effective_grid_size_mm = 0.5
+            quasi_static_limit_hz = 140e6
+
+        result = ACSolver._summarize(
+            [38.3e3, 1e6, 100e6], [0.2061, 0.01, 0.2],
+            ACAnalysisSettings(
+                target_impedance_ohm=0.0888889, transient_bandwidth_hz=35e6,
+                target_floor_hz=400e3, target_below_floor_ohm=0.392,
+            ),
+            _Net(),
+        )
+        self.assertEqual(result.worst_frequency_hz, 38.3e3)
+        self.assertEqual(result.critical_frequency_hz, 100e6)
+        self.assertAlmostEqual(result.critical_allowed_ohm, 0.0888889 * 100 / 35)
+
 if __name__ == "__main__":
     unittest.main()

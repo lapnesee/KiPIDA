@@ -261,7 +261,7 @@ AC_GRID_SENSITIVITY_LIMIT_PCT = 10.0
 
 
 def _ac_grid_check(check: Any, target: float, rail: str, final: Any = None) -> tuple:
-    """(metrics, findings, limitations) for the worst |Z| solved at half the grid step."""
+    """(metrics, findings, limitations) for the least-margin |Z| solved at half the grid step."""
     data = dict(check or {})
     if "not_checked" in data:
         return [], [], [f"The AC mesh was not checked at half its step: {data['not_checked']}."]
@@ -271,12 +271,16 @@ def _ac_grid_check(check: Any, target: float, rail: str, final: Any = None) -> t
     grid, check_grid = float(data["grid_mm"]), float(data["check_grid_mm"])
     value, check_value = float(data["impedance_ohm"]), float(data["check_impedance_ohm"])
     exceeded = delta > AC_GRID_SENSITIVITY_LIMIT_PCT
+    subject = (
+        "the impedance at the least margin to the target" if data.get("least_margin")
+        else "the worst impedance"
+    )
     metrics = [AnalysisMetric(
-        "grid_sensitivity", f"Worst impedance change at half the grid step ({check_grid:g} mm)",
+        "grid_sensitivity", f"Checked impedance change at half the grid step ({check_grid:g} mm)",
         delta, "%", "WARN" if exceeded else "INFO",
     )]
     limitations = [
-        f"Grid check: the worst impedance reads {value:.4g} ohm at {grid:g} mm and "
+        f"Grid check: {subject} reads {value:.4g} ohm at {grid:g} mm and "
         f"{check_value:.4g} ohm at {check_grid:g} mm ({delta:.1f}% apart, "
         f"{float(data['frequency_hz']):.4g} Hz)."
     ]
@@ -290,7 +294,7 @@ def _ac_grid_check(check: Any, target: float, rail: str, final: Any = None) -> t
     extrapolated = check_value + (check_value - value) / max(ratio - 1.0, 1e-9)
     metrics.append(AnalysisMetric(
         "grid_extrapolated_impedance",
-        "Worst impedance extrapolated to a converged mesh (first order)",
+        "Checked impedance extrapolated to a converged mesh (first order)",
         extrapolated, "ohm", "INFO",
     ))
     # Against the impedance allowed at the checked frequency, as the verdict
@@ -310,7 +314,8 @@ def _ac_grid_check(check: Any, target: float, rail: str, final: Any = None) -> t
     finding = _finding(
         "AC-005", 1, "NUMERICS", FindingSeverity.HIGH if flips else FindingSeverity.MEDIUM,
         f"{rail} impedance is not converged in mesh",
-        f"The worst impedance reads {value:.4g} ohm at {grid:g} mm and {check_value:.4g} ohm "
+        f"{subject[0].upper()}{subject[1:]} reads {value:.4g} ohm at {grid:g} mm and "
+        f"{check_value:.4g} ohm "
         f"at {check_grid:g} mm, {delta:.1f}% apart, more than the "
         f"{AC_GRID_SENSITIVITY_LIMIT_PCT:g}% a converged sweep may move; extrapolated to a "
         f"converged mesh (Richardson, first order) it reads {extrapolated:.4g} ohm."
