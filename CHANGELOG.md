@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added a "continuous" conduction role for a buck-stage MOSFET held on
+  through the whole period: P02 Rev E's U4 boost-leg high side, 0.151 W
+  in buck mode, drew a warning to declare "high", which would have cut
+  its loss by the 0.254 duty.
 - Changed the AC target to hold flat only over its step's bandwidth,
   0.35 / rise time, and to rise in proportion to frequency above it. The
   edge comes from the EMC source switching the converter whose chopped

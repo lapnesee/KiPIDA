@@ -206,6 +206,22 @@ class PowerLossTests(unittest.TestCase):
         self.assertAlmostEqual(loss.power_w, 2.0 ** 2 * 0.0026)
         self.assertTrue(any("role" in warning for warning in stage.warnings))
 
+    def test_a_switch_held_on_takes_the_full_current_without_a_warning(self):
+        # P02 Rev E, 2026-09-29 18:51: U4's boost-leg high side conducts the
+        # whole period in buck mode (0.151 W on its 7.6 mOhm), and the
+        # warning told the user to declare "high", which would cut it by D.
+        reg = VoltageRegulator(
+            name="buck", input_rail_name="20V", input_ref_des="Q10", input_pad_names=[],
+            output_rail_name="5V", output_ref_des="U4", output_pad_names=[], reg_type="SWITCHING",
+            loss_model={"kind": "buck", "mosfets": [
+                {"ref_des": "U4", "rds_on_ohm": parameter(0.0076), "role": "continuous"},
+            ]},
+        )
+        stage = estimate_stage(reg, 20.0, 5.08, 4.42)
+        loss = next(loss for loss in stage.losses if loss.ref_des == "U4")
+        self.assertAlmostEqual(loss.power_w, 4.42 ** 2 * 0.0076)
+        self.assertFalse(any("role" in warning for warning in stage.warnings))
+
     def test_discrete_mosfet_stage_ignores_role_and_warns_nothing(self):
         # kind="mosfet" is a pass device, not a switching duty cycle: role
         # must not change its behaviour or trigger the buck-only warning.

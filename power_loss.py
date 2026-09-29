@@ -167,6 +167,9 @@ def _mosfet_losses(models: Iterable[Dict[str, Any]], current_rms_a: float,
     nothing to weight against. Inside a buck stage, an entry without a
     declared "high"/"low" ``role`` also keeps that behaviour, but a warning
     is returned so the gap is visible instead of silently overstating loss.
+    A "continuous" role is a switch held on through the whole period -- P02
+    Rev E's U4 boost-leg high side in buck mode -- and takes the full current
+    without a warning: "high" there would understate its loss by D.
     """
     losses = []
     warnings = []
@@ -183,12 +186,12 @@ def _mosfet_losses(models: Iterable[Dict[str, Any]], current_rms_a: float,
             weight = duty if role == "high" else (1.0 - duty)
         else:
             weight = 1.0
-            if duty is not None and role not in ("high", "low"):
+            if duty is not None and role not in ("high", "low", "continuous"):
                 warnings.append(
-                    f"{ref_des}: no conduction role (\"high\" or \"low\") declared for this "
-                    "buck MOSFET, so it is credited the full inductor RMS current instead of "
-                    "its duty-weighted share; a datasheet RDS(on) will overstate conduction "
-                    "loss by up to 1/D. Set loss_model.mosfets[].role."
+                    f"{ref_des}: no conduction role (\"high\", \"low\" or \"continuous\") "
+                    "declared for this buck MOSFET, so it is credited the full inductor RMS "
+                    "current instead of its duty-weighted share; a datasheet RDS(on) will "
+                    "overstate conduction loss by up to 1/D. Set loss_model.mosfets[].role."
                 )
         losses.append(LossContribution(
             ref_des=ref_des,
