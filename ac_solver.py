@@ -419,21 +419,9 @@ class ACSolver:
                     capacitor, frequency,
                 ),
             ))
-        # Plane-pair (cavity) capacitance -- C = eps0*er*A/d between the rail
-        # and return copper where they overlap -- is not stamped here. A
-        # physically faithful version needs one shunt admittance PER
-        # overlapping mesh cell (P02 Rev E: ~84,000 nodes), stamped at every
-        # frequency; _NetworkStamps exists specifically because per-element
-        # Python stamping at every frequency cost 2.8 s/point on a network
-        # this size (see its docstring), so that would reintroduce the exact
-        # cost this class was written to remove, on every optimizer trial
-        # too. A single lumped shunt capacitor approximating the total
-        # capacitance would need ACModelBuilder.build() to also hand back a
-        # synthetic capacitor model, which none of its callers (the UI, the
-        # decoupling optimizer, every existing test) expect -- a real
-        # interface change, not a local one. Left absent and stated on the
-        # AC report as a limitation (analysis_adapters.py's AC limitations
-        # list) rather than half-implemented here.
+        # Plane-pair (cavity) capacitance is not a lumped element: it is one
+        # admittance per overlapping cell, which _NetworkStamps stamps
+        # vectorised from network.cavity_capacitors.
         return _NetworkStamps(network, lumped, anchors)
 
     def _log_recycling(self, recycled, points, started):
