@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed PD-001 and PD-002 quoting the flat target beside a verdict read
+  against the frequency-dependent one: P02 Rev E's /VBUS_SYS read "worst
+  impedance 0.2061 ohm is within the 0.08889 ohm target", 0.392 ohm
+  being allowed at its 38.3 kHz. They now quote the least-margin point.
 - Changed the AC grid check, and the choice of worst port, to the point
   of least margin to the allowed impedance rather than the worst |Z|:
   P02 Rev E's /VBUS_SYS was checked at its 38.3 kHz source resonance,

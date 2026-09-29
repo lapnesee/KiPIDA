@@ -2092,9 +2092,16 @@ class EMCAnalyzer:
             frequency = float(getattr(result, "worst_frequency_hz", 0.0) or 0.0)
             if target <= 0:
                 continue
-            # The sweep's own verdict: its target may rise above the step's
-            # bandwidth (ac_model.target_mask), which the worst |Z| alone
-            # cannot tell.
+            # Stated at the point of least margin, against what is allowed
+            # there (ac_model.target_mask). P02 Rev E, 2026-09-30 00:09,
+            # read "/VBUS_SYS: worst impedance 0.2061 ohm is within the
+            # 0.08889 ohm target": 0.392 ohm is allowed at its 38.3 kHz.
+            allowed = float(getattr(result, "critical_allowed_ohm", 0.0) or 0.0)
+            if allowed > 0.0:
+                worst = float(result.critical_impedance_ohm)
+                frequency = float(result.critical_frequency_hz)
+            else:
+                allowed = target
             if not bool(getattr(result, "meets_target", worst <= target)):
                 # INFO, not HIGH: the AC domain already judges the sweep this
                 # restates (AC-001), and HIGH counted it twice -- P02 Rev E's
@@ -2102,12 +2109,14 @@ class EMCAnalyzer:
                 # from 49 to 25 and made three top actions of AC-001's copy.
                 # TE-001 was demoted for the thermal hotspot the same way.
                 self._add("PD-001", "PDN", "INFO", "PDN impedance exceeds target",
-                          f"{name}: {worst:.4g} ohm at {frequency / 1e6:.3f} MHz exceeds {target:.4g} ohm.",
+                          f"{name}: {worst:.4g} ohm at {frequency / 1e6:.3f} MHz exceeds the "
+                          f"{allowed:.4g} ohm allowed there.",
                           "Optimise capacitor values/placement and rerun the AC impedance analysis.",
                           "HIGH", [name])
             else:
                 self._add("PD-002", "PDN", "INFO", "PDN remains within target",
-                          f"{name}: worst impedance {worst:.4g} ohm is within the {target:.4g} ohm target.",
+                          f"{name}: {worst:.4g} ohm at {frequency / 1e6:.3f} MHz, its least margin, "
+                          f"is within the {allowed:.4g} ohm allowed there.",
                           "Retain the analysed capacitor population and verify on the assembled board.",
                           "HIGH", [name])
 

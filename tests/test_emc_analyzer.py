@@ -257,6 +257,20 @@ class TestEMCAnalyzer(unittest.TestCase):
         pdn = next(finding for finding in result.findings if finding.rule_id == "PD-001")
         self.assertEqual(pdn.severity, "INFO")
 
+    def test_pdn_restatement_quotes_the_impedance_allowed_there(self):
+        # P02 Rev E, 2026-09-30 00:09: "/VBUS_SYS: worst impedance 0.2061
+        # ohm is within the 0.08889 ohm target", 0.392 ohm being allowed at
+        # its 38.3 kHz.
+        ac = ImpedanceSweepResult(
+            [38.3e3], [0.2061 + 0j], target_impedance_ohm=0.08889,
+            worst_frequency_hz=38.3e3, worst_impedance_ohm=0.2061, meets_target=True,
+            critical_frequency_hz=38.3e3, critical_impedance_ohm=0.2061,
+            critical_allowed_ohm=0.392,
+        )
+        result = EMCAnalyzer(self.snapshot(), self.settings(), ac_results=[("/VBUS_SYS", ac)]).analyze()
+        pdn = next(finding for finding in result.findings if finding.rule_id == "PD-002")
+        self.assertIn("within the 0.392 ohm allowed there", pdn.description)
+
     def test_emission_output_is_explicitly_relative(self):
         result = EMCAnalyzer(self.snapshot(), self.settings()).analyze()
         self.assertTrue(result.frequency_risks)
