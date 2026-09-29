@@ -74,5 +74,30 @@ class TestCavityCapacitance(unittest.TestCase):
         self.assertAlmostEqual(rail.branches[0].inductance_h, 4e-7 * math.pi * 0.35e-3 / 2)
         self.assertEqual(len(mesher.cavity_capacitor_pairs(rail, ground, stackup)), 400)
 
+class TestViaPairInductance(unittest.TestCase):
+    def test_a_close_return_via_halves_the_two_wire_loop(self):
+        # AC-8: a rail/ground via pair 1 mm apart over a 1 mm span carried
+        # 2 x 1.0 nH, against mu0*h/pi * ln(s/r) for the loop.
+        import math
+        from mesh import Mesher
+
+        def via(x):
+            mesh = Mesh()
+            mesh.grid_step = 0.5
+            mesh.node_coords = {0: (x, 0.0, 0), 1: (x, 0.0, 1)}
+            mesh.add_edge_direct(
+                0, 1, 1.0e4, inductance_h=1.0e-9, kind="via",
+                cross_section_mm2=math.pi * (0.3 * 0.02 + 0.02 ** 2),
+            )
+            return mesh
+
+        rail, ground = via(0.0), via(1.0)
+        stackup = {"substrate": [{"between": [0, 1], "thickness_mm": 1.0}]}
+
+        Mesher.__new__(Mesher).assign_via_pair_inductance(rail, ground, stackup)
+
+        loop = 4e-7 * 1.0e-3 * math.log(1.0 / 0.17)
+        self.assertAlmostEqual(rail.branches[0].inductance_h + ground.branches[0].inductance_h, loop)
+
 if __name__ == "__main__":
     unittest.main()

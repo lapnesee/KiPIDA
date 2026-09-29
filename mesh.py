@@ -826,6 +826,69 @@ class Mesher:
             squares = branch.resistance_ohm * thickness / rho
             branch.inductance_h = squares * mu0 * (sum(heights) / 4.0) * 1.0e-3
 
+    # Barrels further apart than this are not taken as each other's return.
+    VIA_PAIR_MAX_SPACING_MM = 5.0
+    VERTICAL_KINDS = ("via", "pth", "vertical")
+
+    def _barrels(self, mesh, stackup):
+        """``[(branch, x, y, low layer, high layer, height mm, radius mm)]``."""
+        plating = PLATING_THICKNESS_FALLBACK_MM
+        barrels = []
+        for branch in mesh.branches:
+            if branch.kind not in self.VERTICAL_KINDS:
+                continue
+            x_mm, y_mm, layer_a = mesh.node_coords[branch.node_a]
+            layer_b = mesh.node_coords[branch.node_b][2]
+            low, high = min(layer_a, layer_b), max(layer_a, layer_b)
+            height = sum(
+                float(sub.get('thickness_mm', 0.0) or 0.0)
+                for sub in stackup.get('substrate', [])
+                if len(sub.get('between', [])) == 2 and None not in sub['between']
+                and min(sub['between']) >= low and max(sub['between']) <= high
+            )
+            # The barrel section is pi*(d*p + p^2): its outer radius d/2 + p.
+            drill = branch.cross_section_mm2 / (math.pi * plating) - plating
+            if height > 0.0 and drill > 0.0:
+                barrels.append((branch, x_mm, y_mm, low, high, height, drill / 2.0 + plating))
+        return barrels
+
+    def assign_via_pair_inductance(self, rail_mesh, ground_mesh, stackup):
+        """Give each barrel with a return barrel nearby half the pair's loop.
+
+        A barrel's inductance was a self inductance on each mesh, with no
+        mutual term against the return barrel beside it: a rail/ground pair
+        1 mm apart over 1 mm measured 2 x 1.0 nH against the two-wire loop
+        mu0*h/pi * ln(s/r) of about 0.76 nH (AC-8). Each barrel whose layer
+        span overlaps a barrel of the other net within
+        VIA_PAIR_MAX_SPACING_MM now carries half of that loop, h its own
+        dielectric span and r the geometric mean of the two radii. A barrel
+        with no return barrel that close keeps its self estimate.
+        """
+        if np is None:
+            return
+        from scipy.spatial import cKDTree
+
+        meshes = (self._barrels(rail_mesh, stackup), self._barrels(ground_mesh, stackup))
+        for own, other in (meshes, meshes[::-1]):
+            if not own or not other:
+                continue
+            tree = cKDTree([(x, y) for _b, x, y, *_rest in other])
+            count = min(8, len(other))
+            for branch, x, y, low, high, height, radius in own:
+                distances, indices = tree.query((x, y), k=count)
+                for distance, index in zip(np.atleast_1d(distances), np.atleast_1d(indices)):
+                    if not np.isfinite(distance) or distance > self.VIA_PAIR_MAX_SPACING_MM:
+                        break
+                    _b, _x, _y, other_low, other_high, _h, other_radius = other[int(index)]
+                    mean_radius = math.sqrt(radius * other_radius)
+                    if other_high <= low or other_low >= high or distance <= radius + other_radius:
+                        continue
+                    branch.inductance_h = (
+                        4.0e-7 * math.pi / (2.0 * math.pi) * height * 1.0e-3
+                        * math.log(distance / mean_radius)
+                    )
+                    break
+
     def cavity_capacitor_pairs(self, rail_mesh, ground_mesh, stackup, rail_cell_share=None):
         """Plane-pair (cavity) capacitance: C = eps0*er*A_cell/h between each
         rail-mesh node and the return-mesh node directly beneath/above it.
@@ -925,20 +988,9 @@ class Mesher:
         """Estimate one via/PTH's own inductance from traversed dielectric height.
 
         This is a SELF inductance for one barrel, with no mutual term against
-        a nearby return via on the other net: the rail mesh and the ground
-        mesh each call this independently and simply add their own via's
-        value to the branch, the way _estimate_lateral_l used to for
-        plane-pair inductance before AC-3. For a close rail/ground via pair
-        that double counts the loop: scratchpad/audit/ac/ac_checks.py-style
-        measurement on a 1 mm-apart pair with h = 1 mm found 2 x 1.0 nH here
-        against a two-wire loop formula (mu0*h/pi * ln(s/r)) of about
-        0.76 nH -- pessimistic by about 2.6x. Unlike AC-3's plane pair, the
-        two vias' spacing and which via belongs to which net are not known
-        at this call site (_add_vertical_link/_add_vertical_stack call it
-        per via, independently of any paired return via), so no half-and-
-        subtract-the-mutual correction is applied here; this is published as
-        an AC-8 limitation on the report instead of silently under- or
-        over-correcting a distance this function cannot see.
+        a nearby return via on the other net, which this call cannot see. On
+        the AC network, assign_via_pair_inductance replaces it with half the
+        pair's loop wherever a return barrel lies close (AC-8).
         """
         l_min, l_max = min(layer_a, layer_b), max(layer_a, layer_b)
         height_mm = 0.0

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed via barrels having no mutual inductance with the return barrel
+  beside them (AC-8): a barrel with one of the other net within 5 mm now
+  carries half the two-wire loop, mu0*h/pi ln(s/r). On P02 Rev E's
+  /VBUS_SYS, 640 of 1,735 barrel branches pair up (103.8 nH to 67.4 nH)
+  and the worst case moves from 252.8 to 247.9 mohm.
 - Fixed a campaign sweeping only the AC profile on screen: it now sweeps
   every configured profile and reports them in one AC result, the worst
   verdict kept and a profile it could not build named (AC-004). P02

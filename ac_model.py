@@ -1070,6 +1070,7 @@ class ACModelBuilder:
         # net anywhere (see Mesher.return_paths).
         mesher.assign_loop_inductance(rail_mesh, ground_mesh, stackup)
         mesher.assign_loop_inductance(ground_mesh, rail_mesh, stackup)
+        mesher.assign_via_pair_inductance(rail_mesh, ground_mesh, stackup)
 
         offset = len(rail_mesh.nodes)
         rail_branches, rail_coords = self._translate_mesh(rail_mesh, 0)
