@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed the hybrid AC networks to be meshed by the AC engine in the
+  background instead of on the UI thread, where P02 Rev E's /VBUS_SYS
+  took 16 s before the campaign could start; a profile that fails to
+  build there still skips only itself.
 - Fixed EMC SU-001/SU-002 calling a power plane a signal layer because a
   rail is routed on it: P02 Rev E's /J2_VBUS_FUSED runs 11.4 and 46.4 mm
   on PWR.L3 and PWR.L4, and "Adjacent signal layers" (HIGH) was the

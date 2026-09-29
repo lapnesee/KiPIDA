@@ -124,7 +124,7 @@ class ACCampaignProfiles(unittest.TestCase):
         other = NS(rail_name="/+5V_RAIL")
         logs = []
 
-        def network_for(settings):
+        def network_for(settings, defer=False):
             if settings.rail_name == "/VBUS_SYS":
                 raise ValueError("AC mesh contains 102,401 nodes")
             return settings, "network"

@@ -59,15 +59,48 @@ class ACRunRequest:
     compute_settings: Any = None
     debug: bool = False
     optimize: bool = False
-    # What a hybrid network was built from -- parsed board, layer mapping,
-    # stackup, pad snapshot, rail, all rails, grid -- so the engine can build
-    # it again at half the step (ac_grid_check). Private: kept out of the
-    # campaign cache digest.
+    # What a hybrid network is built from -- parsed board, layer mapping,
+    # stackup, pad snapshot, rail, all rails, grid. With ``network`` None the
+    # engine builds it (build_ac_network), off the UI thread; _grid_check
+    # builds it again at half the step (ac_grid_check). Private: kept out of
+    # the campaign cache digest.
+    _build: Any = None
     _grid_check: Any = None
 
 
+# Time, not memory, bounds an AC sweep: on P02 Rev E's /VBUS_SYS the
+# recycled LU took 1.6 s a point and 0.34 GB at 102,401 nodes, 5.1 s and
+# 1.15 GB at 368,315. The limit was 100,000, which the hybrid mesh of that
+# rail passed at the default 0.5 mm, dropping AC from a campaign.
+AC_MAX_NETWORK_NODES = 400000
 # Largest network the half-step check builds; past it the check is skipped.
-AC_GRID_CHECK_MAX_NODES = 400000
+AC_GRID_CHECK_MAX_NODES = AC_MAX_NETWORK_NODES
+
+
+def build_ac_network(inputs, settings, emit=lambda _message: None):
+    """The hybrid AC network of *settings*' rail, from a request's _build inputs.
+
+    Meshing the saved board's rail and ground took 16 s of the UI thread
+    per profile in the P02 Rev E campaign of 2026-09-29 14:19, before the
+    run started; the inputs need nothing live, so the engine builds here.
+    """
+    network = ACModelBuilder(inputs.board, log_callback=emit).build(
+        inputs.rail, settings, grid_size_mm=float(inputs.grid_mm), all_rails=inputs.all_rails,
+        parsed_board=inputs.parsed_board, layer_mapping=inputs.layer_mapping,
+        stackup=inputs.stackup,
+    )
+    emit(
+        f"AC network ({network.mesh_engine} mesh) for {settings.rail_name}: "
+        f"{network.node_count:,} nodes, effective grid {network.effective_grid_size_mm:g} mm, "
+        f"{settings.frequency_points} frequency points."
+    )
+    if network.node_count > AC_MAX_NETWORK_NODES:
+        raise ValueError(
+            f"AC mesh contains {network.node_count:,} nodes, above the safe limit of "
+            f"{AC_MAX_NETWORK_NODES:,}. Increase 'AC mesh resolution' above "
+            f"{settings.mesh_resolution_mm:g} mm and retry."
+        )
+    return network
 
 
 def ac_grid_check(request, result, solver, emit=lambda _message: None):
@@ -147,14 +180,27 @@ class ACSolverEngine:
 
     def solve(self, request, emit, progress, cancelled):
         if isinstance(request, ACBatchRequest):
-            runs = []
+            runs, skipped = [], list(request.skipped)
             for index, item in enumerate(request.requests, start=1):
-                emit(
-                    f"AC profile {index}/{len(request.requests)}: "
-                    f"{getattr(item.settings, 'rail_name', '')}."
+                rail = getattr(item.settings, "rail_name", "")
+                emit(f"AC profile {index}/{len(request.requests)}: {rail}.")
+                # One profile failing to build or solve skips itself only.
+                try:
+                    if item.network is None and item._build is not None:
+                        item = replace(item, network=build_ac_network(item._build, item.settings, emit))
+                    runs.append((item, *self.solve(item, emit, progress, cancelled)))
+                except ValueError as exc:
+                    emit(f"AC profile '{rail}' not swept: {exc}")
+                    skipped.append((rail, str(exc)))
+            if not runs:
+                raise ValueError(
+                    "No AC profile could be swept: "
+                    + "; ".join(f"{rail}: {reason}" for rail, reason in skipped)
                 )
-                runs.append((item, *self.solve(item, emit, progress, cancelled)))
-            return ACBatchOutcome(tuple(runs), request.skipped)
+            return ACBatchOutcome(tuple(runs), tuple(skipped))
+
+        if request.network is None and request._build is not None:
+            request = replace(request, network=build_ac_network(request._build, request.settings, emit))
 
         def checked_progress(completed, total, detail):
             if cancelled():

@@ -124,5 +124,32 @@ class ACAnalysisControllerTests(unittest.TestCase):
         self.assertEqual(str(errors[0]), "bad network")
 
 
+class DeferredNetworkTests(unittest.TestCase):
+    def test_a_profile_whose_network_fails_to_build_skips_only_itself(self):
+        # The hybrid networks are now meshed by the engine, off the UI thread
+        # (16 s per profile there on P02 Rev E); a profile over the node limit
+        # must still skip itself only, as it did when built in the dialog.
+        from unittest import mock
+        import application.ac_controller as controller
+
+        def build(inputs, settings, emit):
+            if settings.rail_name == "/VBUS_SYS":
+                raise ValueError("AC mesh contains 402,000 nodes")
+            return "network"
+
+        requests = tuple(
+            ACRunRequest(settings=SimpleNamespace(rail_name=name), network=None, _build=object())
+            for name in ("/VBUS_SYS", "/+5V_RAIL")
+        )
+        engine = controller.ACSolverEngine(solver_factory=FakeSolver)
+        with mock.patch.object(controller, "build_ac_network", build):
+            outcome = engine.solve(controller.ACBatchRequest(requests), lambda _m: None,
+                                   lambda *_a: None, lambda: False)
+
+        self.assertEqual([item.settings.rail_name for item, *_ in outcome.runs], ["/+5V_RAIL"])
+        self.assertEqual(outcome.runs[0][0].network, "network")
+        self.assertEqual(outcome.skipped, (("/VBUS_SYS", "AC mesh contains 402,000 nodes"),))
+
+
 if __name__ == "__main__":
     unittest.main()

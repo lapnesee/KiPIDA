@@ -16,7 +16,7 @@ if plugin_dir not in sys.path:
 
 from extractor import GeometryExtractor
 from ac_model import ACModelBuilder, resolve_target_impedance
-from application.ac_controller import saved_board_for_ac
+from application.ac_controller import AC_MAX_NETWORK_NODES, saved_board_for_ac
 from cfd_model import fit_unset_enclosure
 from differential_impedance import DifferentialGeometrySnapshot
 from emc_analyzer import EMCGeometrySnapshot
@@ -78,11 +78,7 @@ class KiPIDA_MainDialog(wx.Dialog):
     PAGE_RUNTIME = 6
     PAGE_RESULTS = 7
     PAGE_LOG = 8
-    # Time, not memory, bounds an AC sweep: on P02 Rev E's /VBUS_SYS the
-    # recycled LU took 1.6 s a point and 0.34 GB at 102,401 nodes, 5.1 s and
-    # 1.15 GB at 368,315. The limit was 100,000, which the hybrid mesh of
-    # that rail passed at the default 0.5 mm, dropping AC from a campaign.
-    AC_MAX_NETWORK_NODES = 400000
+    AC_MAX_NETWORK_NODES = AC_MAX_NETWORK_NODES
 
     ANALYSIS_CONTROLLERS = (
         ("Analysis batch", "campaign_controller"),
@@ -973,10 +969,16 @@ class KiPIDA_MainDialog(wx.Dialog):
         settings = self.ac_panel.get_settings()
         if settings is None:
             raise ValueError("Select a power rail for AC analysis.")
-        return self._ac_network_for(settings)
+        return self._ac_network_for(settings, defer=True)
 
-    def _ac_network_for(self, settings):
-        """The resolved settings and AC network of one rail's profile."""
+    def _ac_network_for(self, settings, defer=False):
+        """The resolved settings and AC network of one rail's profile.
+
+        With *defer*, a network the saved board can build comes back None:
+        the request's _build inputs (self._ac_grid_check_inputs) let the AC
+        engine mesh it in the background. The raster fallback reads the live
+        board, so it is built here either way.
+        """
         rail = next((item for item in self.power_tree.rails if item.net_name == settings.rail_name), None)
         if rail is None:
             raise ValueError(f"Power rail '{settings.rail_name}' is not available.")
@@ -1011,6 +1013,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             board=pad_snapshot, rail=rail, all_rails=self.power_tree.rails,
             grid_mm=max(0.1, float(settings.mesh_resolution_mm)),
         )
+        if defer and self._ac_grid_check_inputs is not None:
+            return settings, None
         builder = ACModelBuilder(self.board, debug=debug_mode, log_callback=self.log)
         network = builder.build(
             rail, settings, grid_size_mm=max(0.1, float(settings.mesh_resolution_mm)),
@@ -1075,19 +1079,19 @@ class KiPIDA_MainDialog(wx.Dialog):
         for rail_name in order:
             profile = shown if shown is not None and rail_name == shown.rail_name else deepcopy(profiles[rail_name])
             try:
-                settings, network = self._ac_network_for(profile)
+                settings, network = self._ac_network_for(profile, defer=True)
             except ValueError as exc:
                 self.log(f"AC profile '{rail_name}' not swept: {exc}")
                 skipped.append((rail_name, str(exc)))
                 continue
-            self._log_ac_backend_decision(network, compute_settings)
+            if network is not None:
+                self._log_ac_backend_decision(network, compute_settings)
+            inputs = getattr(self, "_ac_grid_check_inputs", None)
             requests.append(ACRunRequest(
                 settings=settings, network=network, compute_settings=compute_settings,
                 debug=self.chk_debug.GetValue(), optimize=False,
-                _grid_check=(
-                    getattr(self, "_ac_grid_check_inputs", None)
-                    if self.chk_dc_grid_check.GetValue() else None
-                ),
+                _build=inputs if network is None else None,
+                _grid_check=inputs if self.chk_dc_grid_check.GetValue() else None,
             ))
         if not requests:
             raise ValueError(
@@ -1101,7 +1105,8 @@ class KiPIDA_MainDialog(wx.Dialog):
         """Capture the AC network and settings for one sweep."""
         settings, network = self._prepare_ac_analysis()
         compute_settings = self.runtime_panel.get_settings(persist=True)
-        self._log_ac_backend_decision(network, compute_settings)
+        if network is not None:
+            self._log_ac_backend_decision(network, compute_settings)
         # The report needs the settings the sweep actually ran with, and the
         # panel is free to change under the user's hands while it runs.
         self._active_ac_settings = deepcopy(settings)
@@ -1111,6 +1116,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             compute_settings=compute_settings,
             debug=self.chk_debug.GetValue(),
             optimize=bool(optimize),
+            _build=getattr(self, "_ac_grid_check_inputs", None) if network is None else None,
             _grid_check=(
                 getattr(self, "_ac_grid_check_inputs", None)
                 if self.chk_dc_grid_check.GetValue() and not optimize else None
