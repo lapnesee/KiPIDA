@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added a first-order Richardson estimate to the AC grid check: P02 Rev
+  E's /VBUS_SYS read 0.2294 ohm at 0.5 mm and 0.2597 ohm at 0.25 mm at
+  100 MHz, about 0.29 ohm converged, against 0.254 ohm allowed. AC-005
+  now states it, and a mesh-dependent verdict is ESTIMATED, not
+  DETERMINISTIC, which had made it fail the domain outright.
 - Fixed a pass element hiding the converter behind it from the AC target:
   P02 Rev E's /+5V_U4 feeds U5 through the eFuse U15, and was judged
   7.95x a flat 0.0466 ohm target at 100 MHz instead of 1.28x the 0.290

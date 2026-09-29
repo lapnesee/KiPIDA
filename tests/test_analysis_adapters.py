@@ -93,7 +93,12 @@ class AnalysisAdapterTests(unittest.TestCase):
 
         finding = next(item for item in result.findings if item.rule_id == "AC-005")
         self.assertEqual(finding.severity, FindingSeverity.HIGH)
-        self.assertIn("0.254 ohm allowed there lies between the two", finding.description)
+        self.assertEqual(finding.confidence, EvidenceConfidence.ESTIMATED)
+        self.assertIn("0.254 ohm allowed there lies between", finding.description)
+        # 0.2597 + (0.2597 - 0.2294) / (2 - 1)
+        self.assertIn("it reads 0.29 ohm", finding.description)
+        extrapolated = next(m for m in result.metrics if m.key == "grid_extrapolated_impedance")
+        self.assertAlmostEqual(extrapolated.value, 0.29)
 
     def test_ac_adapter_warns_when_pass_is_only_a_lower_bound(self):
         # AC-1: P02 Rev E /VBUS_SYS sweep -- every swept point passes, but the

@@ -282,6 +282,17 @@ def _ac_grid_check(check: Any, target: float, rail: str, final: Any = None) -> t
     ]
     if not exceeded:
         return metrics, [], limitations
+    # Richardson extrapolation of the two readings to a converged mesh,
+    # taking first-order convergence: the slowest a lattice converges on the
+    # crowded current around a port, so the furthest the estimate can move.
+    # Two grids cannot measure the order; it is stated, not fitted.
+    ratio = grid / check_grid if check_grid > 0.0 else 2.0
+    extrapolated = check_value + (check_value - value) / max(ratio - 1.0, 1e-9)
+    metrics.append(AnalysisMetric(
+        "grid_extrapolated_impedance",
+        "Worst impedance extrapolated to a converged mesh (first order)",
+        extrapolated, "ohm", "INFO",
+    ))
     # Against the impedance allowed at the checked frequency, as the verdict
     # reads it (ac_model.target_mask). P02 Rev E's /VBUS_SYS, 2026-09-29
     # 21:59: 0.2294 ohm at 0.5 mm passed the 0.254 ohm allowed at 100 MHz,
@@ -293,18 +304,24 @@ def _ac_grid_check(check: Any, target: float, rail: str, final: Any = None) -> t
         float(getattr(final, "target_floor_hz", 0.0) or 0.0),
         float(getattr(final, "target_below_floor_ohm", 0.0) or 0.0),
     )
-    flips = allowed > 0.0 and (value > allowed) != (check_value > allowed)
+    flips = allowed > 0.0 and (value > allowed) != (
+        check_value > allowed or extrapolated > allowed
+    )
     finding = _finding(
         "AC-005", 1, "NUMERICS", FindingSeverity.HIGH if flips else FindingSeverity.MEDIUM,
         f"{rail} impedance is not converged in mesh",
         f"The worst impedance reads {value:.4g} ohm at {grid:g} mm and {check_value:.4g} ohm "
         f"at {check_grid:g} mm, {delta:.1f}% apart, more than the "
-        f"{AC_GRID_SENSITIVITY_LIMIT_PCT:g}% a converged sweep may move."
-        + (f" The {allowed:.4g} ohm allowed there lies between the two: the verdict "
-           "depends on the mesh." if flips else ""),
+        f"{AC_GRID_SENSITIVITY_LIMIT_PCT:g}% a converged sweep may move; extrapolated to a "
+        f"converged mesh (Richardson, first order) it reads {extrapolated:.4g} ohm."
+        + (f" The {allowed:.4g} ohm allowed there lies between the {grid:g} mm reading and "
+           "the finer or extrapolated one: the verdict depends on the mesh, and the "
+           f"{grid:g} mm sweep's is not established." if flips else ""),
         f"Rerun at an AC mesh resolution of {check_grid:g} mm or finer and read the "
         "verdict from the finer sweep.",
-        confidence=EvidenceConfidence.DETERMINISTIC,
+        # Which side of the verdict the mesh falls on rests on the target's
+        # band and edge, estimates; that two meshes disagree does not.
+        confidence=EvidenceConfidence.ESTIMATED if flips else EvidenceConfidence.DETERMINISTIC,
     )
     finding.calculation_quality = True
     finding.nets = [rail] if rail else []
