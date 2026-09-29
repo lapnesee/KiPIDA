@@ -14,6 +14,19 @@ class EMCAnalysisCancelled(RuntimeError):
     pass
 
 
+# SPICE audits whose model Phase 10 could not run, beyond a missing file
+# (PH-001) and an unstable transient (PH-002).
+_UNUSABLE_SPICE_STATUSES = {
+    "MAPPING_VERIFIED_PSPICE_ONLY", "MAPPING_VERIFIED_NGSPICE_PROBE_FAILED",
+    "INCOMPATIBLE", "LIBRARY_UNAVAILABLE", "COMPONENT_NOT_IDENTIFIED",
+}
+# Region outcomes where Phase 10's full-wave solve gave no usable field.
+_FAILED_REGION_STATUSES = {
+    "FAILED", "TIMEOUT", "VALIDATION_FAILED", "SKIPPED_CELL_LIMIT", "SKIPPED_TOOL_MISSING",
+    "SOLVED_FIELDS_UNCALIBRATED_NOT_CONVERGED",
+}
+
+
 def _phase10_spice_findings(phase10_result):
     """EMCFindings for SPICE excitation models Phase 10 could not trust.
 
@@ -48,6 +61,34 @@ def _phase10_spice_findings(phase10_result):
                 "trusting its excitation.",
                 "HIGH", [], [audit.component_ref],
             ))
+        elif str(audit.status or "").upper() in _UNUSABLE_SPICE_STATUSES:
+            findings.append(EMCFinding(
+                "PH-003", "SWITCHING", "INFO",
+                "Phase 10 SPICE model not usable",
+                f"{audit.component_ref} ({audit.mpn or 'MPN unknown'})'s model, used by {audit.source_name}, "
+                f"could not drive the excitation ({audit.status})"
+                + (f": {audit.notes}" if audit.notes else "."),
+                "Supply an ngspice-compatible model with a verified pin mapping.",
+                "HIGH", [], [audit.component_ref] if audit.component_ref else [],
+            ))
+    failures = [
+        (f"excitation {item.source_name}", str(item.status))
+        for item in getattr(phase10_result, "excitations", None) or []
+        if str(item.status).upper() == "FAILED"
+    ] + [
+        (f"region {item.name}", str(item.status))
+        for item in getattr(phase10_result, "regions", None) or []
+        if str(item.status).upper() in _FAILED_REGION_STATUSES
+    ]
+    for what, status in failures:
+        findings.append(EMCFinding(
+            "PH-004", "SWITCHING", "INFO",
+            f"Phase 10 {what} gave no usable result",
+            f"The Phase 10 {what} ended {status}; the rule-based findings it was to check "
+            "stand without its simulation.",
+            "See the Phase 10 output directory for the solver log.",
+            "HIGH", [], [],
+        ))
     return findings
 
 

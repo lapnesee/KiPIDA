@@ -94,6 +94,17 @@ class Phase10FindingsTests(unittest.TestCase):
         self.assertEqual(by_ref["U5"].rule_id, "PH-002")
         self.assertTrue(all(finding.severity == "INFO" for finding in findings))
 
+    def test_a_region_phase10_could_not_solve_is_an_info_finding(self):
+        # P02 Rev E, 2026-09-29 14:24: all three regions ended
+        # SKIPPED_CELL_LIMIT; they were LOW actions in the campaign, noise
+        # beside the board's own, when they are facts about the run.
+        from models import EMCPhase10RegionResult
+        phase10 = EMCPhase10Result(regions=[
+            EMCPhase10RegionResult("region_1_sw-003", "SKIPPED_CELL_LIMIT"),
+        ])
+        (finding,) = _phase10_spice_findings(phase10)
+        self.assertEqual((finding.rule_id, finding.severity), ("PH-004", "INFO"))
+
 
 if __name__ == "__main__":
     unittest.main()

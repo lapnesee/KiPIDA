@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed Phase 10 outcomes reported twice and as actions: P10-001
+  repeated the EMC analysis's own PH-001/PH-002, and P10-002 put P02
+  Rev E's three unsolved regions in the action list as LOW. Both are now
+  INFO findings of the EMC analysis (PH-003 unusable model, PH-004
+  failed region or excitation), as PH-001/PH-002 already were.
 - Fixed the differential pairs losing the board file's dielectric er
   again: the differential panel read its stackup without the board path,
   so P02 Rev E's pairs fell back to er 4.4, read 81.4 ohm with 0 %
