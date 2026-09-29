@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Changed AC preparation to parse the saved board once while the file is
+  unchanged: P02 Rev E's three AC profiles parsed it in turn on the UI
+  thread, 0.9 s each.
 - Changed the EMC risk map to draw the board's tracks as one collection:
   one line per track kept P02 Rev E's EMC plots 12 s behind Phase 10 at
   18:31, the map alone taking 6.2 s; it now draws in 0.34 s.

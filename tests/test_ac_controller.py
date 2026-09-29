@@ -124,6 +124,26 @@ class ACAnalysisControllerTests(unittest.TestCase):
         self.assertEqual(str(errors[0]), "bad network")
 
 
+class SavedBoardCacheTests(unittest.TestCase):
+    def test_the_saved_board_is_parsed_again_only_once_it_changes(self):
+        # P02 Rev E, 2026-09-29 18:23: three AC profiles parsed the same file
+        # in turn on the UI thread, 0.9 s each.
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+        from application import ac_controller
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "board.kicad_pcb"
+            path.write_text("(kicad_pcb)")
+            with mock.patch.object(ac_controller, "read_board", side_effect=lambda p: object()) as read:
+                first = ac_controller._read_saved_board(path)
+                self.assertIs(ac_controller._read_saved_board(path), first)
+                path.write_text("(kicad_pcb (version 2))")
+                self.assertIsNot(ac_controller._read_saved_board(path), first)
+        self.assertEqual(read.call_count, 2)
+
+
 class DeferredNetworkTests(unittest.TestCase):
     def test_a_profile_whose_network_fails_to_build_skips_only_itself(self):
         # The hybrid networks are now meshed by the engine, off the UI thread

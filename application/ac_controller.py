@@ -17,6 +17,23 @@ class ACAnalysisCancelled(RuntimeError):
     pass
 
 
+# The saved board last parsed, as (key, board), keyed on its path, size and
+# modification time. A campaign prepares its AC profiles one after another on
+# the UI thread, and each parsed P02 Rev E's file again: 0.9 s, three times.
+_SAVED_BOARD = []
+
+
+def _read_saved_board(path):
+    """read_board(*path*), parsed again only when the file has changed."""
+    stat = path.stat()
+    key = (str(path.resolve()), stat.st_size, stat.st_mtime_ns)
+    if _SAVED_BOARD and _SAVED_BOARD[0][0] == key:
+        return _SAVED_BOARD[0][1]
+    board = read_board(path)
+    _SAVED_BOARD[:] = [(key, board)]
+    return board
+
+
 def saved_board_for_ac(board_path, live_board, live_stackup, net_names, emit=lambda _message: None):
     """``(parsed board, layer mapping, pad snapshot)`` for a hybrid AC network, or Nones.
 
@@ -32,7 +49,7 @@ def saved_board_for_ac(board_path, live_board, live_stackup, net_names, emit=lam
         return None, None, None
     name = Path(board_path).name
     try:
-        board = read_board(Path(board_path))
+        board = _read_saved_board(Path(board_path))
     except (OSError, ValueError, UnicodeDecodeError) as exc:
         emit(f"{name} could not be read ({exc}): {fallback}.")
         return None, None, None
