@@ -740,18 +740,102 @@ class Mesher:
         _nearest, dist = self._nearest_layer_and_distance_mm(layer, target_layers, stackup)
         return dist
 
-    def cavity_capacitor_pairs(self, rail_mesh, ground_mesh, stackup, ground_layers):
+    def _layer_distances_mm(self, stackup):
+        """Every copper layer's other layers, nearest first, by dielectric height.
+
+        ``{layer: [(distance_mm, other_layer), ...]}`` over the substrate list
+        walked as a 1-D graph of copper layers; a layer never lists itself.
+        """
+        layers = set()
+        for sub in stackup.get('substrate', []):
+            between = sub.get('between', [])
+            if len(between) == 2 and None not in between:
+                layers.update(between)
+        return {
+            layer: sorted(
+                (distance, other)
+                for other in layers if other != layer
+                for _nearest, distance in [
+                    self._nearest_layer_and_distance_mm(layer, {other}, stackup)
+                ] if distance is not None
+            )
+            for layer in layers
+        }
+
+    def return_paths(self, mesh, other_mesh, stackup):
+        """Each node's return: ``{node: (height_mm, layer)}``.
+
+        The return of a node is the nearest OTHER copper layer on which
+        *other_mesh* has copper beneath it (within one cell of its grid).
+        Choosing it per layer, as "the nearest layer carrying the other net
+        anywhere", let a return net's via lands count: on P02 Rev E, GND has
+        via lands on every layer, In2.Cu included, so /VBUS_SYS's In2.Cu pour
+        found its return at 0 mm on its own layer and every rail and ground
+        branch lost its plane inductance, and every rail cell its cavity
+        capacitance. A node with no return copper beneath it has no entry.
+        """
+        order = self._layer_distances_mm(stackup)
+        step = float(other_mesh.grid_step or 0.0) or 1.0
+        origin_x, origin_y = other_mesh.grid_origin
+        beneath = {}
+        for ix, iy, layer in other_mesh.node_map:
+            cells = beneath.setdefault(layer, set())
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    cells.add((ix + dx, iy + dy))
+        paths = {}
+        for node, (x_mm, y_mm, layer) in mesh.node_coords.items():
+            key = (int(round((x_mm - origin_x) / step)), int(round((y_mm - origin_y) / step)))
+            for distance, other in order.get(layer, ()):
+                if key in beneath.get(other, ()):
+                    paths[node] = (distance, other)
+                    break
+        return paths
+
+    def assign_loop_inductance(self, mesh, other_mesh, stackup):
+        """Give every lateral branch of *mesh* its share of the loop inductance.
+
+        mu0*h per square belongs to the loop, half of it to each of the two
+        meshes (AC-3), with h the height of each node's own return
+        (:meth:`return_paths`), averaged over the branch's two ends. A node
+        with no return beneath it takes its layer's nearest other layer that
+        carries return copper at all; a branch's number of squares is
+        R * t / rho, one on the raster grid.
+        """
+        paths = self.return_paths(mesh, other_mesh, stackup)
+        order = self._layer_distances_mm(stackup)
+        other_layers = {layer for _ix, _iy, layer in other_mesh.node_map}
+        fallback = {
+            layer: next((distance for distance, other in ranked if other in other_layers), None)
+            for layer, ranked in order.items()
+        }
+        rho = stackup.get('resistivity', COPPER_RESISTIVITY_OHM_MM)
+        copper = stackup.get('copper', {})
+        mu0 = 4.0e-7 * math.pi
+        for branch in mesh.branches:
+            if branch.kind != "lateral":
+                continue
+            layer = mesh.node_coords[branch.node_a][2]
+            heights = [
+                paths[node][0] if node in paths else fallback.get(layer)
+                for node in (branch.node_a, branch.node_b)
+            ]
+            if any(height is None for height in heights):
+                continue
+            thickness = (copper.get(layer) or {}).get('thickness_mm', DEFAULT_COPPER_THICKNESS_MM)
+            squares = branch.resistance_ohm * thickness / rho
+            branch.inductance_h = squares * mu0 * (sum(heights) / 4.0) * 1.0e-3
+
+    def cavity_capacitor_pairs(self, rail_mesh, ground_mesh, stackup):
         """Plane-pair (cavity) capacitance: C = eps0*er*A_cell/h between each
         rail-mesh node and the return-mesh node directly beneath/above it.
 
-        Only DIRECTLY adjacent layer pairs (rail layer and its nearest
-        return layer joined by a single stackup substrate entry) are
-        stamped: a path through an intervening copper layer would need a
-        series combination across each segment's own epsilon_r, which this
-        does not attempt -- those pairs are skipped rather than stamped with
-        a wrong epsilon_r. A_cell is the rail mesh's own grid cell area; the
-        return node is looked up within a radius covering either mesh's grid
-        step, since the two meshes can each adapt to a different resolution.
+        The return is the node's own (:meth:`return_paths`). Only a return on
+        a DIRECTLY adjacent layer (one stackup substrate entry) is stamped: a
+        path through an intervening copper layer would need a series
+        combination across each segment's own epsilon_r, which this does not
+        attempt -- those nodes are skipped rather than stamped with a wrong
+        epsilon_r. A_cell is the rail mesh's own grid cell area.
 
         Returns a list of (rail_node_id, ground_node_id, capacitance_f)
         using each mesh's OWN node ids -- the caller offsets the ground id
@@ -763,8 +847,7 @@ class Mesher:
             between = sub.get('between', [])
             if len(between) != 2 or between[0] is None or between[1] is None:
                 continue
-            key = frozenset(between)
-            substrate_by_pair[key] = (
+            substrate_by_pair[frozenset(between)] = (
                 float(sub.get('thickness_mm', 0.0) or 0.0),
                 float(sub.get('epsilon_r', 4.4) or 4.4),
             )
@@ -772,20 +855,17 @@ class Mesher:
         radius_mm = max(rail_mesh.grid_step, ground_mesh.grid_step, 1e-6) * 1.5
         cell_area_m2 = (float(rail_mesh.grid_step) ** 2) * 1.0e-6
         pairs = []
-        layer_cache = {}
-        for rail_node_id, (x_mm, y_mm, layer) in rail_mesh.node_coords.items():
-            if layer not in layer_cache:
-                nearest, _dist = self._nearest_layer_and_distance_mm(layer, ground_layers, stackup)
-                entry = substrate_by_pair.get(frozenset((layer, nearest))) if nearest is not None else None
-                layer_cache[layer] = (nearest, entry)
-            nearest_layer, entry = layer_cache[layer]
-            if nearest_layer is None or entry is None:
-                continue
-            thickness_mm, epsilon_r = entry
+        for rail_node_id, (_height, return_layer) in self.return_paths(
+            rail_mesh, ground_mesh, stackup,
+        ).items():
+            x_mm, y_mm, layer = rail_mesh.node_coords[rail_node_id]
+            thickness_mm, epsilon_r = substrate_by_pair.get(
+                frozenset((layer, return_layer)), (0.0, 0.0),
+            )
             if thickness_mm <= 0:
                 continue
             ground_node_id = self._get_best_node_in_radius(
-                ground_mesh, x_mm, y_mm, nearest_layer, radius_mm,
+                ground_mesh, x_mm, y_mm, return_layer, radius_mm,
             )
             if ground_node_id is None:
                 continue
@@ -812,8 +892,10 @@ class Mesher:
         not whichever dielectric happens to be thinnest.
         """
         height_mm = None
-        if return_layers:
-            height_mm = self._distance_to_layers_mm(layer, set(return_layers), stackup)
+        # The layer itself is no return: coplanar copper of the other net
+        # (a via land) would give it a height of zero.
+        if return_layers and set(return_layers) - {layer}:
+            height_mm = self._distance_to_layers_mm(layer, set(return_layers) - {layer}, stackup)
 
         if height_mm is None:
             # No known return layer (legacy caller, e.g. the DC mesh which

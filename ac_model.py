@@ -990,6 +990,11 @@ class ACModelBuilder:
         )
         if not rail_mesh.nodes or not ground_mesh.nodes:
             raise ValueError("The AC rail-to-ground mesh is empty.")
+        # Each node's loop inductance is measured to the return copper
+        # actually beneath it, not to the nearest layer carrying the other
+        # net anywhere (see Mesher.return_paths).
+        mesher.assign_loop_inductance(rail_mesh, ground_mesh, stackup)
+        mesher.assign_loop_inductance(ground_mesh, rail_mesh, stackup)
 
         offset = len(rail_mesh.nodes)
         rail_branches, rail_coords = self._translate_mesh(rail_mesh, 0)
@@ -1000,7 +1005,7 @@ class ACModelBuilder:
         cavity_capacitors = [
             (rail_node, ground_node + offset, capacitance_f)
             for rail_node, ground_node, capacitance_f in
-            mesher.cavity_capacitor_pairs(rail_mesh, ground_mesh, stackup, ground_layers)
+            mesher.cavity_capacitor_pairs(rail_mesh, ground_mesh, stackup)
         ]
 
         source_ref, source_rail_pads, source_rule = self.resolve_source(

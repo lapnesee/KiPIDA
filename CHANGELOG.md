@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed the AC model losing all plane inductance and cavity capacitance
+  when the return net has copper on the rail's own layer: P02 Rev E's GND
+  via lands on In2.Cu put /VBUS_SYS's return 0 mm away. Each node now
+  takes the nearest other layer with return copper beneath it. On P02
+  (file stackup) the worst case goes from 81.6 mohm (PASS) to 271.8 mohm
+  at 100 MHz (FAIL, target 88.9 mohm), crossed from 14.7 MHz.
 - Changed the decoupling optimizer to evaluate its trials by a Woodbury
   update of one block solve per frequency instead of a full network
   sweep per footprint, value and round. On a 28,800-node two-plane rail
