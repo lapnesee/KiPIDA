@@ -5,11 +5,14 @@ thread.  The controller worker only receives plain Python objects and Shapely
 geometries, so it never calls the live KiCad board API.
 """
 
+from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+import re
 import time
-from typing import Any, Callable, Dict, Optional, Tuple
+from types import SimpleNamespace
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from advisor.dc_advisor import load_drop_v
 from advisor.rail_sources import (
@@ -543,6 +546,127 @@ def _propagated_pass_voltages(rail, rails, demands, regulator_input_nodes, volta
         )
 
 
+_GROUND_NET_RE = re.compile(r"(?i)(^|[/_+\-])(gnd|vss|ground)(\d*|$)")
+
+
+def main_ground_net(parsed_board):
+    """The ground net most pads sit on, or None (P02 Rev E: GND)."""
+    counts = Counter(
+        pad.net_name
+        for footprint in getattr(parsed_board, "footprints", ()) or ()
+        for pad in footprint.pads
+        if pad.net_name and _GROUND_NET_RE.search(pad.net_name)
+    )
+    return counts.most_common(1)[0][0] if counts else None
+
+
+@dataclass
+class GroundReturn:
+    """The ground net solved with every load's current returning to its source.
+
+    ``rise_by_ref_v`` is each part's ground potential above the top-level
+    sources' ground pads, averaged over its own ground pads.
+    """
+    net_name: str
+    mesh: Any
+    sources: List[Dict[str, Any]]
+    loads: List[Dict[str, Any]]
+    detailed_result: Any
+    rise_by_ref_v: Dict[str, float]
+    unlocated: List[str] = field(default_factory=list)
+
+
+def _ground_injections(rails, demands_by_rail, rail_current, locate):
+    """Sources, loads and located parts of the ground return.
+
+    The top-level sources' ground pads are the 0 V reference. A load returns
+    its current into the ground at its own ground pads. A converter's ground
+    pin draws Iout - Iin from the ground (Iin + Ig = Iout through the part),
+    which a buck takes and a boost gives back; a pass element passes its
+    current along the rail and none through a ground. Each current is split
+    evenly over the part's located ground nodes, as the rail loads are.
+    """
+    by_name = {rail.net_name: rail for rail in rails}
+    sources, loads, located, unlocated = [], [], {}, []
+
+    def nodes_of(ref_des):
+        if ref_des not in located:
+            located[ref_des] = list(locate(ref_des, ()))
+            if not located[ref_des]:
+                unlocated.append(ref_des)
+        return located[ref_des]
+
+    for rail in rails:
+        for source in rail.sources:
+            sources.extend(
+                {'node_id': node, 'voltage': 0.0}
+                for node in nodes_of(source.component_ref.ref_des)
+            )
+        for load in rail.loads:
+            nodes = nodes_of(load.component_ref.ref_des)
+            current = float(load.total_current or 0.0)
+            if nodes and current:
+                loads.extend(
+                    {'node_id': node, 'current': -current / len(nodes),
+                     'ref_des': load.component_ref.ref_des}
+                    for node in nodes
+                )
+        for regulator, input_current in demands_by_rail.get(rail.net_name, ()):
+            if _is_pass_element(regulator, by_name):
+                continue
+            ground_draw = float(rail_current.get(regulator.output_rail_name, 0.0)) - float(input_current)
+            nodes = nodes_of(regulator.input_ref_des) or nodes_of(regulator.output_ref_des)
+            if nodes and ground_draw:
+                loads.extend(
+                    {'node_id': node, 'current': ground_draw / len(nodes),
+                     'ref_des': regulator.input_ref_des}
+                    for node in nodes
+                )
+    return sources, loads, {ref: nodes for ref, nodes in located.items() if nodes}, unlocated
+
+
+def _attach_ground_return(results, rails, ground):
+    """Give each solved rail its load-point drop including the ground return.
+
+    A load sees its rail minus its ground. Its rail's source regulates
+    against its own ground pin, so the drop a load adds on the return is its
+    ground rise less its source's: combined = supply drop + load rise -
+    source rise, taken at the worst load node.
+    """
+    by_name = {rail.net_name: rail for rail in rails}
+    rise = ground.rise_by_ref_v
+    for name, data in results.items():
+        rail = by_name.get(name)
+        voltages = data.get('results') or {}
+        source_refs = [source.component_ref.ref_des for source in getattr(rail, 'sources', ())] + [
+            regulator.input_ref_des
+            for parent in rails for regulator in parent.child_regulators
+            if regulator.output_rail_name == name
+        ]
+        source_rises = [rise[ref] for ref in source_refs if ref in rise]
+        source_rise = sum(source_rises) / len(source_rises) if source_rises else 0.0
+        v_rail = float(data.get('source_voltage_v', 0.0) or 0.0)
+        worst, worst_ref, load_rise = 0.0, "", {}
+        for load in data.get('loads') or ():
+            ref = load.get('ref_des')
+            if load.get('node_id') not in voltages or not abs(float(load.get('current', 0.0))):
+                continue
+            ref_rise = rise.get(ref, 0.0) - source_rise
+            load_rise[ref] = ref_rise
+            combined = v_rail - voltages[load['node_id']] + ref_rise
+            if combined > worst:
+                worst, worst_ref = combined, ref
+        data['ground_return'] = {
+            'net': ground.net_name,
+            'load_rise_v': load_rise,
+            'source_ground_rise_v': source_rise,
+            'combined_load_drop_v': worst,
+            'combined_worst_ref': worst_ref,
+            'unlocated': list(ground.unlocated),
+        }
+        data['ground_solution'] = ground
+
+
 def _load_point_drop(voltages, sources, loads):
     """``(worst drop seen by a load, rail voltage it is measured from)``.
 
@@ -594,6 +718,12 @@ class DCSolverEngine:
 
     def _publish_mesh(self, mesh, context):
         """Bring the mesh to the live board's conventions before it is read."""
+
+    def _solve_ground_return(self, request, rails, results, demands_by_rail, rail_current,
+                             context, emit):
+        """The ground net's solve, or None: the raster capture holds no ground."""
+        emit("Ground return not solved: the raster engine captures the rails' copper only.")
+        return None
 
     def _rail_extras(self, rail, request, context):
         """Engine-specific fields added to the rail's result.
@@ -737,6 +867,13 @@ class DCSolverEngine:
             progress(completed, total, f"{rail.net_name}: solved")
         if rails and not results:
             emit(f"No rail was solved. {unsolved_rails_reason(rails)}")
+        if results:
+            if cancelled(): raise DCAnalysisCancelled("DC analysis cancelled.")
+            ground = self._solve_ground_return(
+                request, rails, results, demands_by_rail, rail_current, context, emit,
+            )
+            if ground is not None:
+                _attach_ground_return(results, rails, ground)
         if check_grid and results:
             done = [completed]
 
@@ -1181,6 +1318,57 @@ class HybridDCSolverEngine(DCSolverEngine):
 
     def _publish_mesh(self, mesh, context):
         _relabel_layers(mesh, context.layer_mapping)
+
+    def _solve_ground_return(self, request, rails, results, demands_by_rail, rail_current,
+                             context, emit):
+        """Solve the main ground net with every load's current returning.
+
+        The drop was the supply side alone: ground bounce between a load and
+        its source was in no result (open since the 2026-09-13 audit).
+        """
+        net = main_ground_net(context.board)
+        if net is None:
+            emit("Ground return not solved: no ground net was found on the board.")
+            return None
+        started = time.perf_counter()
+        ground_rail = SimpleNamespace(net_name=net, sources=(), loads=())
+        mesh = self._build_mesh(ground_rail, request, context, emit)
+        if mesh is None or not mesh.nodes:
+            emit(f"Ground return not solved: {net} has no copper to mesh.")
+            return None
+        sources, loads, located, unlocated = _ground_injections(
+            rails, demands_by_rail, rail_current,
+            self._locator(ground_rail, mesh, request, context, emit),
+        )
+        if not sources:
+            emit(f"Ground return not solved: no top-level source has a pad on {net}.")
+            return None
+        solver = self._solver_factory(
+            debug=request.debug, log_callback=emit, compute_settings=request.compute_settings,
+        )
+        detailed = solver.solve_detailed(mesh, sources, loads)
+        voltages = detailed.voltages
+        if not voltages:
+            emit(f"Ground return not solved: the {net} solve failed.")
+            return None
+        rise = {
+            ref: sum(voltages.get(node, 0.0) for node in nodes) / len(nodes)
+            for ref, nodes in located.items()
+        }
+        self._publish_mesh(mesh, context)
+        worst_ref = max(rise, key=rise.get) if rise else ""
+        emit(
+            f"Ground return on {net}: {len(mesh.nodes):,} nodes, "
+            f"{sum(-load['current'] for load in loads if load['current'] < 0):.3f} A returned, "
+            f"largest rise {rise.get(worst_ref, 0.0) * 1e3:.3f} mV at {worst_ref or '-'}, "
+            f"{time.perf_counter() - started:.1f} s."
+        )
+        if unlocated:
+            emit(
+                f"  No {net} pad located for: " + ", ".join(sorted(unlocated)[:12])
+                + (", ..." if len(unlocated) > 12 else "") + "; their return is not modelled."
+            )
+        return GroundReturn(net, mesh, sources, loads, detailed, rise, sorted(unlocated))
 
     def _rail_extras(self, rail, request, context):
         return {

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added the DC ground return: the hybrid engine solves the main ground
+  net with every load's current returning to the top-level sources, and
+  judges each load on its supply drop plus its ground rise less its
+  source's. On P02 Rev E, /+5V_RAIL's worst load (J6) reads 23.13 mV
+  instead of 21.62, and the ground's 18.8 mW now heat the thermal model.
 - Changed the 2-D differential field solvers to draw a trace as a
   trapezoid (etch factor 2.75, the top 25 um narrower at 1 oz) instead
   of a rectangle. P02 Rev E's USB pairs (0.200 / 0.250 mm on B.Cu) read

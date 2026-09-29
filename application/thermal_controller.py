@@ -122,6 +122,16 @@ def thermal_cache_key(settings, compute_settings, coupled, copper_losses,
     return bool(coupled), thermal, runtime
 
 
+def _ground_solutions(system_results):
+    """``{context name: GroundReturn}`` for the ground return the rails share."""
+    grounds = {}
+    for data in system_results.values():
+        ground = data.get("ground_solution")
+        if ground is not None:
+            grounds[f"{ground.net_name} (ground return)"] = ground
+    return grounds
+
+
 def dc_copper_loss_points(system_results, resistance_scale=1.0):
     """Branch losses as heat points, scaled to the copper's temperature.
 
@@ -132,7 +142,13 @@ def dc_copper_loss_points(system_results, resistance_scale=1.0):
     copper's resistance ratio at the ambient.
     """
     losses = []
-    for data in system_results.values():
+    # The ground return, solved once and shared by every rail's entry, heats
+    # the board too.
+    solutions = list(system_results.values()) + [
+        {"mesh": ground.mesh, "detailed_result": ground.detailed_result}
+        for ground in _ground_solutions(system_results).values()
+    ]
+    for data in solutions:
         mesh = data.get("mesh")
         detailed = data.get("detailed_result")
         if mesh is None or detailed is None:
@@ -362,6 +378,11 @@ class ThermalSolverEngine:
                 }
                 for name, data in system_results.items()
             }
+            for name, ground in _ground_solutions(system_results).items():
+                rail_contexts[name] = {
+                    "mesh": ground.mesh, "sources": ground.sources, "loads": ground.loads,
+                    "initial_voltages": ground.detailed_result.voltages,
+                }
             coupled_solver = self._coupled_solver_factory(
                 debug=request.debug, log_callback=emit,
                 compute_settings=request.compute_settings,
@@ -434,9 +455,13 @@ class ThermalSolverEngine:
         """
         try:
             dc_results = dict(getattr(coupled_result, "dc_results", {}) or {})
+            meshes = {name: data.get("mesh") for name, data in (system_results or {}).items()}
+            meshes.update({
+                name: ground.mesh for name, ground in _ground_solutions(system_results or {}).items()
+            })
             combined = {
-                name: {"mesh": data.get("mesh"), "detailed_result": dc_results.get(name)}
-                for name, data in (system_results or {}).items()
+                name: {"mesh": mesh, "detailed_result": dc_results.get(name)}
+                for name, mesh in meshes.items()
                 if dc_results.get(name) is not None
             }
             frozen_model = replace(model, copper_losses=dc_copper_loss_points(combined))

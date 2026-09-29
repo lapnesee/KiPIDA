@@ -450,6 +450,44 @@ class LiveLayerPairing(unittest.TestCase):
         self.assertEqual((positional, unmatched), ([], ["In1.Cu", "In2.Cu"]))
 
 
+class GroundReturn(unittest.TestCase):
+    def test_a_load_sees_its_ground_rise_less_its_sources(self):
+        # The DC drop was the supply side alone (open since the 2026-09-13
+        # audit). On P02 Rev E the ground return adds 1.5 mV to /+5V_RAIL's
+        # worst load, J6: 21.62 mV supply side, 23.13 mV in all.
+        from application.dc_controller import (
+            GroundReturn as Solved, _attach_ground_return, _ground_injections,
+        )
+        ref = lambda name: SimpleNamespace(ref_des=name)
+        buck = SimpleNamespace(
+            name="U1", reg_type="SWITCHING", input_rail_name="VIN", output_rail_name="V5",
+            input_ref_des="U1", output_ref_des="U1",
+        )
+        vin = SimpleNamespace(net_name="VIN", nominal_voltage=12.0, loads=[],
+                              sources=[SimpleNamespace(component_ref=ref("J1"))],
+                              child_regulators=[buck])
+        v5 = SimpleNamespace(net_name="V5", nominal_voltage=5.0, sources=[], child_regulators=[],
+                             loads=[SimpleNamespace(component_ref=ref("U2"), total_current=1.0)])
+        nodes = {"J1": [1], "U1": [2], "U2": [3]}
+
+        sources, loads, _located, _unlocated = _ground_injections(
+            [vin, v5], {"VIN": [(buck, 0.5)]}, {"V5": 1.0, "VIN": 0.5},
+            lambda ref_des, _pads: nodes.get(ref_des, []),
+        )
+        self.assertEqual(sources, [{"node_id": 1, "voltage": 0.0}])
+        # U2 returns its 1 A; the buck's ground pin takes Iout - Iin = 0.5 A.
+        self.assertEqual(sorted((load["ref_des"], load["current"]) for load in loads),
+                         [("U1", 0.5), ("U2", -1.0)])
+
+        results = {"V5": {"source_voltage_v": 5.0, "results": {30: 4.98},
+                          "loads": [{"node_id": 30, "current": 1.0, "ref_des": "U2"}]}}
+        ground = Solved("GND", None, sources, loads, None, {"J1": 0.0, "U1": 0.001, "U2": 0.003})
+        _attach_ground_return(results, [vin, v5], ground)
+
+        # 20 mV of supply drop, plus U2's 3 mV rise less the 1 mV of U1's own.
+        self.assertAlmostEqual(results["V5"]["ground_return"]["combined_load_drop_v"], 0.022)
+
+
 class RegulatorCascade(unittest.TestCase):
     """A rail skipped for want of copper still passes its regulators' demand up."""
 

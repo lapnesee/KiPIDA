@@ -1771,6 +1771,7 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
     raster_limitations = []
     density_hotspots = {}
     grid_checked, grid_not_refined = [], []
+    ground_return = None
     for index, (rail, data) in enumerate((system_results or {}).items(), start=1):
         first_finding = len(findings)
         vmin, vmax, drop = data.get("stats", (0.0, 0.0, 0.0))
@@ -1829,6 +1830,28 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
                 spread_pct, "%", "INFO",
             ))
             drop_text = f"The worst-placed load sees {drop_pct:.3f}% ({drop_v * 1000.0:.1f} mV)"
+            ground = data.get("ground_return")
+            if ground:
+                # The load sees its rail less its ground: the ground return is
+                # solved, and the verdict takes both sides.
+                ground_return = ground
+                combined_v = float(ground.get("combined_load_drop_v", 0.0) or 0.0)
+                combined_pct = combined_v / source_voltage * 100.0
+                metrics.append(AnalysisMetric(
+                    f"rail_{index}_drop_with_return",
+                    f"{rail} voltage drop at the worst load, ground return included",
+                    combined_pct, "%",
+                    "NO_DATA" if no_current else (
+                        "WARN" if combined_pct > float(maximum_drop_pct)
+                        else ("INCOMPLETE" if incomplete else "PASS")
+                    ),
+                ))
+                drop_text = (
+                    f"The worst-placed load ({ground.get('combined_worst_ref') or 'unnamed'}) sees "
+                    f"{combined_pct:.3f}% ({combined_v * 1000.0:.1f} mV) with its ground return, "
+                    f"{drop_v * 1000.0:.1f} mV of it the worst supply-side drop"
+                )
+                drop_pct = combined_pct
         else:
             drop_pct = spread_pct
             metrics.append(AnalysisMetric(
@@ -2071,10 +2094,19 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
             f"{COPPER_RESISTIVITY_REFERENCE_C:g} C; the DC solve applies no temperature correction, "
             "which the coupled electro-thermal analysis does.",
             "Connector and contact resistances are included only when explicitly modeled.",
-            # Both open since the 2026-09-13 audit and stated nowhere in the
-            # drop's own limitations (audit-2026-09-23.md, DC section).
-            "The drop is the supply side only: the ground return is not solved, so ground "
-            "bounce between a load and its source is not included.",
+            # Open since the 2026-09-13 audit; the hybrid engine now solves
+            # the ground return, the raster engine still does not.
+            (
+                f"The ground return is solved on {ground_return.get('net')}, the top-level "
+                "sources' ground pads held at 0 V and each converter's ground pin drawing "
+                "Iout - Iin; a part with no pad on it returns nothing there"
+                + (f" ({', '.join(ground_return.get('unlocated') or ())})"
+                   if ground_return.get("unlocated") else "")
+                + "."
+                if ground_return else
+                "The drop is the supply side only: the ground return is not solved, so ground "
+                "bounce between a load and its source is not included."
+            ),
             f"Via and plated-hole barrels use {PLATING_THICKNESS_FALLBACK_MM * 1000.0:g} um of "
             "plating, since the board file does not record it; a thinner finish raises their "
             "resistance in proportion.",
