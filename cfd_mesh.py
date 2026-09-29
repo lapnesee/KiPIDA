@@ -129,10 +129,21 @@ class CFDMeshGenerator:
                 fell_back.append(True)
             mask = np.zeros(shape, dtype=bool)
             mask[np.ix_(*axis_indices)] = True
+            # Snapped into a cell thicker than itself, a sheet would conduct
+            # sideways as if it were a cell thick: P02 Rev E's 1.29 mm board
+            # in a 5 mm cell, 3.9 times its own conductance. Its conductivity
+            # is scaled by its thickness over the cell's, which keeps k * t.
+            # An obstacle collapsed on every axis is no sheet and keeps its own.
+            scale = 1.0
+            if not all(fell_back):
+                for axis in range(3):
+                    if fell_back[axis]:
+                        extent = (bounds[axis][1] - bounds[axis][0]) * 1e-3
+                        scale *= min(1.0, max(extent, 0.0) / spacing[axis])
             if all(fell_back):
                 collapsed.append(obstacle.name)
             solid |= mask
-            conductivity[mask] = max(0.05, float(obstacle.conductivity_w_mk))
+            conductivity[mask] = max(0.05, float(obstacle.conductivity_w_mk) * scale)
             names[mask] = obstacle.name
             cells = int(np.count_nonzero(mask))
             if obstacle.heat_w > 0 and cells:

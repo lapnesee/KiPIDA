@@ -5,10 +5,18 @@ from typing import List, Tuple
 
 try:
     from .models import EnclosureGeometrySettings
-    from .physical_constants import DEFAULT_COPPER_THICKNESS_MM
+    from .physical_constants import (
+        COPPER_THERMAL_CONDUCTIVITY_W_MK, DEFAULT_COPPER_THICKNESS_MM,
+    )
 except (ImportError, ValueError):
     from models import EnclosureGeometrySettings
-    from physical_constants import DEFAULT_COPPER_THICKNESS_MM
+    from physical_constants import (
+        COPPER_THERMAL_CONDUCTIVITY_W_MK, DEFAULT_COPPER_THICKNESS_MM,
+    )
+
+# In-plane conductivity of the laminate between copper layers, the 3D thermal
+# mesh's ThermalMesher.FR4_K_XY.
+LAMINATE_IN_PLANE_K_W_MK = 0.8
 
 # Air kept around a board whose enclosure was never entered: four of the
 # default 5 mm CFD cells between each board edge and the wall.
@@ -106,6 +114,40 @@ class EnclosureModelBuilder:
         thickness += sum(float(item.get("thickness_mm", 0.0)) for item in substrate)
         return max(thickness, 1.0)
 
+    @classmethod
+    def board_in_plane_conductivity(cls, board_model):
+        """The board's in-plane conductivity, W/mK: copper and laminate in parallel.
+
+        The board was one isotropic 0.6 W/mK solid, its copper ignored: on
+        P02 Rev E, with six layers and GND planes on four of them, Q10's
+        1.40 W had only laminate to spread through and its cell read
+        293.7 C, against about 115 C from the 3D thermal analysis. Each
+        copper layer now counts its thickness times the share of the board
+        its copper covers (``board_model.copper_by_layer``), the rest of the
+        thickness the laminate's LAMINATE_IN_PLANE_K_W_MK.
+        """
+        stackup = board_model.stackup or {}
+        thickness = cls._board_thickness_mm(stackup)
+        min_x, min_y, max_x, max_y = board_model.bounds_mm
+        outline = getattr(board_model, "outline", None)
+        board_area = (
+            float(outline.area) if outline is not None and not outline.is_empty
+            else (max_x - min_x) * (max_y - min_y)
+        )
+        copper_by_layer = getattr(board_model, "copper_by_layer", None) or {}
+        sheet, copper_thickness = 0.0, 0.0
+        for layer_id, data in (stackup.get("copper", {}) or {}).items():
+            layer_thickness = float(data.get("thickness_mm", DEFAULT_COPPER_THICKNESS_MM))
+            geometry = copper_by_layer.get(layer_id)
+            coverage = (
+                min(1.0, float(geometry.area) / board_area)
+                if geometry is not None and board_area > 0.0 else 0.0
+            )
+            sheet += COPPER_THERMAL_CONDUCTIVITY_W_MK * layer_thickness * coverage
+            copper_thickness += layer_thickness
+        sheet += LAMINATE_IN_PLANE_K_W_MK * max(0.0, thickness - copper_thickness)
+        return sheet / thickness
+
     @staticmethod
     def _oriented_bounds(orientation, origin, x, y, width, depth, height):
         ox, oy, oz = origin
@@ -146,12 +188,14 @@ class EnclosureModelBuilder:
         )
 
         board_heat = sum(max(0.0, loss.power_w) for loss in board_model.copper_losses)
+        board_conductivity = self.board_in_plane_conductivity(board_model)
+        self._log(f"Board in-plane conductivity {board_conductivity:.3g} W/mK from its copper coverage.")
         obstacles = [CFDObstacle(
             name="PCB",
             bounds_mm=self._oriented_bounds(
                 orientation, origin, 0.0, 0.0, board_width, board_depth, board_height
             ),
-            conductivity_w_mk=0.6,
+            conductivity_w_mk=board_conductivity,
             heat_w=board_heat,
             kind="board",
         )]

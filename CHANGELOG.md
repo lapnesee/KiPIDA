@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed the CFD board conducting as a 0.6 W/mK solid, its copper ignored
+  and its thickness taken as the cell's: it now has its copper layers'
+  in-plane conductivity (P02 Rev E: 31.5 W/mK), scaled by its thickness
+  over the cell's when snapped into one. P02's hottest solid cell (Q10)
+  falls from 293.7 C to 179.8 C and the air maximum from 167.6 to 127.4 C.
 - Fixed via barrels having no mutual inductance with the return barrel
   beside them (AC-8): a barrel with one of the other net within 5 mm now
   carries half the two-wire loop, mu0*h/pi ln(s/r). On P02 Rev E's

@@ -76,6 +76,31 @@ class TestEnclosureModelBuilder(unittest.TestCase):
         self.assertIs(fit_unset_enclosure(entered, board)[0], entered)
 
 
+class TestBoardConductivity(unittest.TestCase):
+    def test_the_board_conducts_through_its_copper(self):
+        # P02 Rev E: the board was an isotropic 0.6 W/mK solid, and Q10's
+        # cell reached 293.7 C. Two 35 um layers fully covered over 1.53 mm
+        # of laminate conduct (385 * 0.07 + 0.8 * 1.53) / 1.6 W/mK in plane.
+        from shapely.geometry import box
+        from cfd_mesh import CFDMeshGenerator
+
+        board = ThermalBoardModel(
+            bounds_mm=(0.0, 0.0, 30.0, 20.0), outline=None,
+            stackup={"copper": {0: {"thickness_mm": 0.035}, 31: {"thickness_mm": 0.035}},
+                     "substrate": [{"thickness_mm": 1.53}]},
+            copper_by_layer={0: box(0.0, 0.0, 30.0, 20.0), 31: box(0.0, 0.0, 30.0, 20.0)},
+        )
+        expected = (385.0 * 0.07 + 0.8 * 1.53) / 1.6
+        self.assertAlmostEqual(EnclosureModelBuilder.board_in_plane_conductivity(board), expected)
+
+        settings = EnclosureCFDSettings()
+        settings.geometry.width_mm, settings.geometry.depth_mm = 40.0, 30.0
+        settings.geometry.height_mm, settings.geometry.board_offset_z_mm = 20.0, 5.0
+        mesh = CFDMeshGenerator().generate_mesh(EnclosureModelBuilder().build(board, settings), settings)
+        # Snapped into a 5 mm cell, the 1.6 mm board keeps its k * t.
+        self.assertAlmostEqual(float(mesh.solid_conductivity_w_mk.max()), expected * 1.6 / 5.0, places=6)
+
+
 class TestEnclosureAirRise(unittest.TestCase):
     def test_matches_p02_rev_e(self):
         # docs/audit-2026-09-23.md CFD-4, scratchpad/audit/cfd/p02_inspect.py
