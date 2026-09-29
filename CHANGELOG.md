@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed Phase 10 reaching the report only as status strings: a SPICE
+  model it could not use (P02 Rev E's U5, TPS562200DDCT, unstable in
+  ngspice) is a P10-001 finding and a failed or unsolved region or
+  excitation a P10-002 one, both calculation quality and kept out of
+  the score; a solved region's peak |E| and |H| are metrics.
 - Fixed the DC hotspots and the thermal layer maps naming a copper layer
   by the name IPC reports ("F.Signal" on P02 Rev E) while the campaign
   named it by KiCad's own ("F.Cu"): the stackup now keeps both, and both

@@ -48,6 +48,24 @@ class AnalysisAdapterTests(unittest.TestCase):
             AnalysisStatus.PASS,
         )
 
+    def test_an_unstable_phase10_spice_model_is_a_finding(self):
+        # audit-emc.md: Phase 10 only reached the report as status strings;
+        # P02 Rev E's U5 model was MAPPING_VERIFIED_NGSPICE_TRANSIENT_UNSTABLE.
+        from models import EMCPhase10Result, EMCSpiceModelAudit
+        phase10 = EMCPhase10Result(status="COMPLETED_WITH_WARNINGS", spice_model_audit=[
+            EMCSpiceModelAudit("U5", "TPS562200DDCT", "SW_U5",
+                               "MAPPING_VERIFIED_NGSPICE_TRANSIENT_UNSTABLE"),
+        ])
+        domain = EMCAnalysisResult(risk_score=80)
+        domain.phase10_result = phase10
+
+        result = adapt_emc_result(EMCAnalysisSettings(), domain)
+
+        finding = next(f for f in result.findings if f.rule_id == "P10-001")
+        self.assertEqual(finding.components, ["U5"])
+        self.assertTrue(finding.calculation_quality)
+        self.assertEqual(result.status, AnalysisStatus.PASS)
+
     def test_ac_adapter_uses_target_as_verdict(self):
         sweep = SimpleNamespace(
             meets_target=False, worst_impedance_ohm=0.12, worst_frequency_hz=1e6,

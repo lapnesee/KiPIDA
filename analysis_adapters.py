@@ -39,6 +39,82 @@ def _confidence(value: Any) -> EvidenceConfidence:
     return normalize_evidence_confidence(value)
 
 
+# Region outcomes where Phase 10's full-wave solve gave no usable field.
+_PHASE10_REGION_PROBLEMS = {
+    "FAILED", "TIMEOUT", "VALIDATION_FAILED", "SKIPPED_CELL_LIMIT", "SKIPPED_TOOL_MISSING",
+    "SOLVED_FIELDS_UNCALIBRATED_NOT_CONVERGED",
+}
+
+
+def _phase10_findings_and_metrics(phase10: Any) -> tuple:
+    """What Phase 10 ran into, as findings, and the fields it solved, as metrics.
+
+    Phase 10's result reached the report only as status strings in the
+    compute metadata: a SPICE model ngspice found unstable, as on P02 Rev
+    E's U5 (MAPPING_VERIFIED_NGSPICE_TRANSIENT_UNSTABLE), or a region the
+    full-wave solver never solved affected no finding (audit-emc.md,
+    proposal A). Each is now a finding about the run -- calculation quality,
+    kept out of the score -- and each solved region's peak fields a metric,
+    uncalibrated as the solver states.
+    """
+    findings, metrics = [], []
+    if phase10 is None:
+        return findings, metrics
+    for audit in getattr(phase10, "spice_model_audit", None) or ():
+        status = str(getattr(audit, "status", "") or "")
+        if getattr(audit, "used", False) or status.upper() == "NOT_APPLICABLE":
+            continue
+        reference = str(getattr(audit, "component_ref", "") or "")
+        notes = str(getattr(audit, "notes", "") or "")
+        finding = _finding(
+            "P10-001", len(findings) + 1, "EMC_SIMULATION", FindingSeverity.LOW,
+            f"{reference or getattr(audit, 'source_name', 'Source')}: SPICE model not used ({status})",
+            f"Phase 10 excited {getattr(audit, 'source_name', 'the source')} with a parametric "
+            f"source instead of the part's own model ({getattr(audit, 'mpn', '') or 'no MPN'}): "
+            f"{status}." + (f" {notes}" if notes else ""),
+            "Provide an ngspice-compatible model with a verified pin mapping to simulate the "
+            "part's real switching waveform.",
+            confidence=EvidenceConfidence.DETERMINISTIC,
+        )
+        finding.calculation_quality = True
+        finding.components = [reference] if reference else []
+        findings.append(finding)
+    problems = [
+        (f"excitation {getattr(item, 'source_name', '')}", str(getattr(item, "status", "")))
+        for item in getattr(phase10, "excitations", None) or ()
+        if str(getattr(item, "status", "")).upper() == "FAILED"
+    ] + [
+        (f"region {getattr(item, 'name', '')}", str(getattr(item, "status", "")))
+        for item in getattr(phase10, "regions", None) or ()
+        if str(getattr(item, "status", "")).upper() in _PHASE10_REGION_PROBLEMS
+    ]
+    for index, (what, status) in enumerate(problems, start=1):
+        finding = _finding(
+            "P10-002", index, "EMC_SIMULATION", FindingSeverity.LOW,
+            f"Phase 10 {what} gave no usable result ({status})",
+            f"The Phase 10 {what} ended {status}; the rule-based findings it was to check "
+            "stand without its simulation.",
+            "See the Phase 10 output directory for the solver log.",
+            confidence=EvidenceConfidence.DETERMINISTIC,
+        )
+        finding.calculation_quality = True
+        findings.append(finding)
+    for index, region in enumerate(getattr(phase10, "regions", None) or (), start=1):
+        if not getattr(region, "fields_extracted", False):
+            continue
+        for key, label, value, unit in (
+            ("e", "peak |E|", getattr(region, "maximum_e_v_m", None), "V/m"),
+            ("h", "peak |H|", getattr(region, "maximum_h_a_m", None), "A/m"),
+        ):
+            if value is not None:
+                metrics.append(AnalysisMetric(
+                    f"phase10_region_{index}_max_{key}",
+                    f"Phase 10 {getattr(region, 'name', index)} {label} (uncalibrated)",
+                    float(value), unit, "INFO",
+                ))
+    return findings, metrics
+
+
 def adapt_emc_result(settings: Any, domain_result: Any) -> AnalysisResult:
     findings = []
     for index, item in enumerate(getattr(domain_result, "findings", ()) or (), start=1):
@@ -71,6 +147,8 @@ def adapt_emc_result(settings: Any, domain_result: Any) -> AnalysisResult:
         for finding in findings
     )
     phase10 = getattr(domain_result, "phase10_result", None)
+    phase10_findings, phase10_metrics = _phase10_findings_and_metrics(phase10)
+    findings.extend(phase10_findings)
     field_result = getattr(domain_result, "field_simulation", None)
     overall_status = AnalysisStatus.WARN if significant else AnalysisStatus.PASS
     result = AnalysisResult(
@@ -104,7 +182,7 @@ def adapt_emc_result(settings: Any, domain_result: Any) -> AnalysisResult:
                 "checks", "Checks executed",
                 int(getattr(domain_result, "total_checks", 0)), status="INFO",
             ),
-        ],
+        ] + phase10_metrics,
         provenance=[
             AnalysisEvidence(
                 "PCB_GEOMETRY",
