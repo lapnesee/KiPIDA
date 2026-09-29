@@ -77,6 +77,9 @@ class _Stub:
     def _wait_for_live_board(self):
         pass
 
+    def _refresh_live_board_state(self):
+        pass
+
     def _batch_request_builders(self, selected):
         return self.builders
 
@@ -135,6 +138,44 @@ class LiveBoardSync(unittest.TestCase):
 
         self.assertEqual(len(refreshed), 1)
         self.assertIn("after 1 retry", logs[-1])
+
+
+class OneRefreshPerBatch(unittest.TestCase):
+    def setUp(self):
+        try:
+            from ui.main_dialog import KiPIDA_MainDialog  # noqa: F401
+        except Exception as exc:  # pragma: no cover - depends on import order
+            self.skipTest(f"ui.main_dialog unavailable: {exc}")
+
+    def test_the_live_board_is_refreshed_once_for_every_domain(self):
+        # P02 Rev E, 2026-09-29 17:06: six builders refreshed the live board
+        # in turn, about 1 s of frozen editor each.
+        from types import SimpleNamespace as NS
+        from unittest import mock
+        dialog = _dialog()
+        scans = []
+        stub = _Stub()
+        stub.board = object()
+        stub._thermal_board_signature = None
+        stub._thermal_session_cache = {}
+        stub.ac_panel = NS(refresh=lambda force_discovery: scans.append("AC"))
+        stub.differential_panel = NS(refresh_live_board=lambda: None)
+        stub.emc_panel = NS(refresh_live_board=lambda: None)
+        stub.thermal_panel = NS(refresh_components=lambda preserve_user: None)
+        stub._refresh_live_board_state = lambda: dialog._refresh_live_board_state(stub)
+
+        def builder():
+            stub._refresh_live_board_state()
+            return "request"
+
+        stub.builders = {"DC": builder, "AC": builder, "EMC": builder}
+        with mock.patch("ui.main_dialog.ThermalModelBuilder"):
+            requests = dialog._build_batch_requests(stub, ["DC", "AC", "EMC"])
+
+        self.assertEqual(len(requests), 3)
+        self.assertEqual(scans, ["AC"])
+        stub._refresh_live_board_state()
+        self.assertEqual(len(scans), 2, "a refresh after the batch reads the board again")
 
 
 class ACCampaignProfiles(unittest.TestCase):

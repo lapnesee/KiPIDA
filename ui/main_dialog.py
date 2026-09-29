@@ -347,6 +347,8 @@ class KiPIDA_MainDialog(wx.Dialog):
 
     def _refresh_live_board_state(self):
         """Re-read KiCad's live IPC board data before a new analysis run."""
+        if getattr(self, "_live_board_fresh", False):
+            return
         if self.board is None:
             raise RuntimeError(
                 "No live KiCad PCB is connected. Close this window and relaunch Ki-PIDA "
@@ -607,6 +609,15 @@ class KiPIDA_MainDialog(wx.Dialog):
             f"Batch: capturing live board data for {len(selected)} analysis(es) "
             "before the run starts."
         )
+        # One refresh serves every domain: each builder refreshed again, about
+        # 1 s of frozen editor apiece, six times over in the P02 Rev E
+        # campaign of 2026-09-29 17:06, on a board nobody edits meanwhile.
+        # A refresh that fails leaves each builder to fail on its own.
+        try:
+            self._refresh_live_board_state()
+            self._live_board_fresh = True
+        except Exception:
+            pass
         try:
             for analysis_id in selected:
                 self.log(f"Batch: preparing {labels[analysis_id]}.")
@@ -622,6 +633,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                     self._batch_dc_capture = requests.get("DC")
         finally:
             self._batch_dc_capture = None
+            self._live_board_fresh = False
         return requests
 
     LIVE_BOARD_SYNC_ATTEMPTS = 6

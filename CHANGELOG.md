@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Changed a campaign to refresh the live board once while it prepares,
+  not once per domain: P02 Rev E's 17:06 batch refreshed it six times,
+  about 1 s of frozen PCB Editor each.
 - Fixed a campaign domain's own status disagreeing with the synthesis
   table: P02 Rev E's DC logged and headed its report section WARN on
   eight INFO DC-006 findings while the synthesis scored it PASS 100/100.
