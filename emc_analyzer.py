@@ -170,6 +170,20 @@ def hot_loop_components(snapshot, source_name, net_name):
     return seen
 
 
+_SLOW_BUS_TOKENS = frozenset(("SDA", "SCL", "I2C", "SMBCLK", "SMBDAT", "SMBALERT", "WP"))
+
+
+def _drives_only_a_slow_bus(footprint, excluded_nets):
+    """True when every signal net of *footprint* belongs to an I2C/SMBus port."""
+    signals = [
+        net for net in footprint.nets
+        if net and net not in excluded_nets and not is_unconnected_pin_net(net)
+    ]
+    return bool(signals) and all(
+        _SLOW_BUS_TOKENS & set(re.split(r"[^A-Z0-9]+", net.upper())) for net in signals
+    )
+
+
 def buck_hot_loop(snapshot, net_name, ground_nets, power_nets, is_capacitor=None):
     """The switched loop of a buck leg: input capacitor, high side, low side.
 
@@ -1492,8 +1506,16 @@ class EMCAnalyzer:
                               "Verify every supply pin and place its high-frequency capacitor at the pin/via pair.",
                               "LOW", components=[ic.reference], location=(*ic.position, None))
                 elif nearest[0] > 5.0:
+                    # An IC whose only signals are an I2C/SMBus port switches
+                    # kHz-to-MHz open-drain edges from a few mA: a distant
+                    # bypass capacitor costs it little. P02 Rev E's EEPROM
+                    # U18 (C13 at 22.9 mm) ranked the campaign's first HIGH
+                    # action on the same bar as a processor.
+                    slow_bus = _drives_only_a_slow_bus(
+                        ic, supply_nets | set(self.settings.reference_net_names),
+                    )
                     severity = (
-                        "MEDIUM" if power_management else
+                        "MEDIUM" if power_management or slow_bus else
                         "HIGH" if nearest[0] > 8.0 else "MEDIUM"
                     )
                     title = (
@@ -1509,7 +1531,10 @@ class EMCAnalyzer:
                     self._add("DE-001", "DECOUPLING", severity, title,
                               f"The nearest capacitor sharing {', '.join(nearest[2])} with "
                               f"{ic.reference} is {nearest[1].reference} at {nearest[0]:.2f} mm "
-                              f"(pad to pad). {THRESHOLD_BASIS['DE-001']}",
+                              f"(pad to pad). {THRESHOLD_BASIS['DE-001']}"
+                              + (f" {ic.reference} only drives an I2C/SMBus port, whose supply "
+                                 "current steps are small and slow, so this stays MEDIUM at any "
+                                 "distance." if slow_bus and not power_management else ""),
                               recommendation,
                               "LOW" if power_management else "MEDIUM",
                               components=[ic.reference, nearest[1].reference], location=(*ic.position, None))

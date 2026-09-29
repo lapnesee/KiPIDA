@@ -573,6 +573,29 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertEqual(finding.confidence, "LOW")
         self.assertIn("rail-bypass", finding.title)
 
+    def test_an_i2c_only_ic_keeps_a_distant_bypass_at_medium(self):
+        # P02 Rev E: the EEPROM U18 (SDA/SCL/WP) with C13 22.9 mm away ranked
+        # the campaign's first HIGH action, on the same bar as a processor.
+        def snap(signal_nets):
+            return EMCGeometrySnapshot(
+                bounds_mm=(0.0, 0.0, 40.0, 20.0), stackup=stackup(), power_nets={"LDO3V3"},
+                footprints=[
+                    EMCFootprint("U18", "CAT24C512", (5.0, 5.0), ("GND", "LDO3V3") + signal_nets,
+                                 (("LDO3V3", 5.0, 5.0),)),
+                    EMCFootprint("C13", "100n", (27.9, 5.0), ("GND", "LDO3V3"),
+                                 (("LDO3V3", 27.9, 5.0),)),
+                ],
+            )
+
+        eeprom = ("/J2_EEPROM_SCL", "/J2_EEPROM_SDA", "/J2_EEPROM_WP")
+        finding = next(item for item in EMCAnalyzer(snap(eeprom), EMCAnalysisSettings(sources=[]))
+                       .analyze().findings if item.rule_id == "DE-001")
+        self.assertEqual(finding.severity, "MEDIUM")
+        self.assertIn("I2C/SMBus", finding.description)
+        clocked = next(item for item in EMCAnalyzer(snap(eeprom + ("SPI_CLK",)), EMCAnalysisSettings(sources=[]))
+                       .analyze().findings if item.rule_id == "DE-001")
+        self.assertEqual(clocked.severity, "HIGH")
+
     def test_power_planes_are_no_signal_layers(self):
         # P02 Rev E: PWR.L3 and PWR.L4 carry the rails' pours and no track, and
         # SU-001 (HIGH) called them adjacent signal layers, SU-002 twice far

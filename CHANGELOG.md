@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Changed DE-001 to stay MEDIUM for an IC whose only signals are an
+  I2C/SMBus port: P02 Rev E's EEPROM U18, with C13 22.9 mm away, ranked
+  the campaign's first HIGH action on the same bar as a processor.
 - Changed SW-003 to measure the loop the chopped current runs, input
   capacitor to high side to low side, found from the pads' supply and
   ground nets: P02 Rev E's /SYS_5V_SW1 finding listed U4, L1, C43 and
