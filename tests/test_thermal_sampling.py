@@ -160,5 +160,35 @@ class CopperFractionTests(unittest.TestCase):
         self.assertTrue(all(0.0 < fractions[(ix, 1)] < 1.0 for ix in range(4)))
         self.assertEqual(fractions[(0, 0)], 0.0)
 
+class NearestNodesTests(unittest.TestCase):
+    def test_the_vectorised_lookup_matches_nearest_node(self):
+        # The electro-thermal coupling mapped P02 Rev E's 2,641,865 electrical
+        # branches one nearest_node call each, 13.5 s; the array lookup must
+        # give the same cells, holes in the copper included.
+        import numpy as np
+        specs = [thermal_mesh.ThermalLayerSpec("F.Cu", 0.035, 3, "copper-layer"),
+                 thermal_mesh.ThermalLayerSpec("FR4", 1.5, None, "fr4"),
+                 thermal_mesh.ThermalLayerSpec("B.Cu", 0.035, 34, "copper-layer")]
+        mesh = thermal_mesh.ThermalMesh(grid_size_mm=0.5, bounds_mm=(0.0, 0.0, 5.0, 5.0), layer_specs=specs)
+        for iz in range(3):
+            for ix in range(10):
+                for iy in range(10):
+                    if iz == 0 and (ix + iy) % 7 == 0:
+                        continue
+                    node = len(mesh.nodes)
+                    mesh.node_map[(ix, iy, iz)] = node
+                    mesh.node_coords[node] = ((ix + 0.5) * 0.5, (iy + 0.5) * 0.5, iz)
+                    mesh.node_layers[node] = specs[iz].layer_id
+                    mesh.nodes.append(node)
+        rng = np.random.default_rng(0)
+        x, y = rng.uniform(0, 5, 300), rng.uniform(0, 5, 300)
+        layers = rng.choice([3, 34], 300)
+
+        fast = mesh.nearest_nodes(x, y, layers)
+
+        slow = [mesh.nearest_node(a, b, int(layer)) for a, b, layer in zip(x, y, layers)]
+        self.assertEqual(fast.tolist(), slow)
+
+
 if __name__ == "__main__":
     unittest.main()

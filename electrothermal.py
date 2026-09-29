@@ -66,22 +66,34 @@ class ElectroThermalSolver:
         branch_count = 0
         for rail_name, context in rail_contexts.items():
             electrical_mesh = context["mesh"]
-            indices = np.full(len(electrical_mesh.branches), -1, dtype=np.int32)
-            for index, branch in enumerate(electrical_mesh.branches):
-                coord_a = electrical_mesh.node_coords.get(branch.node_a)
-                coord_b = electrical_mesh.node_coords.get(branch.node_b)
-                if coord_a is None or coord_b is None:
-                    continue
-                node = thermal_mesh.nearest_node(
-                    (coord_a[0] + coord_b[0]) / 2.0,
-                    (coord_a[1] + coord_b[1]) / 2.0,
-                    coord_a[2],
+            branches = electrical_mesh.branches
+            count = len(branches)
+            indices = np.full(count, -1, dtype=np.int32)
+            coords = electrical_mesh.node_coords
+            if count and coords:
+                ids = np.fromiter(coords.keys(), dtype=np.int64, count=len(coords))
+                table = np.full((int(ids.max()) + 1, 3), np.nan)
+                table[ids] = np.array(list(coords.values()), dtype=float)
+                end_a = np.fromiter((branch.node_a for branch in branches), dtype=np.int64, count=count)
+                end_b = np.fromiter((branch.node_b for branch in branches), dtype=np.int64, count=count)
+                known = (
+                    (end_a >= 0) & (end_a < len(table)) & (end_b >= 0) & (end_b < len(table))
                 )
-                indices[index] = self._thermal_node_index(
-                    thermal_mesh, node, identity_nodes, node_to_index
+                known[known] &= ~(np.isnan(table[end_a[known], 0]) | np.isnan(table[end_b[known], 0]))
+                a, b = table[end_a[known]], table[end_b[known]]
+                nodes_found = thermal_mesh.nearest_nodes(
+                    (a[:, 0] + b[:, 0]) / 2.0, (a[:, 1] + b[:, 1]) / 2.0, a[:, 2].astype(np.int64),
                 )
+                if identity_nodes:
+                    mapped = nodes_found
+                else:
+                    mapped = np.array([
+                        int(node_to_index.get(int(node), -1)) if node >= 0 else -1
+                        for node in nodes_found
+                    ], dtype=np.int64)
+                indices[known] = mapped
             mappings[rail_name] = indices
-            branch_count += len(indices)
+            branch_count += count
         self._log(
             f"Cached {branch_count:,} electrical-branch to thermal-cell mappings in "
             f"{time.perf_counter() - started:.3f} s."

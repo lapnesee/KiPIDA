@@ -296,6 +296,60 @@ class ThermalMesh:
     def add_boundary_batch(self, node_id, conductance_w_k, kind="convection"):
         self.boundaries.extend_arrays(node_id, conductance_w_k, kind)
 
+    def nearest_nodes(self, x_mm, y_mm, layer_ids):
+        """:meth:`nearest_node` over arrays of points, one layer id each.
+
+        A point whose own cell holds a node on the single slice of its layer
+        takes that node, which is what nearest_node returns at radius 0; only
+        the rest go through nearest_node. Mapping P02 Rev E's 2,641,865
+        electrical branches one nearest_node call at a time took 13.5 s.
+        """
+        x = np.asarray(x_mm, dtype=float)
+        y = np.asarray(y_mm, dtype=float)
+        layers = np.asarray(layer_ids)
+        result = np.full(x.size, -1, dtype=np.int64)
+        if not self.nodes or not x.size:
+            return result
+        cells, slice_of_layer = self._cell_lookup()
+        min_x, min_y, _, _ = self.bounds_mm
+        # int() truncates toward zero, as nearest_node does.
+        ix = np.trunc((x - min_x) / self.grid_size_mm).astype(np.int64)
+        iy = np.trunc((y - min_y) / self.grid_size_mm).astype(np.int64)
+        iz = np.array([slice_of_layer.get(layer, -1) for layer in layers.tolist()], dtype=np.int64)
+        inside = (
+            (iz >= 0) & (ix >= 0) & (iy >= 0)
+            & (ix < cells.shape[1]) & (iy < cells.shape[2])
+        )
+        result[inside] = cells[iz[inside], ix[inside], iy[inside]]
+        for index in np.flatnonzero(result < 0):
+            node = self.nearest_node(float(x[index]), float(y[index]), layers[index].item())
+            result[index] = -1 if node is None else int(node)
+        return result
+
+    def _cell_lookup(self):
+        """``(cells[iz, ix, iy] -> node or -1, {layer id: iz})``, built once."""
+        cached = getattr(self, "_cells_cache", None)
+        if cached is not None and cached[0] == len(self.node_map):
+            return cached[1], cached[2]
+        keys = np.array(list(self.node_map.keys()), dtype=np.int64).reshape(-1, 3)
+        values = np.fromiter(self.node_map.values(), dtype=np.int64, count=len(self.node_map))
+        shape = (
+            len(self.layer_specs),
+            int(keys[:, 0].max()) + 1 if keys.size else 0,
+            int(keys[:, 1].max()) + 1 if keys.size else 0,
+        )
+        cells = np.full(shape, -1, dtype=np.int64)
+        valid = (keys[:, 0] >= 0) & (keys[:, 1] >= 0) & (keys[:, 2] >= 0) & (keys[:, 2] < shape[0])
+        cells[keys[valid, 2], keys[valid, 0], keys[valid, 1]] = values[valid]
+        slices = {}
+        for index, spec in enumerate(self.layer_specs):
+            slices.setdefault(spec.layer_id, []).append(index)
+        # A layer with several slices is left to nearest_node, which picks
+        # the nearest of them.
+        slice_of_layer = {layer: found[0] for layer, found in slices.items() if len(found) == 1}
+        self._cells_cache = (len(self.node_map), cells, slice_of_layer)
+        return cells, slice_of_layer
+
     def nearest_node(self, x_mm, y_mm, layer_id=None):
         """Return the closest cell without scanning the full 3D mesh in normal use."""
         if not self.nodes:

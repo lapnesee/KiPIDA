@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Changed the electro-thermal coupling to map electrical branches to
+  thermal cells as arrays: P02 Rev E's 2,641,865 branches, the ground
+  return included, map in 1.5 s instead of 12.1 s, to the same cells.
 - Fixed a campaign stalling while the DC maps render: they held the
   matplotlib lock over all 227 figures of P02 Rev E's 17 rails, and the
   differential analysis waited 53 s to draw its two. The DC and thermal
