@@ -350,11 +350,22 @@ class Plotter:
 
             target = baseline.target_impedance_ohm
             bandwidth = float(getattr(baseline, "target_bandwidth_hz", 0.0) or 0.0)
-            if target > 0 and bandwidth > 0:
+            floor_hz = float(getattr(baseline, "target_floor_hz", 0.0) or 0.0)
+            below_floor = float(getattr(baseline, "target_below_floor_ohm", 0.0) or 0.0)
+            if target > 0 and (bandwidth > 0 or (floor_hz > 0 and below_floor > 0)):
+                allowed = (
+                    target * np.maximum(1.0, frequencies / bandwidth)
+                    if bandwidth > 0 else np.full(frequencies.shape, target)
+                )
+                if floor_hz > 0 and below_floor > 0:
+                    allowed = np.where(frequencies < floor_hz, below_floor, allowed)
                 ax_mag.loglog(
-                    frequencies, target * np.maximum(1.0, frequencies / bandwidth),
-                    color="red", linestyle="--",
-                    label=f"Target ({target:g} ohm, rising above {bandwidth / 1e6:.3g} MHz)",
+                    frequencies, allowed, color="red", linestyle="--",
+                    label=f"Target ({target:g} ohm"
+                    + (f", {below_floor:.3g} ohm below {floor_hz / 1e3:g} kHz"
+                       if floor_hz > 0 and below_floor > 0 else "")
+                    + (f", rising above {bandwidth / 1e6:.3g} MHz" if bandwidth > 0 else "")
+                    + ")",
                 )
             elif target > 0:
                 ax_mag.axhline(target, color="red", linestyle="--", label=f"Target ({target:g} ohm)")

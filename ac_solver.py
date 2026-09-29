@@ -599,6 +599,13 @@ class ACSolver:
             target * np.maximum(1.0, np.asarray(frequencies, dtype=float) / bandwidth)
             if bandwidth > 0.0 else np.full(magnitudes.shape, target)
         )
+        # Below a converter's switching frequency its chopped step has no
+        # content; the rail's averaged step sets the target there
+        # (ac_model.converter_band_floor).
+        floor_hz = max(0.0, float(getattr(settings, "target_floor_hz", 0.0) or 0.0))
+        below_floor = max(0.0, float(getattr(settings, "target_below_floor_ohm", 0.0) or 0.0))
+        if floor_hz > 0.0 and below_floor > 0.0:
+            allowed = np.where(np.asarray(frequencies, dtype=float) < floor_hz, below_floor, allowed)
         # A worst case sitting on the last swept point means the impedance was
         # still climbing when the window closed: the real maximum may be
         # outside it, so the number is a lower bound rather than a maximum.
@@ -630,6 +637,8 @@ class ACSolver:
             impedance_ohm=list(impedances),
             target_impedance_ohm=target,
             target_bandwidth_hz=bandwidth,
+            target_floor_hz=floor_hz if below_floor > 0.0 else 0.0,
+            target_below_floor_ohm=below_floor if floor_hz > 0.0 else 0.0,
             worst_frequency_hz=float(frequencies[worst_index]),
             worst_impedance_ohm=float(magnitudes[worst_index]),
             meets_target=bool(target > 0 and np.all(magnitudes <= allowed)),

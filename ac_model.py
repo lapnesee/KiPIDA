@@ -188,10 +188,56 @@ def transient_bandwidth(rail, settings, all_rails=None, emc_sources=(), pad_nets
     )
 
 
-def target_mask(target_ohm, bandwidth_hz, frequency_hz):
-    """The impedance allowed at *frequency_hz*: flat to *bandwidth_hz*, then
-    rising in proportion to frequency -- the slowest the step's current can
-    fall above its knee, so the most demanding reading of it."""
+def converter_band_floor(rail, settings, all_rails=None):
+    """``(floor_hz, below_ohm, provenance)`` under which a converter-step target does not apply.
+
+    A converter's chopped input current is its average plus harmonics of its
+    switching frequency: below f_sw it has no content, and the rail sees only
+    the average moving with the loads. There the step is the transient
+    fraction of the rail's average current, the budget of a rail that feeds
+    no converter. P02 Rev E's /VBUS_SYS was held to U4's 4.5 A chopped step
+    (0.0889 ohm) from 1 kHz, three decades below U4's 400 kHz; its 2.04 A
+    average gives 0.392 ohm there.
+
+    An explicit target, a rail with no converter step, or a converter with no
+    switching frequency returns ``(0.0, 0.0, "")``.
+    """
+    if float(getattr(settings, "target_impedance_ohm", 0.0) or 0.0) > 0.0:
+        return 0.0, 0.0, ""
+    _current, regulator = switching_converter_step(rail, all_rails) if all_rails else (0.0, None)
+    if regulator is None:
+        return 0.0, 0.0, ""
+    frequency = (getattr(regulator, "loss_model", None) or {}).get("switching_frequency_hz")
+    if isinstance(frequency, dict):
+        frequency = frequency.get("value")
+    try:
+        frequency = float(frequency or 0.0)
+        voltage = float(getattr(rail, "nominal_voltage", 0.0) or 0.0)
+        ripple = float(getattr(settings, "ripple_fraction", RIPPLE_FRACTION_DEFAULT))
+        transient = float(getattr(settings, "transient_fraction", TRANSIENT_FRACTION_DEFAULT))
+    except (TypeError, ValueError):
+        return 0.0, 0.0, ""
+    average = sum(
+        float(getattr(load, "total_current", 0.0) or 0.0) for load in (getattr(rail, "loads", ()) or ())
+    ) + converter_input_current(rail, all_rails)
+    if frequency <= 0.0 or voltage <= 0.0 or ripple <= 0.0 or transient <= 0.0 or average <= 0.0:
+        return 0.0, 0.0, ""
+    step = transient * average
+    return (
+        frequency, voltage * ripple / step,
+        f"below {frequency / 1e3:g} kHz, the switching frequency of '{regulator.name}': "
+        f"{voltage:.2f} V x {ripple * 100.0:.1f} % ripple / {step:.3g} A "
+        f"({transient * 100.0:.0f} % of the {average:.3g} A average)",
+    )
+
+
+def target_mask(target_ohm, bandwidth_hz, frequency_hz, floor_hz=0.0, below_floor_ohm=0.0):
+    """The impedance allowed at *frequency_hz*: *below_floor_ohm* under
+    *floor_hz*, then *target_ohm* flat to *bandwidth_hz*, then rising in
+    proportion to frequency -- the slowest the step's current can fall above
+    its knee, so the most demanding reading of it."""
+    if floor_hz > 0.0 and below_floor_ohm > 0.0 and frequency_hz < floor_hz:
+        return below_floor_ohm
     if bandwidth_hz <= 0.0:
         return target_ohm
     return target_ohm * max(1.0, frequency_hz / bandwidth_hz)

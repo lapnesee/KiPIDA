@@ -16,7 +16,9 @@ if plugin_dir not in sys.path:
     sys.path.insert(0, plugin_dir)
 
 from extractor import GeometryExtractor
-from ac_model import ACModelBuilder, resolve_target_impedance, transient_bandwidth
+from ac_model import (
+    ACModelBuilder, converter_band_floor, resolve_target_impedance, transient_bandwidth,
+)
 from application.ac_controller import AC_MAX_NETWORK_NODES, saved_board_for_ac
 from cfd_model import fit_unset_enclosure
 from differential_impedance import DifferentialGeometrySnapshot
@@ -1061,8 +1063,17 @@ class KiPIDA_MainDialog(wx.Dialog):
                 f"AC target for {settings.rail_name}: flat to {bandwidth / 1e6:.3g} MHz "
                 f"({provenance}), rising with frequency above it."
             )
+        floor_hz, below_floor, floor_provenance = converter_band_floor(
+            rail, profile, all_rails=self.power_tree.rails,
+        )
+        if floor_hz > 0.0:
+            self.log(
+                f"AC target for {settings.rail_name}: {below_floor:.4g} ohm {floor_provenance}."
+            )
         return replace(
             settings, transient_bandwidth_hz=bandwidth, transient_bandwidth_provenance=provenance,
+            target_floor_hz=floor_hz, target_below_floor_ohm=below_floor,
+            target_floor_provenance=floor_provenance,
         )
 
     def _ac_network_for(self, settings, defer=False):

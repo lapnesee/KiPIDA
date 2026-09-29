@@ -240,6 +240,11 @@ class ACAnalysisSettings:
     # Filled in when the target is resolved; zero keeps the target flat.
     transient_bandwidth_hz: float = 0.0
     transient_bandwidth_provenance: str = ""
+    # Below this frequency a converter's chopped current has no content and
+    # the target is target_below_floor_ohm instead (ac_model.converter_band_floor).
+    target_floor_hz: float = 0.0
+    target_below_floor_ohm: float = 0.0
+    target_floor_provenance: str = ""
     source: ACSourceModel = field(default_factory=ACSourceModel)
     measurement_port: ACMeasurementPort = field(default_factory=ACMeasurementPort)
     capacitors: List[CapacitorModel] = field(default_factory=list)
@@ -786,6 +791,9 @@ class ImpedanceSweepResult:
     # The target holds flat to here and rises with frequency above; zero is
     # a flat target (ac_model.target_mask).
     target_bandwidth_hz: float = 0.0
+    # Below target_floor_hz the allowed impedance is target_below_floor_ohm.
+    target_floor_hz: float = 0.0
+    target_below_floor_ohm: float = 0.0
     worst_frequency_hz: float = 0.0
     worst_impedance_ohm: float = 0.0
     meets_target: bool = False

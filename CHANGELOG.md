@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Changed a converter-step AC target to apply from the converter's
+  switching frequency up: below it the chopped current has no content,
+  and the rail's averaged step sets the target. P02 Rev E's /VBUS_SYS
+  was held to U4's 0.0889 ohm from 1 kHz; below U4's 400 kHz its 2.04 A
+  average now gives 0.392 ohm.
 - Fixed the AC text report judging a band-limited target flat: P02
   Rev E's /VBUS_SYS read "Status: PASS" above "Worst/target ratio:
   2.48x" and 9 exceeding points, all above its 35 MHz band.

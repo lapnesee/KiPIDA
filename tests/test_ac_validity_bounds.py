@@ -197,6 +197,52 @@ class TransientBandwidthTests(unittest.TestCase):
         # 0.2204 ohm at 100 MHz against 0.0889 x 100/35 = 0.254 ohm allowed.
         self.assertTrue(banded.meets_target)
 
+    def test_the_converter_target_starts_at_its_switching_frequency(self):
+        # P02 Rev E: /VBUS_SYS's 0.0889 ohm target, U4's 4.5 A chopped step,
+        # applied from 1 kHz, three decades below U4's 400 kHz. Its USB-C
+        # source was measured to put 362 mOhm at 21 kHz
+        # (scratchpad/audit/ac/source_lumped.py): a failure against the step
+        # that has no content there, a pass against the 2.04 A average's.
+        from types import SimpleNamespace as NS
+        from ac_model import converter_band_floor
+        from ac_solver import ACSolver
+        from models import ACAnalysisSettings
+
+        u4 = NS(
+            name="U4 buck-boost 5 V machine", reg_type="SWITCHING", efficiency=1.0,
+            output_rail_name="/SYS_5V_PRE_SENSE",
+            loss_model={"switching_frequency_hz": {"value": 400000.0}},
+        )
+        vbus = NS(net_name="/VBUS_SYS", nominal_voltage=20.0, loads=[], child_regulators=[u4])
+        pre = NS(net_name="/SYS_5V_PRE_SENSE", nominal_voltage=9.0667, child_regulators=[],
+                 loads=[NS(total_current=4.5)])
+        floor_hz, below, _provenance = converter_band_floor(
+            vbus, ACAnalysisSettings(), all_rails=[vbus, pre],
+        )
+        self.assertEqual(floor_hz, 400e3)
+        self.assertAlmostEqual(below, 0.392, places=3)  # 20 V x 2 % / (50 % of 2.04 A)
+
+        class _Net:
+            node_count = 10
+            requested_grid_size_mm = 0.5
+            effective_grid_size_mm = 0.5
+            quasi_static_limit_hz = 140e6
+
+        frequencies, impedances = [1e3, 21e3, 1e6], [0.1, 0.362, 0.02]
+        flat = ACSolver._summarize(
+            frequencies, impedances, ACAnalysisSettings(target_impedance_ohm=0.0888889), _Net(),
+        )
+        floored = ACSolver._summarize(
+            frequencies, impedances,
+            ACAnalysisSettings(
+                target_impedance_ohm=0.0888889, target_floor_hz=floor_hz,
+                target_below_floor_ohm=below,
+            ),
+            _Net(),
+        )
+        self.assertFalse(flat.meets_target)
+        self.assertTrue(floored.meets_target)
+
 
 if __name__ == "__main__":
     unittest.main()

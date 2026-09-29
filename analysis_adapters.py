@@ -10,6 +10,7 @@ from analysis_contract import (
     AnalysisStatus, EvidenceConfidence, FindingSeverity,
     normalize_evidence_confidence,
 )
+from ac_model import target_mask
 from cfd_model import enclosure_air_rise_k
 from physical_constants import (
     COPPER_RESISTIVITY_OHM_M, COPPER_RESISTIVITY_REFERENCE_C, DEFAULT_BOARD_THICKNESS_MM,
@@ -391,8 +392,12 @@ def adapt_ac_result(
     verdict_confidence = EvidenceConfidence.HEURISTIC if source_default else EvidenceConfidence.ESTIMATED
     sweep = _ac_sweep_snapshot(final)
     bandwidth = float(getattr(final, "target_bandwidth_hz", 0.0) or 0.0)
+    floor_hz = float(getattr(final, "target_floor_hz", 0.0) or 0.0)
+    below_floor = float(getattr(final, "target_below_floor_ohm", 0.0) or 0.0)
     for point in sweep:
-        point["allowed_ohm"] = target * max(1.0, point["frequency_hz"] / bandwidth) if bandwidth > 0.0 else target
+        point["allowed_ohm"] = target_mask(
+            target, bandwidth, point["frequency_hz"], floor_hz, below_floor,
+        )
     failing = [
         point for point in sweep if target > 0.0 and point["magnitude_ohm"] > point["allowed_ohm"]
     ]
@@ -411,6 +416,11 @@ def adapt_ac_result(
         "rises in proportion to frequency above it, where the step's current falls by at "
         "least 20 dB per decade."
         if bandwidth > 0.0 and target > 0.0 else ""
+    ) + (
+        f" Below {floor_hz / 1e3:g} kHz the allowed impedance is {below_floor:.4g} ohm "
+        f"({getattr(settings, 'target_floor_provenance', '') or 'configured'}): the "
+        "converter's chopped current has no content under its switching frequency."
+        if floor_hz > 0.0 and below_floor > 0.0 and target > 0.0 else ""
     )
     capacitors = _ac_capacitor_snapshot(settings)
     estimated_components = [
@@ -488,7 +498,7 @@ def adapt_ac_result(
         headline = (
             f"Worst impedance is {peak['magnitude_ohm']:.6g} ohm at {peak['frequency_hz']:.6g} Hz "
             f"({exceedance_ratio:.3g}x the {peak['allowed_ohm']:.6g} ohm allowed there)."
-            if bandwidth > 0.0 and peak else
+            if (bandwidth > 0.0 or floor_hz > 0.0) and peak else
             f"Worst impedance is {worst:.6g} ohm at "
             f"{getattr(final, 'worst_frequency_hz', 0.0):.6g} Hz "
             f"({exceedance_ratio:.3g}x the {target:.6g} ohm target)."
@@ -574,7 +584,14 @@ def adapt_ac_result(
                 "target_bandwidth", "Target flat up to (then rising with frequency)",
                 bandwidth, "Hz", "INFO",
             ),
-        ] if bandwidth > 0.0 else []) + [
+        ] if bandwidth > 0.0 else []) + ([
+            AnalysisMetric(
+                "target_floor", "Converter target applies from", floor_hz, "Hz", "INFO",
+            ),
+            AnalysisMetric(
+                "target_below_floor", "Target below that frequency", below_floor, "ohm", "TARGET",
+            ),
+        ] if floor_hz > 0.0 and below_floor > 0.0 else []) + [
             AnalysisMetric(
                 "mesh_nodes", "AC mesh nodes",
                 int(getattr(final, "mesh_node_count", 0)), status="INFO",

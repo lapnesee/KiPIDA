@@ -16,8 +16,13 @@ def format_ac_report(result, optimization=None, settings=None):
     # "Worst/target ratio: 2.48x" and 9 exceeding points, all of them above
     # its 35 MHz band.
     bandwidth = float(getattr(final, "target_bandwidth_hz", 0.0) or 0.0)
+    floor_hz = float(getattr(final, "target_floor_hz", 0.0) or 0.0)
+    below_floor = float(getattr(final, "target_below_floor_ohm", 0.0) or 0.0)
     points = [
-        (float(frequency), abs(complex(value)), target_mask(target, bandwidth, float(frequency)))
+        (
+            float(frequency), abs(complex(value)),
+            target_mask(target, bandwidth, float(frequency), floor_hz, below_floor),
+        )
         for frequency, value in zip(frequencies, impedance)
     ] if target > 0.0 else []
     failures = [frequency for frequency, magnitude, allowed in points if magnitude > allowed]
@@ -35,9 +40,12 @@ def format_ac_report(result, optimization=None, settings=None):
         f"Worst frequency: {final.worst_frequency_hz:.6g} Hz",
         f"Target: {final.target_impedance_ohm:.6g} ohm"
         + (f", flat to {bandwidth / 1e6:.3g} MHz and rising with frequency above it"
-           if bandwidth > 0.0 else ""),
+           if bandwidth > 0.0 else "")
+        + (f"; {below_floor:.6g} ohm below {floor_hz / 1e3:g} kHz"
+           if floor_hz > 0.0 and below_floor > 0.0 else ""),
         f"Worst/target ratio: {ratio:.3g}x"
-        + (" (against the impedance allowed at each frequency)" if bandwidth > 0.0 else ""),
+        + (" (against the impedance allowed at each frequency)"
+           if bandwidth > 0.0 or floor_hz > 0.0 else ""),
         f"Target exceedance: {len(failures)}/{len(frequencies)} point(s)"
         + (f", {failures[0]:.6g} to {failures[-1]:.6g} Hz" if failures else "")
         + (f"; {above_flat} point(s) above the flat target, within its rise above the band"
