@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Changed SW-003 to measure the loop the chopped current runs, input
+  capacitor to high side to low side, found from the pads' supply and
+  ground nets: P02 Rev E's /SYS_5V_SW1 finding listed U4, L1, C43 and
+  R57 but no input capacitor, while C37's ground pad sits 18.2 mm from
+  Q11's.
 - Fixed the efficiency-residual warning naming the controller when the
   residual split sends it elsewhere: P02 Rev E's U4 residual, split onto
   L1, was reported "placed on Q10".

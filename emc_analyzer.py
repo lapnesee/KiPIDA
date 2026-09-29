@@ -83,6 +83,11 @@ THRESHOLD_BASIS = {
         "Severity follows this tool's heuristic: HIGH for a harmonic order up to 10 or "
         "within 20 dB of the envelope, MEDIUM up to order 30 or a 0.25 V*A drive index."
     ),
+    "SW-003": (
+        "Thresholds 10 mm (MEDIUM) and 20 mm (HIGH) on the loop's widest gap are this "
+        "tool's heuristic for the 'as close together as possible' placement of TI SLVA959 "
+        "and ADI AN-136; not a standard value."
+    ),
 }
 CONFIDENCE_WEIGHT = {"HIGH": 1.0, "MEDIUM": 0.65, "LOW": 0.25}
 
@@ -163,6 +168,70 @@ def hot_loop_components(snapshot, source_name, net_name):
                 if footprint.reference.upper() == model.ref_des.upper():
                     seen[footprint.reference] = footprint.position
     return seen
+
+
+def buck_hot_loop(snapshot, net_name, ground_nets, power_nets, is_capacitor=None):
+    """The switched loop of a buck leg: input capacitor, high side, low side.
+
+    The loop that carries the chopped current runs from the input
+    capacitor's supply pad through the high-side switch to the switch node,
+    through the low-side switch to ground, and back to the capacitor's
+    ground pad; the inductor carries a smooth current and is not in it.
+    The high side is the part on the switch node with a pad on a supply
+    rail, the low side the one with a pad on ground; an integrated switcher
+    is both. The input capacitor is the one bridging that supply and ground
+    closest to the two switches' pads.
+
+    Returns ``{"high", "low", "capacitor", "vin_mm", "ground_mm",
+    "switch_mm", "span_mm"}``, or None when the pads' nets do not tell the
+    three apart.
+    """
+    grounds = set(ground_nets or ())
+    supplies = set(power_nets or ()) - grounds
+    is_capacitor = is_capacitor or (lambda item: item.reference.upper().startswith("C"))
+    on_node = [item for item in snapshot.footprints if net_name in item.nets]
+    highs = [item for item in on_node if set(item.nets) & supplies]
+    lows = [item for item in on_node if set(item.nets) & grounds]
+    discrete_highs = [item for item in highs if item not in lows]
+    discrete_lows = [item for item in lows if item not in highs]
+    if discrete_highs and discrete_lows:
+        high, low = min(
+            ((a, b) for a in discrete_highs for b in discrete_lows),
+            key=lambda pair: math.dist(pair[0].position, pair[1].position),
+        )
+    else:
+        both = [item for item in highs if item in lows]
+        if not both:
+            return None
+        high = low = both[0]
+
+    def pads(item, nets):
+        return [(x, y) for net, x, y in item.net_positions if net in nets]
+
+    supply = set(high.nets) & supplies
+    high_supply, low_ground = pads(high, supply), pads(low, grounds)
+    if not high_supply or not low_ground:
+        return None
+    best = None
+    for item in snapshot.footprints:
+        if item is high or item is low or not is_capacitor(item):
+            continue
+        cap_supply, cap_ground = pads(item, supply), pads(item, grounds)
+        if not cap_supply or not cap_ground:
+            continue
+        vin = min(math.dist(a, b) for a in high_supply for b in cap_supply)
+        ground = min(math.dist(a, b) for a in low_ground for b in cap_ground)
+        if best is None or vin + ground < best[0]:
+            best = (vin + ground, item, vin, ground)
+    if best is None:
+        return None
+    _total, capacitor, vin, ground = best
+    switch = math.dist(high.position, low.position)
+    return {
+        "high": high.reference, "low": low.reference, "capacitor": capacitor.reference,
+        "vin_mm": vin, "ground_mm": ground, "switch_mm": switch,
+        "span_mm": max(vin, ground, switch),
+    }
 
 
 def switch_node_evidence(footprints, rail_nets=()):
@@ -1632,7 +1701,49 @@ class EMCAnalyzer:
                           f"{THRESHOLD_BASIS['SW-002']}",
                           recommendation,
                           "MEDIUM", [source.net_name], location=source_location)
-            if len(hot_loop) >= 2:
+            # The loop the chopped current actually runs: input capacitor, high
+            # side, low side. Every part on the switch node used to count, so
+            # P02 Rev E's /SYS_5V_SW1 finding listed U4, L1, the bootstrap
+            # capacitor C43 and R57, and none of the input capacitors -- while
+            # C37's ground pad sits 18.2 mm from Q11's.
+            loop = buck_hot_loop(
+                self.snapshot, source.net_name, self.settings.reference_net_names,
+                self.snapshot.power_nets, self._is_capacitor,
+            )
+            if loop is not None:
+                self._check()
+                span_mm = loop["span_mm"]
+                severity = "HIGH" if span_mm > 20.0 else "MEDIUM" if span_mm > 10.0 else None
+                if severity is not None:
+                    parts = [loop["capacitor"], loop["high"]] + (
+                        [loop["low"]] if loop["low"] != loop["high"] else []
+                    )
+                    footprint_positions = {
+                        item.reference: item.position for item in self.snapshot.footprints
+                    }
+                    points = [footprint_positions[ref] for ref in parts if ref in footprint_positions]
+                    midpoint = (
+                        sum(point[0] for point in points) / len(points),
+                        sum(point[1] for point in points) / len(points),
+                    ) if points else None
+                    detail = (
+                        f"{loop['capacitor']}'s supply pad is {loop['vin_mm']:.1f} mm from "
+                        f"{loop['high']}'s and its ground pad {loop['ground_mm']:.1f} mm from "
+                        f"{loop['low']}'s"
+                        + (f"; {loop['high']} and {loop['low']} are {loop['switch_mm']:.1f} mm apart"
+                           if loop["low"] != loop["high"] else "")
+                    )
+                    self._add(
+                        "SW-003", "SWITCHING", severity, "Switching hot loop is spread out",
+                        f"On {source.net_name}'s hot loop, {' -> '.join(parts)}: {detail}. "
+                        f"{THRESHOLD_BASIS.get('SW-003', '')}".strip(),
+                        "Move the input capacitor, high-side and low-side switches as close "
+                        "together as the footprints allow, the capacitor's ground pad next to the "
+                        "low side's, to minimise loop area and di/dt radiation.",
+                        "MEDIUM", [source.net_name], components=parts,
+                        location=(*midpoint, None) if midpoint else None,
+                    )
+            elif len(hot_loop) >= 2:
                 refs = sorted(hot_loop)
                 far_a, far_b, span_mm = max(
                     ((a, b, math.dist(hot_loop[a], hot_loop[b]))

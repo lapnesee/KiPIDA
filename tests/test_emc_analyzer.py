@@ -93,6 +93,40 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertIn("FET-to-FET", by_rule["SW-002"].recommendation)
         self.assertNotIn("IC-to-inductor", by_rule["SW-002"].recommendation)
 
+    def test_the_hot_loop_runs_through_the_input_capacitor_not_the_inductor(self):
+        # P02 Rev E, 2026-09-29: SW-003 on /SYS_5V_SW1 listed U4, L1, the
+        # bootstrap capacitor C43 and R57 but no input capacitor. The loop is
+        # C37 -> Q10 -> Q11: C37's supply pad sits near Q10's, its ground pad
+        # about 18 mm from Q11's, and the two FETs 21.3 mm apart.
+        snap = EMCGeometrySnapshot(
+            bounds_mm=(0.0, 0.0, 300.0, 100.0),
+            stackup=stackup(),
+            footprints=[
+                EMCFootprint("Q10", "FET", (274.24, 86.73), ("SW1", "VBUS"),
+                             (("VBUS", 274.24, 84.0), ("SW1", 274.24, 89.0))),
+                EMCFootprint("Q11", "FET", (271.74, 65.58), ("GND", "SW1"),
+                             (("SW1", 271.74, 68.0), ("GND", 271.74, 63.0))),
+                EMCFootprint("C37", "22u", (278.95, 80.40), ("GND", "VBUS"),
+                             (("VBUS", 278.95, 81.3), ("GND", 278.95, 79.5))),
+                EMCFootprint("C43", "100n", (262.52, 70.49), ("BOOT1", "SW1"),
+                             (("BOOT1", 262.0, 70.49), ("SW1", 263.0, 70.49))),
+                EMCFootprint("L1", "4u7", (269.09, 75.86), ("SW1", "SW2"),
+                             (("SW1", 265.0, 75.86), ("SW2", 273.0, 75.86))),
+            ],
+            power_nets={"VBUS"},
+        )
+        settings = EMCAnalysisSettings(
+            reference_net_names=["GND"],
+            sources=[EMCSignalSource("U4 SW1 buck leg", "SW1", "SWITCHING", 400e3, 10.0,
+                                     voltage_swing_v=20.0, current_a=4.36)],
+        )
+        result = EMCAnalyzer(snap, settings).analyze()
+        finding = next(item for item in result.findings if item.rule_id == "SW-003")
+
+        self.assertEqual(finding.components, ["C37", "Q10", "Q11"])
+        self.assertEqual(finding.severity, "HIGH")
+        self.assertIn("ground pad 18.0 mm from Q11's", finding.description)
+
     def test_detects_plane_void_switching_area_and_missing_return_via(self):
         result = EMCAnalyzer(self.snapshot(), self.settings()).analyze()
         rules = {finding.rule_id for finding in result.findings}
