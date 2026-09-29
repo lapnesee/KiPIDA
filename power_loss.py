@@ -207,6 +207,112 @@ def _mosfet_losses(models: Iterable[Dict[str, Any]], current_rms_a: float,
     return losses, warnings
 
 
+def _buck_switching_losses(model: Dict[str, Any], vin: float, iout: float, ripple: float,
+                           fsw: float) -> List[LossContribution]:
+    """Switching losses of a buck leg from its MOSFETs' datasheet charges.
+
+    Needs the high-side MOSFET (role "high") to state its gate-drain and
+    gate-source charges; the low-side one (role "low") and the stage's
+    driver fields refine it. P02 Rev E's U4 drives an external CSD18540Q5B
+    pair, and its whole 1.36 W of unitemised loss went onto Q10 as an
+    efficiency residual, L1's core loss included.
+
+    - Hard-switched transitions on the high side, turning on at the valley
+      and off at the peak inductor current: 1/2 Vin fsw (Iv t_on + Ip t_off),
+      each time Qgd + Qgs - Qg(th) over the gate current the driver can push
+      through its resistance and the gate's.
+    - Both output charges, dissipated in the high side as it turns on:
+      1/2 (Qoss_hs + Qoss_ls) Vin fsw, each Qoss scaled from its datasheet
+      voltage by sqrt(V), a junction capacitance's charge law.
+    - The low-side body diode's recovery, also in the high side: Qrr Vin
+      fsw, Qrr scaled from its datasheet current to the valley current in
+      proportion (charge control), a low-confidence estimate.
+    - Dead-time body-diode conduction in the low side: Vsd (Iv + Ip) t_dead fsw.
+    - Gate charge, Qg Vdrive fsw per MOSFET, split between the driver and
+      the gate resistance in proportion to their resistances.
+    """
+    if fsw <= 0.0 or vin <= 0.0:
+        return []
+    mosfets = [item for item in (model.get("mosfets") or ()) if isinstance(item, dict)]
+    high = next((item for item in mosfets if str(item.get("role", "")).lower() == "high"), None)
+    low = next((item for item in mosfets if str(item.get("role", "")).lower() == "low"), None)
+    if high is None or high.get("gate_drain_charge_c") is None or high.get("gate_source_charge_c") is None:
+        return []
+    losses: List[LossContribution] = []
+    valley, peak = max(0.0, iout - ripple / 2.0), iout + ripple / 2.0
+    drive_v = _number(model.get("gate_drive_v"))
+    source_ohm = max(1e-3, _number(model.get("driver_source_ohm"), 1.0))
+    sink_ohm = max(1e-3, _number(model.get("driver_sink_ohm"), 1.0))
+    gate_ohm = max(0.0, _number(high.get("gate_resistance_ohm")))
+    threshold_v = _number(high.get("threshold_v"))
+    transconductance = max(1e-6, _number(high.get("transconductance_s"), 1e6))
+    switched_charge = (
+        _number(high.get("gate_drain_charge_c"))
+        + max(0.0, _number(high.get("gate_source_charge_c")) - _number(high.get("gate_threshold_charge_c")))
+    )
+    on_current = (drive_v - (threshold_v + valley / transconductance)) / (source_ohm + gate_ohm)
+    off_current = (threshold_v + peak / transconductance) / (sink_ohm + gate_ohm)
+    if model.get("driver_source_peak_a") is not None:
+        on_current = min(on_current, _number(model.get("driver_source_peak_a")))
+    if model.get("driver_sink_peak_a") is not None:
+        off_current = min(off_current, _number(model.get("driver_sink_peak_a")))
+    high_ref = str(high.get("ref_des", ""))
+    if on_current > 0.0 and off_current > 0.0:
+        t_on, t_off = switched_charge / on_current, switched_charge / off_current
+        losses.append(LossContribution(
+            high_ref, "buck-switching-overlap",
+            0.5 * vin * fsw * (valley * t_on + peak * t_off),
+            {**_provenance(high.get("gate_drain_charge_c"), "datasheet"),
+             "turn_on_s": t_on, "turn_off_s": t_off, "gate_on_a": on_current,
+             "gate_off_a": off_current},
+        ))
+
+    def output_charge(item):
+        charge = item.get("output_charge_c") if item else None
+        if charge is None:
+            return 0.0
+        reference_v = _number(item.get("output_charge_reference_v"), vin)
+        return _number(charge) * math.sqrt(vin / reference_v) if reference_v > 0.0 else _number(charge)
+
+    qoss = output_charge(high) + output_charge(low)
+    if qoss > 0.0:
+        losses.append(LossContribution(
+            high_ref, "buck-output-charge", 0.5 * qoss * vin * fsw,
+            {**_provenance(high.get("output_charge_c"), "datasheet"),
+             "scaling": "Qoss x sqrt(Vin / datasheet V)", "qoss_total_c": qoss},
+        ))
+    if low is not None and low.get("reverse_recovery_charge_c") is not None:
+        reference_a = _number(low.get("reverse_recovery_reference_a"), valley) or valley
+        qrr = _number(low.get("reverse_recovery_charge_c")) * (valley / reference_a if reference_a > 0.0 else 1.0)
+        losses.append(LossContribution(
+            high_ref, "buck-reverse-recovery", qrr * vin * fsw,
+            {**_provenance(low.get("reverse_recovery_charge_c"), "datasheet"),
+             "confidence": "low", "scaling": "Qrr x I_valley / datasheet I", "qrr_c": qrr},
+        ))
+    dead_time = model.get("dead_time_s")
+    if low is not None and dead_time is not None:
+        losses.append(LossContribution(
+            str(low.get("ref_des", "")), "buck-dead-time-diode",
+            _number(low.get("body_diode_v"), 0.8) * (valley + peak) * _number(dead_time) * fsw,
+            _provenance(dead_time, "estimate"),
+        ))
+    driver_ref = str(model.get("gate_driver_ref_des") or "")
+    driver_share = 0.5 * (source_ohm / (source_ohm + gate_ohm) + sink_ohm / (sink_ohm + gate_ohm))
+    for item in (high, low):
+        if item is None or item.get("gate_charge_c") is None or drive_v <= 0.0:
+            continue
+        power = _number(item.get("gate_charge_c")) * drive_v * fsw
+        share = driver_share if driver_ref else 0.0
+        if share > 0.0:
+            losses.append(LossContribution(driver_ref, "buck-gate-charge", power * share,
+                                           _provenance(item.get("gate_charge_c"), "datasheet")))
+        if share < 1.0:
+            losses.append(LossContribution(str(item.get("ref_des", "")), "buck-gate-charge",
+                                           power * (1.0 - share),
+                                           _provenance(item.get("gate_charge_c"), "datasheet")))
+    return losses
+
+
 def _resistive_losses(models: Iterable[Dict[str, Any]], current_a: float,
                       component_temperatures_c: Dict[str, float] | None = None
                       ) -> List[LossContribution]:
@@ -353,6 +459,7 @@ def estimate_stage(regulator: VoltageRegulator, vin_v: float, vout_v: float,
         )
         losses.extend(buck_mosfet_losses)
         warnings.extend(buck_mosfet_warnings)
+        losses.extend(_buck_switching_losses(model, vin, iout, ripple, fsw))
     elif str(regulator.reg_type).upper() == "LINEAR":
         # Legacy LDO/pass-device behaviour stays intact when no physical model exists.
         losses.append(LossContribution(

@@ -222,6 +222,44 @@ class PowerLossTests(unittest.TestCase):
         self.assertAlmostEqual(loss.power_w, 4.42 ** 2 * 0.0076)
         self.assertFalse(any("role" in warning for warning in stage.warnings))
 
+    def test_a_buck_legs_switching_losses_come_from_its_mosfet_charges(self):
+        # P02 Rev E's U4 buck leg, 20 V -> 5.08 V, 4.42 A, 400 kHz, two
+        # CSD18540Q5B (SLPS488B: Qgd 6.7 nC, Qgs 8.8 nC, Qg(th) 6.3 nC,
+        # Qg 20 nC at 4.5 V, Qoss 83 nC at 30 V, Qrr 145 nC at 28 A, RG 0.8
+        # ohm) on TPS552882 drivers (1 A source, 1.8 A sink, 2 / 1 ohm). Its
+        # whole 1.36 W of unitemised loss used to land on Q10.
+        fet = lambda ref, role: {
+            "ref_des": ref, "role": role, "rds_on_ohm": parameter(0.0026),
+            "gate_charge_c": parameter(20e-9), "gate_drain_charge_c": parameter(6.7e-9),
+            "gate_source_charge_c": parameter(8.8e-9), "gate_threshold_charge_c": parameter(6.3e-9),
+            "threshold_v": 1.9, "transconductance_s": 116, "gate_resistance_ohm": 0.8,
+            "output_charge_c": parameter(83e-9), "output_charge_reference_v": 30,
+            "reverse_recovery_charge_c": parameter(145e-9), "reverse_recovery_reference_a": 28,
+            "body_diode_v": 0.8,
+        }
+        reg = VoltageRegulator(
+            name="U4", input_rail_name="20V", input_ref_des="Q10", input_pad_names=[],
+            output_rail_name="5V", output_ref_des="U4", output_pad_names=[], reg_type="SWITCHING",
+            loss_model={
+                "kind": "buck", "controller_ref_des": "Q10", "switching_frequency_hz": 400e3,
+                "inductor_ripple_a": 2.016, "gate_drive_v": 5.2, "driver_source_ohm": 2.0,
+                "driver_sink_ohm": 1.0, "driver_source_peak_a": 1.0, "driver_sink_peak_a": 1.8,
+                "dead_time_s": parameter(20e-9), "gate_driver_ref_des": "U4",
+                "mosfets": [fet("Q10", "high"), fet("Q11", "low")],
+            },
+        )
+        stage = estimate_stage(reg, 20.0, 5.08, 4.42)
+        by = {(loss.ref_des, loss.mechanism): loss.power_w for loss in stage.losses}
+
+        self.assertAlmostEqual(by[("Q10", "buck-switching-overlap")], 0.3103, places=3)
+        self.assertAlmostEqual(by[("Q10", "buck-output-charge")], 0.5422, places=3)
+        self.assertAlmostEqual(by[("Q10", "buck-reverse-recovery")], 0.1414, places=3)
+        self.assertAlmostEqual(by[("Q11", "buck-dead-time-diode")], 0.0566, places=3)
+        self.assertAlmostEqual(
+            sum(loss.power_w for loss in stage.losses if loss.mechanism == "buck-gate-charge"),
+            2 * 20e-9 * 5.2 * 400e3,
+        )
+
     def test_discrete_mosfet_stage_ignores_role_and_warns_nothing(self):
         # kind="mosfet" is a pass device, not a switching duty cycle: role
         # must not change its behaviour or trigger the buck-only warning.

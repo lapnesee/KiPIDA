@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added buck switching losses from the MOSFETs' datasheet charges
+  (transitions, output charge, body-diode recovery, dead time, gate
+  charge): P02 Rev E's U4 leg put 1.36 W of efficiency residual on Q10;
+  its CSD18540Q5B charges give Q10 1.02 W and leave 0.22 W to itemise.
 - Fixed a capacitor model taken from its manufacturer's data being
   replaced at each rediscovery by the case-size and generic DC-bias
   estimate: P02 Rev E's C36 rediscovers at 11.4 uF under 20 V, where
