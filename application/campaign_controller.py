@@ -134,12 +134,18 @@ def _adapt_dc(domain_result, request) -> AnalysisResult:
 
 
 def _adapt_ac(domain_result, request) -> AnalysisResult:
-    # ACSolverEngine returns (sweep_result, optimization); the optimization is
-    # None unless the request asked for one.
+    # ACSolverEngine returns (sweep_result, optimization) for one profile, the
+    # optimization None unless the request asked for one, and an
+    # ACBatchOutcome for a campaign's every profile.
+    runs = getattr(domain_result, "runs", None)
+    if runs is not None:
+        return analysis_adapters.adapt_ac_batch(
+            [(result, optimization, item.settings) for item, result, optimization in runs],
+            skipped=domain_result.skipped,
+        )
     result, optimization = domain_result
     return analysis_adapters.adapt_ac_result(
         result, optimization, getattr(request, "settings", None),
-        profile_coverage=getattr(request, "profile_coverage", None),
     )
 
 
@@ -431,9 +437,15 @@ class CampaignEngine:
     # read the ones this campaign just produced.
     _EMC_INPUT_DOMAINS = ("AC", "DIFFERENTIAL", "THERMAL")
 
-    @staticmethod
-    def _emc_ac_results(domain_result, ac_request):
+    @classmethod
+    def _emc_ac_results(cls, domain_result, ac_request):
         """(rail, impedance result) pairs, taking the optimized sweep if there is one."""
+        runs = getattr(domain_result, "runs", None)
+        if runs is not None:
+            return tuple(
+                pair for item, result, optimization in runs
+                for pair in cls._emc_ac_results((result, optimization), item)
+            )
         result, optimization = domain_result
         final = optimization.optimized if optimization is not None else result
         if final is None:

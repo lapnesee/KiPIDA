@@ -58,11 +58,25 @@ class ACRunRequest:
     compute_settings: Any = None
     debug: bool = False
     optimize: bool = False
-    # (rails swept, rails configured) for a campaign run, so the adapter can
-    # say a batch covered only some of the project's AC profiles instead of
-    # silently scoring the one swept rail as if it were the whole picture
-    # (AC-10). None outside a campaign, where "coverage" does not apply.
-    profile_coverage: Optional[Tuple[int, int]] = None
+
+
+@dataclass(frozen=True)
+class ACBatchRequest:
+    """Every configured AC profile of a campaign, swept one after another.
+
+    A campaign swept only the rail on screen: P02 Rev E has 3 AC profiles,
+    and a campaign scored AC on one of them (AC-10).
+    """
+    requests: Tuple[ACRunRequest, ...]
+    # (rail, reason) for each configured profile that could not be swept.
+    skipped: Tuple[Tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class ACBatchOutcome:
+    # (request, sweep result, optimization) per swept profile.
+    runs: Tuple[Tuple[Any, Any, Any], ...]
+    skipped: Tuple[Tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -79,6 +93,16 @@ class ACSolverEngine:
         self._optimizer_factory = optimizer_factory
 
     def solve(self, request, emit, progress, cancelled):
+        if isinstance(request, ACBatchRequest):
+            runs = []
+            for index, item in enumerate(request.requests, start=1):
+                emit(
+                    f"AC profile {index}/{len(request.requests)}: "
+                    f"{getattr(item.settings, 'rail_name', '')}."
+                )
+                runs.append((item, *self.solve(item, emit, progress, cancelled)))
+            return ACBatchOutcome(tuple(runs), request.skipped)
+
         def checked_progress(completed, total, detail):
             if cancelled():
                 raise ACAnalysisCancelled("AC analysis cancelled.")

@@ -1,6 +1,7 @@
 """Adapters from numerical-domain objects to the shared analysis contract."""
 
 import math
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -311,7 +312,6 @@ def _ac_source_limitations(settings: Any) -> list:
 
 def adapt_ac_result(
     domain_result: Any, optimization: Any = None, settings: Any = None,
-    profile_coverage: Any = None,
 ) -> AnalysisResult:
     final = getattr(optimization, "optimized", None) or domain_result
     target = float(getattr(final, "target_impedance_ohm", 0.0) or 0.0)
@@ -423,28 +423,6 @@ def adapt_ac_result(
             reference=str(getattr(final, "compute_backend", "") or "frequency-domain solver"),
         )]
         findings.append(finding)
-    if profile_coverage is not None:
-        covered, total = int(profile_coverage[0]), int(profile_coverage[1])
-        if total > covered:
-            # P02 Rev E has 3 AC profiles and 17 rails; a campaign swept only
-            # the one selected in the tab and still scored AC 100/100 (AC-10).
-            # A rail count this could hide is a fact about the run, not a
-            # model verdict, so it is DETERMINISTIC; LOW keeps it from
-            # drowning a real AC-001/AC-003 finding while still moving the
-            # score off 100 (INFO would cost nothing, campaign.SEVERITY_PENALTY).
-            rail_name = str(getattr(settings, "rail_name", ""))
-            finding = _finding(
-                "AC-004", 1, "TARGET_IMPEDANCE", FindingSeverity.LOW,
-                "This campaign covers only part of the project's AC profiles",
-                f"{covered} of {total} configured AC profile(s) were swept in this "
-                f"campaign; only '{rail_name}' is represented here. The others' "
-                "PDN impedance is not scored or checked by this run.",
-                "Run the AC batch once per configured profile, or select each "
-                "rail in turn and re-run the campaign, to cover every profile.",
-            )
-            finding.confidence = EvidenceConfidence.DETERMINISTIC
-            finding.nets = [item for item in (rail_name,) if item]
-            findings.append(finding)
     recommendations = list(getattr(optimization, "recommendations", ()) or ())
     overall_status = AnalysisStatus.PASS if not findings else AnalysisStatus.WARN
     result = AnalysisResult(
@@ -545,6 +523,68 @@ def adapt_ac_result(
             # audited against a direct factorisation. Empty when no GPU ran.
             "gpu_accuracy_check": getattr(final, "gpu_accuracy_check", ""),
         },
+    )
+    return result.finish()
+
+
+_STATUS_RANK = {"NO_DATA": 0, "PASS": 1, "WARN": 2, "FAIL": 3}
+
+
+def adapt_ac_batch(items: Any, skipped: Any = ()) -> AnalysisResult:
+    """One AC result over every profile a campaign swept.
+
+    *items* holds ``(sweep result, optimization, settings)`` per rail and
+    *skipped* ``(rail, reason)`` per configured profile that was not swept.
+    Each rail is adapted on its own and the results joined: findings
+    renumbered, metrics named after their rail, the worst status kept. A
+    campaign used to sweep only the rail on screen (AC-10).
+    """
+    parts = [
+        (str(getattr(settings, "rail_name", "") or f"rail {index}"),
+         adapt_ac_result(result, optimization, settings))
+        for index, (result, optimization, settings) in enumerate(items, start=1)
+    ]
+    findings, metrics, limitations, provenance = [], [], [], []
+    numbering = defaultdict(int)
+    for rail, part in parts:
+        for finding in part.findings:
+            numbering[finding.rule_id] += 1
+            finding.finding_id = f"{finding.rule_id}:{numbering[finding.rule_id]}"
+            findings.append(finding)
+        for metric in part.metrics:
+            metric.key = f"{rail}:{metric.key}"
+            metric.label = f"{rail} {metric.label}"
+            metrics.append(metric)
+        limitations += [item for item in part.limitations if item not in limitations]
+        provenance += [item for item in part.provenance if item not in provenance]
+    skipped = list(skipped or ())
+    if skipped:
+        # A rail left out is a fact about the run, not a model verdict, so it
+        # is DETERMINISTIC; LOW keeps it from drowning a real AC-001/AC-003
+        # finding while still moving the score off 100.
+        finding = _finding(
+            "AC-004", 1, "TARGET_IMPEDANCE", FindingSeverity.LOW,
+            "This campaign covers only part of the project's AC profiles",
+            f"{len(parts)} of {len(parts) + len(skipped)} configured AC profile(s) "
+            "were swept; not swept: "
+            + "; ".join(f"'{rail}' ({reason})" for rail, reason in skipped)
+            + ". Their PDN impedance is not scored or checked by this run.",
+            "Fix what kept those profiles from being swept and re-run the campaign.",
+        )
+        finding.confidence = EvidenceConfidence.DETERMINISTIC
+        finding.nets = [rail for rail, _reason in skipped if rail]
+        findings.append(finding)
+    statuses = [part.status for _rail, part in parts] + (
+        [AnalysisStatus.WARN] if skipped else []
+    )
+    result = AnalysisResult(
+        "AC", "AC Impedance",
+        status=max(statuses, key=lambda status: _STATUS_RANK.get(status.value, 0))
+        if statuses else AnalysisStatus.NO_DATA,
+        configuration_snapshot={"rails": [part.configuration_snapshot for _rail, part in parts]},
+        summary={"rails": {rail: part.summary for rail, part in parts}},
+        findings=findings, metrics=metrics, provenance=provenance, limitations=limitations,
+        compute_metadata={"rails": {rail: part.compute_metadata for rail, part in parts}},
     )
     return result.finish()
 

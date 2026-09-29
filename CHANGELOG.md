@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed a campaign sweeping only the AC profile on screen: it now sweeps
+  every configured profile and reports them in one AC result, the worst
+  verdict kept and a profile it could not build named (AC-004). P02
+  Rev E's 3 profiles take 179 s; all three miss their target from 38,
+  8 and 16 MHz (/+5V_RAIL, /+5V_U4, /VBUS_SYS).
 - Changed the AC network to be built on the hybrid mesh of the saved
   board file when it matches the open board, as the DC report is: tracks
   and barrels at their analytic resistance, pours a cut-cell lattice
