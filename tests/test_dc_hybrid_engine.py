@@ -488,6 +488,34 @@ class GroundReturn(unittest.TestCase):
         self.assertAlmostEqual(results["V5"]["ground_return"]["combined_load_drop_v"], 0.022)
 
 
+    def test_only_a_ground_draw_with_no_ground_pad_at_either_end_is_unlocated(self):
+        # P02 Rev E, 2026-09-29 17:08: "No GND pad located for: D3, Q10".
+        # Q10 feeds U4, whose ground pads took the return; D3 is an OR diode.
+        from application.dc_controller import _ground_injections
+        buck = SimpleNamespace(
+            name="U4", reg_type="SWITCHING", input_rail_name="VBUS", output_rail_name="V5",
+            input_ref_des="Q10", output_ref_des="U4",
+        )
+        diode = SimpleNamespace(
+            name="D3", reg_type="LINEAR", input_rail_name="VBUS", output_rail_name="VOR",
+            input_ref_des="D3", output_ref_des="D3",
+        )
+        vbus = SimpleNamespace(net_name="VBUS", nominal_voltage=20.0, loads=[], sources=[],
+                               child_regulators=[buck, diode])
+        v5 = SimpleNamespace(net_name="V5", nominal_voltage=5.0, loads=[], sources=[],
+                             child_regulators=[])
+        vor = SimpleNamespace(net_name="VOR", nominal_voltage=19.3, loads=[], sources=[],
+                              child_regulators=[])
+
+        _sources, loads, _located, unlocated = _ground_injections(
+            [vbus, v5, vor], {"VBUS": [(buck, 0.5), (diode, 0.2)]},
+            {"V5": 2.0, "VOR": 0.2}, lambda ref_des, _pads: {"U4": [7]}.get(ref_des, []),
+        )
+
+        self.assertEqual(unlocated, [])
+        self.assertEqual([(load["node_id"], load["current"]) for load in loads], [(7, 1.5)])
+
+
 class RegulatorCascade(unittest.TestCase):
     """A rail skipped for want of copper still passes its regulators' demand up."""
 

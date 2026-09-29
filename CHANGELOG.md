@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed the DC ground return naming parts whose return it did model:
+  P02 Rev E logged "No GND pad located for: D3, Q10", though U4's ground
+  pads carried the return of the converter Q10 feeds, and D3, an OR
+  diode, draws nothing from ground.
 - Changed a campaign to refresh the live board once while it prepares,
   not once per domain: P02 Rev E's 17:06 batch refreshed it six times,
   about 1 s of frozen PCB Editor each.

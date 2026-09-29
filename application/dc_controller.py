@@ -589,12 +589,16 @@ def _ground_injections(rails, demands_by_rail, rail_current, locate):
     by_name = {rail.net_name: rail for rail in rails}
     sources, loads, located, unlocated = [], [], {}, []
 
-    def nodes_of(ref_des):
+    def find(ref_des):
         if ref_des not in located:
             located[ref_des] = list(locate(ref_des, ()))
-            if not located[ref_des]:
-                unlocated.append(ref_des)
         return located[ref_des]
+
+    def nodes_of(ref_des):
+        nodes = find(ref_des)
+        if not nodes and ref_des not in unlocated:
+            unlocated.append(ref_des)
+        return nodes
 
     for rail in rails:
         for source in rail.sources:
@@ -615,8 +619,16 @@ def _ground_injections(rails, demands_by_rail, rail_current, locate):
             if _is_pass_element(regulator, by_name):
                 continue
             ground_draw = float(rail_current.get(regulator.output_rail_name, 0.0)) - float(input_current)
-            nodes = nodes_of(regulator.input_ref_des) or nodes_of(regulator.output_ref_des)
-            if nodes and ground_draw:
+            if not ground_draw:
+                continue
+            # Either end may carry the ground pin. P02 Rev E's U4 takes its
+            # input through Q10, which has none, and was reported "not
+            # modelled" though U4's ground pads carried its return; D3, an
+            # OR diode drawing nothing from ground, was reported too.
+            nodes = find(regulator.input_ref_des) or find(regulator.output_ref_des)
+            if not nodes:
+                nodes_of(regulator.input_ref_des)
+            if nodes:
                 loads.extend(
                     {'node_id': node, 'current': ground_draw / len(nodes),
                      'ref_des': regulator.input_ref_des}
