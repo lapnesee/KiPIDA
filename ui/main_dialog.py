@@ -30,7 +30,7 @@ from ui.dialog_action_bar import DialogActionBar
 from ui.log_stream import DialogStreamCapture
 from plotter import Plotter
 from analysis_adapters import (
-    adapt_ac_result, adapt_cfd_result, adapt_dc_run, adapt_differential_result,
+    adapt_ac_batch, adapt_ac_result, adapt_cfd_result, adapt_dc_run, adapt_differential_result,
     adapt_emc_result, adapt_thermal_result,
 )
 from application.ac_controller import (
@@ -677,7 +677,12 @@ class KiPIDA_MainDialog(wx.Dialog):
             return
         handlers = {
             "DC": lambda outcome: self._finish_dc_job(outcome),
-            "AC": lambda outcome: self._finish_ac_job(*outcome),
+            # A campaign sweeps every profile into one ACBatchOutcome; a
+            # plain AC run is a (result, optimization) pair.
+            "AC": lambda outcome: (
+                self._finish_ac_batch(outcome) if hasattr(outcome, "runs")
+                else self._finish_ac_job(*outcome)
+            ),
             "DIFFERENTIAL": self._finish_differential_job,
             "EMC": self._finish_emc_job,
             "THERMAL": lambda outcome: self._finish_thermal_job(
@@ -1183,6 +1188,40 @@ class KiPIDA_MainDialog(wx.Dialog):
         self._active_ac_settings = None
         self._set_interaction_status("AC analysis · complete")
         self._update_ac_results_ui(result, optimization, settings)
+
+    def _finish_ac_batch(self, outcome):
+        """Publish every profile a campaign swept to the AC tab.
+
+        The batch handler unpacked the outcome as a (result, optimization)
+        pair: "argument after * must be an iterable, not ACBatchOutcome" on
+        P02 Rev E (2026-09-29 16:34), and the AC tab showed nothing.
+        """
+        runs = list(outcome.runs)
+        if self._closing or not runs:
+            return
+        _item, first, first_optimization = runs[0]
+        self.ac_result = first_optimization.optimized if first_optimization else first
+        self.ac_optimization_result = first_optimization
+        self._active_ac_settings = None
+        self._set_interaction_status("AC analysis · complete")
+        self._result_generation += 1
+        plotter = Plotter(debug=self.chk_debug.GetValue())
+        plots, reports = [], []
+        for item, result, optimization in runs:
+            bitmap = plotter.plot_impedance_sweep(
+                result, optimization.optimized if optimization else None,
+            )
+            if bitmap:
+                plots.append((f"AC Impedance — {item.settings.rail_name}", bitmap))
+            reports.append(format_ac_report(result, optimization, item.settings))
+        reports += [f"{rail}: not swept -- {reason}" for rail, reason in outcome.skipped]
+        self._publish_results(
+            "AC", "\n\n".join(reports), plots,
+            structured_result=adapt_ac_batch(
+                [(result, optimization, item.settings) for item, result, optimization in runs],
+                skipped=outcome.skipped,
+            ),
+        )
 
     def _fail_ac_job(self, exc):
         if self._closing:

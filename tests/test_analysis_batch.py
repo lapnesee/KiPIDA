@@ -203,6 +203,18 @@ class BatchResultPublication(unittest.TestCase):
 
         self.assertEqual(stub.finished, [("AC", "sweep", "optimization")])
 
+    def test_a_campaigns_ac_batch_goes_to_its_own_handler(self):
+        # P02 Rev E, 16:34: "_finish_ac_job() argument after * must be an
+        # iterable, not ACBatchOutcome", and the AC tab stayed empty.
+        from types import SimpleNamespace
+        stub = _Stub()
+        stub._finish_ac_batch = lambda outcome: stub.finished.append(("AC batch", outcome))
+        outcome = SimpleNamespace(runs=(), skipped=())
+
+        _dialog()._batch_domain_result(stub, "AC", outcome)
+
+        self.assertEqual(stub.finished, [("AC batch", outcome)])
+
     def test_thermal_is_given_the_settings_its_request_was_built_from(self):
         class _Request:
             settings = "thermal-settings"

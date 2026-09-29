@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed a campaign's AC tab staying empty: the batch handler unpacked
+  the multi-profile outcome as a (result, optimization) pair and failed
+  ("argument after * must be an iterable, not ACBatchOutcome"). It now
+  publishes every swept profile, one impedance plot each.
 - Fixed EMC scoring the AC verdict a second time: PD-001 restated each
   failing AC-001 as a HIGH finding, which took P02 Rev E's EMC score from
   49 to 25 and put three copies of the AC verdict at the top of the
