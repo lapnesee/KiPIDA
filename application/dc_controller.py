@@ -448,6 +448,24 @@ def _regulator_input_currents(rail, rails, rail_current):
     return demands
 
 
+def _rail_heading(rail, rails):
+    """The log line opening a rail's solve, regulators counted.
+
+    "Sources: 0, Loads: 0" headed 10 of P02 Rev E's 17 rails, /VBUS_SYS
+    among them, which then reported a 4.8 mV drop: its current enters and
+    leaves through regulators, which the line did not count.
+    """
+    fed_by = sum(
+        1 for other in rails for regulator in getattr(other, "child_regulators", ())
+        if regulator.output_rail_name == rail.net_name
+    )
+    return (
+        f"Processing Rail: {rail.net_name} (Sources: {len(rail.sources)}, "
+        f"Loads: {len(rail.loads)}, fed by {fed_by} regulator(s), "
+        f"feeding {len(getattr(rail, 'child_regulators', ()))})"
+    )
+
+
 def _is_pass_element(regulator, by_name):
     """True for a fuse, eFuse, shunt, switch or net-tie, not a real converter.
 
@@ -779,7 +797,7 @@ class DCSolverEngine:
         completed = 0
         for rail in solve_order:
             if cancelled(): raise DCAnalysisCancelled("DC analysis cancelled.")
-            emit(f"Processing Rail: {rail.net_name} (Sources: {len(rail.sources)}, Loads: {len(rail.loads)})")
+            emit(_rail_heading(rail, rails))
             demands = demands_by_rail[rail.net_name]
             completed += 1
             progress(completed, total, f"{rail.net_name}: geometry")

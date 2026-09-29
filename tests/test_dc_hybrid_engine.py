@@ -516,6 +516,23 @@ class GroundReturn(unittest.TestCase):
         self.assertEqual([(load["node_id"], load["current"]) for load in loads], [(7, 1.5)])
 
 
+class RailHeading(unittest.TestCase):
+    def test_the_regulators_a_rail_is_fed_by_and_feeds_are_counted(self):
+        # P02 Rev E, 2026-09-29 17:06: "/VBUS_SYS (Sources: 0, Loads: 0)",
+        # then a 4.8 mV drop -- its current flows through regulators.
+        from application.dc_controller import _rail_heading
+        into = SimpleNamespace(output_rail_name="/VBUS_SYS")
+        out = SimpleNamespace(output_rail_name="/SYS_5V_PRE_SENSE")
+        upstream = SimpleNamespace(net_name="/J1_PD_OUT", child_regulators=[into])
+        rail = SimpleNamespace(net_name="/VBUS_SYS", sources=[], loads=[],
+                               child_regulators=[out])
+
+        self.assertEqual(
+            _rail_heading(rail, [upstream, rail]),
+            "Processing Rail: /VBUS_SYS (Sources: 0, Loads: 0, fed by 1 regulator(s), feeding 1)",
+        )
+
+
 class RegulatorCascade(unittest.TestCase):
     """A rail skipped for want of copper still passes its regulators' demand up."""
 
