@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed the AC network build to reuse the ground net's hybrid mesh
+  across a campaign's profiles and grid checks instead of meshing GND
+  again for each: P02 Rev E's /+5V_RAIL network builds in 2.2 s instead
+  of 9.6 s once GND is cached, to the same network.
 - Fixed a campaign's AC tab staying empty: the batch handler unpacked
   the multi-profile outcome as a (result, optimization) pair and failed
   ("argument after * must be an iterable, not ACBatchOutcome"). It now

@@ -1,8 +1,10 @@
 """Build frequency-domain PDN models from the existing Ki-PIDA mesh pipeline."""
 
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
 import math
+import os
+import pickle
 import re
 from typing import Dict, List, Optional, Tuple
 
@@ -562,6 +564,37 @@ def nearest_ground_nodes(
     return sorted(resolved)
 
 
+# The ground net's hybrid mesh, pickled, by (board file, net, grid step):
+# every AC profile of a campaign meshes the same GND, and on P02 Rev E that
+# took 8.3 s at 0.5 mm and 20.9 s at 0.25 mm (the grid check) each time,
+# where unpickling a copy takes 1.5 s and 3.7 s. A copy, since the network
+# build relabels the mesh and gives its branches their inductance.
+_GROUND_MESH_CACHE = OrderedDict()
+_GROUND_MESH_CACHE_SIZE = 2
+
+
+def _board_file_key(parsed_board):
+    path = getattr(parsed_board, "pcb_path", None)
+    try:
+        stat = os.stat(path)
+        return (os.path.abspath(str(path)), stat.st_mtime_ns, stat.st_size)
+    except (OSError, TypeError, ValueError):
+        return ("object", id(parsed_board))
+
+
+def _cached_ground_mesh(hybrid, parsed_board, net, grid_size_mm):
+    key = (_board_file_key(parsed_board), net, round(float(grid_size_mm), 9))
+    blob = _GROUND_MESH_CACHE.get(key)
+    if blob is not None:
+        _GROUND_MESH_CACHE.move_to_end(key)
+        return pickle.loads(blob)
+    mesh = hybrid.build_mesh(net)
+    _GROUND_MESH_CACHE[key] = pickle.dumps(mesh, protocol=pickle.HIGHEST_PROTOCOL)
+    while len(_GROUND_MESH_CACHE) > _GROUND_MESH_CACHE_SIZE:
+        _GROUND_MESH_CACHE.popitem(last=False)
+    return mesh
+
+
 class ACModelBuilder:
     """Adapter between KiCad board objects and the pure numerical AC solver."""
 
@@ -1046,7 +1079,7 @@ class ACModelBuilder:
             parsed_board, grid_step_mm=grid_size_mm, log_callback=self.log_callback,
         )
         rail_mesh = hybrid.build_mesh(settings.rail_name)
-        ground_mesh = hybrid.build_mesh(settings.ground_net_name)
+        ground_mesh = _cached_ground_mesh(hybrid, parsed_board, settings.ground_net_name, grid_size_mm)
         for mesh in (rail_mesh, ground_mesh):
             relabel_layers(mesh, layer_mapping)
         plating = PLATING_THICKNESS_FALLBACK_MM
