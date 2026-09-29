@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed a campaign stalling while the DC maps render: they held the
+  matplotlib lock over all 227 figures of P02 Rev E's 17 rails, and the
+  differential analysis waited 53 s to draw its two. The DC and thermal
+  renders now take the lock one figure at a time.
 - Fixed a campaign dropping AC entirely when the rail on screen could
   not be built: P02 Rev E's /VBUS_SYS meshed to 102,401 hybrid nodes,
   over the 100,000 limit. Each profile now stands alone, and the limit

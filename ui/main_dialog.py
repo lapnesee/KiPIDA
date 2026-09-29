@@ -1835,13 +1835,13 @@ class KiPIDA_MainDialog(wx.Dialog):
         show_internal_copper_layers,
     ):
         try:
-            with self._plot_lock:
-                plots = render_thermal_plots(
-                    mesh, result, color_map=color_map,
-                    color_scale_minimum_c=color_scale_minimum_c,
-                    color_scale_maximum_c=color_scale_maximum_c,
-                    show_internal_copper_layers=show_internal_copper_layers,
-                )
+            plots = render_thermal_plots(
+                mesh, result, color_map=color_map,
+                color_scale_minimum_c=color_scale_minimum_c,
+                color_scale_maximum_c=color_scale_maximum_c,
+                show_internal_copper_layers=show_internal_copper_layers,
+                plot_lock=self._plot_lock,
+            )
             if not self._closing:
                 wx.CallAfter(self._finish_thermal_plots, generation, plots)
         except Exception as exc:
@@ -2110,11 +2110,10 @@ class KiPIDA_MainDialog(wx.Dialog):
         self, system_results, stackup, board_bounds, drop_pct, debug, generation,
     ):
         try:
-            with self._plot_lock:
-                groups = render_dc_plots(
-                    system_results, stackup=stackup, board_bounds=board_bounds,
-                    drop_pct=drop_pct, debug=debug,
-                )
+            groups = render_dc_plots(
+                system_results, stackup=stackup, board_bounds=board_bounds,
+                drop_pct=drop_pct, debug=debug, plot_lock=self._plot_lock,
+            )
             if not self._closing:
                 wx.CallAfter(self._finish_dc_plots, generation, groups)
         except Exception as exc:

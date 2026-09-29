@@ -1,5 +1,7 @@
 """wx-independent generation of the ordered thermal plot set."""
 
+from contextlib import nullcontext
+
 from plotter import Plotter
 
 
@@ -16,9 +18,19 @@ def internal_copper_slices(mesh):
 def render_thermal_plots(
     mesh, result, *, color_map="inferno", color_scale_minimum_c=None,
     color_scale_maximum_c=None, show_internal_copper_layers=True,
-    plotter_factory=Plotter,
+    plotter_factory=Plotter, plot_lock=None,
 ):
-    """Render the canonical 3-D, surface, and optional copper-layer views."""
+    """Render the canonical 3-D, surface, and optional copper-layer views.
+
+    *plot_lock* is taken one figure at a time, as render_dc_plots does, so
+    another analysis's figures never wait for the whole set.
+    """
+    lock = plot_lock if plot_lock is not None else nullcontext()
+
+    def locked(draw, *args, **kwargs):
+        with lock:
+            return draw(*args, **kwargs)
+
     plotter = plotter_factory(debug=False)
     bounds = getattr(mesh, "bounds_mm", None)
     common = {
@@ -29,19 +41,20 @@ def render_thermal_plots(
         "color_scale_maximum_c": color_scale_maximum_c,
     }
     plots = [
-        ("Thermal 3D", plotter.plot_thermal_3d(mesh, result, **common)),
-        ("Top Surface", plotter.plot_thermal_surface(
-            mesh, result, "TOP", with_hover_probe=True, **common,
+        ("Thermal 3D", locked(plotter.plot_thermal_3d, mesh, result, **common)),
+        ("Top Surface", locked(
+            plotter.plot_thermal_surface, mesh, result, "TOP", with_hover_probe=True, **common,
         )),
     ]
     if show_internal_copper_layers:
         plots.extend(
-            (str(spec.name), plotter.plot_thermal_layer(
-                mesh, result, index, str(spec.name), with_hover_probe=True, **common,
+            (str(spec.name), locked(
+                plotter.plot_thermal_layer, mesh, result, index, str(spec.name),
+                with_hover_probe=True, **common,
             ))
             for index, spec in internal_copper_slices(mesh)
         )
-    plots.append(("Bottom Surface", plotter.plot_thermal_surface(
-        mesh, result, "BOTTOM", with_hover_probe=True, **common,
+    plots.append(("Bottom Surface", locked(
+        plotter.plot_thermal_surface, mesh, result, "BOTTOM", with_hover_probe=True, **common,
     )))
     return plots
