@@ -108,6 +108,43 @@ def _dialog():
     return KiPIDA_MainDialog
 
 
+class ACCampaignProfiles(unittest.TestCase):
+    def setUp(self):
+        try:
+            from ui.main_dialog import KiPIDA_MainDialog  # noqa: F401
+        except Exception as exc:  # pragma: no cover - depends on import order
+            self.skipTest(f"ui.main_dialog unavailable: {exc}")
+
+    def test_a_profile_that_cannot_be_built_skips_only_itself(self):
+        # P02 Rev E, 14:19:50: the rail on screen, /VBUS_SYS, meshed to
+        # 102,401 nodes, over the 100,000 limit, and AC left the campaign
+        # with its two other profiles.
+        from types import SimpleNamespace as NS
+        shown = NS(rail_name="/VBUS_SYS")
+        other = NS(rail_name="/+5V_RAIL")
+        logs = []
+
+        def network_for(settings):
+            if settings.rail_name == "/VBUS_SYS":
+                raise ValueError("AC mesh contains 102,401 nodes")
+            return settings, "network"
+
+        stub = NS(
+            _refresh_live_board_state=lambda: None,
+            ac_panel=NS(choice_rail=NS(GetCount=lambda: 1), get_settings=lambda: shown,
+                        get_profiles=lambda: {"/VBUS_SYS": shown, "/+5V_RAIL": other}),
+            runtime_panel=NS(get_settings=lambda persist: "compute"),
+            chk_debug=NS(GetValue=lambda: False),
+            _ac_network_for=network_for, _log_ac_backend_decision=lambda *_: None,
+            log=logs.append,
+        )
+
+        batch = _dialog()._build_ac_campaign_request(stub)
+
+        self.assertEqual([item.settings.rail_name for item in batch.requests], ["/+5V_RAIL"])
+        self.assertEqual(batch.skipped, (("/VBUS_SYS", "AC mesh contains 102,401 nodes"),))
+
+
 class BatchPreparation(unittest.TestCase):
     def setUp(self):
         try:

@@ -77,7 +77,11 @@ class KiPIDA_MainDialog(wx.Dialog):
     PAGE_RUNTIME = 6
     PAGE_RESULTS = 7
     PAGE_LOG = 8
-    AC_MAX_NETWORK_NODES = 100000
+    # Time, not memory, bounds an AC sweep: on P02 Rev E's /VBUS_SYS the
+    # recycled LU took 1.6 s a point and 0.34 GB at 102,401 nodes, 5.1 s and
+    # 1.15 GB at 368,315. The limit was 100,000, which the hybrid mesh of
+    # that rail passed at the default 0.5 mm, dropping AC from a campaign.
+    AC_MAX_NETWORK_NODES = 400000
 
     ANALYSIS_CONTROLLERS = (
         ("Analysis batch", "campaign_controller"),
@@ -1047,18 +1051,36 @@ class KiPIDA_MainDialog(wx.Dialog):
         and a campaign scored AC on one of them (AC-10). A profile that
         cannot be built is skipped and named in the report.
         """
-        first = self._build_ac_request(optimize=False)
-        requests, skipped = [first], []
-        for rail_name, profile in self.ac_panel.get_profiles().items():
-            if rail_name == first.settings.rail_name:
-                continue
+        self._refresh_live_board_state()
+        if self.ac_panel.choice_rail.GetCount() == 0:
+            self.ac_panel.refresh(force_discovery=True)
+        shown = self.ac_panel.get_settings()
+        profiles = dict(self.ac_panel.get_profiles())
+        order = [shown.rail_name] if shown is not None else []
+        order += [name for name in profiles if name not in order]
+        compute_settings = self.runtime_panel.get_settings(persist=True)
+        requests, skipped = [], []
+        # Each profile stands alone: the rail on screen failing to build
+        # skipped every profile of the campaign (P02 Rev E, 14:19:50).
+        for rail_name in order:
+            profile = shown if shown is not None and rail_name == shown.rail_name else deepcopy(profiles[rail_name])
             try:
-                settings, network = self._ac_network_for(deepcopy(profile))
+                settings, network = self._ac_network_for(profile)
             except ValueError as exc:
                 self.log(f"AC profile '{rail_name}' not swept: {exc}")
                 skipped.append((rail_name, str(exc)))
                 continue
-            requests.append(replace(first, settings=settings, network=network))
+            self._log_ac_backend_decision(network, compute_settings)
+            requests.append(ACRunRequest(
+                settings=settings, network=network, compute_settings=compute_settings,
+                debug=self.chk_debug.GetValue(), optimize=False,
+            ))
+        if not requests:
+            raise ValueError(
+                "No AC profile could be built: "
+                + "; ".join(f"{rail}: {reason}" for rail, reason in skipped)
+            )
+        self._active_ac_settings = deepcopy(requests[0].settings)
         return ACBatchRequest(tuple(requests), tuple(skipped))
 
     def _build_ac_request(self, optimize=False):

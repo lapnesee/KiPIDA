@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed a campaign dropping AC entirely when the rail on screen could
+  not be built: P02 Rev E's /VBUS_SYS meshed to 102,401 hybrid nodes,
+  over the 100,000 limit. Each profile now stands alone, and the limit
+  is 400,000 nodes (5.1 s a point and 1.15 GB measured at 368,315).
 - Changed AC capacitor models to take ESR and ESL from "ESR"/"ESL"
   fields on the part when the design states them, and otherwise to name
   the part's MPN in the model source: P02 Rev E's 75 capacitors with an
