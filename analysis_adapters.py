@@ -1766,6 +1766,7 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
     density_hotspots = {}
     grid_checked, grid_not_refined = [], []
     ground_return = None
+    capture_empty = False
     for index, (rail, data) in enumerate((system_results or {}).items(), start=1):
         first_finding = len(findings)
         vmin, vmax, drop = data.get("stats", (0.0, 0.0, 0.0))
@@ -2029,6 +2030,13 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
                 confidence=EvidenceConfidence.DETERMINISTIC,
             ))
         differences = list(data.get("saved_board_differences") or ())
+        if any("live capture empty" in item for item in differences):
+            # No comparison was made: KiCad's IPC had not sent the board yet.
+            # It was one MEDIUM DC-004 per rail -- 17 of the 20 actions of the
+            # P02 Rev E campaign of 2026-09-29 16:50 -- where it is one fact
+            # about the run, stated once below.
+            capture_empty = True
+            differences = [item for item in differences if "live capture empty" not in item]
         if differences:
             findings.append(_finding(
                 "DC-004", index, "MODEL_INPUT", FindingSeverity.MEDIUM,
@@ -2124,7 +2132,12 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
             "plating, since the board file does not record it; a thinner finish raises their "
             "resistance in proportion.",
             "Current density is a DC mesh diagnostic, not an IPC ampacity certification; AC skin/proximity effects, contact details, and measured copper temperature are excluded.",
-        ] + raster_limitations + _dc_grid_check_limitations(grid_checked, grid_not_refined),
+        ] + raster_limitations + _dc_grid_check_limitations(grid_checked, grid_not_refined) + (
+            ["The saved board the DC was solved on could not be compared with the open one: "
+             "KiCad returned an empty live capture, the PCB Editor still synchronising. "
+             "Unsaved edits, if any, are not in these figures."]
+            if capture_empty else []
+        ),
     ).finish()
 
 

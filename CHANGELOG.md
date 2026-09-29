@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed an empty live capture making one DC-004 action per rail (17 of
+  the 20 actions of P02 Rev E's 16:50 campaign): no comparison with the
+  saved board was made, and the DC result now says so once, as a
+  limitation.
 - Fixed a campaign started while KiCad synchronises: the batch now waits
   up to 6 s for the live board to answer before capturing it, EMC
   refuses a capture with copper but no footprint (P02 Rev E scored 87/100

@@ -398,6 +398,15 @@ class AnalysisAdapterTests(unittest.TestCase):
         finding = next(item for item in beyond.findings if item.rule_id == "DC-003")
         self.assertIn("250.0 mV", finding.description)
 
+    def test_an_empty_live_capture_is_one_limitation_not_a_dc_004_per_rail(self):
+        # P02 Rev E, 2026-09-29 16:50: 17 MEDIUM DC-004 "differs from the open
+        # one", one per rail, from a capture KiCad had not sent yet.
+        rail = {"stats": (5.0, 5.0, 0.0), "load_drop_v": 0.001, "source_voltage_v": 5.0,
+                "saved_board_differences": ["live capture empty, retry after sync"]}
+        result = adapt_dc_result({"/A": dict(rail), "/B": dict(rail)}, 5.0)
+        self.assertNotIn("DC-004", {item.rule_id for item in result.findings})
+        self.assertEqual(sum("empty live capture" in item for item in result.limitations), 1)
+
     def test_dc_006_reports_the_chain_drop_a_pass_element_hid(self):
         # DC-3. P02 Rev E's J2 chain (buck -> fuse -> eFuse -> shunt -> switch
         # -> J2) totals 56.1 mV that used to be invisible because every link
