@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added TH-006, a MEDIUM finding for a junction under its limit by less
+  than 20 K: a thermal PASS needed only a margin above zero, and P02
+  Rev E's U14 would pass on about 9 K once its sealed box's 15.25 K air
+  rise applies, on a loss closed by a low-confidence efficiency fallback.
 - Fixed a campaign's thermal run ignoring the enclosure its CFD models
   when the flow is buoyant: P02 Rev E's THERMAL solved at the 45 C
   outside ambient while the same campaign's CFD put the sealed box's air

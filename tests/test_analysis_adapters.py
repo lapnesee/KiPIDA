@@ -540,6 +540,26 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertTrue(any("ground return is not solved" in item for item in result.limitations))
         self.assertTrue(any("20 um of plating" in item for item in result.limitations))
 
+    def test_a_junction_under_its_limit_by_less_than_20_k_is_flagged(self):
+        # P02 Rev E, 2026-09-29 18:43: U14 at 126.06 C, 23.94 K under its
+        # 150 C limit at the 45 C outside ambient; its sealed box adds about
+        # 15 K, and a thermal PASS then rested on a ~9 K margin.
+        from models import ComponentThermalResult
+        u14 = ComponentThermalResult(
+            "U14", board_temperature_c=115.9, junction_temperature_c=141.3, power_w=1.226,
+            max_junction_c=150.0, margin_c=8.7, theta_jb_c_per_w=20.7, thermal_source="datasheet",
+        )
+        u16 = ComponentThermalResult(
+            "U16", board_temperature_c=73.5, junction_temperature_c=74.2, power_w=0.061,
+            max_junction_c=125.0, margin_c=50.8, theta_jb_c_per_w=11.2, thermal_source="datasheet",
+        )
+
+        result = adapt_thermal_result(ThermalResult(component_results=[u14, u16]), ambient_c=45.0)
+
+        thin = [item for item in result.findings if item.rule_id == "TH-006"]
+        self.assertEqual([item.components for item in thin], [["U14"]])
+        self.assertEqual(thin[0].severity, FindingSeverity.MEDIUM)
+
     def test_a_junction_over_its_limit_gets_a_sized_thermal_via_remediation(self):
         # COH-1: advisor.thermal_advisor was imported by no production code,
         # so no thermal action ever carried a structured remediation.

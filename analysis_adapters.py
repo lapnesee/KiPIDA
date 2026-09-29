@@ -1224,6 +1224,33 @@ def _thermal_fallback_stage_limitations(power_stage_reports: Any) -> list:
     return limitations
 
 
+# Below this many kelvin a junction's estimated margin is within what its
+# inputs can move. A thermal PASS used to need only a margin above zero:
+# P02 Rev E's U14 read 126.1 C against 150 C at the 45 C outside ambient,
+# about 9 K once its sealed box's 15.25 K air rise applies, on a loss
+# closed by a low-confidence efficiency fallback and a 25 C RDS(on).
+THIN_JUNCTION_MARGIN_K = 20.0
+
+
+def _thin_junction_margin_finding(index, component):
+    """TH-006: a junction under its limit by less than the estimate's own spread."""
+    source = str(getattr(component, "thermal_source", "estimate") or "estimate").lower()
+    finding = _finding(
+        "TH-006", index, "JUNCTION_TEMPERATURE", FindingSeverity.MEDIUM,
+        f"{component.ref_des} junction margin is thin",
+        f"Estimated Tj is {component.junction_temperature_c:.1f} C, "
+        f"{component.margin_c:.1f} K under its limit, from {component.power_w:.3g} W and a "
+        f"thetaJB taken from {source}. A converter's loss closed by an efficiency "
+        "fallback, a 25 C RDS(on) or the enclosure air rise each move Tj by more than "
+        f"that. The {THIN_JUNCTION_MARGIN_K:g} K threshold is this tool's heuristic, not "
+        "a standard value.",
+        "Confirm the dissipation from the datasheet efficiency curve (or a measurement) "
+        "and the part's thetaJB, then improve its thermal path if the margin holds.",
+    )
+    finding.components = [str(component.ref_des)]
+    return finding
+
+
 def _thermal_enclosure_metrics_evidence_limitations(
     ambient_c: Any, enclosure_air_rise_k: Any, enclosure_ambient_applied: bool,
 ):
@@ -1287,7 +1314,10 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
     findings = list(sensitivity_findings)
     components = list(getattr(domain_result, "component_results", ()) or ())
     for index, component in enumerate(components, start=1):
-        if float(getattr(component, "margin_c", 0.0)) < 0:
+        margin = float(getattr(component, "margin_c", 0.0))
+        if 0.0 <= margin < THIN_JUNCTION_MARGIN_K:
+            findings.append(_thin_junction_margin_finding(index, component))
+        if margin < 0:
             # The junction is the board temperature plus P x thetaJB, so the
             # verdict is only as good as thetaJB. A default one cannot carry a
             # CRITICAL: the same component with its datasheet value may pass.
