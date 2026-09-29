@@ -68,6 +68,8 @@ class TestCFDMeshGenerator(unittest.TestCase):
         self.assertEqual(len({int(c[0]) for c in board_cells}), 6)  # spans all of x
         self.assertEqual(mesh.collapsed_obstacles, [])
         self.assertAlmostEqual(float(mesh.heat_sources_w.max()), 1.2 / 24)
+        # CFD-6: its film length is its own A/P (600 / 100 mm), not a cell.
+        self.assertAlmostEqual(float(mesh.film_length_horizontal_m.max()), 6.0e-3)
 
     def test_overlapping_boundary_patches_are_rejected(self):
         patch = CFDBoundaryPatch("A", "VENT", "XMIN", 0.5, 0.5, 0.5, 0.5)

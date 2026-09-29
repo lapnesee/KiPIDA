@@ -30,6 +30,11 @@ class CFDMesh:
     # represented by a single fallback cell rather than a snapped sheet or
     # footprint. See CFD-1 in docs/audit-2026-09-23.md.
     collapsed_obstacles: list = field(default_factory=list)
+    # Per solid cell, the plate length of its obstacle's faces, in metres:
+    # A/P of its x-y footprint for a face normal to z, its z extent for a
+    # face normal to x or y. None where the mesh predates them.
+    film_length_horizontal_m: object = None
+    film_length_vertical_m: object = None
 
     @property
     def cell_count(self):
@@ -97,6 +102,8 @@ class CFDMeshGenerator:
         heat = np.zeros(shape, dtype=float)
         names = np.empty(shape, dtype=object)
         names[:] = "AIR"
+        length_horizontal = np.zeros(shape, dtype=float)
+        length_vertical = np.zeros(shape, dtype=float)
 
         xs = (np.arange(shape[0]) + 0.5) * spacing[0] * 1000.0
         ys = (np.arange(shape[1]) + 0.5) * spacing[1] * 1000.0
@@ -145,6 +152,10 @@ class CFDMeshGenerator:
             solid |= mask
             conductivity[mask] = max(0.05, float(obstacle.conductivity_w_mk) * scale)
             names[mask] = obstacle.name
+            # The obstacle's own extents, not the cells it was snapped to.
+            width, depth, height = (max(hi - lo, 0.1) for lo, hi in bounds)
+            length_horizontal[mask] = width * depth / (2.0 * (width + depth)) * 1e-3
+            length_vertical[mask] = height * 1e-3
             cells = int(np.count_nonzero(mask))
             if obstacle.heat_w > 0 and cells:
                 heat[mask] += float(obstacle.heat_w) / cells
@@ -201,6 +212,8 @@ class CFDMeshGenerator:
             patch_cells=patches,
             obstacle_names=names,
             collapsed_obstacles=collapsed,
+            film_length_horizontal_m=length_horizontal,
+            film_length_vertical_m=length_vertical,
         )
         self._log(
             f"Generated {shape[0]} x {shape[1]} x {shape[2]} = {count:,} cells "

@@ -113,8 +113,8 @@ class TestEnclosureCFDSolver(unittest.TestCase):
         orig_beta = EnclosureCFDSolver._boussinesq_beta
         ambient0 = settings.ambient_c
         frozen_film = staticmethod(
-            lambda dt, L, s, amb, e, facing="up", _o=orig_film, _a=ambient0:
-            _o(dt, L, s, _a, e, facing)
+            lambda dt, L, s, amb, e, facing="up", buoyancy_resolved=False,
+            _o=orig_film, _a=ambient0: _o(dt, L, s, _a, e, facing, buoyancy_resolved)
         )
         frozen_beta = staticmethod(lambda ambient_c, _o=orig_beta, _a=ambient0: _o(_a))
         EnclosureCFDSolver._film_coefficient = frozen_film
@@ -144,6 +144,16 @@ class TestEnclosureCFDSolver(unittest.TestCase):
         down = EnclosureCFDSolver._film_coefficient(20.0, 0.01, 0.0, 25.0, 0.0, "down")
         self.assertGreater(up, down)
         self.assertAlmostEqual(up / down, 0.54 / 0.27, places=2)
+
+    def test_a_resolved_buoyant_flow_is_not_counted_twice(self):
+        # CFD-6: with no fan the solved air speed is the buoyancy-driven flow
+        # itself, and blending its forced coefficient with the natural one
+        # counted the buoyancy twice.
+        import surface_convection
+        natural = surface_convection.natural_convection_h(20.0, 0.01, facing="up", ambient_c=25.0)
+        forced = surface_convection.forced_convection_h(0.05, 0.01, ambient_c=25.0, delta_t_k=20.0)
+        film = EnclosureCFDSolver._film_coefficient(20.0, 0.01, 0.05, 25.0, 0.0, "up", True)
+        self.assertAlmostEqual(film, max(natural, forced))
 
     def test_boussinesq_beta_uses_the_actual_ambient_not_a_fixed_25c(self):
         # docs/audit-2026-09-23.md CFD-7: beta was FluidProperties.thermal_

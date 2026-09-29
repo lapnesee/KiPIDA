@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed the CFD solid-air film (CFD-6): each face now takes its own
+  obstacle's plate length instead of the mean cell size, reads the air
+  speed outside its boundary layer instead of in the adjacent cell, and,
+  with no fan or inlet, takes the larger of the natural and forced
+  coefficients instead of blending them. P02 Rev E: Q10 181.0 C, board
+  mean 134.3 C (179.8 and 132.3 C before).
 - Fixed the CFD board conducting as a 0.6 W/mK solid, its copper ignored
   and its thickness taken as the cell's: it now has its copper layers'
   in-plane conductivity (P02 Rev E: 31.5 W/mK), scaled by its thickness

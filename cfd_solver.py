@@ -497,7 +497,8 @@ class EnclosureCFDSolver:
         return free
 
     @staticmethod
-    def _film_coefficient(delta_t_k, length_m, speed_m_s, ambient_c, emissivity, facing="up"):
+    def _film_coefficient(delta_t_k, length_m, speed_m_s, ambient_c, emissivity, facing="up",
+                          buoyancy_resolved=False):
         """Surface film at a solid-air face, W/m^2K.
 
         Without this the only path off a hot component is conduction into still
@@ -520,6 +521,12 @@ class EnclosureCFDSolver:
         used to pass "up" regardless of the face's actual orientation, which
         over-estimated a downward-facing bottom face by about 2x, 0.54 vs
         0.27).
+
+        ``buoyancy_resolved`` says the air speed is the solved flow's own,
+        with no fan or inlet driving it: that flow is the buoyancy-driven
+        flow the natural-convection correlation already stands for, so the film is
+        the larger of the two coefficients, not their mixed-convection blend,
+        which would count the buoyancy twice.
         """
         try:
             from .import surface_convection
@@ -532,12 +539,43 @@ class EnclosureCFDSolver:
         forced = surface_convection.forced_convection_h(
             speed_m_s, length_m, ambient_c=ambient_c, delta_t_k=delta_t_k,
         )
-        film = surface_convection.combined_h(natural, forced)
+        film = (
+            max(natural, forced) if buoyancy_resolved
+            else surface_convection.combined_h(natural, forced)
+        )
         if emissivity > 0.0:
             film += surface_convection.radiation_h(
                 emissivity, ambient_c + delta_t_k, ambient_c,
             )
         return film
+
+    OUTER_AIR_CELLS = 3
+
+    @classmethod
+    def _outer_air_speed(cls, fluid, speed, axis, interface, fluid_upper):
+        """Air speed a solid-air face sees, outside its boundary layer.
+
+        The adjacent air cell sits in the boundary layer the film stands
+        for, and its speed under-predicts the forced coefficient there. The
+        largest speed over the first OUTER_AIR_CELLS air cells along the
+        face's normal, stopping at the next solid, is used instead (CFD-6).
+        """
+        shape = fluid.shape
+        coords = list(np.nonzero(interface))
+        outward = fluid_upper[interface]
+        step = np.where(outward, 1, -1)
+        base = coords[axis] + outward.astype(int)
+        result = np.zeros(base.size, dtype=float)
+        open_ = np.ones(base.size, dtype=bool)
+        for offset in range(cls.OUTER_AIR_CELLS):
+            position = base + step * offset
+            inside = (position >= 0) & (position < shape[axis])
+            probe = list(coords)
+            probe[axis] = np.clip(position, 0, shape[axis] - 1)
+            probe = tuple(probe)
+            open_ &= inside & fluid[probe]
+            result = np.where(open_, np.maximum(result, speed[probe]), result)
+        return result
 
     def _solve_energy(self, mesh, settings, velocity, previous):
         shape = mesh.shape
@@ -570,17 +608,20 @@ class EnclosureCFDSolver:
                     inlet_temperature[cell] = float(mapped.patch.temperature_c)
         wall_h = max(0.0, float(settings.geometry.wall_heat_transfer_w_m2k))
         ambient = float(settings.ambient_c)
-        # Length scale for the plate correlations at a solid-air face. The mean
-        # cell size is used because the mesh is all the geometry the solver has
-        # here -- it does not carry each obstacle's own A/P (surface_convection.
-        # characteristic_length_m), which the 3D thermal solver uses instead
-        # (CFD-6, docs/audit-2026-09-23.md). A length wrong by a factor of two
-        # moves natural h (~L^-1/4) by 19% and forced h (~L^-1/2) by 41%; both
-        # are inside the correlations' own spread, and a missing film was wrong
-        # by a factor of forty. Stated as a limitation below rather than
-        # plumbed through, since the mesh has no per-obstacle footprint to give
-        # it.
-        film_length_m = float(sum(mesh.spacing_m)) / 3.0
+        # Length scale for the plate correlations at a solid-air face: each
+        # obstacle's own, A/P of its footprint for a face normal to z and its
+        # height for a side face (CFD-6). It was the mean cell size for every
+        # face. A mesh without the lengths still falls back to that.
+        mean_cell_m = float(sum(mesh.spacing_m)) / 3.0
+        film_lengths = (
+            getattr(mesh, "film_length_vertical_m", None),
+            getattr(mesh, "film_length_vertical_m", None),
+            getattr(mesh, "film_length_horizontal_m", None),
+        )
+        # With no fan or inlet, the solved air speed is the buoyant flow.
+        buoyancy_resolved = not any(
+            str(mapped.patch.kind).upper() in {"INLET", "FAN"} for mapped in mesh.patch_cells
+        )
         emissivity = max(0.0, min(1.0, float(
             getattr(settings.geometry, "emissivity", 0.0) or 0.0
         )))
@@ -625,8 +666,15 @@ class EnclosureCFDSolver:
             if np.any(interface):
                 speed = np.sqrt(sum(component ** 2 for component in velocity))
                 delta_t = np.abs(previous[lower] - previous[upper])[interface]
-                air_speed = np.where(fluid_lower, speed[lower], speed[upper])[interface]
+                air_speed = self._outer_air_speed(fluid, speed, axis, interface, fluid_upper)
                 k_solid = np.maximum(np.where(fluid_lower, k_upper, k_lower)[interface], 1e-9)
+                lengths = film_lengths[axis]
+                if lengths is None:
+                    film_length = np.full(int(interface.sum()), mean_cell_m)
+                else:
+                    film_length = np.maximum(
+                        np.where(fluid_lower, lengths[upper], lengths[lower])[interface], 1e-4,
+                    )
                 # Which way the solid's exposed face points. Only the two
                 # z-axis cases differ: a solid below its air (fluid on the
                 # upper side) has a top face driving a plume, "up"; a solid
@@ -642,9 +690,9 @@ class EnclosureCFDSolver:
                 else:
                     facing = np.full(int(interface.sum()), "down")
                 film = np.fromiter(
-                    (self._film_coefficient(float(dt), film_length_m, float(v),
-                                            ambient, emissivity, str(f))
-                     for dt, v, f in zip(delta_t, air_speed, facing)),
+                    (self._film_coefficient(float(dt), float(length), float(v),
+                                            ambient, emissivity, str(f), buoyancy_resolved)
+                     for dt, length, v, f in zip(delta_t, film_length, air_speed, facing)),
                     dtype=float, count=delta_t.size,
                 )
                 resistance = (

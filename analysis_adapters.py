@@ -1552,15 +1552,12 @@ def adapt_cfd_result(mesh: Any, domain_result: Any, *, copper_loss_source: str =
             "Momentum discretisation validated against laminar duct flow to 0.4% at 20 cells "
             "across the channel; at 6 cells it produced no boundary layer at all. "
             "See docs/validation-cfd.md.",
-            "Solid-air film: the length scale is the mesh's own mean cell size, not each "
-            "obstacle's A/P footprint; the forced-convection term uses the adjacent cell's "
-            "local speed rather than the board's free-stream velocity (the value this same "
-            "report uses for its own free-stream metric, for the opposite reason -- a "
-            "near-wall cell under-predicts the coefficient there, the same physics this "
-            "film term does not correct for); and natural convection is evaluated everywhere "
-            "a solid-air face exists, including where the resolved buoyant flow already "
-            "carries that heat, which can double-count it. See CFD-6, "
-            "docs/audit-2026-09-23.md.",
+            "Solid-air film: plate correlations at each obstacle's own length (A/P of its "
+            "footprint for top and bottom faces, its height for side faces), with the "
+            "largest air speed over the first three air cells along the face's normal; "
+            "without a fan or inlet the film is the larger of the natural and forced "
+            "coefficients rather than their blend, the solved flow being the buoyancy-driven "
+            "flow itself. The boundary layer is modelled, not resolved.",
             "Sealed enclosure: no flow crosses a boundary, so mass balance is "
             "not applicable rather than perfect."
             if not mass_applicable else
