@@ -358,7 +358,10 @@ def derive_target_impedance(
             f"derived from {voltage:.2f} V x {ripple * 100.0:.1f} % ripple / "
             f"{transient_current:.3g} A transient "
             f"({transient * 100.0:.0f} % of {total_current:.3g} A configured load"
-            + (f", {converters:.3g} A of it drawn by the converters the rail feeds" if converters > 0.0 else "")
+            # "Converters" named P02 Rev E's eFuse U15 and net tie NT2, which
+            # /+5V_U4 feeds and which convert nothing.
+            + (f", {converters:.3g} A of it drawn by the regulators and pass elements the rail feeds"
+               if converters > 0.0 else "")
             + ")"
         )
         chopped, regulator = switching_converter_step(rail, all_rails) if all_rails else (0.0, None)

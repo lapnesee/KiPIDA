@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Changed the AC target provenance to say "regulators and pass elements"
+  for what a rail feeds: P02 Rev E's /+5V_U4 named its eFuse U15 and net
+  tie NT2 "converters".
 - Changed TH-004 to weigh a junction's move between grid steps against
   its margin: P02 Rev E's Q10 moved 4.02 K 55.16 K under its 175 C limit
   and kept the check MEDIUM; a move that leaves a part over 20 K under its
