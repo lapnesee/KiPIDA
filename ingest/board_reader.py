@@ -73,6 +73,10 @@ class Pad:
     shape: str = ""
     size_mm: tuple[float, float] = (0.0, 0.0)
     angle_deg: float = 0.0
+    # The symbol pin's name as KiCad copies it onto the pad ("SW_1", "VIN_10",
+    # "G_4"), empty for a pad no symbol pin names. It is what ties a pad to a
+    # SPICE subcircuit pin of the same name.
+    pinfunction: str = ""
 
     @property
     def is_through_hole(self) -> bool:
@@ -110,6 +114,9 @@ class Footprint:
     sch_path: str
     sch_sheet_file: str
     pads: list[Pad] = field(default_factory=list)
+    # (attr ... dnp): placed on the board but not fitted, as P02 Rev E's
+    # snubbers R57/R58 and its ISNS filter C53.
+    dnp: bool = False
 
 
 @dataclass
@@ -447,6 +454,10 @@ def _parse_footprints(root: list, net_map: dict[str, str]) -> list[Footprint]:
                 net_name = ""
             pintype_node = find(pad_node, "pintype")
             pintype = pintype_node[1] if pintype_node and len(pintype_node) > 1 else "passive"
+            pinfunction_node = find(pad_node, "pinfunction")
+            pinfunction = (
+                str(pinfunction_node[1]) if pinfunction_node and len(pinfunction_node) > 1 else ""
+            )
 
             pad_at = find(pad_node, "at")
             pad_angle = rotation
@@ -519,8 +530,10 @@ def _parse_footprints(root: list, net_map: dict[str, str]) -> list[Footprint]:
                 shape=shape,
                 size_mm=size_mm,
                 angle_deg=pad_angle,
+                pinfunction=pinfunction,
             ))
 
+        attr_node = find(fp_node, "attr")
         footprints.append(Footprint(
             reference=reference,
             value=value,
@@ -531,6 +544,7 @@ def _parse_footprints(root: list, net_map: dict[str, str]) -> list[Footprint]:
             sch_path=sch_path,
             sch_sheet_file=sch_sheet_file,
             pads=pads,
+            dnp=bool(attr_node) and "dnp" in attr_node[1:],
         ))
     return footprints
 

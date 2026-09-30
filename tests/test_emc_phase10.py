@@ -274,6 +274,119 @@ class Phase10Tests(unittest.TestCase):
             self.assertEqual(audits[0].status, "AVAILABLE_PSPICE_ONLY")
             self.assertIn("PSpice only", audits[0].notes)
 
+    @staticmethod
+    def p02_u14_board():
+        """P02 Rev E's U14 (LMR51450SDRRR) and the parts around it."""
+        from ingest.board_reader import Footprint, Pad, ParsedBoard
+
+        def part(reference, value, *pads, dnp=False):
+            return Footprint(reference, value, "", (0.0, 0.0), 0.0, "F.Cu", "", "", [
+                Pad(number, net, "passive", (0.0, 0.0), pinfunction=function)
+                for number, function, net in pads
+            ], dnp=dnp)
+
+        u14 = part("U14", "LMR51450SDRRR",
+                   *[(str(k), f"SW_{k}", "/J2_SRC_SW") for k in (1, 2, 3)],
+                   ("4", "BOOT_4", "/J2_SRC_BOOT"), ("5", "PG_5", "unconnected-(U14-PG-Pad5)"),
+                   ("6", "RT_6", "unconnected-(U14-RT-Pad6)"), ("7", "FB_7", "/J2_SRC_FB"),
+                   ("8", "AGND_8", "/J2_SRC_AGND"), ("9", "EN_9", "/J2_SRC_EN"),
+                   *[(str(k), f"VIN_{k}", "/VBUS_SYS") for k in (10, 11, 12)],
+                   ("13", "PGND_13", "GND"))
+        two = [
+            ("L3", "4.7uH / Isat>=12A", "/J2_SRC_SW", "/J2_SRC_VBUS"),
+            ("C54", "100n 50V X7R", "/J2_SRC_BOOT", "/J2_SRC_SW"),
+            ("R59", "100k 0.1%", "/J2_SRC_VBUS", "/J2_SRC_FB"),
+            ("R60", "18.2k 0.1%", "/J2_SRC_FB", "/J2_SRC_AGND"),
+            ("R62", "47k 1%", "/VBUS_SYS", "/J2_SRC_EN"),
+            ("R64", "21k 0.1%", "/J2_SRC_FB", "/J2_SRC_FB_SWITCH"),
+            ("C36", "22u 35V X5R", "/VBUS_SYS", "GND"),
+            ("C49", "47u 16V X5R", "/J2_SRC_VBUS", "GND"),
+        ]
+        footprints = [u14] + [part(ref, value, ("1", "", a), ("2", "", b)) for ref, value, a, b in two]
+        footprints += [
+            part("C60", "330p DNP", ("1", "", "/J2_SRC_SW"), ("2", "", "GND"), dnp=True),
+            part("Q13", "BC847B", ("1", "B", "/J2_PDO2"), ("2", "E", "GND"), ("3", "C", "/J2_SRC_FB_SWITCH")),
+        ]
+        return ParsedBoard(Path("p02.kicad_pcb"), None, None, footprints, [], [], [])
+
+    def test_a_converter_is_read_from_the_board_into_a_pspice_bench(self):
+        # P02 Rev E's U14 leaves RT open, which its datasheet sets to 500 kHz
+        # and TI's model does not switch with; R64 leads to a transistor, C60
+        # is not fitted.
+        from emc_phase10 import board_converter_bench
+
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / "LMR51450_TRANS.lib"
+            model.write_text(
+                ".SUBCKT LMR51450_TRANS AGND BOOT EN FB GND PGOOD RT SW1 SW2 SW3 VIN1 VIN2 VIN3\n"
+                "+  PARAMS: MODE=0\n$ENCRYPTED_LIB\n", encoding="utf-8",
+            )
+            bench = board_converter_bench(
+                self.p02_u14_board(), "U14", model, "LMR51450_TRANS", "/J2_SRC_SW",
+                {"/VBUS_SYS": 20.0, "/J2_SRC_VBUS": 5.2}, 3.0, 20.0,
+            )
+        text = bench["text"]
+        self.assertIn("R_KIPIDA_RT N_OPEN_U14_RT 0 31600", text)
+        self.assertIn("L_L3 N_J2_SRC_SW N_J2_SRC_VBUS 4.7e-06 IC=3", text)
+        self.assertIn("C_C49 N_J2_SRC_VBUS 0 4.7e-05 IC=5.2", text)
+        self.assertIn("R_R62 N_VBUS_SYS N_J2_SRC_EN 47000", text)
+        self.assertIn("R_KIPIDA_LOAD N_J2_SRC_VBUS 0 1.73333", text)
+        self.assertIn("LMR51450_TRANS PARAMS: MODE=1", text)
+        self.assertNotIn("C60", text)
+        self.assertNotIn("R64", text)
+        self.assertIn("GND=0", bench["pin_mapping"])
+        self.assertIn("SW3=/J2_SRC_SW", bench["pin_mapping"])
+
+    def test_a_board_circuit_gives_the_excitation_its_switched_current(self):
+        # P02 Rev E's U14 in its board circuit under PSpice for TI: 478.5 kHz,
+        # 5.2 V, inductor 2.16 to 3.82 A under the source's 3 A load.
+        import re
+        from application.emc_controller import _phase10_spice_findings
+        from emc_phase10 import BoardCircuitSimulator, board_circuit_excitation
+        from models import EMCPhase10Result
+
+        class FakePSpice:
+            calls = 0
+
+            def run(self, netlist):
+                self.calls += 1
+                step, stop, start = (float(item) for item in re.search(
+                    r"\.TRAN (\S+) (\S+) (\S+)", Path(netlist).read_text()).groups())
+                rows = []
+                for k in range(int(round((stop - start) / step)) + 1):
+                    t = start + k * step
+                    phase = (t * 478.5e3) % 1.0
+                    ramp = 2.1 + 1.8 * (phase / 0.27 if phase < 0.27 else (1 - phase) / 0.73)
+                    current = max(2.158, min(3.824, ramp))
+                    rows.append(f"  {t:.8E}  {20.0 if phase < 0.27 else 0.0:.7E}  {current:.7E}  {5.2:.7E}")
+                out = Path(netlist).with_suffix(".out")
+                out.write_text("  TIME            V(N_J2_SRC_SW)  I(L_L3)         V(N_J2_SRC_VBUS)\n"
+                               + "\n".join(rows) + "\n JOB CONCLUDED\n")
+                return "concluded", out, 88.0
+
+        source = EMCSignalSource("U14 SW (J2 source buck)", "/J2_SRC_SW", kind="SWITCHING",
+                                 frequency_hz=500e3, rise_time_ns=5.0, voltage_swing_v=20.0, current_a=3.0)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            model = root / "LMR51450_TRANS.lib"
+            model.write_text(".SUBCKT LMR51450_TRANS AGND BOOT EN FB GND PGOOD RT SW1 SW2 SW3 VIN1 VIN2 "
+                             "VIN3\n+  PARAMS: MODE=0\n", encoding="utf-8")
+            fake = FakePSpice()
+            simulator = BoardCircuitSimulator(fake, root / "cache")
+            rails = {"/VBUS_SYS": 20.0, "/J2_SRC_VBUS": 5.2}
+            result = simulator.run(self.p02_u14_board(), source, "U14", model, "LMR51450_TRANS", rails,
+                                   root / "run")
+            again = simulator.run(self.p02_u14_board(), source, "U14", model, "LMR51450_TRANS", rails,
+                                  root / "again")
+        self.assertEqual(result.status, "SWITCHING")
+        self.assertAlmostEqual(result.frequency_hz / 1e3, 478.5, delta=2.0)
+        self.assertEqual((again.status, fake.calls), ("SWITCHING", 1))
+        # 478.5 kHz is within 10 % of the configured 500 kHz: nothing to report.
+        self.assertEqual(_phase10_spice_findings(EMCPhase10Result(board_circuits=[result])), [])
+        excitation = board_circuit_excitation(source, result)
+        self.assertEqual((excitation.provenance, excitation.peak_current_a), ("BOARD_CIRCUIT_PSPICE", 3.824))
+        self.assertAlmostEqual(excitation.maximum_dv_dt_v_s, 20.0 / 5e-9)
+
     @unittest.skipUnless(
         Path(r"C:\Spice64\bin\ngspice_con.exe").is_file()
         and Path(r"C:\Users\jbc66\Documents\DAW CONTROLEUR\Lib\SPICE\official\TPS562200DDCT\extracted\TPS562200_PSPICE_TRANS\TPS562200_TRANS.LIB").is_file(),

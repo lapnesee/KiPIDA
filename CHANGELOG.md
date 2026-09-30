@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added Phase 10 board circuits: each switching source whose model PSpice
+  for TI runs is simulated in the saved board's own circuit (model pins by
+  symbol pin name, the passives and MOSFETs around the IC, DNP parts out)
+  until it settles. Its switch node and inductor peak make the excitation,
+  and PH-005 names a frequency, swing or output it contradicts. P02 Rev E
+  (none contradicted): U4 397 kHz after 1.2 ms (556 s), U14 478 kHz and
+  U5 647 kHz after 0.3 ms, switching 5.55, 3.87 and 1.26 A at the
+  inductors' peaks where the ideal pulse took the 4.36, 3 and 1 A loads.
 - Fixed PSpice output columns being lost when a probe's name fills its
   16-character header column and runs into the next one. P02 Rev E's U5
   board bench printed V(N_MAIN_3V3_SW)I(L_L2), which read as a single

@@ -28,19 +28,23 @@ except ImportError:  # pragma: no cover - normal Ki-PIDA runtime includes Shapel
 
 try:
     from .models import (
-        EMCPhase10ExcitationResult, EMCPhase10RegionResult, EMCPhase10Result,
-        EMCPalaceRemoteRunResult,
+        EMCBoardCircuitResult, EMCPhase10ExcitationResult, EMCPhase10RegionResult,
+        EMCPhase10Result, EMCPalaceRemoteRunResult,
         EMCPhase10ToolStatus, EMCSpiceModelAudit, EMCVirtualReceiverPoint,
     )
     from .emc_analyzer import hot_loop_components
+    from .ingest.board_reader import read_board
+    from .ingest.netlist_builder import is_ground_name
     from .palace_remote import PalaceRemoteClient, PalaceRemoteConnection
 except (ImportError, ValueError):
     from models import (
-        EMCPhase10ExcitationResult, EMCPhase10RegionResult, EMCPhase10Result,
-        EMCPalaceRemoteRunResult,
+        EMCBoardCircuitResult, EMCPhase10ExcitationResult, EMCPhase10RegionResult,
+        EMCPhase10Result, EMCPalaceRemoteRunResult,
         EMCPhase10ToolStatus, EMCSpiceModelAudit, EMCVirtualReceiverPoint,
     )
     from emc_analyzer import hot_loop_components
+    from ingest.board_reader import read_board
+    from ingest.netlist_builder import is_ground_name
     from palace_remote import PalaceRemoteClient, PalaceRemoteConnection
 
 
@@ -709,6 +713,483 @@ def switching_summary(time_s, volts):
     if not periods:
         return None
     return 1.0 / periods[len(periods) // 2], low, high
+
+
+def subckt_parameters(model_path, name):
+    """The PARAMS: names .SUBCKT *name* in *model_path* declares, as written."""
+    text = Path(model_path).read_text(encoding="latin-1", errors="replace")
+    for line in _logical_lines(text):
+        tokens = line.split()
+        if len(tokens) > 2 and tokens[0].upper() == ".SUBCKT" and tokens[1].upper() == name.upper():
+            return [token.split("=", 1)[0] for token in tokens[2:] if "=" in token]
+    return []
+
+
+# Footprint values are case-sensitive, unlike SPICE numbers: "7.5m" is milli
+# and "1M" mega; "2R2" and "4k7" put the scale where the point goes.
+_VALUE_SCALES = {"p": 1e-12, "n": 1e-9, "u": 1e-6, "µ": 1e-6, "m": 1e-3, "k": 1e3, "K": 1e3,
+                 "M": 1e6, "MEG": 1e6, "G": 1e9, "R": 1.0, "r": 1.0}
+
+
+def footprint_value(text):
+    """The value a footprint's Value field starts with, or None.
+
+    P02 Rev E writes "10u 35V X6S", "4.7uH / Isat25.4A", "7.5m 1% / 3W",
+    "2R2 DNP" and "249 k / 1%".
+    """
+    text = str(text or "").strip()
+    match = re.match(r"^(\d+)([pnuµmkKMGRr])(\d+)(?![\w.])", text)
+    if match:
+        return float(f"{match.group(1)}.{match.group(3)}") * _VALUE_SCALES[match.group(2)]
+    match = re.match(
+        r"^(\d+(?:\.\d+)?|\.\d+)(?:\s*(MEG|Meg|meg|[pnuµmkKMGRr])(?=[FHΩ]|[Oo]hm|[^A-Za-z]|$))?", text,
+    )
+    if not match:
+        return None
+    scale = match.group(2) or "R"
+    return float(match.group(1)) * _VALUE_SCALES["MEG" if scale.upper() == "MEG" else scale]
+
+
+def _pin_base(function):
+    # KiCad suffixes the pad number to a repeated pin's name: "SW_1".
+    return re.sub(r"_\d+$", "", str(function or "")).upper()
+
+
+_PIN_ALIASES = {"PGOOD": "PG", "PG": "PGOOD"}
+
+
+def map_model_pins(model_pins, pads, node_of):
+    """``({model_pin: node}, unmatched, conflicts)``, the model's pins by name.
+
+    A pad's pin function is its symbol pin's name. A model pin takes the
+    pads of the same name, then of its name less one trailing digit (TI's
+    LMR51450 calls SW1 to SW3 what the P02 symbol calls SW, its TPS55288 SW22
+    the second SW2 pin), then of an alias, then of a name whose first word it
+    is (EN for the TPS552882's EN_UVLO). A ground pin nothing matches is
+    grounded; *conflicts* names a pin whose pads sit on several nets.
+    """
+    bases = {}
+    for pad in pads:
+        base = _pin_base(getattr(pad, "pinfunction", ""))
+        if base and pad.net_name:
+            bases.setdefault(base, set()).add(node_of(pad.net_name))
+    mapping, unmatched, conflicts = {}, [], []
+    for pin in model_pins:
+        name = pin.upper()
+        tries = [name] + ([name[:-1]] if name[-1:].isdigit() else [])
+        tries += [_PIN_ALIASES[item] for item in list(tries) if item in _PIN_ALIASES]
+        nodes = next((bases[item] for item in tries if item in bases), None)
+        if nodes is None:
+            words = [base for base in bases if base.split("_")[0] in tries]
+            nodes = set().union(*(bases[base] for base in words)) if words else None
+        if not nodes:
+            if is_ground_name(pin):
+                mapping[pin] = "0"
+            else:
+                unmatched.append(pin)
+        elif len(nodes) > 1:
+            conflicts.append(f"{pin} matches pads on {', '.join(sorted(nodes))}")
+        else:
+            mapping[pin] = next(iter(nodes))
+    return mapping, unmatched, conflicts
+
+
+# Model parameters that start a TI transient model at its operating point
+# rather than at power-up, set only when the model declares them. MODE=1
+# with IC= on the inductor and capacitors (TI's LMR51450 model notes, C.1);
+# the TPS562200 model also wants VOUT_SS at the output voltage: with MODE=1
+# alone P02 Rev E's U5 was still ramping at 1.88 V after 300 us, with both
+# at 3.304 V. TI's TPS55288 bench declares fast_startup=1000: at 0 U4 did
+# not switch in 300 us, at 1000 it settled by 1.1 ms.
+_STEADY_STATE_PARAMETERS = {
+    "MODE": lambda vout: 1,
+    "VOUT_SS": lambda vout: vout,
+    "FAST_STARTUP": lambda vout: 1000,
+}
+
+# A pin the part defines open but the model does not, and the resistor to
+# ground that the datasheet gives the same behaviour. TI's LMR51450 model
+# never switched with RT open (P02 Rev E's U14); SLUSEP7 says "RT open
+# defaults to 500 kHz" and gives 495 kHz typical at 31.6 kOhm.
+_OPEN_PIN_EQUIVALENTS = {
+    ("LMR51450_TRANS", "RT"): (31.6e3, "RT is open on the board; SLUSEP7 gives open 500 kHz, "
+                                       "31.6 kOhm 495 kHz typical, so the bench fits 31.6 kOhm"),
+}
+
+
+def _bench_node(node):
+    return "0" if node == "0" else "N_" + re.sub(r"[^A-Za-z0-9_]", "_", node.strip("/"))
+
+
+def _board_parts(board, reference, node_of):
+    """``(parts, foreign)``: the board's two-pin R, C and L and its G/D/S MOSFETs.
+
+    A part is ``(kind, reference, nodes, value)``, nodes in pin order, D S G
+    for a MOSFET. *foreign* holds every node another kind of part touches: a
+    net reaching an IC or connector is not the converter's own.
+    """
+    parts, foreign = [], set()
+    for footprint in board.footprints:
+        if getattr(footprint, "dnp", False) or footprint.reference == reference:
+            continue
+        prefix = (re.match(r"[A-Za-z]+", footprint.reference) or [""])[0].upper()
+        by_number = {}
+        for pad in footprint.pads:
+            if pad.number and pad.net_name:
+                by_number.setdefault(pad.number, node_of(pad.net_name))
+        part = None
+        if prefix in {"R", "C", "L"} and len(by_number) == 2:
+            nodes = tuple(by_number.values())
+            value = footprint_value(footprint.value)
+            if nodes[0] != nodes[1] and value is not None and (value > 0 or prefix == "R"):
+                part = (prefix, footprint.reference, nodes, value)
+        elif prefix == "Q":
+            roles = {}
+            for pad in footprint.pads:
+                role = str(getattr(pad, "pinfunction", "") or "").split("_")[0].upper()
+                if role in {"G", "D", "S"} and pad.net_name:
+                    roles.setdefault(role, set()).add(node_of(pad.net_name))
+            if all(len(roles.get(role, ())) == 1 for role in "DSG"):
+                part = ("Q", footprint.reference, tuple(next(iter(roles[role])) for role in "DSG"), 0.0)
+        if part is not None:
+            parts.append(part)
+        else:
+            foreign.update(by_number.values())
+    return parts, foreign
+
+
+def board_converter_bench(board, reference, model_path, model_name, switch_net, rail_voltages,
+                          load_a, input_fallback_v):
+    """The converter around *reference* on the saved *board*, as a PSpice bench.
+
+    Returns a dict: ``text`` (the bench), ``probes`` (switch node, inductor
+    current, load), the input, output and load nodes and voltages, the pin
+    mapping and the parts used. Raises ValueError with the reason when the
+    circuit cannot be read.
+
+    The model's pins take the IC's nets by pin name; the IC's nets, the
+    inductor's far end and every net only two-pin R, C, L and G/D/S MOSFETs
+    reach make the circuit, DNP parts left out. A MOSFET is a switch with a
+    body diode, as TI's own TPS55288 bench models the TPS552882's external
+    FETs (VSWITCH, 18 mOhm on above 1.5 V). The input is its rail's voltage
+    behind 5 mOhm, as TI's LMR51450 bench; the load a resistor drawing the
+    source's current at the output rail's voltage, placed past any series
+    shunt under 0.1 ohm. Capacitors on the input and output and the inductor
+    start at their operating point.
+    """
+    footprint = next((item for item in board.footprints if item.reference == reference), None)
+    if footprint is None:
+        raise ValueError(f"{reference} is not on the saved board")
+
+    def node_of(net):
+        return "0" if is_ground_name(net) else str(net)
+
+    model_pins = subckt_pins(model_path, model_name)
+    mapping, unmatched, conflicts = map_model_pins(model_pins, footprint.pads, node_of)
+    if conflicts:
+        raise ValueError("pin names disagree with the model: " + "; ".join(conflicts))
+    core = {node for node in mapping.values() if node != "0" and not node.startswith("unconnected-")}
+    switch_node = node_of(switch_net)
+    if switch_node not in core:
+        raise ValueError(f"{switch_net} is on no pin of {model_name}")
+    parts, foreign = _board_parts(board, reference, node_of)
+    inductor = next((part for part in parts if part[0] == "L" and switch_node in part[2]), None)
+    if inductor is None:
+        raise ValueError(f"no inductor on {switch_net}")
+    far = inductor[2][1] if inductor[2][0] == switch_node else inductor[2][0]
+    if far not in core:
+        output_node = far
+        core.add(far)
+    else:
+        # A buck-boost's inductor joins two switch pins; its output is a pin.
+        output_pin = next((pin for pin in model_pins if pin.upper().startswith("VOUT") and pin in mapping), None)
+        if output_pin is None:
+            raise ValueError(f"{model_name} has no VOUT pin and its inductor no free end")
+        output_node = mapping[output_pin]
+    touching = {}
+    for part in parts:
+        for node in part[2]:
+            touching.setdefault(node, []).append(part)
+    accepted = core | {"0"}
+    private = {node for part in parts if set(part[2]) & core for node in part[2]} - accepted - foreign
+    while True:
+        allowed = accepted | private
+        rejected = {node for node in private
+                    if any(not set(part[2]) <= allowed for part in touching.get(node, ()))}
+        if not rejected:
+            break
+        private -= rejected
+    allowed = accepted | private
+    used = [part for part in parts if set(part[2]) <= allowed and set(part[2]) & (core | private)]
+    load_node, seen = output_node, {output_node}
+    while True:
+        shunt = next((part for part in used if part[0] == "R" and part[3] < 0.1
+                      and load_node in part[2] and not set(part[2]) <= seen), None)
+        if shunt is None:
+            break
+        load_node = next(node for node in shunt[2] if node not in seen)
+        seen.add(load_node)
+    input_pin = next((pin for pin in model_pins if pin.upper().startswith("VIN") and pin in mapping), None)
+    if input_pin is None:
+        raise ValueError(f"no VIN pin of {model_name} is on the board")
+    input_node = mapping[input_pin]
+    input_v = float(rail_voltages.get(input_node) or input_fallback_v or 0.0)
+    output_v = float(rail_voltages.get(load_node) or rail_voltages.get(output_node) or 0.0)
+    if input_v <= 0.0 or output_v <= 0.0 or load_a <= 0.0:
+        raise ValueError(
+            f"input {input_node} {input_v:g} V, output {load_node} {output_v:g} V and load "
+            f"{load_a:g} A must all be known"
+        )
+    node = _bench_node
+    starts = {input_node: input_v, output_node: output_v, load_node: output_v}
+    lines = [f"* Ki-PIDA board circuit of {reference} ({model_name})",
+             f"V_KIPIDA_IN KIPIDA_SUPPLY 0 {input_v:.6g}",
+             f"R_KIPIDA_IN KIPIDA_SUPPLY {node(input_node)} 5m"]
+    connections = {input_node: 1, load_node: 1}
+    for kind, ref, nodes, value in used:
+        for item in set(nodes):
+            connections[item] = connections.get(item, 0) + 1
+        if kind == "R":
+            lines.append(f"R_{ref} {node(nodes[0])} {node(nodes[1])} {max(value, 1e-6):.6g}")
+        elif kind == "C":
+            other = nodes[1] if nodes[0] == "0" else nodes[0] if nodes[1] == "0" else None
+            start = f" IC={starts[other]:.6g}" if other in starts else ""
+            lines.append(f"C_{ref} {node(nodes[0])} {node(nodes[1])} {value:.6g}{start}")
+        elif kind == "L":
+            start = ""
+            if ref == inductor[1]:
+                start = f" IC={load_a if nodes[0] == switch_node else -load_a:.6g}"
+            lines.append(f"L_{ref} {node(nodes[0])} {node(nodes[1])} {value:.6g}{start}")
+        else:
+            drain, source, gate = (node(item) for item in nodes)
+            lines += [f"S_{ref} {drain} {source} {gate} {source} KIPIDA_FET",
+                      f"R_{ref}_GS {gate} {source} 1G",
+                      f"D_{ref}_BODY {source} {drain} KIPIDA_BODY"]
+    if any(part[0] == "Q" for part in used):
+        lines += [".MODEL KIPIDA_FET VSWITCH Roff=1e9 Ron=18m Voff=0.7 Von=1.5",
+                  ".MODEL KIPIDA_BODY D(IS=1e-12 RS=10m)"]
+    lines.append(f"R_KIPIDA_LOAD {node(load_node)} 0 {output_v / load_a:.6g}")
+    notes, pins = [], []
+    for pin in model_pins:
+        target = mapping.get(pin)
+        if target is None or target.startswith("unconnected-"):
+            target = f"OPEN_{reference}_{pin}"
+        pins.append(node(target))
+        if target == "0" or connections.get(target, 0):
+            continue
+        connections[target] = 1
+        equivalent = _OPEN_PIN_EQUIVALENTS.get((model_name.upper(), pin.upper()))
+        if pin.upper().startswith("EN"):
+            level = min(3.3, input_v)
+            lines.append(f"V_KIPIDA_{pin} {node(target)} 0 {level:.6g}")
+            notes.append(f"{pin} is driven by nothing on the bench; it is held at {level:.3g} V.")
+        elif equivalent is not None:
+            lines.append(f"R_KIPIDA_{pin} {node(target)} 0 {equivalent[0]:.6g}")
+            notes.append(equivalent[1] + ".")
+        else:
+            # Two, since PSpice does not count a pin its sub-circuit leaves
+            # unconnected inside (TI's TPS55288 SCL_NULL).
+            lines += [f"R_KIPIDA_{pin}_OPEN {node(target)} 0 2G",
+                      f"R_KIPIDA_{pin}_OPEN2 {node(target)} 0 2G"]
+    declared = subckt_parameters(model_path, model_name)
+    parameters = [f"{name}={_STEADY_STATE_PARAMETERS[name.upper()](output_v):.6g}"
+                  for name in declared if name.upper() in _STEADY_STATE_PARAMETERS]
+    tokens = [f"X_{reference}", *pins, model_name] + (["PARAMS:", *parameters] if parameters else [])
+    # PSpice ignored the whole 26-pin TPS55288 instance on one line.
+    line = tokens[0]
+    for token in tokens[1:]:
+        if len(line) + len(token) > 78:
+            lines.append(line)
+            line = "+"
+        line += " " + token
+    lines.append(line)
+    return {
+        "text": "\n".join(lines) + "\n",
+        "probes": [f"V([{node(switch_node)}])", f"I(L_{inductor[1]})", f"V([{node(load_node)}])"],
+        "input_node": input_node, "input_v": input_v,
+        "output_node": output_node, "load_node": load_node, "output_v": output_v,
+        "inductor": inductor[1],
+        "pin_mapping": "; ".join(
+            [f"{pin}={mapping[pin]}" for pin in model_pins if pin in mapping]
+            + [f"{pin} open" for pin in unmatched]
+        ),
+        "parts": sorted(part[1] for part in used),
+        "notes": notes,
+    }
+
+
+def board_circuit_measurements(columns, probes):
+    """What the printed window of a board bench shows, as a dict.
+
+    The window is split in halves: the circuit is steady when its output
+    and mean inductor current agree between them within 0.5 % and 3 %. The
+    inductor's peak and valley are those of the second half.
+    """
+    by_name = {name.replace("[", "").replace("]", "").upper(): values for name, values in columns.items()}
+    time_s = by_name.get("TIME", [])
+    switch, inductor, output = (by_name.get(name.replace("[", "").replace("]", "").upper(), [])
+                                for name in probes)
+    if len(time_s) < 4 or not (len(switch) == len(inductor) == len(output) == len(time_s)):
+        return {"status": "FAILED", "note": "PSpice printed no usable table."}
+    summary = switching_summary(time_s, switch)
+    if summary is None:
+        return {"status": "NOT_SWITCHING", "output_v": output[-1]}
+    middle = time_s[0] + (time_s[-1] - time_s[0]) / 2.0
+    split = next(index for index, value in enumerate(time_s) if value >= middle)
+
+    def mean(values):
+        return sum(values) / max(1, len(values))
+
+    first_v, second_v = mean(output[:split]), mean(output[split:])
+    first_i, second_i = mean(inductor[:split]), mean(inductor[split:])
+    steady = (abs(second_v - first_v) <= 0.005 * abs(second_v) + 1e-3
+              and abs(second_i - first_i) <= 0.03 * abs(second_i) + 0.02)
+    return {
+        "status": "SWITCHING" if steady else "NOT_STEADY",
+        "frequency_hz": summary[0], "switch_low_v": summary[1], "switch_high_v": summary[2],
+        "output_v": second_v, "inductor_mean_a": second_i,
+        "inductor_peak_a": max(inductor[split:]), "inductor_valley_a": min(inductor[split:]),
+    }
+
+
+def board_circuit_disagreements(source, result):
+    """The configured *source* values the board circuit *result* contradicts.
+
+    Not its current: a source's current_a is its converter's load (the
+    power tree's downstream sum), which the bench draws, and the inductor
+    peaks above it by half its ripple on every buck.
+    """
+    if result.status != "SWITCHING":
+        return []
+    found = []
+    if source.frequency_hz > 0 and abs(result.frequency_hz - source.frequency_hz) > 0.1 * source.frequency_hz:
+        found.append(f"it switches at {result.frequency_hz / 1e3:.0f} kHz, not the configured "
+                     f"{source.frequency_hz / 1e3:.0f} kHz")
+    swing = result.switch_high_v - result.switch_low_v
+    if abs(swing - source.voltage_swing_v) > 0.1 * abs(source.voltage_swing_v):
+        found.append(f"its switch node swings {swing:.2f} V, not the configured {source.voltage_swing_v:.2f} V")
+    if result.output_nominal_v and abs(result.output_v - result.output_nominal_v) > 0.05 * result.output_nominal_v:
+        found.append(f"its output settles at {result.output_v:.3f} V, not the rail's "
+                     f"{result.output_nominal_v:.3f} V")
+    return found
+
+
+class BoardCircuitSimulator:
+    """Run a switching source's converter in the board's own circuit.
+
+    Each run prints its last 60 us (or 20 periods) and must be steady there;
+    a circuit still settling runs again longer, up to 3 ms: P02 Rev E's U14
+    and U5 settled within 300 us, U4 by 1.2 ms. Each run is cached on the
+    model, the bench and the circuit, a timeout excepted.
+    """
+
+    STOP_TIMES_S = (300e-6, 1.2e-3, 3e-3)
+
+    def __init__(self, pspice_runner, cache_directory=None):
+        self.pspice = pspice_runner
+        self.cache = Path(cache_directory) if cache_directory else (
+            Path(tempfile.gettempdir()) / "kipida-pspice-probes"
+        )
+
+    def run(self, board, source, reference, model_path, model_name, rail_voltages, directory):
+        result = EMCBoardCircuitResult(source.name, reference, "NOT_BUILT", model_name)
+        try:
+            bench = board_converter_bench(
+                board, reference, model_path, model_name, source.net_name, rail_voltages,
+                float(source.current_a), float(source.voltage_swing_v),
+            )
+        except (ValueError, OSError) as exc:
+            result.notes.append(str(exc))
+            return result
+        result.input_v, result.load_a = bench["input_v"], float(source.current_a)
+        result.output_nominal_v = bench["output_v"]
+        result.pin_mapping, result.parts = bench["pin_mapping"], bench["parts"]
+        result.notes.extend(bench["notes"])
+        directory = Path(directory)
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "bench.net").write_text(bench["text"], encoding="latin-1")
+        period = 1.0 / (source.frequency_hz if source.frequency_hz > 0 else 500e3)
+        step = min(5e-9, period / 400.0)
+        window = max(60e-6, 20.0 * period)
+        stat = Path(model_path).stat()
+        started = time.time()
+        for stop in self.STOP_TIMES_S:
+            stop = max(stop, 2.0 * window)
+            circuit = "\n".join([
+                f"* Ki-PIDA board circuit of {reference} for {source.name}",
+                f'.LIB "{Path(model_path)}"',
+                '.lib "nom.lib"',
+                f".TRAN {step:.6g} {stop:.6g} {stop - window:.6g} {step:.6g} SKIPBP",
+                ".OPTIONS ADVCONV NUMDGT=8",
+                ".OPTIONS ITL4=40",
+                # After the bench: PSpice refused I(L_L3) before its inductor.
+                '.INC "bench.net"',
+                ".PRINT TRAN " + " ".join(bench["probes"]),
+                ".END", "",
+            ])
+            netlist = directory / "board.cir"
+            netlist.write_text(circuit, encoding="ascii", errors="replace")
+            result.netlist_path = str(netlist)
+            key = hashlib.sha1(
+                f"{Path(model_path).resolve()}|{stat.st_size}|{stat.st_mtime_ns}|{bench['text']}|{circuit}"
+                .encode("utf-8", "replace")
+            ).hexdigest()
+            cache = self.cache / f"board-{key}.json"
+            if cache.is_file():
+                measured = json.loads(cache.read_text(encoding="utf-8"))
+                result.notes.append(f"{stop * 1e3:.3g} ms run read from the cache.")
+            else:
+                state, out_path, seconds = self.pspice.run(netlist)
+                if state == "timeout":
+                    result.status = "TIMEOUT"
+                    result.notes.append(
+                        f"The {stop * 1e3:.3g} ms run passed the {seconds:.0f} s solver timeout; raise it "
+                        "to let it finish, the result is then cached."
+                    )
+                    break
+                if state == "concluded":
+                    measured = board_circuit_measurements(read_pspice_print(out_path), bench["probes"])
+                    result.output_path = str(out_path)
+                else:
+                    measured = {"status": "FAILED", "note": f"PSpice ended {state}; see {out_path}."}
+                measured["seconds"] = seconds
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                cache.write_text(json.dumps(measured), encoding="utf-8")
+            result.status = measured["status"]
+            result.simulated_s = stop
+            for name in ("frequency_hz", "switch_low_v", "switch_high_v", "output_v",
+                         "inductor_mean_a", "inductor_peak_a", "inductor_valley_a"):
+                setattr(result, name, measured.get(name))
+            if measured.get("note"):
+                result.notes.append(measured["note"])
+            if result.status in {"SWITCHING", "FAILED"}:
+                break
+        result.elapsed_seconds = time.time() - started
+        result.disagreements = board_circuit_disagreements(source, result)
+        return result
+
+
+def board_circuit_excitation(source, circuit):
+    """The excitation of *source* from its converter's board circuit.
+
+    Swing and switched current are the circuit's; the edges keep the
+    configured rise time, the model's switch edges being behavioural (TI's
+    LMR51450 rises in 0.3 ns whatever its step).
+    """
+    rise_s = max(float(source.rise_time_ns) * 1e-9, 1e-12)
+    swing = circuit.switch_high_v - circuit.switch_low_v
+    return EMCPhase10ExcitationResult(
+        source_name=source.name, status="SIMULATED", provenance="BOARD_CIRCUIT_PSPICE",
+        peak_voltage_v=swing, peak_current_a=circuit.inductor_peak_a,
+        maximum_dv_dt_v_s=swing / rise_s, maximum_di_dt_a_s=circuit.inductor_peak_a / rise_s,
+        waveform_path=circuit.output_path,
+        notes=[
+            f"{circuit.component_ref} ({circuit.model_name}) in the board's circuit switched at "
+            f"{circuit.frequency_hz / 1e3:.0f} kHz from {circuit.input_v:g} V into a {circuit.load_a:g} A "
+            f"load, the inductor peaking at {circuit.inductor_peak_a:.2f} A; edges keep the configured "
+            f"{source.rise_time_ns:g} ns rise time.",
+        ],
+    )
 
 
 def _encrypted_library(path):
@@ -1381,6 +1862,52 @@ class EMCPhase10Pipeline:
         directory.mkdir(parents=True, exist_ok=True)
         return directory
 
+    def _run_board_circuits(self, result, pspice_runner, output):
+        """Run each switching source whose model PSpice runs in the saved board's circuit."""
+        audits = {audit.source_name: audit for audit in result.spice_model_audit}
+        runnable = [
+            (source, audits[source.name]) for source in self.settings.sources
+            if source.enabled and str(source.kind).upper() == "SWITCHING" and source.name in audits
+            and audits[source.name].model_path and audits[source.name].model_name
+            and str(audits[source.name].status).endswith(("PSPICE_BENCH_PASS", "NGSPICE_MINIMAL_PASS"))
+        ]
+        if not runnable:
+            return
+        if not (self.board_file_path and self.board_file_path.is_file()):
+            self.log("[PHASE 10] Board circuits skipped: the board has not been saved to a file.")
+            return
+        try:
+            board = read_board(self.board_file_path)
+        except Exception as exc:
+            self.log(f"[PHASE 10] Board circuits skipped: {exc}")
+            return
+        simulator = BoardCircuitSimulator(pspice_runner)
+        rail_voltages = dict(getattr(self.snapshot, "rail_voltages", None) or {})
+        for source, audit in runnable:
+            if self.cancellation_callback and self.cancellation_callback():
+                break
+            self.log(f"[PHASE 10] Board circuit: {source.name} ({audit.component_ref}, {audit.model_name})")
+            safe_name = "".join(char if char.isalnum() else "_" for char in source.name)
+            circuit = simulator.run(
+                board, source, audit.component_ref, audit.model_path, audit.model_name,
+                rail_voltages, output / "board-circuits" / safe_name,
+            )
+            result.board_circuits.append(circuit)
+            if circuit.status == "SWITCHING":
+                self.log(
+                    f"[PHASE 10] Board circuit {circuit.component_ref}: {circuit.frequency_hz / 1e3:.0f} kHz, "
+                    f"switch {circuit.switch_low_v:.2f} to {circuit.switch_high_v:.2f} V, output "
+                    f"{circuit.output_v:.3f} V, inductor {circuit.inductor_valley_a:.2f} to "
+                    f"{circuit.inductor_peak_a:.2f} A after {circuit.simulated_s * 1e3:.3g} ms "
+                    f"({circuit.elapsed_seconds:.0f} s)"
+                    + "".join(f"; {item}" for item in circuit.disagreements)
+                )
+            else:
+                self.log(
+                    f"[PHASE 10] Board circuit {circuit.component_ref}: {circuit.status}"
+                    + (f"; {circuit.notes[-1]}" if circuit.notes else "")
+                )
+
     def run(self):
         started = time.perf_counter()
         phase = self.settings.phase10
@@ -1406,6 +1933,9 @@ class EMCPhase10Pipeline:
                     f"[PHASE 10] SPICE model {audit.component_ref or audit.source_name}: "
                     f"{audit.status}"
                 )
+            if pspice:
+                self._run_board_circuits(result, PSpiceRunner(pspice, phase.solver_timeout_s), output)
+            board_circuits = {item.source_name: item for item in result.board_circuits}
             runner = SpiceExcitationRunner(ngspice, phase.solver_timeout_s)
             spice_dir = output / "excitations"
             for source in self.settings.sources:
@@ -1413,6 +1943,10 @@ class EMCPhase10Pipeline:
                 # model; those require IBIS/Touchstone or a measured waveform.
                 if (source.enabled and source.frequency_hz > 0.0
                         and str(source.kind).upper() == "SWITCHING"):
+                    circuit = board_circuits.get(source.name)
+                    if circuit is not None and circuit.status == "SWITCHING":
+                        result.excitations.append(board_circuit_excitation(source, circuit))
+                        continue
                     self.log(f"[PHASE 10] SPICE excitation: {source.name}")
                     result.excitations.append(runner.run(source, spice_dir))
 
@@ -1597,6 +2131,13 @@ class EMCPhase10Pipeline:
             "Cables and enclosure require explicit geometry/material data; enabled flags do not invent missing objects.",
             "Accredited measurements remain required for compliance sign-off.",
         ])
+        if result.board_circuits:
+            result.limitations.append(
+                "Board circuits take the converter's parts from the saved board with ideal capacitors "
+                "(no ESR, ESL or DC-bias derating), external MOSFETs as switches, and a resistive load at "
+                "the source's current; their switch edges are the model's behavioural ones, so the "
+                "excitation keeps the configured rise time."
+            )
         if backend == "PALACE_REMOTE":
             result.limitations.extend([
                 "The selected Palace project directory is disclosed to the configured LAN server.",
@@ -1622,6 +2163,9 @@ class EMCPhase10Pipeline:
         warned = spice_issue or any(
             "NOT_CONVERGED" in item.status or "CONVERGENCE_UNKNOWN" in item.status
             for item in result.regions
+        ) or any(
+            item.status in {"NOT_SWITCHING", "NOT_STEADY", "FAILED", "TIMEOUT"} or item.disagreements
+            for item in result.board_circuits
         )
         # A run whose regions only ever had geometry exported (every region
         # GEOMETRY_EXPORTED, no Palace run) never actually solved anything,

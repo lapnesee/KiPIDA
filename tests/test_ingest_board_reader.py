@@ -379,6 +379,23 @@ class TestRotatedPadPositions(unittest.TestCase):
         r1 = next(fp for fp in turned.footprints if fp.reference == "R1")
         self.assertEqual(next(p for p in r1.pads if p.number == "1").angle_deg, 90.0)
 
+    def test_pin_function_and_dnp_are_read(self):
+        # P02 Rev E writes (pinfunction "SW_1") on U14's pads and (attr smd
+        # dnp) on its unfitted snubbers R57 and R58.
+        text = MINI_PCB.replace(
+            "(at 20.0 10.0 90)", "(at 20.0 10.0 90)\n        (attr smd dnp)",
+        ).replace('(net "+3V3_MAIN")', '(net "+3V3_MAIN")\n            (pinfunction "SW_1")', 1)
+        tmp = tempfile.NamedTemporaryFile(suffix=".kicad_pcb", mode="w", encoding="utf-8", delete=False)
+        tmp.write(text)
+        tmp.close()
+        try:
+            board = read_board(Path(tmp.name))
+        finally:
+            Path(tmp.name).unlink(missing_ok=True)
+        r1, c1 = (next(fp for fp in board.footprints if fp.reference == ref) for ref in ("R1", "C1"))
+        self.assertEqual([pad.pinfunction for pad in r1.pads], ["SW_1", ""])
+        self.assertEqual((r1.dnp, c1.dnp), (False, True))
+
 
 NO_STACKUP_PCB = """\
 (kicad_pcb

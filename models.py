@@ -726,6 +726,40 @@ class EMCSpiceModelAudit:
 
 
 @dataclass
+class EMCBoardCircuitResult:
+    """A switching source's converter run in the board's own circuit.
+
+    *status* is SWITCHING once the switch node switches and the output and
+    inductor current hold still over the printed window, NOT_STEADY while
+    they drift, NOT_SWITCHING, FAILED, TIMEOUT or NOT_BUILT (the reason is
+    in *notes*). *disagreements* names each configured source value the
+    circuit contradicts.
+    """
+    source_name: str
+    component_ref: str
+    status: str
+    model_name: str = ""
+    netlist_path: str = ""
+    output_path: str = ""
+    simulated_s: float = 0.0
+    elapsed_seconds: float = 0.0
+    input_v: float = 0.0
+    load_a: float = 0.0
+    output_nominal_v: float = 0.0
+    frequency_hz: Optional[float] = None
+    switch_low_v: Optional[float] = None
+    switch_high_v: Optional[float] = None
+    output_v: Optional[float] = None
+    inductor_mean_a: Optional[float] = None
+    inductor_peak_a: Optional[float] = None
+    inductor_valley_a: Optional[float] = None
+    pin_mapping: str = ""
+    parts: List[str] = field(default_factory=list)
+    disagreements: List[str] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)
+
+
+@dataclass
 class EMCVirtualReceiverPoint:
     frequency_hz: float
     detector: str
@@ -748,6 +782,7 @@ class EMCPhase10Result:
     palace_runs: List[EMCPalaceRemoteRunResult] = field(default_factory=list)
     receiver_points: List[EMCVirtualReceiverPoint] = field(default_factory=list)
     spice_model_audit: List[EMCSpiceModelAudit] = field(default_factory=list)
+    board_circuits: List[EMCBoardCircuitResult] = field(default_factory=list)
     output_directory: str = ""
     elapsed_seconds: float = 0.0
     limitations: List[str] = field(default_factory=list)

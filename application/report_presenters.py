@@ -581,6 +581,26 @@ def format_emc_phase10_lines(settings, result):
             f"max di/dt={excitation.maximum_di_dt_a_s:.6g} A/s; {excitation.provenance}."
         )
         lines.extend(f"      note: {note}" for note in excitation.notes)
+    circuits = getattr(phase10, "board_circuits", None) or []
+    if circuits:
+        lines.append("  - Converters in the board's circuit:")
+    for circuit in circuits:
+        if circuit.status in {"SWITCHING", "NOT_STEADY"}:
+            lines.append(
+                f"    * {circuit.component_ref} [{circuit.source_name}]: {circuit.status} after "
+                f"{circuit.simulated_s * 1e3:.3g} ms; {circuit.frequency_hz / 1e3:.1f} kHz, switch "
+                f"{circuit.switch_low_v:.2f} to {circuit.switch_high_v:.2f} V, output {circuit.output_v:.3f} V "
+                f"(rail {circuit.output_nominal_v:g} V), inductor {circuit.inductor_valley_a:.2f} to "
+                f"{circuit.inductor_peak_a:.2f} A, mean {circuit.inductor_mean_a:.2f} A."
+            )
+        else:
+            lines.append(f"    * {circuit.component_ref} [{circuit.source_name}]: {circuit.status}.")
+        if circuit.pin_mapping:
+            lines.append(f"      pins: {circuit.pin_mapping}")
+        if circuit.parts:
+            lines.append(f"      parts: {', '.join(circuit.parts)}")
+        lines.extend(f"      disagrees: {item}" for item in circuit.disagreements)
+        lines.extend(f"      note: {note}" for note in circuit.notes)
     lines.append("  - Remote Palace analyses:")
     if not getattr(phase10, "palace_runs", None):
         lines.append("    * None.")

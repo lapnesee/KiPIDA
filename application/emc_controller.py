@@ -72,10 +72,38 @@ def _phase10_spice_findings(phase10_result):
                 "Supply an ngspice-compatible model with a verified pin mapping.",
                 "HIGH", [], [audit.component_ref] if audit.component_ref else [],
             ))
+    circuits = getattr(phase10_result, "board_circuits", None) or []
+    for circuit in circuits:
+        if circuit.disagreements:
+            findings.append(EMCFinding(
+                "PH-005", "SWITCHING", "INFO",
+                "Switching source disagrees with its board circuit",
+                f"{circuit.component_ref} ({circuit.model_name}), run in the saved board's circuit from "
+                f"{circuit.input_v:g} V into {circuit.load_a:g} A, contradicts {circuit.source_name}: "
+                + "; ".join(circuit.disagreements) + ".",
+                "Set the source to the circuit's values, or correct the circuit if the source "
+                "states the intent.",
+                "HIGH", [], [circuit.component_ref],
+            ))
+        elif circuit.status in {"NOT_SWITCHING", "NOT_STEADY"}:
+            state = "did not switch" if circuit.status == "NOT_SWITCHING" else "had not settled"
+            findings.append(EMCFinding(
+                "PH-006", "SWITCHING", "INFO",
+                "Converter not operating in its board circuit",
+                f"{circuit.component_ref} ({circuit.model_name}), run in the saved board's circuit for "
+                f"{circuit.source_name}, {state} after {circuit.simulated_s * 1e3:.3g} ms"
+                + (f": {'; '.join(circuit.notes)}" if circuit.notes else "."),
+                "Check the converter's enable, frequency and feedback pins on the board, then "
+                "whether the model supports how they are wired.",
+                "HIGH", [], [circuit.component_ref],
+            ))
     failures = [
         (f"excitation {item.source_name}", str(item.status))
         for item in getattr(phase10_result, "excitations", None) or []
         if str(item.status).upper() == "FAILED"
+    ] + [
+        (f"board circuit {item.source_name}", str(item.status))
+        for item in circuits if item.status in {"FAILED", "TIMEOUT"}
     ] + [
         (f"region {item.name}", str(item.status))
         for item in getattr(phase10_result, "regions", None) or []

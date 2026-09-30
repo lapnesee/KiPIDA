@@ -313,6 +313,9 @@ class EMCGeometrySnapshot:
     footprints: list = field(default_factory=list)
     zones_by_net: dict = field(default_factory=dict)
     power_nets: set = field(default_factory=set)
+    # {net: nominal V} of the power tree's rails, which Phase 10's board
+    # circuits take their input and output voltages from.
+    rail_voltages: dict = field(default_factory=dict)
     ignored_offboard_items: int = 0
     ignored_offboard_nets: tuple = ()
     ignored_offboard_counts: dict = field(default_factory=dict)
@@ -552,6 +555,10 @@ class EMCGeometrySnapshot:
             footprints=footprints,
             zones_by_net=zones,
             power_nets=power_nets,
+            rail_voltages={
+                str(rail.net_name): float(rail.nominal_voltage)
+                for rail in (rails or []) if float(getattr(rail, "nominal_voltage", 0.0) or 0.0) > 0.0
+            },
             ignored_offboard_items=ignored_count,
             ignored_offboard_nets=tuple(sorted(ignored_nets)),
             ignored_offboard_counts=dict(sorted(ignored_counts.items())),
