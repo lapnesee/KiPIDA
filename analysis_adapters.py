@@ -1161,8 +1161,12 @@ def _copper_loss_evidence(copper_loss_source: str) -> list:
 THERMAL_MESH_SENSITIVITY_LIMIT_C = 2.0
 
 
-def _thermal_mesh_sensitivity(mesh_sensitivity: Any):
-    """(metrics, findings, limitations) for a hotspot solved at two grid steps."""
+def _thermal_mesh_sensitivity(mesh_sensitivity: Any, components=()):
+    """(metrics, findings, limitations) for a hotspot solved at two grid steps.
+
+    *components* are the fine solve's component results, whose margins say
+    whether a junction's move can change a conclusion.
+    """
     data = dict(mesh_sensitivity or {})
     if "delta_c" not in data:
         reason = data.get("not_verified_reason")
@@ -1194,25 +1198,44 @@ def _thermal_mesh_sensitivity(mesh_sensitivity: Any):
             "mesh converged: on a synthetic board the 2 and 4 mm solves agreed within 0.8 C "
             "while the 0.5 and 1 mm solves were 4 C apart (validation/thermal_mesh_sensitivity.py)."
         ]
-    # The junction estimates are what the thermal margins are judged on: when
-    # none moves past the limit, the hotspot's move leaves every margin as
-    # it is, and the finding says so at LOW rather than MEDIUM.
+    # The junction estimates are what the thermal margins are judged on. A
+    # part's margin depends on the mesh when its estimate moves past the
+    # limit and would, moved as far again, sit within THIN_JUNCTION_MARGIN_K
+    # of its limit; when no part does, the finding says so at LOW. P02 Rev
+    # E's Q10 moved 4.02 K 55.2 K under its 175 C limit, and the move made
+    # TH-004 a MEDIUM action though it could change no conclusion.
+    margins = {str(item.ref_des): float(item.margin_c) for item in components or ()}
     moves = sorted(
         ((abs(float(pair[0]) - float(pair[1])), str(ref))
          for ref, pair in (data.get("component_tj_c") or {}).items()),
         reverse=True,
     )
-    junctions_hold = bool(moves) and moves[0][0] <= THERMAL_MESH_SENSITIVITY_LIMIT_C
-    if junctions_hold:
+    at_risk = [
+        (move, ref) for move, ref in moves
+        if move > THERMAL_MESH_SENSITIVITY_LIMIT_C
+        and (ref not in margins or margins[ref] - move < THIN_JUNCTION_MARGIN_K)
+    ]
+    junctions_hold = bool(moves) and not at_risk
+    if junctions_hold and moves[0][0] <= THERMAL_MESH_SENSITIVITY_LIMIT_C:
         junction_text = (
             f" The junction estimates moved at most {moves[0][0]:.2f} K ({moves[0][1]}), within "
             f"that {THERMAL_MESH_SENSITIVITY_LIMIT_C:g} C: no part's margin depends on the mesh, "
             "only the hotspot's figure does."
         )
-    elif moves:
+    elif junctions_hold:
+        move, ref = moves[0]
         junction_text = (
-            f" {moves[0][1]}'s junction estimate moved {moves[0][0]:.2f} K, past that "
-            f"{THERMAL_MESH_SENSITIVITY_LIMIT_C:g} C as well."
+            f" {ref}'s junction estimate moved most, {move:.2f} K, and would still sit "
+            f"{margins[ref] - move:.1f} K under its limit moved as far again: no part's margin "
+            f"depends on the mesh, only the temperatures' figures do."
+        )
+    elif moves:
+        move, ref = at_risk[0]
+        junction_text = (
+            f" {ref}'s junction estimate moved {move:.2f} K, past that "
+            f"{THERMAL_MESH_SENSITIVITY_LIMIT_C:g} C as well"
+            + (f", and moved as far again would sit {margins[ref] - move:.1f} K under its limit."
+               if ref in margins else ".")
         )
     else:
         junction_text = ""
@@ -1487,11 +1510,11 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
                          mesh: Any = None, power_stage_reports: Any = None,
                          ambient_c: Any = None, enclosure_air_rise_k: Any = None,
                          enclosure_ambient_applied: bool = False) -> AnalysisResult:
+    components = list(getattr(domain_result, "component_results", ()) or ())
     sensitivity_metrics, sensitivity_findings, sensitivity_limitations = (
-        _thermal_mesh_sensitivity(mesh_sensitivity)
+        _thermal_mesh_sensitivity(mesh_sensitivity, components)
     )
     findings = list(sensitivity_findings)
-    components = list(getattr(domain_result, "component_results", ()) or ())
     for index, component in enumerate(components, start=1):
         margin = float(getattr(component, "margin_c", 0.0))
         if 0.0 <= margin < THIN_JUNCTION_MARGIN_K:

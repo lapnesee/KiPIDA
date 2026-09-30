@@ -269,6 +269,30 @@ class AdapterStatesIt(unittest.TestCase):
         self.assertIn("at most 0.20 K (F2)", finding.description)
         self.assertIn("Rerun at 0.127 mm", finding.recommendation)
 
+    def test_a_junction_move_its_margin_absorbs_does_not_make_the_check_medium(self):
+        # P02 Rev E, 2026-10-01 00:58: the hotspot (on Q10's drain pad) read
+        # 118.99 C at 0.2 mm and 114.97 C at 0.4 mm; Q10's estimate moved as
+        # much, 55.16 K under its 175 C limit, and TH-004 went MEDIUM on it.
+        from analysis_adapters import adapt_thermal_result
+        from analysis_contract import FindingSeverity
+        from models import ComponentThermalResult
+
+        q10 = ComponentThermalResult(
+            "Q10", board_temperature_c=118.99, junction_temperature_c=119.84, power_w=1.062,
+            max_junction_c=175.0, margin_c=55.16, theta_jb_c_per_w=0.8,
+        )
+        result = adapt_thermal_result(
+            SimpleNamespace(converged=True, energy_balance_error_pct=0.0, component_results=[q10]),
+            mesh_sensitivity={
+                "fine_grid_mm": 0.2, "coarse_grid_mm": 0.4,
+                "fine_hotspot_c": 118.99, "coarse_hotspot_c": 114.97, "delta_c": 4.02,
+                "component_tj_c": {"Q10": (119.84, 115.82)},
+            },
+        )
+        finding = next(item for item in result.findings if item.rule_id == "TH-004")
+        self.assertEqual(finding.severity, FindingSeverity.LOW)
+        self.assertIn("moved most, 4.02 K, and would still sit 51.1 K under its limit", finding.description)
+
     def test_agreement_is_published_without_being_called_convergence(self):
         result = self._result(0.8)
         self.assertNotIn("TH-004", {item.rule_id for item in result.findings})

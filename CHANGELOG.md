@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed TH-004 to weigh a junction's move between grid steps against
+  its margin: P02 Rev E's Q10 moved 4.02 K 55.16 K under its 175 C limit
+  and kept the check MEDIUM; a move that leaves a part over 20 K under its
+  limit when doubled now leaves TH-004 LOW.
 - Fixed a converter's AC step counting the regulators it feeds by their
   output current: P02 Rev E's U4 read 5 A, U5's 1 A at 3.32 V taken for
   the 0.726 A it draws at 5.08 V; it is 4.726 A (DC: 4.746 A) and
