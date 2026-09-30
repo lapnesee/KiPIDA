@@ -1,6 +1,7 @@
 """Adapters from numerical-domain objects to the shared analysis contract."""
 
 import math
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -1389,6 +1390,28 @@ def _thin_junction_margin_finding(index, component, mesh_sensitivity=None):
             f"extrapolated to a converged mesh (Richardson, first order) {extrapolated:.1f} C"
             + (f", over its {limit:g} C limit: the margin depends on the mesh." if flips else ".")
         )
+    settle = " Rerun the thermal analysis on a finer grid to settle the margin." if flips else ""
+    threshold = f"The {THIN_JUNCTION_MARGIN_K:g} K threshold is this tool's heuristic, not a standard value."
+    if re.match(r"^F\d", str(component.ref_des)):
+        # A fuse has no junction and no thetaJB; its limit is an operating
+        # temperature and what its temperature costs is current rating. P02
+        # Rev E's F1 and F2 (Bourns SF-1206F, -20 to +105 C) read as thin
+        # junction margins to be closed with an efficiency curve.
+        limit = float(getattr(component, "max_junction_c", 0.0) or 0.0)
+        finding = _finding(
+            "TH-006", index, "JUNCTION_TEMPERATURE",
+            FindingSeverity.HIGH if flips else FindingSeverity.MEDIUM,
+            f"{component.ref_des} temperature margin is thin",
+            f"Estimated at {component.junction_temperature_c:.1f} C, {component.margin_c:.1f} K "
+            f"under its {limit:g} C operating limit, from {component.power_w:.3g} W and a thermal "
+            f"resistance taken from {source}.{mesh_text} A fuse's current rating falls as it "
+            f"warms. {threshold}",
+            "Read the fuse's current derating at this temperature off its datasheet curve and "
+            "check it still exceeds the current it carries; if not, choose a higher rating or "
+            "give it more copper." + settle,
+        )
+        finding.components = [str(component.ref_des)]
+        return finding
     finding = _finding(
         "TH-006", index, "JUNCTION_TEMPERATURE",
         FindingSeverity.HIGH if flips else FindingSeverity.MEDIUM,
@@ -1399,11 +1422,9 @@ def _thin_junction_margin_finding(index, component, mesh_sensitivity=None):
         f"{getattr(component, 'board_reference', 'under the part') or 'under the part'}."
         f"{mesh_text} A converter's loss closed by an efficiency "
         "fallback, a 25 C RDS(on) or the enclosure air rise each move Tj by more than "
-        f"that. The {THIN_JUNCTION_MARGIN_K:g} K threshold is this tool's heuristic, not "
-        "a standard value.",
+        f"that. {threshold}",
         "Confirm the dissipation from the datasheet efficiency curve (or a measurement) "
-        "and the part's thetaJB, then improve its thermal path if the margin holds."
-        + (" Rerun the thermal analysis on a finer grid to settle the margin." if flips else ""),
+        "and the part's thetaJB, then improve its thermal path if the margin holds." + settle,
     )
     finding.components = [str(component.ref_des)]
     return finding

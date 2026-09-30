@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Changed TH-006 on a fuse to speak of its temperature against its
+  operating limit and ask for its current derating: P02 Rev E's F1 and
+  F2 (SF-1206F, -20 to +105 C) read as thin junction margins.
 - Changed TH-004 to go LOW when the hotspot moves between grid steps but
   no junction estimate does, and to name the finest grid the node limit
   allows: P02 Rev E's hotspot moved 2.87 C (F1 and F2 0.1 and 0.2 K), and

@@ -619,6 +619,22 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertEqual(thin.severity, FindingSeverity.HIGH)
         self.assertIn("125.6 C, over its 125 C limit", thin.description)
 
+    def test_a_fuse_margin_speaks_of_its_derating_not_a_junction(self):
+        # P02 Rev E, 2026-10-01 00:21: F1 (Bourns SF-1206F, -20 to +105 C) at
+        # 88.65 C read as a thin junction margin, to be closed with an
+        # efficiency curve and a thetaJB it does not have.
+        from models import ComponentThermalResult
+        f1 = ComponentThermalResult(
+            "F1", board_temperature_c=87.5, junction_temperature_c=88.65, power_w=0.05669,
+            max_junction_c=105.0, margin_c=16.35, theta_jb_c_per_w=20.0, thermal_source="estimate",
+        )
+        result = adapt_thermal_result(ThermalResult(component_results=[f1]), ambient_c=45.0)
+        thin = next(item for item in result.findings if item.rule_id == "TH-006")
+        self.assertEqual(thin.title, "F1 temperature margin is thin")
+        self.assertIn("under its 105 C operating limit", thin.description)
+        self.assertIn("current derating", thin.recommendation)
+        self.assertNotIn("Tj", thin.description)
+
     def test_a_junction_over_its_limit_gets_a_sized_thermal_via_remediation(self):
         # COH-1: advisor.thermal_advisor was imported by no production code,
         # so no thermal action ever carried a structured remediation.
