@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed TH-006 to read each junction at both mesh steps and to go HIGH
+  when a first-order extrapolation crosses the limit: P02 Rev E's U15 sat
+  2.7 K under its 125 C limit while the hotspot moved 3.28 K between 0.2
+  and 0.4 mm, and nothing said whether its own margin survived the mesh.
 - Changed the coupled thermal run to balance a sealed enclosure's air on
   the heat each iteration deposits, not on a pre-solve estimate: P02 Rev
   E's air rise was sized on 4.96 W (16.7 K) while the coupling converged

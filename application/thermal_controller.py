@@ -515,12 +515,23 @@ class ThermalSolverEngine:
             f"Hotspot {float(hotspot.temperature_c):.2f} C at {fine_step:g} mm, "
             f"{float(coarse_hotspot.temperature_c):.2f} C at {coarse_step:g} mm: {delta:.2f} C apart."
         )
+        # Each junction at both steps: a margin is judged per part, and the
+        # hotspot's move is not the part's (TH-006).
+        coarse_tj = {
+            str(item.ref_des): float(item.junction_temperature_c)
+            for item in getattr(coarse, "component_results", ()) or ()
+        }
         return {
             "fine_grid_mm": fine_step,
             "coarse_grid_mm": coarse_step,
             "fine_hotspot_c": float(hotspot.temperature_c),
             "coarse_hotspot_c": float(coarse_hotspot.temperature_c),
             "delta_c": delta,
+            "component_tj_c": {
+                str(item.ref_des): (float(item.junction_temperature_c), coarse_tj[str(item.ref_des)])
+                for item in getattr(result, "component_results", ()) or ()
+                if str(item.ref_des) in coarse_tj
+            },
         }
 
 

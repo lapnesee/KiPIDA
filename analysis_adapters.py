@@ -1323,20 +1323,45 @@ def _thermal_fallback_stage_limitations(power_stage_reports: Any) -> list:
 THIN_JUNCTION_MARGIN_K = 20.0
 
 
-def _thin_junction_margin_finding(index, component):
-    """TH-006: a junction under its limit by less than the estimate's own spread."""
+def _thin_junction_margin_finding(index, component, mesh_sensitivity=None):
+    """TH-006: a junction under its limit by less than the estimate's own spread.
+
+    With the junction solved at two grid steps, the margin is also read
+    against a first-order Richardson estimate of the converged Tj. P02 Rev
+    E, 2026-09-30 13:53: U15 sat 2.7 K under its limit while the hotspot
+    moved 3.3 K between 0.2 and 0.4 mm, and nothing said whether U15's own
+    margin survived the mesh.
+    """
     source = str(getattr(component, "thermal_source", "estimate") or "estimate").lower()
+    data = dict(mesh_sensitivity or {})
+    pair = (data.get("component_tj_c") or {}).get(str(component.ref_des))
+    mesh_text, flips = "", False
+    if pair:
+        fine, coarse = float(pair[0]), float(pair[1])
+        fine_mm = float(data.get("fine_grid_mm", 0.0) or 0.0)
+        coarse_mm = float(data.get("coarse_grid_mm", 0.0) or 0.0)
+        ratio = coarse_mm / fine_mm if fine_mm > 0.0 and coarse_mm > fine_mm else 2.0
+        extrapolated = fine + (fine - coarse) / (ratio - 1.0)
+        limit = float(getattr(component, "max_junction_c", 0.0) or 0.0)
+        flips = limit > 0.0 and extrapolated > limit
+        mesh_text = (
+            f" It reads {fine:.1f} C at {fine_mm:g} mm and {coarse:.1f} C at {coarse_mm:g} mm; "
+            f"extrapolated to a converged mesh (Richardson, first order) {extrapolated:.1f} C"
+            + (f", over its {limit:g} C limit: the margin depends on the mesh." if flips else ".")
+        )
     finding = _finding(
-        "TH-006", index, "JUNCTION_TEMPERATURE", FindingSeverity.MEDIUM,
+        "TH-006", index, "JUNCTION_TEMPERATURE",
+        FindingSeverity.HIGH if flips else FindingSeverity.MEDIUM,
         f"{component.ref_des} junction margin is thin",
         f"Estimated Tj is {component.junction_temperature_c:.1f} C, "
         f"{component.margin_c:.1f} K under its limit, from {component.power_w:.3g} W and a "
-        f"thetaJB taken from {source}. A converter's loss closed by an efficiency "
+        f"thetaJB taken from {source}.{mesh_text} A converter's loss closed by an efficiency "
         "fallback, a 25 C RDS(on) or the enclosure air rise each move Tj by more than "
         f"that. The {THIN_JUNCTION_MARGIN_K:g} K threshold is this tool's heuristic, not "
         "a standard value.",
         "Confirm the dissipation from the datasheet efficiency curve (or a measurement) "
-        "and the part's thetaJB, then improve its thermal path if the margin holds.",
+        "and the part's thetaJB, then improve its thermal path if the margin holds."
+        + (" Rerun the thermal analysis on a finer grid to settle the margin." if flips else ""),
     )
     finding.components = [str(component.ref_des)]
     return finding
@@ -1407,7 +1432,7 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
     for index, component in enumerate(components, start=1):
         margin = float(getattr(component, "margin_c", 0.0))
         if 0.0 <= margin < THIN_JUNCTION_MARGIN_K:
-            findings.append(_thin_junction_margin_finding(index, component))
+            findings.append(_thin_junction_margin_finding(index, component, mesh_sensitivity))
         if margin < 0:
             # The junction is the board temperature plus P x thetaJB, so the
             # verdict is only as good as thetaJB. A default one cannot carry a

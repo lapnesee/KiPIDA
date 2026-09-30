@@ -598,6 +598,27 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertEqual([item.components for item in thin], [["U14"]])
         self.assertEqual(thin[0].severity, FindingSeverity.MEDIUM)
 
+    def test_a_thin_margin_the_mesh_can_erase_is_high(self):
+        # P02 Rev E, 2026-09-30 13:53: U15 at 122.3 C, 2.7 K under 125 C,
+        # while the hotspot moved 3.28 K between 0.2 and 0.4 mm. Moving as
+        # much, U15 extrapolates to 125.6 C.
+        from models import ComponentThermalResult
+        u15 = ComponentThermalResult(
+            "U15", board_temperature_c=118.3, junction_temperature_c=122.3, power_w=0.36,
+            max_junction_c=125.0, margin_c=2.7, theta_jb_c_per_w=11.2, thermal_source="datasheet",
+        )
+        result = adapt_thermal_result(
+            ThermalResult(component_results=[u15]), ambient_c=45.0,
+            mesh_sensitivity={
+                "fine_grid_mm": 0.2, "coarse_grid_mm": 0.4, "fine_hotspot_c": 118.27,
+                "coarse_hotspot_c": 114.99, "delta_c": 3.28,
+                "component_tj_c": {"U15": (122.3, 119.02)},
+            },
+        )
+        thin = next(item for item in result.findings if item.rule_id == "TH-006")
+        self.assertEqual(thin.severity, FindingSeverity.HIGH)
+        self.assertIn("125.6 C, over its 125 C limit", thin.description)
+
     def test_a_junction_over_its_limit_gets_a_sized_thermal_via_remediation(self):
         # COH-1: advisor.thermal_advisor was imported by no production code,
         # so no thermal action ever carried a structured remediation.
