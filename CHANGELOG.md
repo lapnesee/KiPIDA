@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Changed a derived AC target to print four significant figures: P02 Rev
+  E's /+5V_RAIL read "0.0429947 ohm" beside "0.3741 ohm", now 0.04299.
 - Fixed a board circuit read from the cache logging "(0 s)": P02 Rev E's
   U4, U14 and U5 now say "read from the cache".
 - Changed a psiJB's or thetaJB's junction estimate to add to the board

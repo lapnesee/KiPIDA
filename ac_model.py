@@ -437,7 +437,9 @@ def resolve_target_impedance(rail, settings, all_rails=None):
     )
     if value is None:
         return 0.0, f"not determinable: {detail}"
-    return value, f"{value:.6g} ohm {detail}"
+    # Four figures, as the band floor and PD findings print theirs: six gave
+    # P02 Rev E's /+5V_RAIL "0.0429947 ohm" beside "0.3741 ohm".
+    return value, f"{value:.4g} ohm {detail}"
 
 
 def pad_electrical_type(pad):
