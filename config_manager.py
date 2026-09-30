@@ -781,6 +781,7 @@ def _thermal_settings_to_dict(settings: ThermalAnalysisSettings) -> dict:
             "thermal_source": component.thermal_source,
             "thermal_condition": component.thermal_condition,
             "parameter_provenance": component.parameter_provenance,
+            "theta_reference": component.theta_reference,
         } for component in settings.components],
     }
 
@@ -838,6 +839,7 @@ def _dict_to_thermal_settings(data: dict) -> ThermalAnalysisSettings:
             thermal_source=component.get("thermal_source", "estimate"),
             thermal_condition=component.get("thermal_condition", ""),
             parameter_provenance=dict(component.get("parameter_provenance", {}) or {}),
+            theta_reference=str(component.get("theta_reference", "") or ""),
         ) for component in data.get("components", [])],
     )
 

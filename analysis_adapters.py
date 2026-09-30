@@ -1355,7 +1355,9 @@ def _thin_junction_margin_finding(index, component, mesh_sensitivity=None):
         f"{component.ref_des} junction margin is thin",
         f"Estimated Tj is {component.junction_temperature_c:.1f} C, "
         f"{component.margin_c:.1f} K under its limit, from {component.power_w:.3g} W and a "
-        f"thetaJB taken from {source}.{mesh_text} A converter's loss closed by an efficiency "
+        f"thetaJB taken from {source} over the board "
+        f"{getattr(component, 'board_reference', 'under the part') or 'under the part'}."
+        f"{mesh_text} A converter's loss closed by an efficiency "
         "fallback, a 25 C RDS(on) or the enclosure air rise each move Tj by more than "
         f"that. The {THIN_JUNCTION_MARGIN_K:g} K threshold is this tool's heuristic, not "
         "a standard value.",

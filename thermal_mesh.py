@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from array import array
 import math
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
@@ -49,6 +50,36 @@ except (ImportError, ValueError):
 # Dielectric of a board whose stackup states nothing: the finished default
 # thickness less its two outer copper layers.
 _DEFAULT_DIELECTRIC_MM = DEFAULT_BOARD_THICKNESS_MM - 2 * DEFAULT_COPPER_THICKNESS_MM
+
+
+# JEDEC JESD51-8 and -12 take a psiJB's or thetaJB's board temperature this
+# far from the package edge.
+BOARD_REFERENCE_MM = 1.0
+_BOARD_METRIC = re.compile(r"(?i)(psi|ψ|theta|θ)\s*_?jb\b")
+
+
+def theta_reference(component):
+    """``"BOARD"`` or ``"CASE"``: where *component*'s thetaJB is referred to.
+
+    Its theta_reference when set, else the metric its provenance names: a
+    psiJB or (R)thetaJB is referred to the board 1 mm from the package, and
+    anything else (a thetaJC, a thetaJL, a default estimate) to the copper
+    under the part, as before.
+    """
+    explicit = str(getattr(component, "theta_reference", "") or "").upper()
+    if explicit in {"BOARD", "CASE"}:
+        return explicit
+    provenance = (getattr(component, "parameter_provenance", None) or {}).get("theta_jb_c_per_w", "")
+    return "BOARD" if _BOARD_METRIC.search(str(provenance or "")) else "CASE"
+
+
+def component_reference_nodes(mesh, ref_des):
+    """``(nodes, label)``: the cells a component's board temperature is read on."""
+    component = mesh.component_models.get(ref_des)
+    ring = mesh.component_board_nodes.get(ref_des) or []
+    if ring and theta_reference(component) == "BOARD":
+        return ring, f"{BOARD_REFERENCE_MM:g} mm from the package"
+    return mesh.component_nodes.get(ref_des, []), "under the part"
 
 
 @dataclass
@@ -256,6 +287,9 @@ class ThermalMesh:
     heat_vector_w: object = None
     component_nodes: Dict[str, List[int]] = field(default_factory=dict)
     component_models: Dict[str, object] = field(default_factory=dict)
+    # The outer-slice cells 1 mm from each package's edge, all around it:
+    # the board point a psiJB or thetaJB is referred to (theta_reference).
+    component_board_nodes: Dict[str, List[int]] = field(default_factory=dict)
     grid_size_mm: float = 1.0
     bounds_mm: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
     layer_specs: List[ThermalLayerSpec] = field(default_factory=list)
@@ -1143,6 +1177,14 @@ class ThermalMesher:
             total_share = sum(share for _candidate, share in shares)
             mesh.component_nodes[component.ref_des] = [candidate for candidate, _share in shares]
             mesh.component_models[component.ref_des] = component
+            # The board point of a psiJB or thetaJB: the cells centred 1 mm,
+            # within half a cell, outside the package.
+            outer, _outer_copper = window_cells(placement, iz, None, BOARD_REFERENCE_MM + grid / 2.0)
+            inner, _inner_copper = window_cells(
+                placement, iz, None, max(0.0, BOARD_REFERENCE_MM - grid / 2.0),
+            )
+            inside = set(inner)
+            mesh.component_board_nodes[component.ref_des] = [node for node in outer if node not in inside]
             for candidate, share in shares:
                 mesh.add_heat(candidate, component.power_w * share / total_share)
 

@@ -198,6 +198,7 @@ def merge_component_heat_sources(estimated, saved_components, preserve_user=True
                 thermal_source=prior.thermal_source,
                 thermal_condition=prior.thermal_condition,
                 parameter_provenance=dict(prior.parameter_provenance or {}),
+                theta_reference=prior.theta_reference,
             ))
     return merged
 

@@ -277,7 +277,8 @@ def format_thermal_report(
             lines.append(
                 f"  - {component.ref_des}: Tj={component.junction_temperature_c:.2f} C, "
                 f"P={component.power_w:.4g} W, margin={component.margin_c:.2f} C "
-                f"[theta JB={component.theta_jb_c_per_w:.4g} C/W; {status}; "
+                f"[theta JB={component.theta_jb_c_per_w:.4g} C/W over the board "
+                f"{getattr(component, 'board_reference', 'under the part')}; {status}; "
                 f"{component.model_source}; thermal={component.thermal_source}]"
             )
             if component.thermal_condition:

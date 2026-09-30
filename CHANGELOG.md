@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Changed a psiJB's or thetaJB's junction estimate to add to the board
+  1 mm from the package, where JEDEC JESD51-8 and -12 measure it, not to
+  the peak of the part's own pads: that peak rose at every refinement (P02
+  Rev E's U15 in a model of the board around it: 94.1, 94.2 and 99.6 C at
+  0.4, 0.2 and 0.1 mm; 91.3, 91.6 and 93.0 C for Tj now). The metric is
+  read off the thetaJB's provenance: U4, U5, U6, U7, U12, U14, U15 and U16
+  state one; a thetaJC or thetaJL (Q10, Q11, D3) keeps the copper under
+  the part.
 - Fixed a package's heat leaving its footprint when no grid cell lay
   wholly on its pads: only whole-copper cells took heat, so at 0.4 mm
   P02 Rev E's U15 (0.5 mm pads) put its 0.35 W on pours up to 1.8 mm away

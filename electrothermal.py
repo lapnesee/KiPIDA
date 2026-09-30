@@ -8,12 +8,14 @@ try:
     from .models import ElectroThermalResult
     from .physical_constants import COPPER_RESISTIVITY_REFERENCE_C
     from .solver import Solver
+    from .thermal_mesh import component_reference_nodes
     from .thermal_model import PowerLossEstimator
     from .thermal_solver import ThermalSolver
 except (ImportError, ValueError):
     from models import ElectroThermalResult
     from physical_constants import COPPER_RESISTIVITY_REFERENCE_C
     from solver import Solver
+    from thermal_mesh import component_reference_nodes
     from thermal_model import PowerLossEstimator
     from thermal_solver import ThermalSolver
 
@@ -115,7 +117,9 @@ class ElectroThermalSolver:
     def _component_temperatures(thermal_mesh, temperatures, ambient_c,
                                 identity_nodes, node_to_index):
         result = {}
-        for ref_des, nodes in thermal_mesh.component_nodes.items():
+        for ref_des in thermal_mesh.component_nodes:
+            # The same board point as thermal_solver.py's junction estimate.
+            nodes, _reference = component_reference_nodes(thermal_mesh, ref_des)
             indices = [
                 int(node) if identity_nodes else int(node_to_index.get(node, -1))
                 for node in nodes

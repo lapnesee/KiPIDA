@@ -123,6 +123,23 @@ class TestThermalSolver(unittest.TestCase):
         self.assertTrue(all(4.0 <= x <= 6.0 and 3.75 <= y <= 6.25 for x, y in heated))
         self.assertAlmostEqual(sum(mesh.heat_sources_w.values()), 1.0)
 
+    def test_a_psijb_is_referred_to_the_board_1_mm_from_the_package(self):
+        # P02 Rev E's U15 states a psiJB (SLVSGT9D 6.4), which JEDEC JESD51-12
+        # refers to the board 1 mm from the package; added to the peak of its
+        # own pads, its Tj rose at every grid refinement.
+        model = self._model()
+        model.components[0].parameter_provenance = {
+            "theta_jb_c_per_w": "TPS25948 SLVSGT9D 6.4: psiJB 11.2 C/W",
+        }
+        settings = self._settings()
+        settings.grid_size_mm = 0.5
+        mesh = ThermalMesher().generate_mesh(model, settings)
+        result = ThermalSolver().solve(mesh, ambient_c=25.0)
+        (component,) = result.component_results
+        under = max(result.temperature_vector_c[mesh.nodes.index(node)] for node in mesh.component_nodes["U1"])
+        self.assertEqual(component.board_reference, "1 mm from the package")
+        self.assertLess(component.board_temperature_c, under)
+
     def test_zero_heat_settles_at_ambient(self):
         mesh = ThermalMesher().generate_mesh(self._model(power_w=0.0), self._settings())
         result = ThermalSolver().solve(mesh, ambient_c=25.0)

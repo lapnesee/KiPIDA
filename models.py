@@ -958,6 +958,11 @@ class ThermalComponentModel:
     thermal_condition: str = ""
     parameter_provenance: Dict[str, Any] = field(default_factory=dict)
     loss_mechanisms: List[Dict[str, Any]] = field(default_factory=list)
+    # The board temperature theta_jb_c_per_w adds to: "BOARD" for a psiJB or
+    # thetaJB, which JEDEC JESD51-8 and -12 take on the board 1 mm from the
+    # package edge; "CASE" for a thetaJC or thetaJL, whose case or lead is
+    # the copper under the part. Empty reads the metric off the provenance.
+    theta_reference: str = ""
 
 
 @dataclass
@@ -1028,6 +1033,9 @@ class ComponentThermalResult:
     theta_jb_c_per_w: float = 0.0
     thermal_source: str = "estimate"
     thermal_condition: str = ""
+    # Where board_temperature_c was read: "1 mm from the package" or "under
+    # the part" (ThermalComponentModel.theta_reference).
+    board_reference: str = "under the part"
 
 
 @dataclass

@@ -16,9 +16,11 @@ except ImportError:
 try:
     from .models import ComponentThermalResult, ThermalHotspot, ThermalResult
     from .compute_backend import SparseComputeBackend
+    from .thermal_mesh import component_reference_nodes
 except (ImportError, ValueError):
     from models import ComponentThermalResult, ThermalHotspot, ThermalResult
     from compute_backend import SparseComputeBackend
+    from thermal_mesh import component_reference_nodes
 
 
 class ThermalSolver:
@@ -321,8 +323,9 @@ class ThermalSolver:
         )
 
         component_results = []
-        for ref_des, nodes in mesh.component_nodes.items():
+        for ref_des in mesh.component_nodes:
             component = mesh.component_models[ref_des]
+            nodes, board_reference = component_reference_nodes(mesh, ref_des)
             valid_indices = np.fromiter(
                 (translate(node) for node in nodes if translate(node) is not None),
                 dtype=np.int64,
@@ -334,7 +337,12 @@ class ThermalSolver:
             # 114.71 C board hotspot beneath Q10 itself. thetaJB already maps
             # the part's total dissipation to its hottest junction, so the
             # board-side term it adds to should be the hottest cell under the
-            # part, not an average that a cooler pad drags down.
+            # part, not an average that a cooler pad drags down. A psiJB or
+            # thetaJB is referred to the board 1 mm from the package instead
+            # (component_reference_nodes): under the part, P02 Rev E's U15
+            # added its psiJB to the peak of its own pads, which rose at every
+            # grid refinement (a model of the board around it: 92.8, 94.7 and
+            # 98.7 C at 0.4, 0.2 and 0.1 mm; 87.5, 87.8 and 89.1 C 1 mm out).
             board_temperature = float(np.max(temperatures[valid_indices]))
             junction = board_temperature + component.power_w * max(0.0, component.theta_jb_c_per_w)
             component_results.append(ComponentThermalResult(
@@ -348,6 +356,7 @@ class ThermalSolver:
                 theta_jb_c_per_w=component.theta_jb_c_per_w,
                 thermal_source=getattr(component, "thermal_source", "estimate"),
                 thermal_condition=getattr(component, "thermal_condition", ""),
+                board_reference=board_reference,
             ))
         component_results.sort(key=lambda item: item.junction_temperature_c, reverse=True)
 
