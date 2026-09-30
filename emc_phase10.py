@@ -437,6 +437,8 @@ def read_pspice_print(path):
 
     PSpice splits a table wider than its line into several, each with its own
     TIME column; the columns are joined by name, TIME taken from the first.
+    Its header columns are 16 characters wide, and a name that fills one
+    runs into the next: "V(N_MAIN_3V3_SW)I(L_L2)".
     """
     text = Path(path).read_text(encoding="latin-1", errors="replace")
     tables, header, rows = [], None, []
@@ -445,7 +447,7 @@ def read_pspice_print(path):
         if parts and parts[0] == "TIME":
             if header:
                 tables.append((header, rows))
-            header, rows = parts, []
+            header, rows = ["TIME"] + re.findall(r"[^\s()]+\([^()]*\)", line), []
             continue
         if header and len(parts) == len(header):
             try:

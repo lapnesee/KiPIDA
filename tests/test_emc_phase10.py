@@ -244,6 +244,14 @@ class Phase10Tests(unittest.TestCase):
             columns = read_pspice_print(out)
             self.assertEqual(columns["TIME"], [1.0e-6, 2.0e-6])
             self.assertEqual(columns["I(R1)"], [7.0, 8.0])
+            # A name filling its 16-character column runs into the next, as
+            # in P02 Rev E's U5 board bench.
+            out.write_text(
+                "  TIME            V(N_MAIN_3V3_SW)I(L_L2)         V(N__3V3_MAIN)  \n"
+                "   2.8000000E-04  -1.7752400E-02   2.4656173E-01   9.0192461E-01\n JOB CONCLUDED\n"
+            )
+            columns = read_pspice_print(out)
+            self.assertEqual(columns["I(L_L2)"], [0.24656173])
 
     def test_an_encrypted_model_without_a_verified_mapping_is_pspice_only(self):
         # TI's model for P02 Rev E's TPS552882 (SLVMDD9, sub-circuit

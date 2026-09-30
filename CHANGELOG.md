@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed PSpice output columns being lost when a probe's name fills its
+  16-character header column and runs into the next one. P02 Rev E's U5
+  board bench printed V(N_MAIN_3V3_SW)I(L_L2), which read as a single
+  name, so none of its 20,002 rows were parsed.
 - Added PSpice for TI to Phase 10: a model ngspice cannot run (an
   encrypted TI library, or one whose ngspice transient is unstable) is
   run in its manufacturer's bench, or a minimal one, and must switch.
