@@ -189,6 +189,62 @@ class Phase10Tests(unittest.TestCase):
             self.assertTrue(Path(audits[0].wrapper_path).is_file())
             self.assertIn("XCORE VIN VBST EN SW", Path(audits[0].wrapper_path).read_text())
 
+    def test_an_encrypted_model_runs_in_its_manufacturer_bench_under_pspice(self):
+        # TI ships SLVMDD9's TPS55288 with "TPS55288 Startup.net", whose
+        # instance puts the boost-side SW2 pin on net SW2. PSpice for TI runs
+        # what ngspice cannot; a fake runner stands in for pspice.exe.
+        from emc_phase10 import read_pspice_print
+
+        class FakePSpice:
+            available = True
+
+            def run(self, netlist):
+                text = Path(netlist).read_text()
+                self.circuit = text
+                out = Path(netlist).with_suffix(".out")
+                rows = [
+                    f"  {k * 0.25e-6:.7E}  {9.0:.7E}  {12.0 if (k // 5) % 2 else 0.0:.7E}"
+                    for k in range(400)
+                ]
+                out.write_text("   TIME   V(SW1)   V(SW2)\n" + "\n".join(rows) + "\n JOB CONCLUDED\n")
+                return "concluded", out, 1.0
+
+        snapshot = self.snapshot()
+        snapshot.footprints = [EMCFootprint("U4", "TPS552882RPMR", (10.0, 10.0))]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "tps55288.lib").write_text(
+                ".SUBCKT TPS55288 DR1L DR1H VIN SW1 SW2 PGND\n+ PARAMS: SS=0\n$CDNENCSTART_ADV2\n",
+                encoding="utf-8",
+            )
+            (root / "bench").mkdir()
+            (root / "bench" / "TPS55288 Startup.net").write_text(
+                "X_U2 DR1L DR1H VIN SW1 SW2 0 TPS55288 PARAMS:\n+ SS=0\n", encoding="utf-8",
+            )
+            (root / "MODEL_CATALOG.csv").write_text(
+                "Component;SPICE_status;Model_or_action;Location_or_source;Notes\n"
+                "TPS552882RPMR;OFFICIEL_PSPICE_CHIFFRE;TPS55288;tps55288.lib;\n",
+                encoding="utf-8",
+            )
+            fake = FakePSpice()
+            audits = SpiceModelInventory(
+                root, audit_directory=root / "audit", pspice_runner=fake,
+                probe_cache_directory=root / "cache",
+            ).audit(snapshot, self.settings().sources)
+            self.assertEqual(audits[0].status, "PSPICE_BENCH_PASS")
+            self.assertIn(".PRINT TRAN V([SW1]) V([SW2])", fake.circuit)
+            self.assertIn("V(SW2) switched at 400 kHz", audits[0].notes)
+        # PSpice splits a wide table; the columns join by name.
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "wide.out"
+            out.write_text(
+                "   TIME   V(SW)   V(OUT)   I(L1)\n  1.0E-06  1.0  2.0  3.0\n  2.0E-06  4.0  5.0  6.0\n"
+                "   TIME   I(R1)\n  1.0E-06  7.0\n  2.0E-06  8.0\n JOB CONCLUDED\n"
+            )
+            columns = read_pspice_print(out)
+            self.assertEqual(columns["TIME"], [1.0e-6, 2.0e-6])
+            self.assertEqual(columns["I(R1)"], [7.0, 8.0])
+
     def test_an_encrypted_model_without_a_verified_mapping_is_pspice_only(self):
         # TI's model for P02 Rev E's TPS552882 (SLVMDD9, sub-circuit
         # TPS55288) is Cadence-encrypted; found through the catalog it read

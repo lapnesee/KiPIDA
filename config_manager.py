@@ -455,6 +455,7 @@ def _emc_settings_to_dict(settings: EMCAnalysisSettings) -> dict:
             "auto_run_full_wave": phase10.auto_run_full_wave,
             "full_wave_backend": phase10.full_wave_backend,
             "ngspice_path": phase10.ngspice_path,
+            "pspice_path": phase10.pspice_path,
             "spice_library_path": phase10.spice_library_path,
             "openems_root": phase10.openems_root,
             "openems_python_path": phase10.openems_python_path,
@@ -596,6 +597,9 @@ def _dict_to_emc_settings(data: dict) -> EMCAnalysisSettings:
             full_wave_backend=full_wave_backend,
             ngspice_path=str(phase10_data.get(
                 "ngspice_path", phase10_defaults.ngspice_path
+            )),
+            pspice_path=str(phase10_data.get(
+                "pspice_path", phase10_defaults.pspice_path
             )),
             spice_library_path=str(phase10_data.get(
                 "spice_library_path", phase10_defaults.spice_library_path

@@ -459,6 +459,8 @@ class EMCPhase10Settings:
     auto_run_full_wave: bool = False
     full_wave_backend: str = "OPENEMS_LOCAL"
     ngspice_path: str = r"C:\Spice64\bin\ngspice_con.exe"
+    # PSpice for TI runs the encrypted TI libraries ngspice cannot.
+    pspice_path: str = r"C:\Cadence\PSpiceTI\tools\bin\pspice.exe"
     spice_library_path: str = r"C:\Users\jbc66\Documents\DAW CONTROLEUR\Lib\SPICE"
     openems_root: str = r"C:\openEMS"
     openems_python_path: str = ""

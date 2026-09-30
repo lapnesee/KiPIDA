@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added PSpice for TI to Phase 10: a model ngspice cannot run (an
+  encrypted TI library, or one whose ngspice transient is unstable) is
+  run in its manufacturer's bench, or a minimal one, and must switch.
+  P02 Rev E: U14 406 kHz in 39 s, U5 840 kHz in 25 s (ngspice-unstable),
+  U4's TPS55288 402 kHz in 1095 s, each result cached.
 - Changed the Phase 10 SPICE audit to recognise an encrypted library
   (TI's $ENCRYPTED_LIB and Cadence's $CDNENCSTART) whatever its pin
   mapping: TI's models for P02 Rev E's U4 (SLVMDD9, sub-circuit TPS55288)

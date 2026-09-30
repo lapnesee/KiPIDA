@@ -8,6 +8,7 @@ engineering estimate so that unavailable inputs never become silent defaults.
 from dataclasses import asdict
 from datetime import datetime
 import csv
+import hashlib
 import json
 import math
 import os
@@ -16,6 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -269,9 +271,12 @@ class Phase10Toolchain:
             "gmsh",
         )
         palace = _existing_file(self.settings.palace_path, "palace")
+        pspice = _existing_file(getattr(self.settings, "pspice_path", ""), PSPICE_DEFAULT_PATH)
         python = self._phase10_python()
         statuses = [
             self._status("NGSPICE", ngspice, ("--version",)),
+            # No version probe: pspice.exe opens its window and stays open.
+            self._status("PSPICE", pspice),
             # The Windows openEMS executable prints a banner but some builds do
             # not terminate for --version; the Python API probe below is the
             # bounded readiness check.
@@ -424,6 +429,285 @@ VERIFIED_SPICE_MAPPINGS = {
 # Markers of a library only PSpice can run: TI's own and Cadence's.
 _ENCRYPTION_MARKERS = ("$ENCRYPTED_LIB", "$CDNENCSTART")
 
+PSPICE_DEFAULT_PATH = r"C:\Cadence\PSpiceTI\tools\bin\pspice.exe"
+
+
+def read_pspice_print(path):
+    """``{column: [values]}`` of a PSpice .out's .PRINT TRAN tables.
+
+    PSpice splits a table wider than its line into several, each with its own
+    TIME column; the columns are joined by name, TIME taken from the first.
+    """
+    text = Path(path).read_text(encoding="latin-1", errors="replace")
+    tables, header, rows = [], None, []
+    for line in text.splitlines():
+        parts = line.split()
+        if parts and parts[0] == "TIME":
+            if header:
+                tables.append((header, rows))
+            header, rows = parts, []
+            continue
+        if header and len(parts) == len(header):
+            try:
+                rows.append([float(item.replace("D", "E")) for item in parts])
+            except ValueError:
+                continue
+    if header:
+        tables.append((header, rows))
+    columns = {}
+    for index, (names, values) in enumerate(tables):
+        for position, name in enumerate(names):
+            if name == "TIME" and index:
+                continue
+            columns.setdefault(name, []).extend(row[position] for row in values)
+    return columns
+
+
+class PSpiceRunner:
+    """Run one circuit file in PSpice for TI and close it again.
+
+    PSpice for TI has no command-line simulator: ``pspice.exe -r`` opens its
+    window, runs the file through its simulation manager and stays open. The
+    runner watches the .out for JOB CONCLUDED or an abort, then closes the
+    window, which ends the manager too; a first close while PSpice still
+    writes a large .out is ignored, so it is repeated. Killing PSpice instead
+    left the manager behind, and every later run of 2026-09-30 stopped at
+    "Le serveur RPC n'est pas disponible". A .PRINT of five columns stopped
+    the same way; the benches here print at most four.
+    """
+
+    def __init__(self, executable, timeout_s=300.0, poll_s=2.0):
+        self.executable = Path(executable) if executable else None
+        self.timeout_s = float(timeout_s)
+        self.poll_s = float(poll_s)
+
+    @property
+    def available(self):
+        return bool(self.executable and self.executable.is_file())
+
+    def run(self, netlist):
+        """``(state, out_path, seconds)``: state is concluded, error, exited or timeout."""
+        netlist = Path(netlist)
+        out_path = netlist.with_suffix(".out")
+        started = time.time()
+        startup = None
+        if os.name == "nt":
+            # Minimised and not activated: the window must exist for the
+            # close request, but not take the focus during a campaign.
+            startup = subprocess.STARTUPINFO()
+            startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startup.wShowWindow = 7  # SW_SHOWMINNOACTIVE
+        process = subprocess.Popen(
+            [str(self.executable), "-r", netlist.name], cwd=str(netlist.parent),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, startupinfo=startup,
+        )
+        state = "timeout"
+        while time.time() - started < self.timeout_s:
+            time.sleep(self.poll_s)
+            if out_path.is_file() and out_path.stat().st_mtime >= started - 1.0:
+                text = out_path.read_text(encoding="latin-1", errors="replace")
+                if "JOB CONCLUDED" in text:
+                    state = "concluded"
+                    break
+                if "JOB ABORTED" in text or re.search(r"(?m)^ERROR", text):
+                    state = "error"
+                    break
+            if process.poll() is not None:
+                state = "exited"
+                break
+        if state == "concluded":
+            self._close(process)
+        else:
+            # A convergence failure pauses PSpice on its "Runtime Settings"
+            # dialog, and closing a paused run asks "Stop and close the
+            # simulation?": both wait for a click (2026-09-30). Only a run
+            # that concluded is closed through its window.
+            self._stop(process)
+        return state, out_path, time.time() - started
+
+    @staticmethod
+    def _close_windows(pid):
+        if os.name != "nt":
+            return
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        handles = []
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def collect(hwnd, _param):
+            owner = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+            if owner.value == pid:
+                handles.append(hwnd)
+            return True
+
+        user32.EnumWindows(collect, 0)
+        for hwnd in handles:
+            user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
+
+    def _close(self, process):
+        deadline = time.time() + 60.0
+        while process.poll() is None and time.time() < deadline:
+            self._close_windows(process.pid)
+            try:
+                process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                continue
+        if process.poll() is None:
+            self._stop(process)
+
+    @staticmethod
+    def _stop(process):
+        if process.poll() is None:
+            process.kill()
+            try:
+                process.wait(timeout=15.0)
+            except subprocess.TimeoutExpired:
+                pass
+        # The simulation manager and server are COM servers, not children of
+        # pspice.exe, and one left behind made every later run stop at "RPC
+        # server unavailable"; they go only when no other PSpice is running.
+        if os.name == "nt":
+            listing = _run(["tasklist", "/FI", "IMAGENAME eq pspice.exe", "/NH"], timeout=15.0)
+            if "pspice.exe" not in listing.stdout.lower():
+                for image in ("simmgr.exe", "SimSrvr.exe"):
+                    _run(["taskkill", "/IM", image, "/F"], timeout=15.0)
+
+
+def _logical_lines(text):
+    """SPICE lines with their ``+`` continuations joined."""
+    lines = []
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if stripped.startswith("+") and lines:
+            lines[-1] += " " + stripped[1:]
+        elif stripped and not stripped.startswith("*"):
+            lines.append(stripped)
+    return lines
+
+
+def subckt_pins(model_path, name):
+    """The pin names of .SUBCKT *name* in *model_path*, in order."""
+    text = Path(model_path).read_text(encoding="latin-1", errors="replace")
+    for line in _logical_lines(text):
+        tokens = line.split()
+        if len(tokens) > 2 and tokens[0].upper() == ".SUBCKT" and tokens[1].upper() == name.upper():
+            pins = []
+            for token in tokens[2:]:
+                if token.upper().startswith("PARAMS:") or "=" in token:
+                    break
+                pins.append(token)
+            return pins
+    return []
+
+
+def manufacturer_bench(model_path, name):
+    """``(bench_path, nodes)`` of a test bench shipped beside the model.
+
+    A manufacturer's archive carries the circuit its model was checked in:
+    TI's LMR51450 (SNVMCB2) ships STEADY_STATE.net and START_UP.net, its
+    TPS55288 (SLVMDD9) "TPS55288 Startup.net". The bench whose name says
+    steady state is preferred; *nodes* are the instance's nets, pin order.
+    """
+    found = []
+    for path in sorted(Path(model_path).parent.rglob("*.net")):
+        try:
+            text = path.read_text(encoding="latin-1", errors="replace")
+        except OSError:
+            continue
+        for line in _logical_lines(text):
+            tokens = line.split()
+            if tokens and tokens[0].upper().startswith("X"):
+                upper = [token.upper() for token in tokens]
+                if name.upper() in upper[1:]:
+                    nodes = tokens[1:upper.index(name.upper(), 1)]
+                    found.append((0 if "STEADY" in path.name.upper() else 1, path, nodes))
+                    break
+    if not found:
+        return None, []
+    _rank, path, nodes = min(found, key=lambda item: (item[0], str(item[1])))
+    return path, nodes
+
+
+_SPICE_SCALES = {"T": 1e12, "G": 1e9, "MEG": 1e6, "K": 1e3, "M": 1e-3, "U": 1e-6, "N": 1e-9,
+                 "P": 1e-12, "F": 1e-15}
+
+
+def _spice_value(text):
+    """A SPICE number with its scale suffix (``1.5m``, ``20n``, ``2MEG``), or None."""
+    match = re.match(r"^([-+]?[0-9.]+(?:E[-+]?\d+)?)(MEG|[TGKMUNPF])?", str(text).strip().upper())
+    if not match:
+        return None
+    return float(match.group(1)) * _SPICE_SCALES.get(match.group(2) or "", 1.0)
+
+
+def bench_profile(bench_path):
+    """``(stop_s, max_step_s)`` of the manufacturer's simulation profile of a bench.
+
+    TI's profile circuit files .INC the bench and carry its analysis: the
+    LMR51450's STEADY_STATE runs 1.5 ms at 20 ns, the TPS55288's Startup 5 ms
+    at 5 ns, whose instance sets FAST_STARTUP=0 and does not switch in its
+    first 100 us.
+    """
+    bench_path = Path(bench_path)
+    for path in sorted(bench_path.parent.rglob("*.cir")):
+        try:
+            text = path.read_text(encoding="latin-1", errors="replace")
+        except OSError:
+            continue
+        if bench_path.name.lower() not in text.lower():
+            continue
+        for line in _logical_lines(text):
+            tokens = line.split()
+            if tokens and tokens[0].upper() == ".TRAN" and len(tokens) >= 3:
+                values = [_spice_value(token) for token in tokens[1:5]]
+                stop = values[1]
+                step = values[3] if len(values) > 3 else None
+                if stop:
+                    return stop, step
+    return None
+
+
+# Benches for models whose archive ships none; PSpice syntax.
+PSPICE_PROBE_BENCHES = {
+    "TPS562200_TRANS": (
+        "VIN VIN 0 PWL(0 0 10u 5)\n"
+        "VEN EN 0 PWL(0 0 20u 0 21u 5)\n"
+        "CBST VBST SW 100n\n"
+        "L1 SW OUT 3.3u\n"
+        "COUT OUT 0 22u\n"
+        "RLOAD OUT 0 11.2\n"
+        "RFBT OUT VFB 34k\n"
+        "RFBB VFB 0 10k\n"
+        "XCORE EN 0 SW VBST VFB VIN TPS562200_TRANS\n",
+        "SW",
+    ),
+}
+
+
+def switching_summary(time_s, volts):
+    """``(frequency_hz, low_v, high_v)`` of a switching waveform, or None."""
+    if len(time_s) < 3:
+        return None
+    ordered = sorted(volts)
+    low = ordered[int(0.02 * (len(ordered) - 1))]
+    high = ordered[int(0.98 * (len(ordered) - 1))]
+    if high - low < 1.0:
+        return None
+    middle = (low + high) / 2.0
+    crossings = [
+        time_s[index] for index in range(1, len(volts))
+        if volts[index - 1] < middle <= volts[index]
+    ]
+    if len(crossings) < 3:
+        return None
+    periods = sorted(b - a for a, b in zip(crossings, crossings[1:]) if b > a)
+    if not periods:
+        return None
+    return 1.0 / periods[len(periods) // 2], low, high
+
 
 def _encrypted_library(path):
     """Whether the model file at *path* is encrypted, so ngspice cannot run it."""
@@ -437,11 +721,115 @@ def _encrypted_library(path):
 class SpiceModelInventory:
     """Resolve model coverage without silently trusting unverified pin order."""
 
-    def __init__(self, library_path, ngspice_path="", audit_directory=None):
+    def __init__(self, library_path, ngspice_path="", audit_directory=None, pspice_runner=None,
+                 probe_cache_directory=None):
         self.root = Path(library_path) if library_path else None
         self.ngspice_path = Path(ngspice_path) if ngspice_path else None
         self.audit_directory = Path(audit_directory) if audit_directory else None
+        self.pspice = pspice_runner if pspice_runner is not None and pspice_runner.available else None
+        self.probe_cache = Path(probe_cache_directory) if probe_cache_directory else (
+            Path(tempfile.gettempdir()) / "kipida-pspice-probes"
+        )
         self.entries = self._read_catalog()
+
+    def _probe_pspice(self, reference, model_path, model_name):
+        """``(passed, log_path, note)``: the model switching in PSpice for TI.
+
+        It runs in the manufacturer's own bench when the archive ships one,
+        else in PSPICE_PROBE_BENCHES, and one of its switch nodes must switch
+        in the last 20 us: a buck-boost has two, and TI's TPS55288 bench (5 V
+        in, 9 V out) switches its boost side, SW2, not SW1. A first run lasts
+        100 us, enough for TI's LMR51450 STEADY_STATE bench, which starts from
+        its operating point (41 s); only a bench that has not switched by then
+        runs its manufacturer's own duration (bench_profile, at most 5 ms):
+        TI's TPS55288 Startup sets FAST_STARTUP=0 and took 1095 s. Each run is
+        cached on the model, bench and circuit.
+        """
+        bench_path, nodes = manufacturer_bench(model_path, model_name)
+        attempts = [(100e-6, 5e-9)]
+        if bench_path is not None:
+            profile = bench_profile(bench_path)
+            if profile and profile[0] > 100e-6:
+                stop_s = min(profile[0], 5e-3)
+                # At most 200,000 steps: 25 ns still puts 100 steps in a
+                # 400 kHz period.
+                attempts.append((stop_s, max(profile[1] or 5e-9, stop_s / 200_000)))
+            pins = subckt_pins(model_path, model_name)
+            probes = []
+            for pin, node in zip(pins, nodes):
+                if pin.upper().startswith("SW") and node != "0" and node not in probes:
+                    probes.append(node)
+            bench_text = bench_path.read_text(encoding="latin-1", errors="replace")
+            origin = f"the manufacturer's bench {bench_path.name}"
+        elif model_name.upper() in PSPICE_PROBE_BENCHES:
+            bench_text, probe = PSPICE_PROBE_BENCHES[model_name.upper()]
+            probes = [probe]
+            origin = "Ki-PIDA's minimal bench"
+        else:
+            return False, None, "No bench is available to run this model in PSpice."
+        # PSpice for TI stopped at "RPC server unavailable" on five columns.
+        probes = probes[:4]
+        if not probes or self.audit_directory is None:
+            return False, None, "The bench has no switch-node pin to probe."
+        directory = self.audit_directory / "model-probes" / f"{reference}-pspice"
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "bench.net").write_text(bench_text, encoding="latin-1")
+        stat = Path(model_path).stat()
+        passed, out_path, note = False, None, ""
+        for stop_s, step_s in attempts:
+            circuit = "\n".join([
+                f"* Ki-PIDA PSpice probe of {model_name} in {origin}",
+                f'.LIB "{Path(model_path)}"',
+                '.lib "nom.lib"',
+                f".TRAN 1n {stop_s:.6g} {max(0.0, stop_s - 20e-6):.6g} {step_s:.6g} SKIPBP",
+                ".OPTIONS ADVCONV NUMDGT=8",
+                ".OPTIONS ITL4=40",
+                ".PRINT TRAN " + " ".join(f"V([{probe}])" for probe in probes),
+                '.INC "bench.net"',
+                ".END", "",
+            ])
+            netlist = directory / "probe.cir"
+            netlist.write_text(circuit, encoding="ascii", errors="replace")
+            key = hashlib.sha1(
+                f"{Path(model_path).resolve()}|{stat.st_size}|{stat.st_mtime_ns}|{bench_text}|{circuit}".encode(
+                    "utf-8", "replace")
+            ).hexdigest()
+            cache = self.probe_cache / f"{key}.json"
+            if cache.is_file():
+                cached = json.loads(cache.read_text(encoding="utf-8"))
+                passed, out_path, note = bool(cached["passed"]), None, cached["note"] + " (cached)"
+                if passed:
+                    break
+                continue
+            state, out_path, seconds = self.pspice.run(netlist)
+            summaries = {}
+            if state == "concluded":
+                columns = read_pspice_print(out_path)
+                for name, values in columns.items():
+                    summary = switching_summary(columns.get("TIME", []), values) if name != "TIME" else None
+                    if summary is not None:
+                        summaries[name] = summary
+            if not summaries:
+                note = (f"PSpice for TI ran {origin} ({state}, {seconds:.0f} s) but the model did "
+                        f"not switch on {', '.join(probes)} in the last 20 us of {stop_s * 1e3:.3g} ms.")
+                passed = False
+            else:
+                column = max(summaries, key=lambda name: summaries[name][2] - summaries[name][1])
+                frequency, low, high = summaries[column]
+                note = (f"PSpice for TI ran {origin} in {seconds:.0f} s: {column} switched at "
+                        f"{frequency / 1e3:.0f} kHz between {low:.2f} and {high:.2f} V. The bench is "
+                        "the model's, not this board's circuit; the excitation stays parametric.")
+                passed = True
+            if state in ("concluded", "error"):
+                # A timeout is the budget's, not the model's.
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                cache.write_text(json.dumps({"passed": passed, "note": note}), encoding="utf-8")
+            elif state == "timeout":
+                note += " Raise the Phase 10 solver timeout to let it finish; the result is then cached."
+                break
+            if passed:
+                break
+        return passed, out_path, note
 
     @staticmethod
     def _verified_mapping(mpn):
@@ -637,6 +1025,19 @@ class SpiceModelInventory:
                 status = compatibility = "AVAILABLE_PSPICE_ONLY"
                 notes = (notes + " The library is encrypted and runs in PSpice only, "
                          "not in ngspice.").strip()
+            # What ngspice cannot run, PSpice for TI may: an encrypted TI
+            # library, or P02 Rev E's TPS562200 model, whose startup
+            # transient did not converge in ngspice.
+            if self.pspice is not None and model_path is not None and model_name and (
+                status.endswith("PSPICE_ONLY") or "NGSPICE_TRANSIENT_UNSTABLE" in status
+                or "NGSPICE_PROBE_FAILED" in status
+            ):
+                passed, pspice_log, pspice_note = self._probe_pspice(reference, model_path, model_name)
+                status = ("MAPPING_VERIFIED_" if mapping else "") + (
+                    "PSPICE_BENCH_PASS" if passed else "PSPICE_BENCH_FAILED"
+                )
+                probe_log = pspice_log or probe_log
+                notes = (notes + " " + pspice_note).strip()
             results.append(EMCSpiceModelAudit(
                 reference, mpn, source.name, status, model_name,
                 str(model_path or ""), catalog_status, False,
@@ -993,8 +1394,10 @@ class EMCPhase10Pipeline:
 
         if phase.spice_enabled:
             ngspice = status_by_name["NGSPICE"].path if status_by_name["NGSPICE"].available else ""
+            pspice = status_by_name["PSPICE"].path if status_by_name["PSPICE"].available else ""
             result.spice_model_audit = SpiceModelInventory(
                 phase.spice_library_path, ngspice, output / "spice-model-audit",
+                pspice_runner=PSpiceRunner(pspice, phase.solver_timeout_s) if pspice else None,
             ).audit(self.snapshot, self.settings.sources)
             for audit in result.spice_model_audit:
                 self.log(
