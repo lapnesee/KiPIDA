@@ -103,15 +103,15 @@ def switching_converter_step(rail, all_rails):
         return float(getattr(by_name.get(name), "nominal_voltage", 0.0) or 0.0)
 
     def supplied(name, visiting):
+        # A converter's output current: its rail's loads and what the
+        # regulators it feeds draw at that rail's voltage. Summing their
+        # outputs instead gave P02 Rev E's U4 a 5 A step, U5's 1 A at 3.32 V
+        # counted for the 0.726 A it draws at 5.08 V; its output is 4.726 A.
         item = by_name.get(name)
         if item is None or name in visiting:
             return 0.0
         own = sum(float(getattr(load, "total_current", 0.0) or 0.0) for load in (item.loads or ()))
-        nested = sum(
-            supplied(regulator.output_rail_name, visiting | {name})
-            for regulator in (getattr(item, "child_regulators", ()) or ())
-        )
-        return own + nested
+        return own + converter_input_current(item, all_rails)
 
     def steps(item, visiting):
         for regulator in (getattr(item, "child_regulators", ()) or ()):

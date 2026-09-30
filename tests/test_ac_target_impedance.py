@@ -80,10 +80,11 @@ class DeriveTargetImpedanceTests(unittest.TestCase):
         rails = [vbus, pre, u4_out, rail5, main33, j2]
 
         value, provenance = derive_target_impedance(vbus, all_rails=rails)
-        # U4's own output step: rail5's 4.0 A load plus whatever U5 draws
-        # downstream (main33's 0.5 A), all the way through U4's chain of
-        # linear regulators -- 4.0 + 0.5 = 4.5 A, ahead of U14's 3.0 A.
-        step_current = 4.0 + 0.5
+        # U4's own output step: rail5's 4.0 A load plus what U5 draws at
+        # 5.08 V for main33's 0.5 A at 3.32 V, all the way through U4's chain
+        # of linear regulators -- 4.36 A, ahead of U14's 3.0 A. U5's 0.5 A
+        # output was added as is, which gave P02 Rev E's U4 a 5 A step.
+        step_current = 4.0 + 0.5 * 3.32 / (5.08 * 0.90)
         self.assertAlmostEqual(value, (20.0 * 0.02) / (step_current * 1.0), places=12)
         self.assertIn("chopped input current", provenance)
         self.assertIn("'U4'", provenance)

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed a converter's AC step counting the regulators it feeds by their
+  output current: P02 Rev E's U4 read 5 A, U5's 1 A at 3.32 V taken for
+  the 0.726 A it draws at 5.08 V; it is 4.726 A (DC: 4.746 A) and
+  /VBUS_SYS's target 0.08464 ohm, not 0.08.
 - Changed TH-006 on a fuse to speak of its temperature against its
   operating limit and ask for its current derating: P02 Rev E's F1 and
   F2 (SF-1206F, -20 to +105 C) read as thin junction margins.
