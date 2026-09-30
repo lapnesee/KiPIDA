@@ -1838,8 +1838,8 @@ class EMCAnalyzer:
                               "Minimise hot-loop area and verify this band with a near-field probe.",
                               # A stated frequency places the harmonic; its level
                               # is still an uncalibrated edge model (+/-10-20 dB),
-                              # however the source was entered.
-                              "MEDIUM" if source.source in ("manual", "power-tree") else "LOW",
+                              # however the source was entered or simulated.
+                              "MEDIUM" if source.source in ("manual", "power-tree", "board-circuit") else "LOW",
                               [source.net_name], location=source_location)
 
     def _inductor_rules(self):

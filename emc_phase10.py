@@ -5,7 +5,7 @@ Every output records whether it is measured, circuit-derived, full-wave, or an
 engineering estimate so that unavailable inputs never become silent defaults.
 """
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime
 import csv
 import hashlib
@@ -1192,6 +1192,44 @@ def board_circuit_excitation(source, circuit):
     )
 
 
+def board_circuit_sources(settings, circuits):
+    """``(settings, revalued)``: *settings* with the sources whose board circuit settled re-valued.
+
+    Such a source takes its circuit's frequency, swing and switched current,
+    the inductor's peak that the switches chop, and keeps its configured
+    rise time; *revalued* describes each. The configured settings are left
+    alone: a source's current_a is the load its next board circuit draws.
+    """
+    settled = {item.source_name: item for item in circuits if item.status == "SWITCHING"}
+    sources, revalued = [], []
+    for source in settings.sources:
+        circuit = settled.get(source.name)
+        if circuit is None:
+            sources.append(source)
+            continue
+        swing = circuit.switch_high_v - circuit.switch_low_v
+        sources.append(replace(
+            source, frequency_hz=circuit.frequency_hz, voltage_swing_v=swing,
+            current_a=circuit.inductor_peak_a, source="board-circuit", parameter_confidence="HIGH",
+            parameter_notes=(
+                f"{circuit.component_ref} ({circuit.model_name}) in the board's circuit under PSpice for TI: "
+                f"{circuit.frequency_hz / 1e3:.1f} kHz, switch {circuit.switch_low_v:.2f} to "
+                f"{circuit.switch_high_v:.2f} V, inductor peak {circuit.inductor_peak_a:.2f} A under the "
+                f"{source.current_a:g} A load; configured {source.frequency_hz / 1e3:g} kHz, "
+                f"{source.voltage_swing_v:g} V, {source.current_a:g} A; rise time "
+                f"{source.rise_time_ns:g} ns as configured."
+            ),
+        ))
+        revalued.append(
+            f"{source.name}: {circuit.frequency_hz / 1e3:.0f} kHz, {swing:.2f} V, "
+            f"{circuit.inductor_peak_a:.2f} A (configured {source.frequency_hz / 1e3:g} kHz, "
+            f"{source.voltage_swing_v:g} V, {source.current_a:g} A)"
+        )
+    if not revalued:
+        return settings, []
+    return replace(settings, sources=sources), revalued
+
+
 def _encrypted_library(path):
     """Whether the model file at *path* is encrypted, so ngspice cannot run it."""
     try:
@@ -1844,6 +1882,8 @@ class EMCPhase10Pipeline:
         self.board_file_path = Path(board_file_path) if board_file_path else None
         self.log_callback = log_callback
         self.cancellation_callback = cancellation_callback
+        self._circuits = None
+        self._output = None
 
     def log(self, message):
         if self.log_callback:
@@ -1908,24 +1948,31 @@ class EMCPhase10Pipeline:
                     + (f"; {circuit.notes[-1]}" if circuit.notes else "")
                 )
 
-    def run(self):
+    def simulate_circuits(self):
+        """The tools, SPICE model audit and board circuits, as a partial result.
+
+        EMCSolverEngine runs this before the EMC analysis, whose spectrum then
+        takes each converter's frequency, swing and switched current from its
+        board circuit; run() carries on from it, or starts with it.
+        """
+        if self._circuits is not None:
+            return self._circuits
         started = time.perf_counter()
         phase = self.settings.phase10
         result = EMCPhase10Result(status="RUNNING")
         if not phase.enabled:
             result.status = "DISABLED"
+            self._circuits = result
             return result
-        output = self._output_directory()
-        result.output_directory = str(output)
-        toolchain = Phase10Toolchain(phase)
-        result.tools = toolchain.detect()
+        self._output = self._output_directory()
+        result.output_directory = str(self._output)
+        result.tools = Phase10Toolchain(phase).detect()
         status_by_name = {item.name: item for item in result.tools}
-
         if phase.spice_enabled:
             ngspice = status_by_name["NGSPICE"].path if status_by_name["NGSPICE"].available else ""
             pspice = status_by_name["PSPICE"].path if status_by_name["PSPICE"].available else ""
             result.spice_model_audit = SpiceModelInventory(
-                phase.spice_library_path, ngspice, output / "spice-model-audit",
+                phase.spice_library_path, ngspice, self._output / "spice-model-audit",
                 pspice_runner=PSpiceRunner(pspice, phase.solver_timeout_s) if pspice else None,
             ).audit(self.snapshot, self.settings.sources)
             for audit in result.spice_model_audit:
@@ -1934,7 +1981,26 @@ class EMCPhase10Pipeline:
                     f"{audit.status}"
                 )
             if pspice:
-                self._run_board_circuits(result, PSpiceRunner(pspice, phase.solver_timeout_s), output)
+                self._run_board_circuits(
+                    result, PSpiceRunner(pspice, phase.solver_timeout_s), self._output,
+                )
+        result.elapsed_seconds = time.perf_counter() - started
+        self._circuits = result
+        return result
+
+    def run(self):
+        phase = self.settings.phase10
+        result = self.simulate_circuits()
+        if result.status == "DISABLED":
+            return result
+        # The circuits' own time, whether they ran just now or before the
+        # analysis, plus what follows.
+        started = time.perf_counter() - result.elapsed_seconds
+        output = self._output
+        status_by_name = {item.name: item for item in result.tools}
+
+        if phase.spice_enabled:
+            ngspice = status_by_name["NGSPICE"].path if status_by_name["NGSPICE"].available else ""
             board_circuits = {item.source_name: item for item in result.board_circuits}
             runner = SpiceExcitationRunner(ngspice, phase.solver_timeout_s)
             spice_dir = output / "excitations"

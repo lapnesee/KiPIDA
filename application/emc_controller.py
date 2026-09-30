@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 from emc_analyzer import EMCAnalyzer
 from em_field_solver import EMNearFieldSolver
-from emc_phase10 import EMCPhase10Pipeline
+from emc_phase10 import EMCPhase10Pipeline, board_circuit_sources
 from models import EMCFinding
 from application.background_controller import BackgroundAnalysisController
 
@@ -168,9 +168,37 @@ class EMCSolverEngine:
                 raise EMCAnalysisCancelled("EMI/EMC analysis cancelled.")
             progress(completed, total, str(detail))
 
+        # Phase 10's board circuits run first: the spectrum below takes each
+        # converter's simulated frequency, swing and switched current. The
+        # outcome carries these settings, which describe the run; the
+        # configured ones stay as they are.
+        settings, phase10 = request.settings, None
+        if settings.phase10.enabled:
+            try:
+                phase10 = self._phase10_factory(
+                    request.snapshot,
+                    request.settings,
+                    None,
+                    board_file_path=request.board_file_path,
+                    log_callback=emit,
+                    cancellation_callback=cancelled,
+                )
+                circuits = phase10.simulate_circuits().board_circuits
+                settings, revalued = board_circuit_sources(settings, circuits)
+                for line in revalued:
+                    emit(f"[PHASE 10] Spectrum source from its board circuit: {line}")
+            except EMCAnalysisCancelled:
+                raise
+            except Exception as exc:
+                if cancelled():
+                    raise EMCAnalysisCancelled("EMI/EMC analysis cancelled.") from exc
+                emit(f"[PHASE 10] Board circuits skipped before the analysis: {exc}")
+        if cancelled():
+            raise EMCAnalysisCancelled("EMI/EMC analysis cancelled.")
+
         analyzer = self._analyzer_factory(
             request.snapshot,
-            request.settings,
+            settings,
             differential_pairs=list(request.pairs),
             differential_results=dict(request.differential_results or {}),
             ac_results=list(request.ac_results),
@@ -185,7 +213,7 @@ class EMCSolverEngine:
         if request.settings.field_simulation_enabled:
             try:
                 field_solver = self._field_solver_factory(
-                    request.snapshot, request.settings, log_callback=emit,
+                    request.snapshot, settings, log_callback=emit,
                 )
                 field_result = field_solver.solve(progress_callback=checked_progress)
                 result.field_simulation = field_result
@@ -207,14 +235,17 @@ class EMCSolverEngine:
 
         if request.settings.phase10.enabled:
             try:
-                phase10_result = self._phase10_factory(
-                    request.snapshot,
-                    request.settings,
-                    result,
-                    board_file_path=request.board_file_path,
-                    log_callback=emit,
-                    cancellation_callback=cancelled,
-                ).run()
+                if phase10 is None:
+                    phase10 = self._phase10_factory(
+                        request.snapshot,
+                        request.settings,
+                        result,
+                        board_file_path=request.board_file_path,
+                        log_callback=emit,
+                        cancellation_callback=cancelled,
+                    )
+                phase10.analysis_result = result
+                phase10_result = phase10.run()
                 result.phase10_result = phase10_result
                 result.elapsed_seconds += phase10_result.elapsed_seconds
                 result.limitations.extend(phase10_result.limitations)
@@ -259,7 +290,7 @@ class EMCSolverEngine:
                 plots = render()
         if cancelled():
             raise EMCAnalysisCancelled("EMI/EMC analysis cancelled.")
-        return EMCRunOutcome(request.settings, result, *plots)
+        return EMCRunOutcome(settings, result, *plots)
 
 
 class EMCAnalysisController(BackgroundAnalysisController):

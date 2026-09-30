@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Changed the EMC analysis to value each switching source its board
+  circuit settles from that circuit: Phase 10's SPICE audit and board
+  circuits now run first, and the spectrum, SW-001 and the near-field
+  solver take the simulated frequency, swing and switched current (the
+  inductor's peak), the rise time as configured. P02 Rev E, read from the
+  cache in 3 s: U4 397 kHz, 20.03 V, 5.55 A for 400 kHz, 20 V, 4.36 A;
+  U14 478 kHz, 19.99 V, 3.87 A for 500 kHz, 20 V, 3 A; U5 647 kHz,
+  5.07 V, 1.26 A for 650 kHz, 5.08 V, 1 A. Drive indices rise 2.0-2.2 dB.
 - Added Phase 10 board circuits: each switching source whose model PSpice
   for TI runs is simulated in the saved board's own circuit (model pins by
   symbol pin name, the passives and MOSFETs around the IC, DNP parts out)
