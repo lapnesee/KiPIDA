@@ -421,6 +421,19 @@ VERIFIED_SPICE_MAPPINGS = {
 }
 
 
+# Markers of a library only PSpice can run: TI's own and Cadence's.
+_ENCRYPTION_MARKERS = ("$ENCRYPTED_LIB", "$CDNENCSTART")
+
+
+def _encrypted_library(path):
+    """Whether the model file at *path* is encrypted, so ngspice cannot run it."""
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace").upper()
+    except OSError:
+        return False
+    return any(marker in text for marker in _ENCRYPTION_MARKERS)
+
+
 class SpiceModelInventory:
     """Resolve model coverage without silently trusting unverified pin order."""
 
@@ -587,8 +600,7 @@ class SpiceModelInventory:
                 if scanned_path is not None:
                     model_path, model_name = scanned_path, scanned_name
             if mapping and model_path is not None:
-                head = model_path.read_text(encoding="utf-8", errors="replace")[:4096]
-                if "$ENCRYPTED_LIB" in head.upper():
+                if _encrypted_library(model_path):
                     status = compatibility = "MAPPING_VERIFIED_PSPICE_ONLY"
                     notes = (
                         "Pin mapping is verified, but the TI library contains $ENCRYPTED_LIB "
@@ -618,6 +630,13 @@ class SpiceModelInventory:
                     status = "MODEL_FILE_MISSING"
                     if entry:
                         notes = notes or "Catalog entry exists but its model file cannot be resolved."
+            # A model found without a verified mapping read "available" even
+            # encrypted: TI's LMR51450 (SNVMCB2) and TPS55288 (SLVMDD9, the
+            # model TI gives for the TPS552882) run in PSpice 17.2+ only.
+            if status.startswith("AVAILABLE_") and model_path is not None and _encrypted_library(model_path):
+                status = compatibility = "AVAILABLE_PSPICE_ONLY"
+                notes = (notes + " The library is encrypted and runs in PSpice only, "
+                         "not in ngspice.").strip()
             results.append(EMCSpiceModelAudit(
                 reference, mpn, source.name, status, model_name,
                 str(model_path or ""), catalog_status, False,

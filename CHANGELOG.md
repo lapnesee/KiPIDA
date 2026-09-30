@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed the Phase 10 SPICE audit to recognise an encrypted library
+  (TI's $ENCRYPTED_LIB and Cadence's $CDNENCSTART) whatever its pin
+  mapping: TI's models for P02 Rev E's U4 (SLVMDD9, sub-circuit TPS55288)
+  and U14 (SNVMCB2) run in PSpice only and would have read "available".
 - Fixed a CFD obstacle smaller than one cell on every axis taking a whole
   cell of its own bulk conductivity: P02 Rev E's U15 (3 x 3 x 1 mm)
   replaced a 5 mm board cell, renamed and conducting at 8 W/mK. It now

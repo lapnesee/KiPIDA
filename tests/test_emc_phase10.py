@@ -189,6 +189,27 @@ class Phase10Tests(unittest.TestCase):
             self.assertTrue(Path(audits[0].wrapper_path).is_file())
             self.assertIn("XCORE VIN VBST EN SW", Path(audits[0].wrapper_path).read_text())
 
+    def test_an_encrypted_model_without_a_verified_mapping_is_pspice_only(self):
+        # TI's model for P02 Rev E's TPS552882 (SLVMDD9, sub-circuit
+        # TPS55288) is Cadence-encrypted; found through the catalog it read
+        # AVAILABLE_REQUIRES_PIN_MAPPING, as if ngspice could run it.
+        snapshot = self.snapshot()
+        snapshot.footprints = [EMCFootprint("U4", "TPS552882RPMR", (10.0, 10.0))]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "tps55288.lib").write_text(
+                ".SUBCKT TPS55288 DR1L DR1H VIN EN SCL_NULL SDA_NULL\n$CDNENCSTART_ADV2\n",
+                encoding="utf-8",
+            )
+            (root / "MODEL_CATALOG.csv").write_text(
+                "Component;SPICE_status;Model_or_action;Location_or_source;Notes\n"
+                "TPS552882RPMR;OFFICIEL_PSPICE_CHIFFRE;TPS55288;tps55288.lib;\n",
+                encoding="utf-8",
+            )
+            audits = SpiceModelInventory(root).audit(snapshot, self.settings().sources)
+            self.assertEqual(audits[0].status, "AVAILABLE_PSPICE_ONLY")
+            self.assertIn("PSpice only", audits[0].notes)
+
     @unittest.skipUnless(
         Path(r"C:\Spice64\bin\ngspice_con.exe").is_file()
         and Path(r"C:\Users\jbc66\Documents\DAW CONTROLEUR\Lib\SPICE\official\TPS562200DDCT\extracted\TPS562200_PSPICE_TRANS\TPS562200_TRANS.LIB").is_file(),

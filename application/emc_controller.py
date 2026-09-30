@@ -17,7 +17,7 @@ class EMCAnalysisCancelled(RuntimeError):
 # SPICE audits whose model Phase 10 could not run, beyond a missing file
 # (PH-001) and an unstable transient (PH-002).
 _UNUSABLE_SPICE_STATUSES = {
-    "MAPPING_VERIFIED_PSPICE_ONLY", "MAPPING_VERIFIED_NGSPICE_PROBE_FAILED",
+    "MAPPING_VERIFIED_PSPICE_ONLY", "AVAILABLE_PSPICE_ONLY", "MAPPING_VERIFIED_NGSPICE_PROBE_FAILED",
     "INCOMPATIBLE", "LIBRARY_UNAVAILABLE", "COMPONENT_NOT_IDENTIFIED",
 }
 # Region outcomes where Phase 10's full-wave solve gave no usable field.
