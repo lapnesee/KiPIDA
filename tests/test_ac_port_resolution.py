@@ -83,6 +83,28 @@ class NearestGroundNodeTests(unittest.TestCase):
             nearest_ground_nodes(ground, rail, [0], max_distance_mm=1.0), [],
         )
 
+    def test_the_return_under_a_pad_keeps_its_area_as_the_grid_is_refined(self):
+        # P02 Rev E's /VBUS_SYS, ported on Q10 (no ground pad): one return
+        # node per rail node read 0.1725 ohm at 0.5 mm and 0.2013 ohm at
+        # 0.25 mm at 100 MHz; the ground under Q10's pads, 0.1458 and 0.1530.
+        from shapely import box
+
+        def plane(step):
+            count = int(6.0 / step) + 1
+            return FakeMesh({
+                index: (ix * step, iy * step, layer)
+                for index, (ix, iy, layer) in enumerate(
+                    (ix, iy, layer) for layer in (4, 7) for ix in range(count) for iy in range(count)
+                )
+            }, grid_step=step)
+
+        rail = FakeMesh({0: (2.0, 1.5, 3)})
+        for step, count in ((0.5, 15), (0.25, 45)):
+            ground = plane(step)
+            nodes = nearest_ground_nodes(ground, rail, [0], outlines=[(box(1.0, 1.0, 3.0, 2.0), 3)])
+            self.assertEqual(len(nodes), count)
+            self.assertEqual({ground.node_coords[node][2] for node in nodes}, {4})
+
     def test_twenty_thousand_ground_nodes_resolve_quickly(self):
         # Guards the spatial index: a naive O(N*M) scan over a real ground
         # plane made model build time unacceptable.

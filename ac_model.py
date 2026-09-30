@@ -705,16 +705,67 @@ class _PlanarNodeIndex:
         return [node_id for _distance, node_id in found[:count]]
 
 
+def pad_outline_index(parsed_board):
+    """``{(reference, pad number): [(centre, outline)]}`` over the saved board's pads."""
+    try:
+        from .mesh_hybrid import _pad_outline
+    except ImportError:
+        from mesh_hybrid import _pad_outline
+    index = {}
+    for footprint in getattr(parsed_board, "footprints", ()) or ():
+        for pad in footprint.pads:
+            outline = _pad_outline(pad)
+            if outline is not None:
+                index.setdefault((footprint.reference, str(pad.number)), []).append(
+                    (tuple(pad.position), outline),
+                )
+    return index
+
+
+def nodes_under_outline(mesh, outline, layers):
+    """Nodes of *mesh* on *layers* whose (x, y) lies on *outline*."""
+    import shapely
+
+    step = float(getattr(mesh, "grid_step", 0.0) or 0.0)
+    if step <= 0.0:
+        return []
+    origin_x, origin_y = mesh.grid_origin
+    min_x, min_y, max_x, max_y = outline.bounds
+    candidates = [
+        int(node)
+        for ix in range(math.floor((min_x - origin_x) / step), math.ceil((max_x - origin_x) / step) + 1)
+        for iy in range(math.floor((min_y - origin_y) / step), math.ceil((max_y - origin_y) / step) + 1)
+        for layer in layers
+        for node in (mesh.node_map.get((ix, iy, layer)),)
+        if node is not None
+    ]
+    if not candidates:
+        return []
+    inside = shapely.intersects_xy(
+        outline,
+        [mesh.node_coords[node][0] for node in candidates],
+        [mesh.node_coords[node][1] for node in candidates],
+    )
+    return [node for node, hit in zip(candidates, inside) if hit]
+
+
 def nearest_ground_nodes(
     ground_mesh, rail_mesh, rail_nodes, *, max_distance_mm=None, per_rail_node=1,
+    outlines=None,
 ):
     """Ground-side nodes for a port whose component carries no return pads.
 
     A switching regulator reaches its rail through an output inductor with no
     ground pad, so requiring the return on the same component makes every such
     rail unanalysable. The physical return is the plane under the injection
-    point, so pick the ground node(s) closest in (x, y) to each rail node,
-    across all layers.
+    point. Given the rail pads' *outlines* as ``(outline, layer)``, it is
+    every ground node under each pad on the ground layer nearest the pad's;
+    otherwise, or where no ground node lies under a pad, the ground node(s)
+    closest in (x, y) to each rail node, across all layers.
+
+    A return of one node per rail node shrinks as the grid is refined, and
+    its spreading inductance grows with it: P02 Rev E's /VBUS_SYS, ported
+    on Q10, read 0.1725 ohm at 0.5 mm and 0.2013 ohm at 0.25 mm at 100 MHz.
 
     Returns ground-mesh node ids (NOT yet offset into the combined network).
     """
@@ -722,6 +773,20 @@ def nearest_ground_nodes(
     rail_coords = getattr(rail_mesh, "node_coords", None) or {}
     if not ground_coords or not rail_nodes:
         return []
+    if outlines:
+        ground_layers = sorted({coords[2] for coords in ground_coords.values()})
+        under = set()
+        for outline, pad_layer in outlines:
+            by_layer = {
+                layer: nodes
+                for layer in ground_layers
+                for nodes in (nodes_under_outline(ground_mesh, outline, (layer,)),)
+                if nodes
+            }
+            if by_layer:
+                under.update(by_layer[min(by_layer, key=lambda layer: abs(layer - pad_layer))])
+        if under:
+            return sorted(under)
 
     index = _PlanarNodeIndex(ground_coords, getattr(ground_mesh, "grid_step", 0.0) or 0.0)
     resolved = []
@@ -778,6 +843,8 @@ class ACModelBuilder:
         self.board = board
         self.debug = debug
         self.log_callback = log_callback
+        # The saved board's pad outlines, on a hybrid build (pad_outline_index).
+        self._pad_outlines = {}
 
     def _log(self, message):
         if self.log_callback:
@@ -1017,9 +1084,50 @@ class ACModelBuilder:
                                 pad_nodes.append(int(node_id))
                 if pad_nodes:
                     break
+            # On a hybrid mesh, every node under the pad: a component
+            # terminal covers its pad, and one node at the centre is a
+            # contact that shrinks, and whose spreading inductance grows, as
+            # the grid is refined (nearest_ground_nodes).
+            outline = self._pad_outline(ref_des, self._pad_number(pad), x, y)
+            if outline is not None:
+                pad_nodes.extend(nodes_under_outline(mesh, outline, layers))
             found.extend(pad_nodes)
 
         return sorted(set(found))
+
+    def _pad_outline(self, ref_des, number, x, y):
+        """The saved board's outline of the pad at (*x*, *y*), or ``None``."""
+        candidates = [
+            outline for (cx, cy), outline in self._pad_outlines.get((ref_des, str(number)), ())
+            if abs(cx - x) < 0.05 and abs(cy - y) < 0.05
+        ]
+        return candidates[0] if candidates else None
+
+    def _rail_pad_outlines(self, ref_des, pad_names, net_name):
+        """``(outline, layer)`` of each of *ref_des*'s pads on *net_name*."""
+        footprint = self._find_footprint(ref_des) if self._pad_outlines else None
+        if not footprint:
+            return []
+        wanted = set(str(name) for name in (pad_names or []))
+        found = []
+        for pad in self._get_pads(footprint):
+            if self._pad_net_name(pad) != net_name:
+                continue
+            if wanted and self._pad_number(pad) not in wanted:
+                continue
+            position = self._get_val(pad, "position")
+            layers = list(self._get_val(pad, "layers") or [])
+            if position is None or not layers:
+                continue
+            x = float(self._get_val(position, "x", 0.0) or 0.0)
+            y = float(self._get_val(position, "y", 0.0) or 0.0)
+            if abs(x) > 10000 or abs(y) > 10000:
+                x /= 1e6
+                y /= 1e6
+            outline = self._pad_outline(ref_des, self._pad_number(pad), x, y)
+            if outline is not None:
+                found.append((outline, int(layers[0])))
+        return found
 
     def components_on_net(self, net_name):
         """Every (ref_des, pad_numbers) pair touching *net_name*, board order."""
@@ -1171,11 +1279,14 @@ class ACModelBuilder:
             ground_mesh, ref_des, ground_pad_names, settings.ground_net_name,
         )
         if not ground_nodes and rail_nodes:
-            ground_nodes = nearest_ground_nodes(ground_mesh, rail_mesh, rail_nodes)
+            ground_nodes = nearest_ground_nodes(
+                ground_mesh, rail_mesh, rail_nodes,
+                outlines=self._rail_pad_outlines(ref_des, rail_pad_names, settings.rail_name),
+            )
             if ground_nodes:
                 self._log(
                     f"{label} '{ref_des}' has no {settings.ground_net_name} pad; "
-                    f"using the {len(ground_nodes)} nearest return-plane node(s) "
+                    f"using the {len(ground_nodes)} return-plane node(s) "
                     "under its rail pads as the AC return."
                 )
         return ACNodeConnection(
@@ -1311,6 +1422,7 @@ class ACModelBuilder:
 
         mesher = Mesher(self.board, debug=self.debug, log_callback=self.log_callback)
         rail_cells = None
+        self._pad_outlines = pad_outline_index(parsed_board) if parsed_board is not None else {}
         if parsed_board is not None:
             rail_mesh, ground_mesh, rail_cells = self._hybrid_meshes(
                 parsed_board, dict(layer_mapping or {}), settings, stackup,

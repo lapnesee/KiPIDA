@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed AC ports, sources and capacitors meeting the hybrid mesh at one
+  node per pad, a contact that shrank as the grid was refined: P02 Rev E's
+  /VBUS_SYS, ported on Q10 with no ground pad, read 0.1725 and 0.2013 ohm
+  at 100 MHz at 0.5 and 0.25 mm, 16.7 % apart. Every node under the pad,
+  and the ground under it, now reads 0.1458 and 0.1530 ohm, 4.9 % apart.
 - Fixed PD-001 and PD-002 quoting the flat target beside a verdict read
   against the frequency-dependent one: P02 Rev E's /VBUS_SYS read "worst
   impedance 0.2061 ohm is within the 0.08889 ohm target", 0.392 ohm
