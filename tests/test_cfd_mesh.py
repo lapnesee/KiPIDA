@@ -71,6 +71,25 @@ class TestCFDMeshGenerator(unittest.TestCase):
         # CFD-6: its film length is its own A/P (600 / 100 mm), not a cell.
         self.assertAlmostEqual(float(mesh.film_length_horizontal_m.max()), 6.0e-3)
 
+    def test_a_subcell_part_heats_the_board_cell_it_sits_on(self):
+        # P02 Rev E's U15, 3 x 3 x 1 mm on the 1.29 mm board, took a 5 mm
+        # board cell of its own: renamed U15, conducting at its bulk 8 W/mK.
+        model = EnclosureModel(
+            dimensions_mm=(30.0, 30.0, 30.0),
+            obstacles=[
+                CFDObstacle("PCB", (0.0, 0.0, 14.0, 30.0, 20.0, 15.29), 36.3, 0.0),
+                CFDObstacle("U15", (13.0, 8.0, 15.29, 16.0, 11.0, 16.29), 8.0, 0.36),
+            ],
+        )
+        mesh = CFDMeshGenerator().generate_mesh(model, self._settings())
+
+        names = np.asarray(mesh.obstacle_names)
+        self.assertEqual(int(np.count_nonzero(names == "U15")), 0)
+        self.assertEqual(int(np.count_nonzero(mesh.solid_mask)), 24)
+        self.assertEqual(mesh.collapsed_hosts, {"U15": "PCB"})
+        self.assertAlmostEqual(float(mesh.heat_sources_w.max()), 0.36)
+        self.assertEqual(len(set(np.round(mesh.solid_conductivity_w_mk[mesh.solid_mask], 9))), 1)
+
     def test_overlapping_boundary_patches_are_rejected(self):
         patch = CFDBoundaryPatch("A", "VENT", "XMIN", 0.5, 0.5, 0.5, 0.5)
         model = EnclosureModel(

@@ -1584,17 +1584,19 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
 
 def _cfd_collapsed_obstacle_limitations(mesh: Any) -> list:
     # CFD-1, docs/audit-2026-09-23.md: an obstacle thinner than one cell on
-    # every axis is still a single fallback cell -- a point mass with no
-    # conduction path to its neighbours -- even after a thin board is snapped
-    # to the full sheet of cells its footprint overlaps. Named rather than
-    # silent, per the finding's own requirement.
+    # every axis adds its heat to the solid cell it sits on (cfd_mesh), so
+    # its own surface is not resolved. Named rather than silent, per the
+    # finding's own requirement.
     names = list(getattr(mesh, "collapsed_obstacles", None) or [])
     if not names:
         return []
+    hosts = dict(getattr(mesh, "collapsed_hosts", None) or {})
     return [
-        f"{len(names)} obstacle(s) smaller than one mesh cell on every axis are each "
-        f"modelled as a single point cell with no conduction path to neighbouring cells: "
-        f"{', '.join(names)}. Reduce the CFD cell size to resolve them.",
+        f"{len(names)} obstacle(s) smaller than one mesh cell on every axis add their heat "
+        "to the solid cell they sit on and are not resolved as bodies of their own: "
+        + ", ".join(f"{name} (into {hosts[name]})" if name in hosts else name for name in names)
+        + ". Their surface temperature is the host cell's; the 3D thermal analysis "
+        "resolves them. Reduce the CFD cell size to resolve them here.",
     ]
 
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed a CFD obstacle smaller than one cell on every axis taking a whole
+  cell of its own bulk conductivity: P02 Rev E's U15 (3 x 3 x 1 mm)
+  replaced a 5 mm board cell, renamed and conducting at 8 W/mK. It now
+  adds its heat to the solid cell it sits on and leaves that cell as is.
 - Changed DC-008 to also name a pad that touches no copper of its net:
   the hybrid mesher left such a pad out without a word. None of P02 Rev
   E's 172 GND and 17 rails' pads is one; C88 and R10 stay the only two.
