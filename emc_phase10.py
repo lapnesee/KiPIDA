@@ -1934,12 +1934,15 @@ class EMCPhase10Pipeline:
             )
             result.board_circuits.append(circuit)
             if circuit.status == "SWITCHING":
+                # PSpice wrote an output only if it ran in this run; P02 Rev E's
+                # cached circuits logged "(0 s)" as if they had run in no time.
+                timing = f"{circuit.elapsed_seconds:.0f} s" if circuit.output_path else "read from the cache"
                 self.log(
                     f"[PHASE 10] Board circuit {circuit.component_ref}: {circuit.frequency_hz / 1e3:.0f} kHz, "
                     f"switch {circuit.switch_low_v:.2f} to {circuit.switch_high_v:.2f} V, output "
                     f"{circuit.output_v:.3f} V, inductor {circuit.inductor_valley_a:.2f} to "
                     f"{circuit.inductor_peak_a:.2f} A after {circuit.simulated_s * 1e3:.3g} ms "
-                    f"({circuit.elapsed_seconds:.0f} s)"
+                    f"({timing})"
                     + "".join(f"; {item}" for item in circuit.disagreements)
                 )
             else:

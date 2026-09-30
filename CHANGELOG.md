@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed a board circuit read from the cache logging "(0 s)": P02 Rev E's
+  U4, U14 and U5 now say "read from the cache".
 - Changed a psiJB's or thetaJB's junction estimate to add to the board
   1 mm from the package, where JEDEC JESD51-8 and -12 measure it, not to
   the peak of the part's own pads: that peak rose at every refinement (P02
