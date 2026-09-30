@@ -175,6 +175,17 @@ class TestMissingPowerRating(unittest.TestCase):
         ctx = SchematicRuleContext(netlist=_netlist("b1", [capacitor, self._resistor(False)], nets))
         self.assertEqual([f.components for f in _check_missing_power_rating(ctx)], [["R5"]])
 
+    def test_a_rating_written_in_the_value_counts(self):
+        # P02 Rev E's shunt R49 reads "7.5m 1% / 3W" and was listed as lacking one.
+        nets = [NetInfo("+5V_U4", "b1", True, False, 5.08), NetInfo("+5V_RAIL", "b1", True, False, 5.0)]
+        shunt = ComponentInfo(
+            reference="R49", value="7.5m 1% / 3W", lib_id="Device:R", datasheet="",
+            extra_fields={}, position=(0, 0), nets_by_pad={"1": "+5V_U4"},
+            pin_types_by_pad={"1": "passive"},
+        )
+        ctx = SchematicRuleContext(netlist=_netlist("b1", [shunt, self._resistor(False)], nets))
+        self.assertEqual([f.components for f in _check_missing_power_rating(ctx)], [["R5"]])
+
 
 class TestCrossBoardLinks(unittest.TestCase):
 

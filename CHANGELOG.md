@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Changed SCH-003 to count a wattage written in a resistor's value or any
+  field: P02 Rev E's shunt R49, "7.5m 1% / 3W", was listed as unrated (30
+  resistors, now 29).
 - Changed a derived AC target to print four significant figures: P02 Rev
   E's /+5V_RAIL read "0.0429947 ohm" beside "0.3741 ohm", now 0.04299.
 - Fixed a board circuit read from the cache logging "(0 s)": P02 Rev E's

@@ -75,6 +75,9 @@ _RESISTOR_REF_RE = re.compile(r"^R\d", re.IGNORECASE)
 # dielectric code put 22 ceramic capacitors in SCH-003's list of resistors.
 _RESISTOR_VALUE_RE = re.compile(r"(?<![A-Za-z0-9.])\d+\.?\d*\s*[kKmM]?\s*(ohm|Ω|r)\b", re.IGNORECASE)
 _POWER_FIELD_RE = re.compile(r"power|watt", re.IGNORECASE)
+# A rating written into the value or another field: "3W", "0.25 W", "1/4W",
+# "250mW". P02 Rev E's shunt R49 reads "7.5m 1% / 3W".
+_POWER_RATING_RE = re.compile(r"(?<![\w.,/])(\d+(?:[.,]\d+)?|\d+/\d+)\s*[mk]?W\b")
 _UNCONNECTED_PREFIX = "unconnected-"
 
 
@@ -101,7 +104,10 @@ def _is_resistor(component: ComponentInfo) -> bool:
 
 
 def _has_power_field(component: ComponentInfo) -> bool:
-    return any(_POWER_FIELD_RE.search(key) for key in component.extra_fields)
+    if any(_POWER_FIELD_RE.search(key) for key in component.extra_fields):
+        return True
+    texts = [component.value or ""] + [str(text or "") for text in component.extra_fields.values()]
+    return any(_POWER_RATING_RE.search(text) for text in texts)
 
 
 # ---------------------------------------------------------------------------
