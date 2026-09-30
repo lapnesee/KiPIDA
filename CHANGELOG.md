@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed a track segment shorter than the 1 um snap being skipped though
+  its ends rounded to two different nodes: P02 Rev E's /J1_PD_OUT has a
+  0.8 um segment at (228.67, 66.11), and R92 and U1 sat on a 478-node
+  island every DC and thermal run reported as floating copper.
 - Fixed AC ports, sources and capacitors meeting the hybrid mesh at one
   node per pad, a contact that shrank as the grid was refined: P02 Rev E's
   /VBUS_SYS, ported on Q10 with no ground pad, read 0.1725 and 0.2013 ohm

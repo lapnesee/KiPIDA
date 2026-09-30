@@ -438,8 +438,13 @@ class HybridMesher:
             added = False
             for start_mm, end_mm in zip(stations, stations[1:]):
                 piece_mm = end_mm - start_mm
-                if piece_mm <= _SNAP:
+                if piece_mm <= 0.0:
                     continue
+                # A piece shorter than the snap is still copper when its ends
+                # round to two different nodes: P02 Rev E's /J1_PD_OUT has a
+                # 0.8 um segment from (228.67, 66.11) to (228.669433,
+                # 66.110567), and skipping it left R92 and U1 on a 478-node
+                # island. Ends that round to one node share it already (u == v).
                 u = attach(x0 + (x1 - x0) * start_mm / length_mm,
                            y0 + (y1 - y0) * start_mm / length_mm, layer_id,
                            contact_radius_mm=width_mm / 2.0, contact_thickness_mm=thickness_mm,
@@ -452,7 +457,7 @@ class HybridMesher:
                     # Both ends adopted the same node: copper already joined.
                     continue
                 mesh.add_edge_direct(
-                    u, v, 1.0 / (R * piece_mm / length_mm),
+                    u, v, 1.0 / (R * max(piece_mm, _SNAP) / length_mm),
                     kind="lateral",
                     cross_section_mm2=cs,
                     geometry_source=f"seg:{seg.layer}",

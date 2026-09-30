@@ -115,6 +115,22 @@ class CopperLandTests(unittest.TestCase):
                     stack.append(neighbour)
         return b in seen
 
+    def test_a_segment_shorter_than_the_snap_still_joins_its_ends(self):
+        # P02 Rev E's /J1_PD_OUT: a 0.8 um segment whose ends round to two
+        # nodes 1 um apart left R92 and U1 on a 478-node island.
+        from ingest.board_reader import Segment
+        from mesh_hybrid import HybridMesher
+
+        board = _junction_board(segments=[
+            Segment("VCC", 0.25, "F.Cu", (5.0, 5.0), (8.67, 5.0)),
+            Segment("VCC", 0.25, "F.Cu", (8.67, 5.0), (8.669433, 5.000567)),
+            Segment("VCC", 0.25, "F.Cu", (8.669433, 5.000567), (1.0, 5.000567)),
+        ])
+        mesh = HybridMesher(board, grid_step_mm=0.1).build_mesh("VCC")
+        start = next(n for n, c in mesh.node_coords.items() if c[:2] == (5.0, 5.0))
+        end = next(n for n, c in mesh.node_coords.items() if c[:2] == (1.0, 5.001))
+        self.assertTrue(self._connected(mesh, start, end))
+
     def test_a_track_ending_off_centre_on_a_via_land_reaches_the_via(self):
         # R9's feed on +3V3AON stops 0.14 mm from a 0.7 mm via's centre.
         from ingest.board_reader import Segment, Via
