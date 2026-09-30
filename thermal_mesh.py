@@ -1132,6 +1132,28 @@ class ThermalMesher:
                                 on_copper.append((candidate, float(copper[iy, ix])))
             return nodes, on_copper
 
+        def pad_cells(pads, iz):
+            """``[(node, share)]``: the slice's cells under *pads*, each by the pad area it holds."""
+            weights = {}
+            for pad in pads:
+                pad_min_x, pad_min_y, pad_max_x, pad_max_y = pad.bounds
+                ix_start = max(0, int(math.floor((pad_min_x - min_x) / grid)))
+                ix_stop = min(nx - 1, int(math.floor((pad_max_x - min_x) / grid)))
+                iy_start = max(0, int(math.floor((pad_min_y - min_y) / grid)))
+                iy_stop = min(ny - 1, int(math.floor((pad_max_y - min_y) / grid)))
+                for iy in range(iy_start, iy_stop + 1):
+                    for ix in range(ix_start, ix_stop + 1):
+                        candidate = mesh.node_map.get((ix, iy, iz))
+                        if candidate is None:
+                            continue
+                        overlap = pad.intersection(box(
+                            min_x + ix * grid, min_y + iy * grid,
+                            min_x + (ix + 1) * grid, min_y + (iy + 1) * grid,
+                        )).area
+                        if overlap > 0.0:
+                            weights[candidate] = weights.get(candidate, 0.0) + overlap
+            return list(weights.items())
+
         # TH-9: the energy-balance check thermal_solver.py publishes only
         # compares what was deposited to what the linear solve's own row
         # sums say left through the boundaries -- a component that never
@@ -1152,25 +1174,31 @@ class ThermalMesher:
             # Stackup order is F.Cu -> B.Cu; component heat must therefore be
             # injected into the first slice for Top and the last for Bottom.
             iz = len(specs) - 1 if placement.side == "BOTTOM" else 0
-            copper = copper_share.get(iz)
-            nodes, on_copper = window_cells(placement, iz, copper, 0.0)
-            # A package's heat enters the board through the copper it is
-            # soldered to, not the bare laminate between its pads. Spread over
-            # every cell of its window, U14 on P02 Rev E heated laminate cells
-            # to 128 C over copper at 98 C, at any grid step. Each cell takes a
-            # share of the heat in proportion to the copper it holds: counting
-            # only cells wholly copper, a pad no larger than a cell had none,
-            # and at 0.4 mm U15's 0.5 mm pads all went uncounted and its heat
-            # landed on pours up to 1.8 mm outside the package, 16 K cooler
-            # than at 0.2 mm. A window whose copper the grid samples in fewer
-            # than COMPONENT_HEAT_MIN_CELLS cells grows by a cell a side, twice
-            # at most: at 2 mm one cell held all of U14 and read 158 C.
-            growth = 0
-            while (copper is not None and len(on_copper) < self.COMPONENT_HEAT_MIN_CELLS
-                   and growth < self.COMPONENT_HEAT_MAX_GROWTH):
-                growth += 1
-                _grown, on_copper = window_cells(placement, iz, copper, growth * grid)
-            shares = on_copper or [(candidate, 1.0) for candidate in nodes]
+            # A package's heat enters the board through its solder joints: the
+            # cells under its heat pads, each by the pad area it holds. Spread
+            # over all copper under the package instead, Q10's 1.06 W on P02 Rev
+            # E heated the /SYS_5V_SW1 pour under its body, soldered to
+            # nothing, and that pour cell was the board's 115.2 C hotspot.
+            shares = pad_cells(getattr(placement, "heat_pads", None) or [], iz)
+            if not shares:
+                # A placement without pads: the copper of its window. Spread
+                # over every cell of it, U14 heated laminate cells to 128 C over
+                # copper at 98 C, at any grid step. Each cell takes a share in
+                # proportion to the copper it holds: counting only cells wholly
+                # copper, a pad no larger than a cell had none, and at 0.4 mm
+                # U15's 0.5 mm pads all went uncounted and its heat landed on
+                # pours up to 1.8 mm outside the package, 16 K cooler than at
+                # 0.2 mm. A window whose copper the grid samples in fewer than
+                # COMPONENT_HEAT_MIN_CELLS cells grows by a cell a side, twice
+                # at most: at 2 mm one cell held all of U14 and read 158 C.
+                copper = copper_share.get(iz)
+                nodes, on_copper = window_cells(placement, iz, copper, 0.0)
+                growth = 0
+                while (copper is not None and len(on_copper) < self.COMPONENT_HEAT_MIN_CELLS
+                       and growth < self.COMPONENT_HEAT_MAX_GROWTH):
+                    growth += 1
+                    _grown, on_copper = window_cells(placement, iz, copper, growth * grid)
+                shares = on_copper or [(candidate, 1.0) for candidate in nodes]
             if not shares:
                 nearest = mesh.nearest_node(placement.x_mm, placement.y_mm, specs[iz].layer_id)
                 shares = [(nearest, 1.0)] if nearest is not None else []

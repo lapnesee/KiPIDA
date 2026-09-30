@@ -123,6 +123,26 @@ class TestThermalSolver(unittest.TestCase):
         self.assertTrue(all(4.0 <= x <= 6.0 and 3.75 <= y <= 6.25 for x, y in heated))
         self.assertAlmostEqual(sum(mesh.heat_sources_w.values()), 1.0)
 
+    def test_a_package_heats_its_heat_pads_not_the_pour_under_its_body(self):
+        # P02 Rev E's Q10 (CSD18540Q5B): spread over all copper under the part,
+        # its heat warmed the /SYS_5V_SW1 pour under its body, soldered to
+        # nothing, and that pour was the board's 115.2 C hotspot. Its drain
+        # pad is 17.4 mm2 against 0.97 mm2 for its gate.
+        from thermal_model import heat_pads
+
+        drain = box(5.5, 3.0, 9.0, 7.0)
+        gate = box(1.0, 6.0, 2.0, 7.0)
+        self.assertEqual(heat_pads([drain, gate]), [drain])
+        model = self._model()
+        model.copper_by_layer[0] = drain.union(gate).union(box(1.0, 3.0, 5.0, 5.5))
+        model.placements["U1"] = ThermalPlacement("U1", 5.0, 5.0, 8.0, 4.0, "TOP", heat_pads=[drain])
+        settings = self._settings()
+        settings.grid_size_mm = 0.5
+        mesh = ThermalMesher().generate_mesh(model, settings)
+        heated = [mesh.node_coords[node][:2] for node in mesh.heat_sources_w]
+        self.assertTrue(all(5.5 <= x <= 9.0 and 3.0 <= y <= 7.0 for x, y in heated))
+        self.assertAlmostEqual(sum(mesh.heat_sources_w.values()), 1.0)
+
     def test_a_psijb_is_referred_to_the_board_1_mm_from_the_package(self):
         # P02 Rev E's U15 states a psiJB (SLVSGT9D 6.4), which JEDEC JESD51-12
         # refers to the board 1 mm from the package; added to the peak of its

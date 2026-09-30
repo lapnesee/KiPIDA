@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Changed a package's thermal heat to enter the board through its heat
+  pads (those of at least a quarter of its largest pad's area), not all
+  copper under it: P02 Rev E's 115.21 C hotspot sat on the /SYS_5V_SW1
+  pour under Q10's body, soldered to nothing; Q10 now heats its 17.4 mm2
+  drain pad, U14 its exposed pad, U15 its four power pads.
 - Changed SCH-003 to count a wattage written in a resistor's value or any
   field: P02 Rev E's shunt R49, "7.5m 1% / 3W", was listed as unrated (30
   resistors, now 29).

@@ -37,6 +37,27 @@ class ThermalPlacement:
     width_mm: float
     depth_mm: float
     side: str = "TOP"
+    # The copper outlines of the pads the package's heat enters the board
+    # through (heat_pads); empty leaves the mesher its placement window.
+    heat_pads: list = field(default_factory=list)
+
+
+# A package's heat enters the board through its solder joints, and mostly
+# through its largest ones: an exposed or drain pad when it has one, every
+# lead when they are alike. A pad under this fraction of the largest one's
+# area carries a signal, not the heat: P02 Rev E's CSD18540Q5B gate pad is
+# 0.97 mm2 against its 17.4 mm2 drain pad, the TPS25948's control pins 0.04 to
+# 0.05 mm2 against its 0.25 mm2 power pads.
+HEAT_PAD_AREA_FRACTION = 0.25
+
+
+def heat_pads(polygons):
+    """The pad outlines, of *polygons*, a package's heat enters the board through."""
+    polygons = [item for item in polygons if item is not None and not item.is_empty and item.area > 0.0]
+    if not polygons:
+        return []
+    largest = max(item.area for item in polygons)
+    return [item for item in polygons if item.area >= HEAT_PAD_AREA_FRACTION * largest]
 
 
 @dataclass
@@ -505,6 +526,17 @@ class ThermalModelBuilder:
                 user_sized=component.model_source == "user",
             )
             layer = self._get_val(footprint, "layer", 0)
+            copper_ids = set((stackup.get("copper") or {}).keys())
+            outlines = []
+            for pad in self._pads(footprint):
+                declared = list(extractor.pad_layers(pad))
+                # A paste-only aperture is no joint; a pad stating no layer is kept.
+                if declared and copper_ids and not any(lid in copper_ids for lid in declared):
+                    continue
+                try:
+                    outlines.append(extractor.pad_polygon(pad))
+                except Exception:
+                    continue
             placements[ref_des] = ThermalPlacement(
                 ref_des=ref_des,
                 x_mm=position[0],
@@ -512,6 +544,7 @@ class ThermalModelBuilder:
                 width_mm=width,
                 depth_mm=depth,
                 side="BOTTOM" if self._is_bottom_layer(layer, bottom_layer_id) else "TOP",
+                heat_pads=heat_pads(outlines),
             )
             if ref_des in saved_components:
                 saved_components[ref_des].width_mm = width

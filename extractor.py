@@ -1006,6 +1006,79 @@ class GeometryExtractor:
     def _zone_geometry_from_file(self, net_name):
         return dict(self._load_file_zone_geometry().get(net_name, {}))
 
+    def pad_polygon(self, pad):
+        """A pad's copper outline in board mm: a circle, or its rectangle turned by its angle.
+
+        Its size is the pad's own or, failing that, its padstack's first
+        copper layer's; a pad reporting neither is taken as 1 x 1 mm.
+        """
+        # Position (Absolute)
+        pos = self._get_val(pad, 'position')
+        x_mm = to_mm(self._get_val(pos, 'x', 0))
+        y_mm = to_mm(self._get_val(pos, 'y', 0))
+
+        # Size & Shape
+        w_mm = 0
+        h_mm = 0
+        shape_type = 0 # 0=Circle, 1=Rect, 2=RoundRect/Oval? Need verification.
+
+        # Try direct size first
+        size = self._get_val(pad, 'size')
+        if size:
+            w_mm = to_mm(self._get_val(size, 'x', 0))
+            h_mm = to_mm(self._get_val(size, 'y', 0))
+            shape_type = self._get_val(pad, 'shape', 1)
+
+        # Fallback to padstack
+        if w_mm == 0:
+            ps = self._get_val(pad, 'padstack')
+            if ps:
+                cls = self._get_val(ps, 'copper_layers', [])
+                if cls and len(cls) > 0:
+                    l0 = cls[0]
+                    sz = self._get_val(l0, 'size')
+                    w_mm = to_mm(self._get_val(sz, 'x', 0))
+                    h_mm = to_mm(self._get_val(sz, 'y', 0))
+                    shape_type = self._get_val(l0, 'shape', 1)
+
+        if w_mm == 0: w_mm = 1.0
+        if h_mm == 0: h_mm = 1.0
+
+        # Rotation
+        pad_rot = self._get_val(pad, 'rotation', 0)
+        if pad_rot == 0:
+             ps = self._get_val(pad, 'padstack')
+             pad_rot = self._get_val(ps, 'angle', 0)
+        try: pad_rot = float(pad_rot)
+        except: pad_rot = 0.0
+
+        # Create Shape
+        # Shape types (Empirical/Guess based on kipy enum):
+        # PSS_CIRCLE = 0, PSS_RECT = 1, PSS_ROUNDRECT = 2, PSS_OVAL = 3
+        # For now, treat Circle as Circle, everything else as Box/Rect
+        # If only one dimension is relevant for circle, usually x==y
+
+        # Note: 'shape' attribute value 2 seen in inspection for Rect/RoundRect pads
+
+        if str(shape_type) == 'PSS_CIRCLE' or shape_type == 0:
+            # Circle
+            return Point(x_mm, y_mm).buffer(w_mm / 2)
+        # Rectangle / Oval / RoundRect
+        base_box = box(-w_mm / 2, -h_mm / 2, w_mm / 2, h_mm / 2)
+        rotated_shape = affinity.rotate(base_box, -pad_rot, origin=(0, 0))
+        return affinity.translate(rotated_shape, x_mm, y_mm)
+
+    def pad_layers(self, pad):
+        """The layer ids a pad declares, its padstack's when it states none itself."""
+        layers = self._get_val(pad, 'layers')
+        if not layers:
+            ps = self._get_val(pad, 'padstack')
+            if ps:
+                layers = self._get_val(ps, 'layers')
+                if not layers:
+                     layers = self._get_val(ps, 'copper_layers')
+        return layers or []
+
     def get_net_geometry(self, net_name, merge=True):
         """
         Extracts and merges geometry for a specific net.
@@ -1180,83 +1253,8 @@ class GeometryExtractor:
                     
         # 2. Process Pads (Footprints)
         for pad in self._get_items_for_net('pads', net_name):
-                net = self._get_val(pad, 'net')
-                p_net_name = self._get_val(net, 'name', "")
-                    
-                # Geometry
-                # Position (Absolute)
-                pos = self._get_val(pad, 'position')
-                x_mm = to_mm(self._get_val(pos, 'x', 0))
-                y_mm = to_mm(self._get_val(pos, 'y', 0))
-                
-                # Size & Shape
-                w_mm = 0
-                h_mm = 0
-                shape_type = 0 # 0=Circle, 1=Rect, 2=RoundRect/Oval? Need verification.
-                
-                # Try direct size first
-                size = self._get_val(pad, 'size')
-                if size:
-                    w_mm = to_mm(self._get_val(size, 'x', 0))
-                    h_mm = to_mm(self._get_val(size, 'y', 0))
-                    shape_type = self._get_val(pad, 'shape', 1)
-                
-                # Fallback to padstack
-                if w_mm == 0:
-                    ps = self._get_val(pad, 'padstack')
-                    if ps:
-                        cls = self._get_val(ps, 'copper_layers', [])
-                        if cls and len(cls) > 0:
-                            l0 = cls[0]
-                            sz = self._get_val(l0, 'size')
-                            w_mm = to_mm(self._get_val(sz, 'x', 0))
-                            h_mm = to_mm(self._get_val(sz, 'y', 0))
-                            shape_type = self._get_val(l0, 'shape', 1)
-
-                if w_mm == 0: w_mm = 1.0
-                if h_mm == 0: h_mm = 1.0
-
-                # Rotation
-                pad_rot = self._get_val(pad, 'rotation', 0)
-                if pad_rot == 0:
-                     ps = self._get_val(pad, 'padstack')
-                     pad_rot = self._get_val(ps, 'angle', 0)
-                try: pad_rot = float(pad_rot)
-                except: pad_rot = 0.0
-                
-                # Create Shape
-                # Shape types (Empirical/Guess based on kipy enum): 
-                # PSS_CIRCLE = 0, PSS_RECT = 1, PSS_ROUNDRECT = 2, PSS_OVAL = 3
-                # For now, treat Circle as Circle, everything else as Box/Rect
-                # If only one dimension is relevant for circle, usually x==y
-                
-                # Note: 'shape' attribute value 2 seen in inspection for Rect/RoundRect pads
-                
-                pad_poly = None
-                
-                if str(shape_type) == 'PSS_CIRCLE' or shape_type == 0:
-                     # Circle
-                     pad_poly = Point(x_mm, y_mm).buffer(w_mm / 2)
-                else:
-                    # Rectangle / Oval / RoundRect
-                    minx, miny = -w_mm/2, -h_mm/2
-                    maxx, maxy = w_mm/2, h_mm/2
-                    base_box = box(minx, miny, maxx, maxy)
-                    rotated_shape = affinity.rotate(base_box, -pad_rot, origin=(0,0))
-                    pad_poly = affinity.translate(rotated_shape, x_mm, y_mm)
-                
-                # Layers
-                layers = self._get_val(pad, 'layers')
-                if not layers:
-                    ps = self._get_val(pad, 'padstack')
-                    if ps:
-                        layers = self._get_val(ps, 'layers')
-                        if not layers:
-                             layers = self._get_val(ps, 'copper_layers')
-
-                if not layers: layers = []
-                
-                for lid in layers:
+                pad_poly = self.pad_polygon(pad)
+                for lid in self.pad_layers(pad):
                    if is_copper(lid):
                        add_shape(lid, pad_poly)
 
