@@ -137,11 +137,14 @@ def stranded_pads(mesh: Mesh, anchor_nodes) -> list:
     else the largest piece. A pad on another piece is joined to its net by
     no track, pour or via: the solver drops that piece as a floating island
     and said nothing of the parts on it. P02 Rev E's C88 and R10 each sat
-    on an F.Cu GND pour piece with no via (11.99 and 8.74 mm2).
+    on an F.Cu GND pour piece with no via (11.99 and 8.74 mm2). A pad that
+    touches no copper of its net at all is left out of the mesh, and is
+    named too.
     """
+    unreached = list(getattr(mesh, "unreached_pads", None) or ())
     pads = dict(getattr(mesh, "pad_nodes", None) or {})
     if not pads or np is None or not mesh.nodes:
-        return []
+        return sorted(unreached)
     import scipy.sparse
     import scipy.sparse.csgraph
 
@@ -154,7 +157,7 @@ def stranded_pads(mesh: Mesh, anchor_nodes) -> list:
     main = {int(labels[node]) for node in anchor_nodes if 0 <= int(node) < count}
     if not main:
         main = {int(np.bincount(labels).argmax())}
-    return sorted(pad for pad, node in pads.items() if int(labels[node]) not in main)
+    return sorted(unreached + [pad for pad, node in pads.items() if int(labels[node]) not in main])
 
 
 def _snap(v: float) -> float:
@@ -257,8 +260,10 @@ class HybridMesher:
         # A net without pours must not inherit the step a previous net's pours
         # were coarsened to.
         self._effective_grid_step = self._grid_step
-        # Each attached pad's node, "REF.pad" -> node id (stranded_pads).
+        # Each attached pad's node, "REF.pad" -> node id, and the pads that
+        # touch no copper of the net (stranded_pads).
         mesh.pad_nodes = {}
+        mesh.unreached_pads = []
         node_registry: dict[tuple[float, float, int], int] = {}
         node_counter = [0]
         # Zone nodes indexed by their grid cell, so a track landing on a plane
@@ -616,6 +621,7 @@ class HybridMesher:
                 # result: those nodes then capture load and source lookups that
                 # would otherwise have found the real network.
                 if not any(probe(px, py, layer_id) is not None for _n, layer_id in span):
+                    mesh.unreached_pads.append(f"{footprint.reference}.{pad.number}")
                     continue
                 pad_w, pad_h = (tuple(getattr(pad, "size_mm", ()) or ()) + (0.0, 0.0))[:2]
                 pad_radius_mm = max(pad_w, pad_h) / 2.0

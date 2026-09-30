@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Changed DC-008 to also name a pad that touches no copper of its net:
+  the hybrid mesher left such a pad out without a word. None of P02 Rev
+  E's 172 GND and 17 rails' pads is one; C88 and R10 stay the only two.
 - Changed TH-006 to read each junction at both mesh steps and to go HIGH
   when a first-order extrapolation crosses the limit: P02 Rev E's U15 sat
   2.7 K under its 125 C limit while the hotspot moved 3.28 K between 0.2

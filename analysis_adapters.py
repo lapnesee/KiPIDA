@@ -1883,10 +1883,10 @@ def _dc_stranded_pads_finding(net, index, pads):
     finding = _finding(
         "DC-008", index, "CONNECTIVITY", FindingSeverity.HIGH,
         f"{net} pads are cut off from the rest of the net",
-        f"{', '.join(pads)} sit on {net} copper that no track, pour or via joins to the "
-        "copper its sources are on: as saved, these parts are not connected to "
-        f"{net}. The solve drops that copper as a floating island. Pours are meshed "
-        "on a lattice, so a neck narrower than its step can also part them.",
+        f"No track, pour or via joins {', '.join(pads)} to the {net} copper its sources "
+        f"are on: as saved, these parts are not connected to {net}. The solve drops "
+        "such copper as a floating island. Pours are meshed on a lattice, so a neck "
+        "narrower than its step can also part them.",
         "Check KiCad's DRC unconnected items after refilling the zones, and join each "
         "pad to the net with a via or a track.",
     )
