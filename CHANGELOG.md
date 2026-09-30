@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed TH-004 to go LOW when the hotspot moves between grid steps but
+  no junction estimate does, and to name the finest grid the node limit
+  allows: P02 Rev E's hotspot moved 2.87 C (F1 and F2 0.1 and 0.2 K), and
+  "a finer grid" meant 0.1 mm, 6.2 M nodes against 4 M; it names 0.127 mm.
 - Changed a package's thermal heat to enter the board through its heat
   pads (those of at least a quarter of its largest pad's area), not all
   copper under it: P02 Rev E's 115.21 C hotspot sat on the /SYS_5V_SW1

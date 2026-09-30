@@ -247,6 +247,28 @@ class AdapterStatesIt(unittest.TestCase):
         metric = next(item for item in result.metrics if item.key == "hotspot_mesh_sensitivity")
         self.assertEqual((metric.value, metric.status), (4.4, "WARN"))
 
+    def test_a_hotspot_move_that_no_junction_follows_is_low_and_says_how_fine_to_go(self):
+        # P02 Rev E, 2026-10-01 00:21: the hotspot read 115.21 C at 0.2 mm and
+        # 112.34 C at 0.4 mm while F1 and F2 moved 0.1 and 0.2 K, and "rerun
+        # with a finer grid" meant 0.1 mm, 6.2 M nodes against a 4 M limit.
+        from analysis_adapters import adapt_thermal_result
+        from analysis_contract import FindingSeverity
+
+        result = adapt_thermal_result(
+            SimpleNamespace(converged=True, energy_balance_error_pct=0.0),
+            mesh_sensitivity={
+                "fine_grid_mm": 0.2, "coarse_grid_mm": 0.4,
+                "fine_hotspot_c": 115.21, "coarse_hotspot_c": 112.34, "delta_c": 2.87,
+                "component_tj_c": {"F1": (88.6, 88.7), "F2": (86.4, 86.6)},
+                "fine_nodes": 1545951, "node_limit": 4000000,
+                "finest_grid_mm": 0.2 * (1545951 / 4000000) ** 0.5 * 1.02,
+            },
+        )
+        finding = next(item for item in result.findings if item.rule_id == "TH-004")
+        self.assertEqual(finding.severity, FindingSeverity.LOW)
+        self.assertIn("at most 0.20 K (F2)", finding.description)
+        self.assertIn("Rerun at 0.127 mm", finding.recommendation)
+
     def test_agreement_is_published_without_being_called_convergence(self):
         result = self._result(0.8)
         self.assertNotIn("TH-004", {item.rule_id for item in result.findings})

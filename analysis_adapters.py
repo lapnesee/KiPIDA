@@ -1193,16 +1193,56 @@ def _thermal_mesh_sensitivity(mesh_sensitivity: Any):
             "mesh converged: on a synthetic board the 2 and 4 mm solves agreed within 0.8 C "
             "while the 0.5 and 1 mm solves were 4 C apart (validation/thermal_mesh_sensitivity.py)."
         ]
+    # The junction estimates are what the thermal margins are judged on: when
+    # none moves past the limit, the hotspot's move leaves every margin as
+    # it is, and the finding says so at LOW rather than MEDIUM.
+    moves = sorted(
+        ((abs(float(pair[0]) - float(pair[1])), str(ref))
+         for ref, pair in (data.get("component_tj_c") or {}).items()),
+        reverse=True,
+    )
+    junctions_hold = bool(moves) and moves[0][0] <= THERMAL_MESH_SENSITIVITY_LIMIT_C
+    if junctions_hold:
+        junction_text = (
+            f" The junction estimates moved at most {moves[0][0]:.2f} K ({moves[0][1]}), within "
+            f"that {THERMAL_MESH_SENSITIVITY_LIMIT_C:g} C: no part's margin depends on the mesh, "
+            "only the hotspot's figure does."
+        )
+    elif moves:
+        junction_text = (
+            f" {moves[0][1]}'s junction estimate moved {moves[0][0]:.2f} K, past that "
+            f"{THERMAL_MESH_SENSITIVITY_LIMIT_C:g} C as well."
+        )
+    else:
+        junction_text = ""
+    fine_mm = float(data.get("fine_grid_mm", 0.0) or 0.0)
+    finest_mm = float(data.get("finest_grid_mm", 0.0) or 0.0)
+    node_limit = int(data.get("node_limit", 0) or 0)
+    if finest_mm and finest_mm < fine_mm:
+        # "A finer grid" at half the step would not fit: P02 Rev E's 0.1 mm
+        # needed 6.2 M nodes against a 4 M limit.
+        rerun = (
+            f"Rerun at {finest_mm:.3g} mm, the finest grid the {node_limit:,}-node limit allows, "
+            f"to see whether it settles"
+        )
+    elif finest_mm:
+        rerun = (
+            f"The {node_limit:,}-node limit leaves no finer grid than {fine_mm:g} mm; raise the "
+            "memory ceiling in Runtime settings to afford one"
+        )
+    else:
+        rerun = f"Rerun with a finer grid until the check stays under {THERMAL_MESH_SENSITIVITY_LIMIT_C:g} C"
     return metrics, [_finding(
-        "TH-004", 1, "NUMERICS", FindingSeverity.MEDIUM,
+        "TH-004", 1, "NUMERICS",
+        FindingSeverity.LOW if junctions_hold else FindingSeverity.MEDIUM,
         "Thermal result is not converged in mesh",
         f"The hotspot is {float(data.get('fine_hotspot_c', 0.0)):.2f} C at "
-        f"{float(data.get('fine_grid_mm', 0.0)):g} mm and "
+        f"{fine_mm:g} mm and "
         f"{float(data.get('coarse_hotspot_c', 0.0)):.2f} C at "
         f"{float(data.get('coarse_grid_mm', 0.0)):g} mm, {delta:.2f} C apart, more than the "
-        f"{THERMAL_MESH_SENSITIVITY_LIMIT_C:g} C the mesh may move a converged result.",
-        f"Rerun with a finer grid until the check stays under {THERMAL_MESH_SENSITIVITY_LIMIT_C:g} C; "
-        f"until then read temperatures as uncertain by at least {delta:.1f} C.",
+        f"{THERMAL_MESH_SENSITIVITY_LIMIT_C:g} C the mesh may move a converged result."
+        + junction_text,
+        f"{rerun}; until then read the hotspot as uncertain by at least {delta:.1f} C.",
         confidence=EvidenceConfidence.DETERMINISTIC,
     )], []
 

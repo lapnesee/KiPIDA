@@ -2,6 +2,7 @@
 
 import copy
 from dataclasses import dataclass, replace
+import math
 import time
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -497,9 +498,10 @@ class ThermalSolverEngine:
             emit(f"[mesh sensitivity, {fine_step * 2.0:g} mm] {message}")
 
         emit(f"Checking mesh sensitivity: solving again at {fine_step * 2.0:g} mm.")
-        coarse_mesh = self._mesher_factory(
+        mesher = self._mesher_factory(
             debug=request.debug, log_callback=marked, compute_settings=request.compute_settings,
-        ).generate_mesh(
+        )
+        coarse_mesh = mesher.generate_mesh(
             model, coarse_settings, progress_callback=quiet,
             air_velocity_m_s=request.air_velocity_m_s,
         )
@@ -521,7 +523,7 @@ class ThermalSolverEngine:
             str(item.ref_des): float(item.junction_temperature_c)
             for item in getattr(coarse, "component_results", ()) or ()
         }
-        return {
+        data = {
             "fine_grid_mm": fine_step,
             "coarse_grid_mm": coarse_step,
             "fine_hotspot_c": float(hotspot.temperature_c),
@@ -533,6 +535,22 @@ class ThermalSolverEngine:
                 if str(item.ref_des) in coarse_tj
             },
         }
+        # The finest grid the mesher's node limit leaves room for, which a
+        # finer rerun can reach: nodes grow as the square of 1 / step, and
+        # the mesher keeps 2 % under its limit (generate_mesh). P02 Rev E's
+        # 0.2 mm solve held 1,545,951 nodes against a 4,000,000 limit, so
+        # "a finer grid" could go down to 0.127 mm, not 0.1 mm.
+        vector = getattr(result, "temperature_vector_c", None)
+        fine_nodes = int(len(vector)) if vector is not None else 0
+        try:
+            node_limit = int(mesher._node_limit()[0])
+        except Exception:
+            node_limit = 0
+        if fine_nodes > 0 and node_limit > 0:
+            data["fine_nodes"] = fine_nodes
+            data["node_limit"] = node_limit
+            data["finest_grid_mm"] = fine_step * math.sqrt(fine_nodes / float(node_limit)) * 1.02
+        return data
 
 
 class ThermalAnalysisController(BackgroundAnalysisController):
