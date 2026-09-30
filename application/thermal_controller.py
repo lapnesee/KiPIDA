@@ -293,6 +293,8 @@ class ThermalSolverEngine:
         # cache key, mesh sensitivity -- sees it for free.
         enclosure = getattr(request, "enclosure", None)
         enclosure_air_rise_k = None
+        outside_ambient_c = float(request.settings.ambient_c)
+        ambient_for_heat_w = None
         if enclosure is not None:
             heat_w = _estimate_total_heat_w(model, request.coupled, system_results)
             enclosure_air_rise_k = enclosure_internal_air_rise_k(enclosure, heat_w)
@@ -300,6 +302,12 @@ class ThermalSolverEngine:
                 elevated_settings = copy.copy(request.settings)
                 elevated_settings.ambient_c = float(request.settings.ambient_c) + enclosure_air_rise_k
                 request = replace(request, settings=elevated_settings)
+                # The coupled loop balances the air again on the heat each
+                # iteration deposits. P02 Rev E, 2026-09-30 13:52: 4.96 W
+                # estimated here, 5.18 W converged, the air 0.7 K cooler
+                # than its own balance -- a quarter of U15's 2.7 K margin.
+                def ambient_for_heat_w(heat_w):
+                    return outside_ambient_c + enclosure_internal_air_rise_k(enclosure, heat_w)
                 emit(
                     "Enclosure configured (sealed box, wall h="
                     f"{float(enclosure.geometry.wall_heat_transfer_w_m2k):.3g} W/m2K): "
@@ -373,8 +381,18 @@ class ThermalSolverEngine:
             coupled_result = coupled_solver.solve(
                 mesh, request.settings, rail_contexts,
                 progress_callback=checked_progress, rails=list(request.rails),
+                **({"ambient_for_heat_w": ambient_for_heat_w} if ambient_for_heat_w else {}),
             )
             result = coupled_result.thermal
+            if ambient_for_heat_w is not None:
+                balanced_rise_k = float(request.settings.ambient_c) - outside_ambient_c
+                emit(
+                    "Enclosure air balanced on the coupled heat, "
+                    f"{float(coupled_result.total_heat_w):.3g} W: internal air "
+                    f"{float(request.settings.ambient_c):.3g} C (ambient + {balanced_rise_k:.3g} K, "
+                    f"{balanced_rise_k - enclosure_air_rise_k:+.2g} K on the estimate)."
+                )
+                enclosure_air_rise_k = balanced_rise_k
         else:
             coupled_result = None
             # Natural convection and radiation both depend on the surface

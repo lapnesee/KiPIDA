@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed the coupled thermal run to balance a sealed enclosure's air on
+  the heat each iteration deposits, not on a pre-solve estimate: P02 Rev
+  E's air rise was sized on 4.96 W (16.7 K) while the coupling converged
+  on 5.18 W, 0.7 K more, a quarter of U15's 2.7 K margin.
 - Added DC-008, naming the pads the saved copper joins to nothing else of
   their net: P02 Rev E's C88 and R10 GND pads sit on F.Cu pour pieces of
   11.99 and 8.74 mm2 with no via, and the solve only logged "Ignoring

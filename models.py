@@ -1058,6 +1058,8 @@ class ElectroThermalResult:
     dc_results: Dict[str, DCSolveResult] = field(default_factory=dict)
     iterations: int = 1
     converged: bool = True
+    # Heat the last iteration deposited: components at temperature plus copper.
+    total_heat_w: float = 0.0
 
 
 @dataclass

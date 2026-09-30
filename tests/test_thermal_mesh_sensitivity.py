@@ -137,6 +137,47 @@ class CoupledEngineAlsoSolvesTwice(unittest.TestCase):
         self.assertEqual(grids, [1.0, 2.0])
         self.assertAlmostEqual(outcome.mesh_sensitivity["delta_c"], 4.4, places=6)
 
+    def test_the_enclosure_air_follows_the_coupled_heat(self):
+        # P02 Rev E, 2026-09-30 13:52: the air rise was sized on 4.96 W
+        # estimated before the solve (16.7 K); the coupling converged on
+        # 5.18 W, whose own balance puts the air 0.7 K warmer.
+        from unittest.mock import patch
+        from application.thermal_controller import ThermalSolverEngine
+
+        per_watt = 16.7 / 4.96
+
+        class Mesher:
+            def __init__(self, **_kwargs):
+                pass
+
+            def generate_mesh(self, model, settings, progress_callback=None, air_velocity_m_s=None):
+                return SimpleNamespace(nodes=[0], grid=settings.grid_size_mm, surface_h_w_m2k={}, heat_sources_w={})
+
+        class Solver:
+            def __init__(self, **_kwargs):
+                pass
+
+            def solve_with_surface_refinement(self, mesh, settings, progress_callback=None):
+                return SimpleNamespace(hotspot=SimpleNamespace(temperature_c=100.0), effective_grid_size_mm=mesh.grid)
+
+        class CoupledSolver:
+            def __init__(self, **_kwargs):
+                pass
+
+            def solve(self, mesh, settings, rail_contexts, progress_callback=None, rails=None,
+                      ambient_for_heat_w=None):
+                settings.ambient_c = ambient_for_heat_w(5.18)
+                thermal = SimpleNamespace(hotspot=SimpleNamespace(temperature_c=100.0), effective_grid_size_mm=mesh.grid)
+                return SimpleNamespace(thermal=thermal, dc_results={}, iterations=1, converged=True, total_heat_w=5.18)
+
+        engine = ThermalSolverEngine(mesher_factory=Mesher, solver_factory=Solver, coupled_solver_factory=CoupledSolver)
+        with patch("application.thermal_controller.enclosure_internal_air_rise_k",
+                   lambda _enclosure, heat_w: per_watt * heat_w):
+            outcome = engine.solve(
+                self._request(enclosure=SimpleNamespace(geometry=SimpleNamespace(wall_heat_transfer_w_m2k=5.0))), lambda _m: None, lambda *_: None, lambda: False,
+            )
+        self.assertAlmostEqual(outcome.enclosure_air_rise_k, per_watt * 5.18)
+
     def test_a_failed_frozen_resolve_is_reported_not_verified(self):
         from application.thermal_controller import ThermalSolverEngine
 

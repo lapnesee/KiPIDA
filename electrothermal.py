@@ -138,7 +138,14 @@ class ElectroThermalSolver:
         return result
 
     def solve(self, thermal_mesh, settings, rail_contexts, progress_callback=None,
-              rails=None):
+              rails=None, ambient_for_heat_w=None):
+        """Iterate DC and thermal to a consistent field.
+
+        *ambient_for_heat_w*, when given, maps the heat an iteration deposits
+        to the air the board sits in, and each iteration solves at that air:
+        a sealed enclosure's internal air rises with the heat, which the
+        coupling itself raises (ohmic loss with temperature).
+        """
         if not rail_contexts:
             raise ValueError("Run a DC analysis before coupled electro-thermal analysis.")
         thermal_solver = self.thermal_solver or ThermalSolver(
@@ -277,6 +284,9 @@ class ElectroThermalSolver:
                     np.add.at(heat_vector, thermal_indices[deposit], losses[deposit])
 
             dc_phase_seconds = time.perf_counter() - iteration_started
+            total_heat_w = float(np.sum(heat_vector))
+            if ambient_for_heat_w is not None:
+                settings.ambient_c = float(ambient_for_heat_w(total_heat_w))
             thermal_result = thermal_solver.solve(
                 thermal_mesh, settings.ambient_c, materialize_temperatures=False
             )
@@ -348,4 +358,5 @@ class ElectroThermalSolver:
             dc_results=dc_results,
             iterations=iteration + 1,
             converged=converged,
+            total_heat_w=total_heat_w,
         )
