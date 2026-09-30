@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed a package's heat leaving its footprint when no grid cell lay
+  wholly on its pads: only whole-copper cells took heat, so at 0.4 mm
+  P02 Rev E's U15 (0.5 mm pads) put its 0.35 W on pours up to 1.8 mm away
+  and read 103.8 C against 119.8 C at 0.2 mm, which TH-006 extrapolated to
+  135.9 C. Each copper cell of the footprint now takes heat in proportion
+  to its copper; a model of the board around U15 spreads 2.0 K, not 5.7 K.
 - Changed the EMC analysis to value each switching source its board
   circuit settles from that circuit: Phase 10's SPICE audit and board
   circuits now run first, and the spectrum, SW-001 and the near-field

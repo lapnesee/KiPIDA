@@ -1059,15 +1059,20 @@ class ThermalMesher:
             f"in {time.perf_counter() - connectivity_started:.3f} s using vectorized arrays."
         )
 
-        # The copper cells of each outer slice, where a package's heat enters.
-        # The copper cells of each outer slice, where a package's heat enters.
-        copper_cells = {
-            iz: layer_grids[iz][1] >= self.COPPER_K
+        # Each outer slice's copper share per cell, where a package's heat
+        # enters: 1 inside copper, the covered fraction on a copper edge.
+        copper_share = {
+            iz: np.clip(
+                (layer_grids[iz][1] - self.FR4_K_XY) / (self.COPPER_K - self.FR4_K_XY), 0.0, 1.0,
+            )
             for iz in {0, len(specs) - 1} if specs[iz].material == "copper-layer"
         }
 
         def window_cells(placement, iz, copper, margin_mm):
-            """The slice's cells centred in the placement, grown by *margin_mm*: (all, copper)."""
+            """The slice's cells centred in the placement, grown by *margin_mm*.
+
+            ``(all, on_copper)``, *on_copper* as ``(node, copper share)``.
+            """
             nodes, on_copper = [], []
             # The former implementation scanned every node in the complete
             # 3D mesh for every component.  On a 0.01 mm 11-layer board that
@@ -1089,8 +1094,8 @@ class ThermalMesher:
                         candidate = mesh.node_map.get((ix, iy, iz))
                         if candidate is not None and left <= x <= right and bottom <= y <= top:
                             nodes.append(candidate)
-                            if copper is not None and copper[iy, ix]:
-                                on_copper.append(candidate)
+                            if copper is not None and copper[iy, ix] > 0.0:
+                                on_copper.append((candidate, float(copper[iy, ix])))
             return nodes, on_copper
 
         # TH-9: the energy-balance check thermal_solver.py publishes only
@@ -1113,29 +1118,33 @@ class ThermalMesher:
             # Stackup order is F.Cu -> B.Cu; component heat must therefore be
             # injected into the first slice for Top and the last for Bottom.
             iz = len(specs) - 1 if placement.side == "BOTTOM" else 0
-            copper = copper_cells.get(iz)
+            copper = copper_share.get(iz)
             nodes, on_copper = window_cells(placement, iz, copper, 0.0)
             # A package's heat enters the board through the copper it is
             # soldered to, not the bare laminate between its pads. Spread over
             # every cell of its window, U14 on P02 Rev E heated laminate cells
-            # to 128 C over copper at 98 C, at any grid step. A window whose
-            # copper the grid samples in fewer than COMPONENT_HEAT_MIN_CELLS
-            # cells grows by a cell a side, twice at most: at 2 mm one cell held
-            # all of U14 and read 158 C.
+            # to 128 C over copper at 98 C, at any grid step. Each cell takes a
+            # share of the heat in proportion to the copper it holds: counting
+            # only cells wholly copper, a pad no larger than a cell had none,
+            # and at 0.4 mm U15's 0.5 mm pads all went uncounted and its heat
+            # landed on pours up to 1.8 mm outside the package, 16 K cooler
+            # than at 0.2 mm. A window whose copper the grid samples in fewer
+            # than COMPONENT_HEAT_MIN_CELLS cells grows by a cell a side, twice
+            # at most: at 2 mm one cell held all of U14 and read 158 C.
             growth = 0
             while (copper is not None and len(on_copper) < self.COMPONENT_HEAT_MIN_CELLS
                    and growth < self.COMPONENT_HEAT_MAX_GROWTH):
                 growth += 1
                 _grown, on_copper = window_cells(placement, iz, copper, growth * grid)
-            if on_copper:
-                nodes = on_copper
-            if not nodes:
+            shares = on_copper or [(candidate, 1.0) for candidate in nodes]
+            if not shares:
                 nearest = mesh.nearest_node(placement.x_mm, placement.y_mm, specs[iz].layer_id)
-                nodes = [nearest] if nearest is not None else []
-            mesh.component_nodes[component.ref_des] = nodes
+                shares = [(nearest, 1.0)] if nearest is not None else []
+            total_share = sum(share for _candidate, share in shares)
+            mesh.component_nodes[component.ref_des] = [candidate for candidate, _share in shares]
             mesh.component_models[component.ref_des] = component
-            for candidate in nodes:
-                mesh.add_heat(candidate, component.power_w / len(nodes))
+            for candidate, share in shares:
+                mesh.add_heat(candidate, component.power_w * share / total_share)
 
         for loss in model.copper_losses:
             if loss.power_w <= 0:

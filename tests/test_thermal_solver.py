@@ -108,6 +108,21 @@ class TestThermalSolver(unittest.TestCase):
         mesh = ThermalMesher().generate_mesh(model, self._settings())
         self.assertGreaterEqual(len(mesh.heat_sources_w), ThermalMesher.COMPONENT_HEAT_MIN_CELLS)
 
+    def test_pads_no_cell_wholly_covers_still_take_their_package_heat(self):
+        # P02 Rev E's U15 at 0.4 mm: no cell lay wholly on its 0.5 mm pads,
+        # the window grew and its 0.35 W landed on pours up to 1.8 mm outside
+        # the package; its Tj read 103.8 C there against 119.8 C at 0.2 mm.
+        model = self._model()
+        model.copper_by_layer[0] = box(4.5, 4.5, 5.0, 5.0).union(
+            box(5.3, 5.3, 5.8, 5.8)).union(box(0.0, 0.0, 10.0, 3.4))
+        model.placements["U1"] = ThermalPlacement("U1", 5.0, 5.0, 2.0, 2.5, "TOP")
+        settings = self._settings()
+        settings.grid_size_mm = 0.4
+        mesh = ThermalMesher().generate_mesh(model, settings)
+        heated = [mesh.node_coords[node][:2] for node in mesh.heat_sources_w]
+        self.assertTrue(all(4.0 <= x <= 6.0 and 3.75 <= y <= 6.25 for x, y in heated))
+        self.assertAlmostEqual(sum(mesh.heat_sources_w.values()), 1.0)
+
     def test_zero_heat_settles_at_ambient(self):
         mesh = ThermalMesher().generate_mesh(self._model(power_w=0.0), self._settings())
         result = ThermalSolver().solve(mesh, ambient_c=25.0)
