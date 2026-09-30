@@ -552,6 +552,21 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertEqual(lost.components, ["U9"])
         self.assertIn("U9 (0.25 A)", lost.description)
 
+    def test_pads_cut_off_from_the_ground_are_named_once(self):
+        # P02 Rev E, 2026-09-30 13:46: C88's and R10's GND pads sat on F.Cu
+        # pour pieces no via joins, and the solve only said "Ignoring
+        # floating island" (276 and 329 nodes).
+        ground = {"net": "GND", "combined_load_drop_v": 0.0, "stranded_pads": ["C88.2", "R10.2"]}
+        rail = {
+            "stats": (5.0, 5.08, 0.015), "engine": "hybrid", "load_drop_v": 0.015,
+            "source_voltage_v": 5.08, "ground_return": ground,
+        }
+        result = adapt_dc_result({"/+5V_RAIL": dict(rail), "/+5V_U4": dict(rail)}, 5.0)
+        stranded = [item for item in result.findings if item.rule_id == "DC-008"]
+        self.assertEqual(len(stranded), 1)
+        self.assertEqual(stranded[0].components, ["C88", "R10"])
+        self.assertEqual(stranded[0].nets, ["GND"])
+
     def test_dc_states_the_missing_ground_return_and_the_assumed_plating(self):
         # Open since the 2026-09-13 audit and never said in the drop's own
         # limitations: the return path is not solved, and barrel plating is

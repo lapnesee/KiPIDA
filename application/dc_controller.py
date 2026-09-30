@@ -21,7 +21,7 @@ from advisor.rail_sources import (
 from extractor import GeometryExtractor, live_capture_has_no_copper
 from ingest.board_reader import read_board
 from mesh import Mesher
-from mesh_hybrid import HybridMesher, relabel_layers as _relabel_layers
+from mesh_hybrid import HybridMesher, relabel_layers as _relabel_layers, stranded_pads
 from solver import Solver
 from application.background_controller import BackgroundAnalysisController
 
@@ -592,6 +592,8 @@ class GroundReturn:
     detailed_result: Any
     rise_by_ref_v: Dict[str, float]
     unlocated: List[str] = field(default_factory=list)
+    # "REF.pad" on ground copper cut off from the sources' (stranded_pads).
+    stranded_pads: List[str] = field(default_factory=list)
 
 
 def _ground_injections(rails, demands_by_rail, rail_current, locate):
@@ -693,6 +695,7 @@ def _attach_ground_return(results, rails, ground):
             'combined_load_drop_v': worst,
             'combined_worst_ref': worst_ref,
             'unlocated': list(ground.unlocated),
+            'stranded_pads': list(getattr(ground, 'stranded_pads', ()) or ()),
         }
         data['ground_solution'] = ground
 
@@ -846,6 +849,7 @@ class DCSolverEngine:
                 worst_load_drop, source_voltage = _load_point_drop(voltages, sources, loads)
                 results[rail.net_name] = {
                     'mesh': mesh, 'results': voltages,
+                    'stranded_pads': stranded_pads(mesh, [source['node_id'] for source in sources]),
                     'stats': (min(values), max(values), max(values) - min(values)),
                     'load_drop_v': worst_load_drop,
                     'source_voltage_v': source_voltage,
@@ -1398,7 +1402,10 @@ class HybridDCSolverEngine(DCSolverEngine):
                 f"  No {net} pad located for: " + ", ".join(sorted(unlocated)[:12])
                 + (", ..." if len(unlocated) > 12 else "") + "; their return is not modelled."
             )
-        return GroundReturn(net, mesh, sources, loads, detailed, rise, sorted(unlocated))
+        stranded = stranded_pads(mesh, [source['node_id'] for source in sources])
+        if stranded:
+            emit(f"  {net} pads on copper cut off from the rest of the net: {', '.join(stranded)}.")
+        return GroundReturn(net, mesh, sources, loads, detailed, rise, sorted(unlocated), stranded)
 
     def _rail_extras(self, rail, request, context):
         return {

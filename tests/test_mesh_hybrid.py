@@ -334,6 +334,25 @@ class ThroughHolePadsBridgeLayers(unittest.TestCase):
         layers = {coord[2] for coord in mesh.node_coords.values()}
         self.assertEqual(layers, {0, 4, 2})
 
+    def test_a_pad_on_copper_apart_from_the_source_is_stranded(self):
+        from ingest.board_reader import Pad, Segment
+        from mesh_hybrid import HybridMesher, stranded_pads
+
+        board = _pads_board(
+            footprints=[_footprint([
+                Pad(number=str(index), net_name="VCC", pintype="passive", position=(x, 5.0),
+                    layers=("F.Cu",), shape="rect", size_mm=(0.5, 0.5))
+                for index, x in ((1, 2.0), (2, 8.0))
+            ])],
+            segments=[
+                Segment("VCC", 0.25, "F.Cu", (2.0, 5.0), (4.0, 5.0)),
+                Segment("VCC", 0.25, "F.Cu", (7.0, 5.0), (9.0, 5.0)),
+            ],
+        )
+        mesh = HybridMesher(board).build_mesh("VCC")
+        source = next(n for n, c in mesh.node_coords.items() if c[:2] == (4.0, 5.0))
+        self.assertEqual(stranded_pads(mesh, [source]), ["J6.2"])
+
     def test_a_pad_touching_no_copper_is_left_out(self):
         # Meshing pads unconditionally moved +5V_RAIL's source Q3 onto three
         # one-node components while its load sat in the 113,504-node network,

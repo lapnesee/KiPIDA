@@ -130,6 +130,33 @@ def _pad_outline(pad):
     ])
 
 
+def stranded_pads(mesh: Mesh, anchor_nodes) -> list:
+    """``"REF.pad"`` of every pad the mesh keeps apart from the net's main copper.
+
+    The main copper is whatever holds *anchor_nodes* (the net's sources),
+    else the largest piece. A pad on another piece is joined to its net by
+    no track, pour or via: the solver drops that piece as a floating island
+    and said nothing of the parts on it. P02 Rev E's C88 and R10 each sat
+    on an F.Cu GND pour piece with no via (11.99 and 8.74 mm2).
+    """
+    pads = dict(getattr(mesh, "pad_nodes", None) or {})
+    if not pads or np is None or not mesh.nodes:
+        return []
+    import scipy.sparse
+    import scipy.sparse.csgraph
+
+    count = len(mesh.nodes)
+    ends = [(branch.node_a, branch.node_b) for branch in mesh.branches]
+    graph = scipy.sparse.coo_matrix(
+        (np.ones(len(ends)), ([a for a, _b in ends], [b for _a, b in ends])), shape=(count, count),
+    )
+    _pieces, labels = scipy.sparse.csgraph.connected_components(graph, directed=False)
+    main = {int(labels[node]) for node in anchor_nodes if 0 <= int(node) < count}
+    if not main:
+        main = {int(np.bincount(labels).argmax())}
+    return sorted(pad for pad, node in pads.items() if int(labels[node]) not in main)
+
+
 def _snap(v: float) -> float:
     """Round a coordinate to the nearest _SNAP mm to allow junction sharing."""
     return round(v / _SNAP) * _SNAP
@@ -230,6 +257,8 @@ class HybridMesher:
         # A net without pours must not inherit the step a previous net's pours
         # were coarsened to.
         self._effective_grid_step = self._grid_step
+        # Each attached pad's node, "REF.pad" -> node id (stranded_pads).
+        mesh.pad_nodes = {}
         node_registry: dict[tuple[float, float, int], int] = {}
         node_counter = [0]
         # Zone nodes indexed by their grid cell, so a track landing on a plane
@@ -594,9 +623,11 @@ class HybridMesher:
                 if len(span) < 2:
                     # A surface pad adds no vertical path; attaching it is what
                     # lets a load anchored on an SMD pad share the pour's node.
-                    attach(px, py, span[0][1], contact_radius_mm=pad_radius_mm,
-                           contact_thickness_mm=_thickness_for_layer(board, span[0][0]),
-                           contact_label=pad_label)
+                    mesh.pad_nodes[f"{footprint.reference}.{pad.number}"] = attach(
+                        px, py, span[0][1], contact_radius_mm=pad_radius_mm,
+                        contact_thickness_mm=_thickness_for_layer(board, span[0][0]),
+                        contact_label=pad_label,
+                    )
                     pad_count += 1
                     continue
                 drill = float(pad.drill_mm or 0.0)
@@ -618,6 +649,7 @@ class HybridMesher:
                 previous = attach(px, py, span[0][1], contact_radius_mm=pad_radius_mm,
                                    contact_thickness_mm=_thickness_for_layer(board, span[0][0]),
                                    contact_label=pad_label)
+                mesh.pad_nodes[f"{footprint.reference}.{pad.number}"] = previous
                 added = False
                 for (_name, layer_id), conductance in zip(span[1:], hop_conductances):
                     node = attach(px, py, layer_id, contact_radius_mm=pad_radius_mm,

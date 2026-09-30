@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added DC-008, naming the pads the saved copper joins to nothing else of
+  their net: P02 Rev E's C88 and R10 GND pads sit on F.Cu pour pieces of
+  11.99 and 8.74 mm2 with no via, and the solve only logged "Ignoring
+  floating island" (329 and 276 nodes).
 - Fixed a track segment shorter than the 1 um snap being skipped though
   its ends rounded to two different nodes: P02 Rev E's /J1_PD_OUT has a
   0.8 um segment at (228.67, 66.11), and R92 and U1 sat on a 478-node

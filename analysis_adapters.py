@@ -1852,6 +1852,24 @@ def _state_rail_discovery(result: AnalysisResult, rails: Any) -> None:
 DC_GRID_SENSITIVITY_LIMIT_PCT = 10.0
 
 
+def _dc_stranded_pads_finding(net, index, pads):
+    """DC-008: pads the saved copper joins to nothing else of their net."""
+    references = sorted({pad.split(".", 1)[0] for pad in pads})
+    finding = _finding(
+        "DC-008", index, "CONNECTIVITY", FindingSeverity.HIGH,
+        f"{net} pads are cut off from the rest of the net",
+        f"{', '.join(pads)} sit on {net} copper that no track, pour or via joins to the "
+        "copper its sources are on: as saved, these parts are not connected to "
+        f"{net}. The solve drops that copper as a floating island. Pours are meshed "
+        "on a lattice, so a neck narrower than its step can also part them.",
+        "Check KiCad's DRC unconnected items after refilling the zones, and join each "
+        "pad to the net with a via or a track.",
+    )
+    finding.nets = [str(net)]
+    finding.components = references
+    return finding
+
+
 def _dc_grid_sensitivity(rail, index, check, maximum_drop_pct, source_voltage):
     """(metrics, findings) for a rail's worst-load drop solved again at half the grid step."""
     data = dict(check or {})
@@ -2200,12 +2218,20 @@ def adapt_dc_result(system_results: Any, maximum_drop_pct: float) -> AnalysisRes
             grid_checked.append(float(grid_check["delta_pct"]))
         elif "below_budget_share" in grid_check:
             grid_not_refined.append((str(rail), float(grid_check["below_budget_share"])))
+        if data.get("stranded_pads"):
+            findings.append(_dc_stranded_pads_finding(rail, index, list(data["stranded_pads"])))
         # Every DC finding is about its rail, and says so. The findings carried
         # no net: attach_dc_remediations finds a finding's rail by its nets, so
         # no voltage-drop finding the adapter produced was ever given a sized
         # fix, and the campaign could not group DC findings by net either.
         for finding in findings[first_finding:]:
             finding.nets = [str(rail)]
+    if ground_return and ground_return.get("stranded_pads"):
+        # Once, not on each of the rails that share the ground return.
+        findings.append(_dc_stranded_pads_finding(
+            ground_return.get("net"), len(system_results or {}) + 1,
+            list(ground_return["stranded_pads"]),
+        ))
     hybrid_rails = [data for data in (system_results or {}).values() if data.get("engine") == "hybrid"]
     if hybrid_rails:
         geometry_evidence = AnalysisEvidence(
