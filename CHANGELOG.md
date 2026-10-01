@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed the component view giving its rows to a finding about many
+  parts: P02 Rev E's 18:31 report listed TE-002's 13 capacitors and left
+  out C88 and R10, DC-008's parts. Parts named by a narrower finding
+  come first, then the hottest junctions, then a survey's parts in the
+  room left (20 rows), hottest first.
 - Fixed the decision lists counting the parts beyond the eight shown
   after the nets ("R9 Â· rÃ©seau /+3V3AO, ... et 21 de plus" on P02 Rev
   E's 16:51 report): the count follows the parts. Figures and places are

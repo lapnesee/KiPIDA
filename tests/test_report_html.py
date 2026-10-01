@@ -321,24 +321,30 @@ class ComponentViewTests(unittest.TestCase):
         self.assertIn("124&nbsp;°C / 150&nbsp;°C", view)
         self.assertIn("<td>96&nbsp;°C</td>", view)
 
-    def test_the_hottest_junction_keeps_its_row_past_the_limit(self):
-        # P02 Rev E, 16:51: sixteen cited parts pushed U14 (124 C of 150) out.
+    def test_a_finding_about_many_parts_fills_only_the_room_left(self):
+        # P02 Rev E: at 16:51 cited parts pushed U14 (124 C of 150) out; at
+        # 18:31 TE-002's 13 capacitors pushed out DC-008's C88 and R10.
         thermal = AnalysisResult("THERMAL", "3D Thermal", status=AnalysisStatus.PASS, summary={
-            "components": [{"reference": "U14", "power_w": 1.24, "board_c": 105.1, "junction_c": 124.33,
+            "components": [{"reference": "U14", "power_w": 1.08, "board_c": 102.0, "junction_c": 124.33,
                             "max_junction_c": 150.0, "margin_k": 25.67}],
+            "placement_temperatures_c": {f"C{index}": 80.0 + index for index in range(1, 31)},
         })
-        survey = [f"C{index}" for index in range(1, 21)]
+        survey = [f"C{index}" for index in range(1, 31)]
+        dc = AnalysisResult("DC", "DC", status=AnalysisStatus.WARN, findings=[AnalysisFinding(
+            rule_id="DC-008", category="CONNECTIVITY", severity=FindingSeverity.HIGH,
+            title="GND pads are cut off from the rest of the net", description="d",
+            nets=["GND"], components=["C88", "R10"],
+        )])
         emc = AnalysisResult("EMC", "EMC", status=AnalysisStatus.WARN, findings=[AnalysisFinding(
             rule_id="TE-002", category="THERMAL", severity=FindingSeverity.HIGH,
             title="Capacitors above their dielectric's rated temperature", description="d",
             components=survey,
         )])
-        document = render_campaign_html(CampaignResult.from_results([thermal, emc]))
+        document = render_campaign_html(CampaignResult.from_results([thermal, dc, emc]))
         view = document.split('id="components"')[1].split("</section>")[0]
         rows = re.findall(r"<tr><th>([^<]+)</th>", view.split("<tbody>")[1])
-        self.assertEqual(len(rows), 16)
-        self.assertEqual(rows[-1], "U14")
-        self.assertEqual(rows[0], "C1")
+        self.assertEqual(rows[:4], ["C88", "R10", "U14", "C30"])
+        self.assertEqual(len(rows), 20)
 
 
 class FrenchReportTests(unittest.TestCase):
