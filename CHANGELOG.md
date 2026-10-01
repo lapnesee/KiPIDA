@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed TE-002 to say when every capacitor's excess is larger than the
+  board under it moved at twice the thermal grid step, with the largest
+  move. P02 Rev E's 22:29 report said nothing, which read the same as a
+  check that never reached EMC.
 - Fixed Phase 10 logging a board circuit's current as differing from
   the entered source's for a rounding: P02 Rev E's 22:29 run logged "U4
   draws 4.73 A ... the source is entered at 4.726 A", the tree's 4.7262

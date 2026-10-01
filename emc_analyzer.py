@@ -2351,12 +2351,21 @@ class EMCAnalyzer:
                 for excess, reference, _part, _temperature in items
                 if reference in moves and excess <= moves[reference]
             )
-            mesh_note = (
-                f" Within the mesh's uncertainty, over by less than the board under them moved "
-                f"between the {float(sensitivity.get('fine_grid_mm', 0.0)):g} and "
-                f"{float(sensitivity.get('coarse_grid_mm', 0.0)):g} mm thermal grids: {unsettled}."
-                if unsettled else ""
-            )
+            grids = (f"{float(sensitivity.get('fine_grid_mm', 0.0)):g} and "
+                     f"{float(sensitivity.get('coarse_grid_mm', 0.0)):g} mm thermal grids")
+            checked = [(moves[reference], reference) for _excess, reference, _part, _t in items
+                       if reference in moves]
+            if unsettled:
+                mesh_note = (f" Within the mesh's uncertainty, over by less than the board under "
+                             f"them moved between the {grids}: {unsettled}.")
+            elif checked and len(checked) == len(items):
+                # Said, not left silent: P02 Rev E's 22:29 report could not
+                # tell a firm excess from a check that never reached EMC.
+                move, moved_most = max(checked)
+                mesh_note = (f" Each excess is larger than the board under the capacitor moved "
+                             f"between the {grids}, {move:.1f} K at most ({moved_most}).")
+            else:
+                mesh_note = ""
             hottest = items[0][2]
             self._add("TE-002", "THERMAL", "HIGH", "Capacitors above their dielectric's rated temperature",
                       f"{len(items)} {code} capacitor(s), rated to {rated_c:g} C, exceed it on the latest "

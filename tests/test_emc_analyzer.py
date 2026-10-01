@@ -343,6 +343,13 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertTrue(te002.description.endswith(
             "Within the mesh's uncertainty, over by less than the board under them moved between "
             "the 0.2 and 0.4 mm thermal grids: C25 (+2.3 K, moved 2.9 K)."))
+        # 22:29: with no capacitor within it, the report said nothing.
+        thermal.mesh_sensitivity["placement_c"]["C25"] = (87.3, 86.9)
+        result = EMCAnalyzer(snap, self.settings(), thermal_result=thermal).analyze()
+        (te002,) = [item for item in result.findings if item.rule_id == "TE-002"]
+        self.assertTrue(te002.description.endswith(
+            "Each excess is larger than the board under the capacitor moved between the 0.2 and "
+            "0.4 mm thermal grids, 2.9 K at most (C37)."))
         self.assertNotIn("TE-002", result.score_penalties_by_rule)
         te001 = next(item for item in result.findings if item.rule_id == "TE-001")
         self.assertEqual(te001.components, ["C37", "C63", "C25"])
