@@ -1416,11 +1416,13 @@ def _estimated_efficiency_findings(power_stage_reports: Any, board_heat_w: float
         share = stage_loss / board_heat_w if board_heat_w > 0.0 else 1.0
         name = str(getattr(stage, "name", "") or "?")
         efficiency = float(getattr(stage, "efficiency", 0.0) or 0.0)
+        # Two digits under 10 %: U6's 0.0133 W of P02 Rev E's 4.82 W read "0%".
+        percent = f"{share * 100.0:.0f}" if share >= 0.1 else f"{share * 100.0:.2g}"
         finding = _finding(
             "TH-008", index, "MODEL_INPUT",
             FindingSeverity.LOW if share >= ESTIMATED_EFFICIENCY_HEAT_SHARE else FindingSeverity.INFO,
             f"{name}: loss rests on an estimated efficiency",
-            f"{name} loses {stage_loss:.3g} W, {share * 100.0:.0f}% of the {board_heat_w:.3g} W "
+            f"{name} loses {stage_loss:.3g} W, {percent}% of the {board_heat_w:.3g} W "
             f"the board dissipates, set by a configured efficiency of {efficiency * 100.0:.0f}%: "
             f"{provenance}. The temperatures of the parts it heats move with that estimate.",
             "Enter the converter's efficiency curve from its datasheet at this input, output "

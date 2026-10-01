@@ -678,6 +678,8 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertEqual(found["U4"].severity, FindingSeverity.LOW)
         self.assertIn("loses 1.81 W, 38% of the 4.82 W", found["U4"].description)
         self.assertEqual(found["U6"].severity, FindingSeverity.INFO)
+        # The 21:42 report gave U6's share as "0%".
+        self.assertIn("loses 0.0133 W, 0.28% of the 4.82 W", found["U6"].description)
 
     def test_the_least_junction_margin_is_named_when_not_the_hottest_parts(self):
         # P02 Rev E, 2026-10-01 19:12: U14 is the hottest junction (124.3 C of

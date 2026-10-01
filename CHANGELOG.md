@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fixed TH-008 giving a small converter's share of the board's heat as
+  "0%": P02 Rev E's 21:42 report said U6 "loses 0.0133 W, 0% of the
+  4.82 W". A share under 10 % keeps two digits (0.28%).
 - Fixed the report printing large figures with an exponent: P02 Rev E's
   21:42 report read 1530 EMC checks as "1.53e+03", a 102,048-node AC
   mesh as "1.02e+05" and /VBUS_SYS's worst frequency as "3.83e+04 Hz".
