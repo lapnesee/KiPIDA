@@ -1387,7 +1387,81 @@ def _thermal_fallback_stage_limitations(power_stage_reports: Any) -> list:
 THIN_JUNCTION_MARGIN_K = 20.0
 
 
-def _thin_junction_margin_finding(index, component, mesh_sensitivity=None):
+# Littelfuse's Fuseology guide: a UL 248-14 fuse is operated at no more than
+# 75 % of its rating at 25 C, the rest of the rating being rerated for
+# temperature. Bourns states its SF-1206F UL 248-14 compliant.
+FUSE_OPERATING_FRACTION = 0.75
+
+
+def _derated_current(component, power_stage_reports):
+    """The current a part carries against its rating derated at its board temperature, or None.
+
+    Its rating and derating rows come from its thermal model; the current is
+    the input of the power stage whose losses name it (a fuse's stage is a
+    pass element, input and output alike). The derating is read at the board
+    under the part, the hottest cell there, which includes its neighbours'
+    heat: warmer than the enclosure air the curve's ambient strictly is.
+    Past the curve's last row the part is out of its operating range and
+    keeps nothing.
+    """
+    rated = float(getattr(component, "rated_current_a", 0.0) or 0.0)
+    rows = sorted(
+        (float(row["temperature_c"]), float(row["percent"]))
+        for row in getattr(component, "current_derating", None) or []
+    )
+    if rated <= 0.0 or len(rows) < 2:
+        return None
+    reference = str(component.ref_des)
+    carried = next((
+        float(stage.iin_a) for stage in power_stage_reports or ()
+        if any(str(getattr(loss, "ref_des", "")) == reference for loss in getattr(stage, "losses", ()) or ())
+    ), None)
+    if carried is None:
+        return None
+    temperature = float(component.board_temperature_c)
+    if temperature > rows[-1][0]:
+        percent = 0.0
+    elif temperature <= rows[0][0]:
+        percent = rows[0][1]
+    else:
+        upper = next(index for index, row in enumerate(rows) if row[0] >= temperature)
+        (t0, p0), (t1, p1) = rows[upper - 1], rows[upper]
+        percent = p0 + (p1 - p0) * (temperature - t0) / (t1 - t0) if t1 > t0 else p1
+    return {
+        "temperature_c": temperature, "percent": percent, "rated_a": rated,
+        "derated_a": rated * percent / 100.0, "carried_a": carried,
+        "source": str(getattr(component, "current_derating_source", "") or "its datasheet"),
+    }
+
+
+def _derating_text(component, rating):
+    share = rating["carried_a"] / rating["derated_a"] * 100.0 if rating["derated_a"] > 0.0 else float("inf")
+    return (
+        f"At {rating['temperature_c']:.1f} C on the board under it, {component.ref_des} keeps "
+        f"{rating['percent']:.1f} % of its {rating['rated_a']:g} A rating ({rating['source']}), "
+        f"{rating['derated_a']:.2f} A; it carries {rating['carried_a']:.2f} A, {share:.0f} % of that, "
+        f"against the {FUSE_OPERATING_FRACTION * 100:.0f} % Littelfuse's Fuseology guide allows a "
+        "UL 248-14 fuse."
+    )
+
+
+def _derating_holds_finding(index, component, rating):
+    """TH-007 (INFO): a thin temperature margin its current derating shows is enough."""
+    limit = float(getattr(component, "max_junction_c", 0.0) or 0.0)
+    finding = _finding(
+        "TH-007", index, "JUNCTION_TEMPERATURE", FindingSeverity.INFO,
+        f"{component.ref_des} current is within its derated rating",
+        _derating_text(component, rating)
+        + f" Estimated at {component.junction_temperature_c:.1f} C, it is {component.margin_c:.1f} K "
+        f"under its {limit:g} C operating limit, which is where its derating curve ends.",
+        "Nothing to change while its current and temperature stay as estimated; check again "
+        "if either rises.",
+    )
+    finding.components = [str(component.ref_des)]
+    return finding
+
+
+def _thin_junction_margin_finding(index, component, mesh_sensitivity=None, rating=None):
     """TH-006: a junction under its limit by less than the estimate's own spread.
 
     With the junction solved at two grid steps, the margin is also read
@@ -1421,17 +1495,22 @@ def _thin_junction_margin_finding(index, component, mesh_sensitivity=None):
         # Rev E's F1 and F2 (Bourns SF-1206F, -20 to +105 C) read as thin
         # junction margins to be closed with an efficiency curve.
         limit = float(getattr(component, "max_junction_c", 0.0) or 0.0)
+        over = rating is not None and rating["carried_a"] > rating["derated_a"]
         finding = _finding(
             "TH-006", index, "JUNCTION_TEMPERATURE",
-            FindingSeverity.HIGH if flips else FindingSeverity.MEDIUM,
+            FindingSeverity.HIGH if flips or over else FindingSeverity.MEDIUM,
             f"{component.ref_des} temperature margin is thin",
             f"Estimated at {component.junction_temperature_c:.1f} C, {component.margin_c:.1f} K "
             f"under its {limit:g} C operating limit, from {component.power_w:.3g} W and a thermal "
             f"resistance taken from {source}.{mesh_text} A fuse's current rating falls as it "
-            f"warms. {threshold}",
-            "Read the fuse's current derating at this temperature off its datasheet curve and "
-            "check it still exceeds the current it carries; if not, choose a higher rating or "
-            "give it more copper." + settle,
+            f"warms." + (f" {_derating_text(component, rating)}" if rating is not None else "")
+            + f" {threshold}",
+            (f"Choose a higher rating or give it more copper: it carries more than "
+             f"{FUSE_OPERATING_FRACTION * 100:.0f} % of what its rating keeps at this temperature."
+             if rating is not None else
+             "Read the fuse's current derating at this temperature off its datasheet curve and "
+             "check it still exceeds the current it carries; if not, choose a higher rating or "
+             "give it more copper.") + settle,
         )
         finding.components = [str(component.ref_des)]
         return finding
@@ -1518,7 +1597,14 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
     for index, component in enumerate(components, start=1):
         margin = float(getattr(component, "margin_c", 0.0))
         if 0.0 <= margin < THIN_JUNCTION_MARGIN_K:
-            findings.append(_thin_junction_margin_finding(index, component, mesh_sensitivity))
+            # A part with a current derating is judged on it: P02 Rev E's
+            # fuses F1 and F2 read as thin margins under 105 C while carrying
+            # 2.17 and 3 A of the 4.5 A their 5 A rating keeps at 87 C.
+            rating = _derated_current(component, power_stage_reports)
+            if rating is not None and rating["carried_a"] <= FUSE_OPERATING_FRACTION * rating["derated_a"]:
+                findings.append(_derating_holds_finding(index, component, rating))
+            else:
+                findings.append(_thin_junction_margin_finding(index, component, mesh_sensitivity, rating))
         if margin < 0:
             # The junction is the board temperature plus P x thetaJB, so the
             # verdict is only as good as thetaJB. A default one cannot carry a

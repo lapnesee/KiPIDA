@@ -357,6 +357,9 @@ class ThermalSolver:
                 thermal_source=getattr(component, "thermal_source", "estimate"),
                 thermal_condition=getattr(component, "thermal_condition", ""),
                 board_reference=board_reference,
+                rated_current_a=float(getattr(component, "rated_current_a", 0.0) or 0.0),
+                current_derating=list(getattr(component, "current_derating", None) or []),
+                current_derating_source=str(getattr(component, "current_derating_source", "") or ""),
             ))
         component_results.sort(key=lambda item: item.junction_temperature_c, reverse=True)
 

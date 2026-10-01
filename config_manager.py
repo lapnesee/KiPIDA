@@ -782,6 +782,9 @@ def _thermal_settings_to_dict(settings: ThermalAnalysisSettings) -> dict:
             "thermal_condition": component.thermal_condition,
             "parameter_provenance": component.parameter_provenance,
             "theta_reference": component.theta_reference,
+            "rated_current_a": component.rated_current_a,
+            "current_derating": [dict(row) for row in component.current_derating],
+            "current_derating_source": component.current_derating_source,
         } for component in settings.components],
     }
 
@@ -840,6 +843,13 @@ def _dict_to_thermal_settings(data: dict) -> ThermalAnalysisSettings:
             thermal_condition=component.get("thermal_condition", ""),
             parameter_provenance=dict(component.get("parameter_provenance", {}) or {}),
             theta_reference=str(component.get("theta_reference", "") or ""),
+            rated_current_a=float(component.get("rated_current_a", 0.0) or 0.0),
+            current_derating=[
+                {"temperature_c": float(row["temperature_c"]), "percent": float(row["percent"])}
+                for row in component.get("current_derating", []) or []
+                if isinstance(row, dict) and "temperature_c" in row and "percent" in row
+            ],
+            current_derating_source=str(component.get("current_derating_source", "") or ""),
         ) for component in data.get("components", [])],
     )
 

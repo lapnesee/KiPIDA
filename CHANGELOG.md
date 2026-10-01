@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added a current derating to a thermal component (rated current and its
+  datasheet curve, saved in the sidecar): a fuse within 75 % of its
+  derated rating (Littelfuse, UL 248-14) gets an INFO TH-007 instead of
+  TH-006. P02 Rev E's F1 keeps 4.53 A at 87.2 C and carries 2.17 A, F2
+  4.55 A at 83.7 C for 3 A (Bourns SF-1206F curve, digitised).
 - Changed the AC target provenance to say "regulators and pass elements"
   for what a rail feeds: P02 Rev E's /+5V_U4 named its eFuse U15 and net
   tie NT2 "converters".

@@ -963,6 +963,12 @@ class ThermalComponentModel:
     # package edge; "CASE" for a thetaJC or thetaJL, whose case or lead is
     # the copper under the part. Empty reads the metric off the provenance.
     theta_reference: str = ""
+    # A fuse's current rating and its datasheet thermal derating curve, rows
+    # {"temperature_c", "percent"} of the rating kept at that ambient: TH-006
+    # weighs the current the part carries against them.
+    rated_current_a: float = 0.0
+    current_derating: List[Dict[str, float]] = field(default_factory=list)
+    current_derating_source: str = ""
 
 
 @dataclass
@@ -1036,6 +1042,9 @@ class ComponentThermalResult:
     # Where board_temperature_c was read: "1 mm from the package" or "under
     # the part" (ThermalComponentModel.theta_reference).
     board_reference: str = "under the part"
+    rated_current_a: float = 0.0
+    current_derating: List[Dict[str, float]] = field(default_factory=list)
+    current_derating_source: str = ""
 
 
 @dataclass

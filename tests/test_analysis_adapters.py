@@ -635,6 +635,30 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertIn("current derating", thin.recommendation)
         self.assertNotIn("Tj", thin.description)
 
+    def test_a_fuse_its_derated_rating_covers_is_not_a_thin_margin(self):
+        # P02 Rev E, 2026-10-01 00:58: F1 (SF-1206F500-2, 5 A) sat on 87.2 C
+        # of board, 16.65 K under 105 C, carrying J1's 2.168 A. Bourns' thermal
+        # derating curve keeps 90.5 % of its rating there.
+        from models import ComponentThermalResult, LossContribution, PowerStageResult
+        derating = [{"temperature_c": -19.8, "percent": 105.7}, {"temperature_c": 0.0, "percent": 103.0},
+                    {"temperature_c": 99.9, "percent": 88.7}, {"temperature_c": 105.6, "percent": 87.7}]
+        f1 = ComponentThermalResult(
+            "F1", board_temperature_c=87.22, junction_temperature_c=88.35, power_w=0.05669,
+            max_junction_c=105.0, margin_c=16.65, theta_jb_c_per_w=20.0, thermal_source="estimate",
+            rated_current_a=5.0, current_derating=derating,
+            current_derating_source="Bourns SF-1206F thermal derating curve",
+        )
+        stage = PowerStageResult("F1 J1 fuse", "F1", "F1", 20.0, 20.0, 2.168, 2.168, 0.999, "analytic",
+                                 losses=[LossContribution("F1", "resistive-i2r", 0.0564)])
+        result = adapt_thermal_result(
+            ThermalResult(component_results=[f1]), ambient_c=45.0, power_stage_reports=[stage],
+        )
+        self.assertNotIn("TH-006", {item.rule_id for item in result.findings})
+        held = next(item for item in result.findings if item.rule_id == "TH-007")
+        self.assertEqual(held.severity, FindingSeverity.INFO)
+        self.assertIn("keeps 90.5 % of its 5 A rating", held.description)
+        self.assertIn("4.53 A; it carries 2.17 A, 48 % of that", held.description)
+
     def test_a_junction_over_its_limit_gets_a_sized_thermal_via_remediation(self):
         # COH-1: advisor.thermal_advisor was imported by no production code,
         # so no thermal action ever carried a structured remediation.
