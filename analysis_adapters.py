@@ -584,6 +584,28 @@ def adapt_ac_result(
     findings.extend(grid_findings)
     recommendations = list(getattr(optimization, "recommendations", ()) or ())
     overall_status = AnalysisStatus.PASS if not findings else AnalysisStatus.WARN
+    if source_default:
+        # Data to complete, which leaves the status alone. P02 Rev E's
+        # /+5V_RAIL (U15) and /+5V_U4 (R49) passed on the default, and only
+        # the appendix said so.
+        source_ref = str(getattr(getattr(settings, "source", None), "ref_des", "") or "")
+        rail_name = str(getattr(settings, "rail_name", "") or "")
+        finding = _finding(
+            "AC-006", 1, "MODEL_INPUT", FindingSeverity.INFO,
+            f"{rail_name or 'Rail'} source impedance left at its default",
+            f"{source_ref or 'The source'} feeds {rail_name or 'the rail'} through the untouched "
+            "10 mOhm + 1 nH default, which nothing on the board sets. It dominates the swept "
+            "impedance below a few MHz, where a USB-C cable or a regulator's output can move the "
+            "source/bulk anti-resonance to within 92% of a typical target: the rail's verdict "
+            "rests on it.",
+            "Pick the source preset that matches what feeds this rail (USB-C cable or "
+            "connector, regulator output), or enter a measured source impedance, in the rail's "
+            "AC profile.",
+            confidence=EvidenceConfidence.DETERMINISTIC,
+        )
+        finding.nets = [rail_name] if rail_name else []
+        finding.components = [source_ref] if source_ref else []
+        findings.append(finding)
     result = AnalysisResult(
         "AC", "AC Impedance",
         status=overall_status,

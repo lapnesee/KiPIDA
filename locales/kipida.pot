@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Ki-PIDA\n"
-"POT-Creation-Date: 2026-10-01 20:19+0000\n"
+"POT-Creation-Date: 2026-10-01 20:23+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -282,11 +282,11 @@ msgstr ""
 msgid "A capacitor at a power pin that supplies the pin's fast current locally."
 msgstr ""
 
-#: rule_guide.py:360
+#: rule_guide.py:366
 msgid "A connector shell with no short path to chassis lets cable noise onto the board."
 msgstr ""
 
-#: rule_guide.py:386
+#: rule_guide.py:392
 msgid "A converter's sharp edges spread energy over many harmonics, some inside the band the standard limits."
 msgstr ""
 
@@ -294,19 +294,19 @@ msgstr ""
 msgid "A defect the analyses establish on the board itself, such as a broken connection or a voltage drop beyond its limit."
 msgstr ""
 
-#: rule_guide.py:211
+#: rule_guide.py:217
 msgid "A discharge that travels far before its protection reaches the parts on the way."
 msgstr ""
 
-#: rule_guide.py:142
+#: rule_guide.py:148
 msgid "A drop that moves when the mesh is refined is set by the mesh as much as by the copper."
 msgstr ""
 
-#: rule_guide.py:102
+#: rule_guide.py:108
 msgid "A fast edge on an outer layer radiates with no plane on one side to contain its field."
 msgstr ""
 
-#: rule_guide.py:191
+#: rule_guide.py:197
 msgid "A gap in the reference under the pair breaks the return path at that spot."
 msgstr ""
 
@@ -318,19 +318,19 @@ msgstr ""
 msgid "A limit of the calculation, not of the board: a mesh too coarse, a solve that did not settle. It takes nothing off the scores and is not an action; it says how far to trust the figures it names."
 msgstr ""
 
-#: rule_guide.py:340
+#: rule_guide.py:346
 msgid "A link the project declares no longer matches the boards it joins."
 msgstr ""
 
-#: rule_guide.py:155
+#: rule_guide.py:161
 msgid "A load that the power tree names but the board lacks is left out of the solve."
 msgstr ""
 
-#: rule_guide.py:120
+#: rule_guide.py:126
 msgid "A load with no copper path to its source is either unconnected on the board or left out of the solve, so the rail's figures leave it out."
 msgstr ""
 
-#: rule_guide.py:108
+#: rule_guide.py:114
 msgid "A long clock trace is a longer antenna for its harmonics."
 msgstr ""
 
@@ -338,15 +338,15 @@ msgstr ""
 msgid "A margin that moves when the mesh is refined is set by the mesh as much as by the copper."
 msgstr ""
 
-#: rule_guide.py:160
+#: rule_guide.py:166
 msgid "A pad isolated from the rest of its net is an open circuit on the assembled board."
 msgstr ""
 
-#: rule_guide.py:330
+#: rule_guide.py:336
 msgid "A pin left open by mistake can float or leave a function unpowered."
 msgstr ""
 
-#: rule_guide.py:325
+#: rule_guide.py:331
 msgid "A power input with no capacitor draws its fast current through the whole network."
 msgstr ""
 
@@ -358,15 +358,15 @@ msgstr ""
 msgid "A smaller defect, or a margin worth a second look; decide whether to change the board."
 msgstr ""
 
-#: rule_guide.py:96
+#: rule_guide.py:102
 msgid "A solve that does not conserve what flows in and out misstates the air temperature."
 msgstr ""
 
-#: rule_guide.py:206
+#: rule_guide.py:212
 msgid "A source without a frequency cannot be placed in the emissions band."
 msgstr ""
 
-#: rule_guide.py:244
+#: rule_guide.py:250
 msgid "A sparsely filled ground leaves signals without a reference under them."
 msgstr ""
 
@@ -378,11 +378,11 @@ msgstr ""
 msgid "A switching edge carries energy at every multiple of the switching frequency. Standards limit what a product radiates in set bands."
 msgstr ""
 
-#: rule_guide.py:440
+#: rule_guide.py:446
 msgid "A temperature that moves when the mesh is refined is set by the mesh as much as by the copper."
 msgstr ""
 
-#: rule_guide.py:216
+#: rule_guide.py:222
 msgid "A TVS clamps only as well as its path to ground is short."
 msgstr ""
 
@@ -390,7 +390,7 @@ msgstr ""
 msgid "A via joining ground planes on different layers, so that they act as one at high frequency."
 msgstr ""
 
-#: rule_guide.py:424
+#: rule_guide.py:430
 msgid "Above its maximum junction temperature, a part ages fast or shuts down."
 msgstr ""
 
@@ -621,11 +621,11 @@ msgstr ""
 msgid "Airflow mode:"
 msgstr ""
 
-#: rule_guide.py:90
+#: rule_guide.py:96
 msgid "Airflow solve did not converge"
 msgstr ""
 
-#: rule_guide.py:95
+#: rule_guide.py:101
 msgid "Airflow solve loses mass or heat"
 msgstr ""
 
@@ -666,15 +666,15 @@ msgstr ""
 msgid "an engineering default, not a datasheet value"
 msgstr ""
 
-#: rule_guide.py:406
+#: rule_guide.py:412
 msgid "An entered current or frequency that differs from the power tree's makes each analysis judge a different converter."
 msgstr ""
 
-#: rule_guide.py:266
+#: rule_guide.py:272
 msgid "An external cable brings in and carries out noise unless it is filtered at the connector."
 msgstr ""
 
-#: rule_guide.py:365
+#: rule_guide.py:371
 msgid "An impedance step reflects part of the signal and closes the eye."
 msgstr ""
 
@@ -686,7 +686,7 @@ msgstr ""
 msgid "An input the analyses needed and did not have. The verdict sharpens once it is filled in."
 msgstr ""
 
-#: rule_guide.py:91
+#: rule_guide.py:97
 msgid "An unconverged flow field can put the hot air in the wrong place."
 msgstr ""
 
@@ -880,11 +880,15 @@ msgstr ""
 msgid "Batch: {p0} was not prepared and will be skipped -- {p1}"
 msgstr ""
 
-#: rule_guide.py:196
+#: rule_guide.py:84
+msgid "Below a few MHz the source feeding a rail sets its impedance, and the default describes no real cable or regulator."
+msgstr ""
+
+#: rule_guide.py:202
 msgid "Between two planes the board resonates at frequencies set by its size."
 msgstr ""
 
-#: rule_guide.py:417
+#: rule_guide.py:423
 msgid "Beyond the temperature its dielectric is rated to (X5R 85 °C, X7R 125 °C), a ceramic capacitor's capacitance and life are no longer specified."
 msgstr ""
 
@@ -892,7 +896,7 @@ msgstr ""
 msgid "Board"
 msgstr ""
 
-#: rule_guide.py:195
+#: rule_guide.py:201
 msgid "Board cavity resonances"
 msgstr ""
 
@@ -900,7 +904,7 @@ msgstr ""
 msgid "Board cavity resonances estimated"
 msgstr ""
 
-#: analysis_adapters.py:914
+#: analysis_adapters.py:936
 #, python-brace-format
 msgid "Board could not be read for remediation sizing: {p0}"
 msgstr ""
@@ -1048,7 +1052,7 @@ msgstr ""
 msgid "Capacitance:"
 msgstr ""
 
-#: rule_guide.py:416
+#: rule_guide.py:422
 msgid "Capacitor above its rated temperature"
 msgstr ""
 
@@ -1141,15 +1145,15 @@ msgstr ""
 msgid "Change"
 msgstr ""
 
-#: rule_guide.py:185
+#: rule_guide.py:191
 msgid "Changing reference layer forces the return current to find a new path, often a long one."
 msgstr ""
 
-#: rule_guide.py:187
+#: rule_guide.py:193
 msgid "Check for a ground via within a few millimetres of each layer change of the pair."
 msgstr ""
 
-#: rule_guide.py:321
+#: rule_guide.py:327
 msgid "Check for a ground via within a few millimetres of each signal via."
 msgstr ""
 
@@ -1169,27 +1173,27 @@ msgstr ""
 msgid "Check on the prototype"
 msgstr ""
 
-#: rule_guide.py:361
+#: rule_guide.py:367
 msgid "Check the connector's shell pads on the footprint and the net they are on."
 msgstr ""
 
-#: rule_guide.py:316
+#: rule_guide.py:322
 msgid "Check the converter's enable, frequency and feedback pins against its datasheet."
 msgstr ""
 
-#: rule_guide.py:228
+#: rule_guide.py:234
 msgid "Check the plane under the segment, layer by layer; a near-field scan on the prototype shows whether it radiates."
 msgstr ""
 
-#: rule_guide.py:192
+#: rule_guide.py:198
 msgid "Check the reference plane at the coordinates given, layer by layer."
 msgstr ""
 
-#: rule_guide.py:234 rule_guide.py:377 rule_guide.py:382
+#: rule_guide.py:240 rule_guide.py:383 rule_guide.py:388
 msgid "Check the stackup in KiCad's board setup."
 msgstr ""
 
-#: rule_guide.py:274
+#: rule_guide.py:280
 msgid "Check where the cable runs in the enclosure."
 msgstr ""
 
@@ -1241,11 +1245,11 @@ msgstr ""
 msgid "Clock close to connector"
 msgstr ""
 
-#: rule_guide.py:112
+#: rule_guide.py:118
 msgid "Clock near a connector"
 msgstr ""
 
-#: rule_guide.py:101
+#: rule_guide.py:107
 msgid "Clock on outer copper"
 msgstr ""
 
@@ -1301,15 +1305,15 @@ msgstr ""
 msgid "colour capped at 99.5th percentile"
 msgstr ""
 
-#: rule_guide.py:310
+#: rule_guide.py:316
 msgid "Compare the entered value with the datasheet and with the simulated circuit."
 msgstr ""
 
-#: rule_guide.py:262
+#: rule_guide.py:268
 msgid "Compare the peak current with the datasheet's saturation current at temperature."
 msgstr ""
 
-#: rule_guide.py:197
+#: rule_guide.py:203
 msgid "Compare these frequencies with the peaks of a near-field scan."
 msgstr ""
 
@@ -1414,7 +1418,7 @@ msgstr ""
 msgid "Connector prefixes:"
 msgstr ""
 
-#: rule_guide.py:359
+#: rule_guide.py:365
 msgid "Connector shield return not found"
 msgstr ""
 
@@ -1422,7 +1426,7 @@ msgstr ""
 msgid "Connector shield return not identified"
 msgstr ""
 
-#: rule_guide.py:265
+#: rule_guide.py:271
 msgid "Connector without EMC protection"
 msgstr ""
 
@@ -1466,23 +1470,23 @@ msgstr ""
 msgid "Convergence (C):"
 msgstr ""
 
-#: rule_guide.py:462
+#: rule_guide.py:468
 msgid "Converter loss from an estimated efficiency"
 msgstr ""
 
-#: rule_guide.py:293
+#: rule_guide.py:299
 msgid "Converter model unstable"
 msgstr ""
 
-#: rule_guide.py:298
+#: rule_guide.py:304
 msgid "Converter model unusable"
 msgstr ""
 
-#: rule_guide.py:313
+#: rule_guide.py:319
 msgid "Converter not running in its board circuit"
 msgstr ""
 
-#: rule_guide.py:405
+#: rule_guide.py:411
 msgid "Converter values differ from the power tree"
 msgstr ""
 
@@ -1502,7 +1506,7 @@ msgstr ""
 msgid "Coplanar width, pair gap, ground gap and reference height must be positive."
 msgstr ""
 
-#: rule_guide.py:84
+#: rule_guide.py:90
 msgid "Copper at the edge radiates more easily and can be cut or exposed when the panel is routed."
 msgstr ""
 
@@ -1510,11 +1514,11 @@ msgstr ""
 msgid "Copper layer_id values must be unique."
 msgstr ""
 
-#: rule_guide.py:83
+#: rule_guide.py:89
 msgid "Copper near or beyond the board edge"
 msgstr ""
 
-#: rule_guide.py:221
+#: rule_guide.py:227
 msgid "Copper outside the board ignored"
 msgstr ""
 
@@ -1527,7 +1531,7 @@ msgstr ""
 msgid "Could not verify KiCad group membership: {p0}"
 msgstr ""
 
-#: rule_guide.py:217
+#: rule_guide.py:223
 msgid "Count the ground vias within 3 mm of the TVS's ground pad; test with an ESD gun on the prototype."
 msgstr ""
 
@@ -1608,7 +1612,7 @@ msgstr ""
 msgid "CRITICAL: the board cannot work as designed. HIGH: likely to fail a requirement. MEDIUM: a real risk with some margin. LOW: minor. INFO: a note, never an action."
 msgstr ""
 
-#: rule_guide.py:339
+#: rule_guide.py:345
 msgid "Cross-board link out of date"
 msgstr ""
 
@@ -1616,7 +1620,7 @@ msgstr ""
 msgid "Crosstalk"
 msgstr ""
 
-#: rule_guide.py:473
+#: rule_guide.py:479
 msgid "Crosstalk between parallel traces"
 msgstr ""
 
@@ -1804,15 +1808,15 @@ msgstr ""
 msgid "DC rail maps ready."
 msgstr ""
 
-#: rule_guide.py:141
+#: rule_guide.py:147
 msgid "DC result changes with the grid"
 msgstr ""
 
-#: rule_guide.py:125
+#: rule_guide.py:131
 msgid "DC solve did not converge"
 msgstr ""
 
-#: rule_guide.py:136
+#: rule_guide.py:142
 msgid "DC solved on an older save"
 msgstr ""
 
@@ -1824,7 +1828,7 @@ msgstr ""
 msgid "Decoupling capacitor"
 msgstr ""
 
-#: rule_guide.py:165
+#: rule_guide.py:171
 msgid "Decoupling capacitor too far"
 msgstr ""
 
@@ -1974,7 +1978,7 @@ msgstr ""
 msgid "Differential impedance analysis complete for {p0} pairs."
 msgstr ""
 
-#: rule_guide.py:364
+#: rule_guide.py:370
 msgid "Differential impedance off target"
 msgstr ""
 
@@ -1982,7 +1986,7 @@ msgstr ""
 msgid "Differential impedance results ready."
 msgstr ""
 
-#: rule_guide.py:184
+#: rule_guide.py:190
 msgid "Differential pair changes reference"
 msgstr ""
 
@@ -1990,7 +1994,7 @@ msgstr ""
 msgid "Differential pair changes reference layer"
 msgstr ""
 
-#: rule_guide.py:178
+#: rule_guide.py:184
 msgid "Differential pair skew"
 msgstr ""
 
@@ -2064,7 +2068,7 @@ msgstr ""
 msgid "Dominant sources"
 msgstr ""
 
-#: rule_guide.py:147
+#: rule_guide.py:153
 msgid "Drop through fuses, switches and shunts"
 msgstr ""
 
@@ -2077,11 +2081,11 @@ msgstr ""
 msgid "Each part a finding names, and the hottest junctions: the heat it dissipates, the board temperature under it, its junction against its limit, and what each analysis says of it."
 msgstr ""
 
-#: rule_guide.py:148
+#: rule_guide.py:154
 msgid "Each part in series between the source and the regulator takes its own share of the voltage before the copper does."
 msgstr ""
 
-#: rule_guide.py:201
+#: rule_guide.py:207
 msgid "Each switching source has a spectrum that other findings compare with the band."
 msgstr ""
 
@@ -2432,7 +2436,7 @@ msgstr ""
 msgid "Entered converter values differ from the power tree"
 msgstr ""
 
-#: rule_guide.py:308
+#: rule_guide.py:314
 msgid "Entered source differs from its board circuit"
 msgstr ""
 
@@ -2470,7 +2474,7 @@ msgstr ""
 msgid "ESD path is missing or too long"
 msgstr ""
 
-#: rule_guide.py:210
+#: rule_guide.py:216
 msgid "ESD path missing or long"
 msgstr ""
 
@@ -2698,11 +2702,11 @@ msgstr ""
 msgid "Flush"
 msgstr ""
 
-#: rule_guide.py:344
+#: rule_guide.py:350
 msgid "Footprint whose symbol is gone"
 msgstr ""
 
-#: rule_guide.py:349
+#: rule_guide.py:355
 msgid "Footprints added on the board only"
 msgstr ""
 
@@ -2759,7 +2763,7 @@ msgstr ""
 msgid "Fundamental (MHz):"
 msgstr ""
 
-#: rule_guide.py:190
+#: rule_guide.py:196
 msgid "Gaps under a differential pair"
 msgstr ""
 
@@ -2793,7 +2797,7 @@ msgstr ""
 msgid "Geometry debug plot"
 msgstr ""
 
-#: rule_guide.py:222
+#: rule_guide.py:228
 msgid "Geometry off the outline was left out of the analysis."
 msgstr ""
 
@@ -2832,7 +2836,7 @@ msgstr ""
 msgid "Grid size (mm):"
 msgstr ""
 
-#: rule_guide.py:237
+#: rule_guide.py:243
 msgid "Ground plane in pieces"
 msgstr ""
 
@@ -2860,11 +2864,11 @@ msgstr ""
 msgid "Heat"
 msgstr ""
 
-#: rule_guide.py:446
+#: rule_guide.py:452
 msgid "Heat left out of the thermal model"
 msgstr ""
 
-#: rule_guide.py:412
+#: rule_guide.py:418
 msgid "Heat lowers a ceramic capacitor's capacitance and a ferrite's impedance."
 msgstr ""
 
@@ -2880,15 +2884,15 @@ msgstr ""
 msgid "High: change the stackup or a plane"
 msgstr ""
 
-#: rule_guide.py:251
+#: rule_guide.py:257
 msgid "Highlight each ground net in KiCad and check where they join."
 msgstr ""
 
-#: rule_guide.py:239
+#: rule_guide.py:245
 msgid "Highlight the ground net in KiCad after refilling the zones and look for narrow necks."
 msgstr ""
 
-#: rule_guide.py:245
+#: rule_guide.py:251
 msgid "Highlight the ground net in KiCad and look at the fill under fast signals."
 msgstr ""
 
@@ -2904,7 +2908,7 @@ msgstr ""
 msgid "Hot loop, switching node"
 msgstr ""
 
-#: rule_guide.py:411
+#: rule_guide.py:417
 msgid "Hot parts change their EMC behaviour"
 msgstr ""
 
@@ -2945,7 +2949,7 @@ msgstr ""
 msgid "Ignoring floating island #{p0} ({p1} nodes): no voltage source or load."
 msgstr ""
 
-#: rule_guide.py:371
+#: rule_guide.py:377
 msgid "Impedances computed from a guessed stackup carry the guess's error."
 msgstr ""
 
@@ -3002,7 +3006,7 @@ msgstr ""
 msgid "Inductor magnetic models"
 msgstr ""
 
-#: rule_guide.py:260
+#: rule_guide.py:266
 msgid "Inductor near saturation"
 msgstr ""
 
@@ -3014,7 +3018,7 @@ msgstr ""
 msgid "Inductor shielding is identified but not numerically calibrated"
 msgstr ""
 
-#: rule_guide.py:254
+#: rule_guide.py:260
 msgid "Inductor shielding not calibrated"
 msgstr ""
 
@@ -3091,7 +3095,7 @@ msgstr ""
 msgid "Interface language:"
 msgstr ""
 
-#: emc_analyzer.py:1598 rule_guide.py:272
+#: emc_analyzer.py:1598 rule_guide.py:278
 msgid "Interface on a cable connector"
 msgstr ""
 
@@ -3158,7 +3162,7 @@ msgstr ""
 msgid "Junction / limit"
 msgstr ""
 
-#: rule_guide.py:423
+#: rule_guide.py:429
 msgid "Junction above its limit"
 msgstr ""
 
@@ -3305,7 +3309,7 @@ msgstr ""
 msgid "Language change"
 msgstr ""
 
-#: rule_guide.py:391
+#: rule_guide.py:397
 msgid "Large switching-node copper"
 msgstr ""
 
@@ -3334,7 +3338,7 @@ msgstr ""
 msgid "Layer (pseudo)"
 msgstr ""
 
-#: rule_guide.py:319
+#: rule_guide.py:325
 msgid "Layer change without a ground via"
 msgstr ""
 
@@ -3368,15 +3372,15 @@ msgstr ""
 msgid "Limitations"
 msgstr ""
 
-#: rule_guide.py:351
+#: rule_guide.py:357
 msgid "List the footprints with no symbol and check that each is mechanical."
 msgstr ""
 
-#: rule_guide.py:243
+#: rule_guide.py:249
 msgid "Little ground copper"
 msgstr ""
 
-#: rule_guide.py:452
+#: rule_guide.py:458
 msgid "Little margin to the limit leaves no room for a warmer enclosure or higher losses."
 msgstr ""
 
@@ -3407,7 +3411,7 @@ msgstr ""
 msgid "Load Config"
 msgstr ""
 
-#: rule_guide.py:154
+#: rule_guide.py:160
 msgid "Load not found on the board"
 msgstr ""
 
@@ -3421,7 +3425,7 @@ msgstr ""
 msgid "Loaded saved {p0} result from history."
 msgstr ""
 
-#: rule_guide.py:119
+#: rule_guide.py:125
 msgid "Loads the source cannot reach"
 msgstr ""
 
@@ -3445,7 +3449,7 @@ msgstr ""
 msgid "Log"
 msgstr ""
 
-#: emc_analyzer.py:1449 rule_guide.py:107
+#: emc_analyzer.py:1449 rule_guide.py:113
 msgid "Long clock route"
 msgstr ""
 
@@ -3453,7 +3457,7 @@ msgstr ""
 msgid "Long parallel trace coupling"
 msgstr ""
 
-#: rule_guide.py:447
+#: rule_guide.py:453
 msgid "Losses that are not placed on the board are missing from the temperatures."
 msgstr ""
 
@@ -3523,19 +3527,19 @@ msgstr ""
 msgid "Maximum: {maximum:.6g} A/mm²; colour cap (P99.5): {cap:.6g} A/mm²{suffix}"
 msgstr ""
 
-#: rule_guide.py:168
+#: rule_guide.py:174
 msgid "Measure the capacitor-to-pin distance after the move; on the prototype, look at the pin's ripple with a short ground spring."
 msgstr ""
 
-#: rule_guide.py:115
+#: rule_guide.py:121
 msgid "Measure the common-mode current on the connector's cable with a current probe on the prototype."
 msgstr ""
 
-#: rule_guide.py:401
+#: rule_guide.py:407
 msgid "Measure the loop's widest gap after the move; scan the switching harmonics with a near-field probe on the prototype."
 msgstr ""
 
-#: rule_guide.py:86
+#: rule_guide.py:92
 msgid "Measure the route's distance to the outline in KiCad and compare it with the fabricator's edge clearance."
 msgstr ""
 
@@ -3692,7 +3696,7 @@ msgstr ""
 msgid "Name:"
 msgstr ""
 
-#: rule_guide.py:261
+#: rule_guide.py:267
 msgid "Near saturation, inductance collapses and the current peak rises quickly."
 msgstr ""
 
@@ -3817,7 +3821,7 @@ msgstr ""
 msgid "NO DATA"
 msgstr ""
 
-#: rule_guide.py:172
+#: rule_guide.py:178
 msgid "No decoupling near a power pin"
 msgstr ""
 
@@ -3857,7 +3861,7 @@ msgstr ""
 msgid "No Geometry Rule"
 msgstr ""
 
-#: rule_guide.py:232
+#: rule_guide.py:238
 msgid "No ground plane"
 msgstr ""
 
@@ -3936,7 +3940,7 @@ msgstr ""
 msgid "No schematic data was available: decoupling, protection and connector roles are inferred from footprint names and values, with low confidence."
 msgstr ""
 
-#: rule_guide.py:287
+#: rule_guide.py:293
 msgid "No SPICE model for a converter"
 msgstr ""
 
@@ -3962,7 +3966,7 @@ msgstr ""
 msgid "No {p0} thermal surface cells are available."
 msgstr ""
 
-#: rule_guide.py:113
+#: rule_guide.py:119
 msgid "Noise coupled into a connector's lines leaves the board on the cable, which radiates."
 msgstr ""
 
@@ -4015,19 +4019,19 @@ msgstr ""
 msgid "Nothing found that must change before manufacture."
 msgstr ""
 
-#: rule_guide.py:223
+#: rule_guide.py:229
 msgid "Nothing to check if that copper is intentional, such as a test coupon."
 msgstr ""
 
-#: rule_guide.py:459
+#: rule_guide.py:465
 msgid "Nothing to check while its current and temperature stay as estimated."
 msgstr ""
 
-#: rule_guide.py:356
+#: rule_guide.py:362
 msgid "Nothing to check while the rails stay at the voltages their names give."
 msgstr ""
 
-#: rule_guide.py:202 rule_guide.py:257 rule_guide.py:284
+#: rule_guide.py:208 rule_guide.py:263 rule_guide.py:290
 msgid "Nothing to check."
 msgstr ""
 
@@ -4056,15 +4060,15 @@ msgstr ""
 msgid "Offset Y (mm):"
 msgstr ""
 
-#: rule_guide.py:175
+#: rule_guide.py:181
 msgid "On the prototype, look at the power pin's ripple with a short ground spring."
 msgstr ""
 
-#: rule_guide.py:475
+#: rule_guide.py:481
 msgid "On the prototype, look at the victim line with an oscilloscope while the aggressor switches."
 msgstr ""
 
-#: rule_guide.py:150
+#: rule_guide.py:156
 msgid "On the prototype, measure the voltage on both sides of each pass element under load."
 msgstr ""
 
@@ -4128,7 +4132,7 @@ msgstr ""
 msgid "Output Side"
 msgstr ""
 
-#: rule_guide.py:227
+#: rule_guide.py:233
 msgid "Over a gap, the return current detours around it and the loop it forms radiates."
 msgstr ""
 
@@ -4136,7 +4140,7 @@ msgstr ""
 msgid "Pads"
 msgstr ""
 
-#: rule_guide.py:159
+#: rule_guide.py:165
 msgid "Pads cut off from their net"
 msgstr ""
 
@@ -4215,7 +4219,7 @@ msgstr ""
 msgid "Parameters"
 msgstr ""
 
-#: rule_guide.py:350
+#: rule_guide.py:356
 msgid "Parts placed only on the board are not checked by schematic rules."
 msgstr ""
 
@@ -4284,7 +4288,7 @@ msgstr ""
 msgid "Physical thickness from bottom to top (mm)"
 msgstr ""
 
-#: rule_guide.py:238
+#: rule_guide.py:244
 msgid "Pieces of plane joined by narrow necks raise the return-path impedance."
 msgstr ""
 
@@ -4312,7 +4316,7 @@ msgstr ""
 msgid "Place the TVS at the connector and route the discharge path directly to chassis/ground."
 msgstr ""
 
-#: rule_guide.py:469
+#: rule_guide.py:475
 msgid "Planes stitched far apart resonate at frequencies inside the band."
 msgstr ""
 
@@ -4365,7 +4369,7 @@ msgstr ""
 msgid "Power Integrity"
 msgstr ""
 
-#: rule_guide.py:324
+#: rule_guide.py:330
 msgid "Power pin without decoupling"
 msgstr ""
 
@@ -4483,16 +4487,20 @@ msgstr ""
 msgid "Rail impedance above its target"
 msgstr ""
 
-#: rule_guide.py:277
+#: rule_guide.py:283
 msgid "Rail impedance estimate above target"
 msgstr ""
 
-#: rule_guide.py:282
+#: rule_guide.py:288
 msgid "Rail impedance within target"
 msgstr ""
 
 #: ui/power_tree_panel.py:120
 msgid "Rail Properties"
+msgstr ""
+
+#: rule_guide.py:83
+msgid "Rail source impedance left at its default"
 msgstr ""
 
 #: rule_guide.py:58
@@ -4507,35 +4515,35 @@ msgstr ""
 msgid "Rail-to-ground impedance"
 msgstr ""
 
-#: rule_guide.py:457
+#: rule_guide.py:463
 msgid "Rating holds at temperature"
 msgstr ""
 
-#: rule_guide.py:279
+#: rule_guide.py:285
 msgid "Read the AC result for this rail."
 msgstr ""
 
-#: rule_guide.py:419
+#: rule_guide.py:425
 msgid "Read the capacitor's temperature range in its datasheet; on the prototype, measure its temperature at full load."
 msgstr ""
 
-#: rule_guide.py:394
+#: rule_guide.py:400
 msgid "Read the node's copper area again after the change; scan it with a near-field probe on the prototype."
 msgstr ""
 
-#: rule_guide.py:181
+#: rule_guide.py:187
 msgid "Read the pair's length difference in KiCad's length tuner."
 msgstr ""
 
-#: rule_guide.py:453
+#: rule_guide.py:459
 msgid "Read the part's rating at this temperature in its datasheet; on the prototype, measure its temperature at full load."
 msgstr ""
 
-#: rule_guide.py:300 rule_guide.py:305
+#: rule_guide.py:306 rule_guide.py:311
 msgid "Read the solver log in the Phase 10 output directory."
 msgstr ""
 
-#: rule_guide.py:413
+#: rule_guide.py:419
 msgid "Read those parts' ratings at the temperature found."
 msgstr ""
 
@@ -4630,7 +4638,7 @@ msgstr ""
 msgid "Relaxation:"
 msgstr ""
 
-#: analysis_adapters.py:1054 analysis_adapters.py:979
+#: analysis_adapters.py:1001 analysis_adapters.py:1076
 #, python-brace-format
 msgid "Remediation sizing failed for {p0}: {p1}"
 msgstr ""
@@ -4690,6 +4698,10 @@ msgstr ""
 msgid "Reroute over continuous ground or restore the reference plane below the segment."
 msgstr ""
 
+#: rule_guide.py:86
+msgid "Rerun AC after choosing the source: the finding should not return."
+msgstr ""
+
 #: rule_guide.py:54
 msgid "Rerun AC after the change: the curve should stay under the target at every frequency."
 msgstr ""
@@ -4702,51 +4714,51 @@ msgstr ""
 msgid "Rerun AC: the rail should get a target and a PASS or FAIL."
 msgstr ""
 
-#: rule_guide.py:138
+#: rule_guide.py:144
 msgid "Rerun DC after saving: this finding should not return."
 msgstr ""
 
-#: rule_guide.py:132
+#: rule_guide.py:138
 msgid "Rerun DC after the change; on the prototype, measure the voltage at the load under full current."
 msgstr ""
 
-#: rule_guide.py:156
+#: rule_guide.py:162
 msgid "Rerun DC: the load should appear in the rail's results."
 msgstr ""
 
-#: rule_guide.py:161
+#: rule_guide.py:167
 msgid "Rerun DC: the pads should be on the net's copper, and KiCad's DRC should list no unconnected item."
 msgstr ""
 
-#: rule_guide.py:127
+#: rule_guide.py:133
 msgid "Rerun DC: the solve should report convergence."
 msgstr ""
 
-#: rule_guide.py:295
+#: rule_guide.py:301
 msgid "Rerun EMC: the circuit should settle."
 msgstr ""
 
-#: rule_guide.py:290
+#: rule_guide.py:296
 msgid "Rerun EMC: the converter should appear among the simulated circuits."
 msgstr ""
 
-#: rule_guide.py:408
+#: rule_guide.py:414
 msgid "Rerun EMC: the finding should not return once the values agree."
 msgstr ""
 
-#: rule_guide.py:207
+#: rule_guide.py:213
 msgid "Rerun EMC: the source should be placed in the band."
 msgstr ""
 
-#: rule_guide.py:144
+#: rule_guide.py:150
 msgid "Rerun on a finer DC grid: the drop should move by less than its margin."
 msgstr ""
 
-#: rule_guide.py:98
+#: rule_guide.py:104
 msgid "Rerun on a finer mesh: the mass and heat balances should close."
 msgstr ""
 
-#: rule_guide.py:442
+#: rule_guide.py:448
 msgid "Rerun on the finer grid the finding names: the temperatures should move by less than their margin."
 msgstr ""
 
@@ -4758,35 +4770,35 @@ msgstr ""
 msgid "Rerun the campaign: every configured profile should appear in the AC results."
 msgstr ""
 
-#: rule_guide.py:366
+#: rule_guide.py:372
 msgid "Rerun the differential analysis after the change; ask the fabricator for an impedance coupon."
 msgstr ""
 
-#: rule_guide.py:372
+#: rule_guide.py:378
 msgid "Rerun the differential analysis after the import."
 msgstr ""
 
-#: rule_guide.py:465
+#: rule_guide.py:471
 msgid "Rerun thermal after entering the efficiency: the finding should not return."
 msgstr ""
 
-#: rule_guide.py:425
+#: rule_guide.py:431
 msgid "Rerun thermal after the change; on the prototype, measure the case with a thermocouple or a thermal camera."
 msgstr ""
 
-#: rule_guide.py:436
+#: rule_guide.py:442
 msgid "Rerun thermal: the energy balance error should fall under its limit."
 msgstr ""
 
-#: rule_guide.py:448
+#: rule_guide.py:454
 msgid "Rerun thermal: the input heat should match the losses."
 msgstr ""
 
-#: rule_guide.py:431
+#: rule_guide.py:437
 msgid "Rerun thermal: the solve should report convergence."
 msgstr ""
 
-#: rule_guide.py:92
+#: rule_guide.py:98
 msgid "Rerun with more iterations: the residuals should fall under the tolerance."
 msgstr ""
 
@@ -4798,11 +4810,11 @@ msgstr ""
 msgid "Residuals"
 msgstr ""
 
-#: rule_guide.py:354
+#: rule_guide.py:360
 msgid "Resistor dissipation within its package"
 msgstr ""
 
-#: rule_guide.py:334
+#: rule_guide.py:340
 msgid "Resistor without a power rating"
 msgstr ""
 
@@ -4991,11 +5003,11 @@ msgstr ""
 msgid "Run Enclosure CFD"
 msgstr ""
 
-#: rule_guide.py:122
+#: rule_guide.py:128
 msgid "Run KiCad's DRC: it lists the unconnected items on that net."
 msgstr ""
 
-#: rule_guide.py:331
+#: rule_guide.py:337
 msgid "Run KiCad's ERC: the pin should be connected or marked no-connect."
 msgstr ""
 
@@ -5003,15 +5015,15 @@ msgstr ""
 msgid "Run selected backend"
 msgstr ""
 
-#: rule_guide.py:341
+#: rule_guide.py:347
 msgid "Run the schematic rules again: the link should match the boards."
 msgstr ""
 
-#: rule_guide.py:326
+#: rule_guide.py:332
 msgid "Run the schematic rules again: the pin should have a capacitor."
 msgstr ""
 
-#: rule_guide.py:336
+#: rule_guide.py:342
 msgid "Run the schematic rules again: the resistor should have a rating."
 msgstr ""
 
@@ -5063,15 +5075,15 @@ msgstr ""
 msgid "Scan Live PCB"
 msgstr ""
 
-#: rule_guide.py:470
+#: rule_guide.py:476
 msgid "Scan the board edges with a near-field probe on the prototype."
 msgstr ""
 
-#: rule_guide.py:104 rule_guide.py:109
+#: rule_guide.py:110 rule_guide.py:115
 msgid "Scan the clock's harmonics with a near-field probe on the prototype."
 msgstr ""
 
-#: rule_guide.py:388
+#: rule_guide.py:394
 msgid "Scan this band with a near-field probe on the prototype."
 msgstr ""
 
@@ -5184,7 +5196,7 @@ msgstr ""
 msgid "Selected {p0} = {p1} F (score {p2})."
 msgstr ""
 
-#: rule_guide.py:249
+#: rule_guide.py:255
 msgid "Separate grounds are a choice; a signal crossing between them loses its return path."
 msgstr ""
 
@@ -5192,7 +5204,7 @@ msgstr ""
 msgid "Server host / IP:"
 msgstr ""
 
-#: rule_guide.py:248
+#: rule_guide.py:254
 msgid "Several ground domains"
 msgstr ""
 
@@ -5225,7 +5237,7 @@ msgstr ""
 msgid "Shielding"
 msgstr ""
 
-#: rule_guide.py:255
+#: rule_guide.py:261
 msgid "Shielding is recognised from the part, but its effect on the field is not quantified."
 msgstr ""
 
@@ -5249,7 +5261,7 @@ msgstr ""
 msgid "Signal Integrity"
 msgstr ""
 
-#: rule_guide.py:380
+#: rule_guide.py:386
 msgid "Signal layer far from its plane"
 msgstr ""
 
@@ -5257,7 +5269,7 @@ msgstr ""
 msgid "Signal layer far from reference"
 msgstr ""
 
-#: rule_guide.py:226
+#: rule_guide.py:232
 msgid "Signal over a gap in its plane"
 msgstr ""
 
@@ -5269,7 +5281,7 @@ msgstr ""
 msgid "Signals and edges"
 msgstr ""
 
-#: rule_guide.py:303
+#: rule_guide.py:309
 msgid "Simulation failed"
 msgstr ""
 
@@ -5355,7 +5367,7 @@ msgstr ""
 msgid "Source frequency unknown"
 msgstr ""
 
-#: rule_guide.py:200
+#: rule_guide.py:206
 msgid "Source harmonic envelopes"
 msgstr ""
 
@@ -5384,7 +5396,7 @@ msgstr ""
 msgid "Sources without a known frequency are excluded from harmonic and near-field estimates (EE-003) rather than given a default."
 msgstr ""
 
-#: rule_guide.py:468
+#: rule_guide.py:474
 msgid "Sparse ground stitching"
 msgstr ""
 
@@ -5392,7 +5404,7 @@ msgstr ""
 msgid "SPICE model library:"
 msgstr ""
 
-#: rule_guide.py:398
+#: rule_guide.py:404
 msgid "Spread-out switching hot loop"
 msgstr ""
 
@@ -5424,7 +5436,7 @@ msgstr ""
 msgid "Stackup Import Error"
 msgstr ""
 
-#: rule_guide.py:370
+#: rule_guide.py:376
 msgid "Stackup not confirmed"
 msgstr ""
 
@@ -5540,7 +5552,7 @@ msgstr ""
 msgid "Switching frequency supplied by the caller."
 msgstr ""
 
-#: rule_guide.py:205
+#: rule_guide.py:211
 msgid "Switching frequency unknown"
 msgstr ""
 
@@ -5548,7 +5560,7 @@ msgstr ""
 msgid "Switching harmonics enter the emissions band"
 msgstr ""
 
-#: rule_guide.py:385
+#: rule_guide.py:391
 msgid "Switching harmonics in the emissions band"
 msgstr ""
 
@@ -5629,11 +5641,11 @@ msgstr ""
 msgid "Test Palace connection"
 msgstr ""
 
-#: rule_guide.py:268
+#: rule_guide.py:274
 msgid "Test the connector with an ESD gun and its cable with a current probe on the prototype."
 msgstr ""
 
-#: rule_guide.py:212
+#: rule_guide.py:218
 msgid "Test the connector with an ESD gun on the prototype (IEC 61000-4-2)."
 msgstr ""
 
@@ -5657,7 +5669,7 @@ msgstr ""
 msgid "The analyses cut the board into small cells. A result that moves when the cells are halved depends on the mesh, not only on the copper."
 msgstr ""
 
-#: rule_guide.py:345
+#: rule_guide.py:351
 msgid "The board holds a part the schematic no longer has."
 msgstr ""
 
@@ -5673,7 +5685,7 @@ msgstr ""
 msgid "The distance between a value and its limit, such as 25 K under a 150 °C junction limit."
 msgstr ""
 
-#: rule_guide.py:278
+#: rule_guide.py:284
 msgid "The EMC estimate of the rail exceeds its target; the AC domain judges the rail."
 msgstr ""
 
@@ -5689,19 +5701,19 @@ msgstr ""
 msgid "The estimate scales with frequency-point count and approximately with the inverse square of mesh resolution. Final cost also depends on copper geometry."
 msgstr ""
 
-#: rule_guide.py:381
+#: rule_guide.py:387
 msgid "The farther a trace is from its plane, the larger its return loop."
 msgstr ""
 
-#: rule_guide.py:137
+#: rule_guide.py:143
 msgid "The figures describe the saved board file, which differs from the open board."
 msgstr ""
 
-#: rule_guide.py:463
+#: rule_guide.py:469
 msgid "The heat a converter puts on the board rests on an efficiency nobody read off a curve or measured; the temperatures of its parts move with it."
 msgstr ""
 
-#: rule_guide.py:435
+#: rule_guide.py:441
 msgid "The heat leaving the model does not match the heat put in."
 msgstr ""
 
@@ -5709,7 +5721,7 @@ msgstr ""
 msgid "The language change will be applied the next time the Ki-PIDA window is opened."
 msgstr ""
 
-#: rule_guide.py:399
+#: rule_guide.py:405
 msgid "The loop through the input capacitor and the switches carries the fastest current edges; it radiates in proportion to its area."
 msgstr ""
 
@@ -5726,7 +5738,7 @@ msgstr ""
 msgid "The measurement port is not electrically connected to the AC source."
 msgstr ""
 
-#: rule_guide.py:294
+#: rule_guide.py:300
 msgid "The model did not settle in simulation, so its waveforms are not used."
 msgstr ""
 
@@ -5734,7 +5746,7 @@ msgstr ""
 msgid "The multilayer board has no filled zone on a configured ground net."
 msgstr ""
 
-#: rule_guide.py:458
+#: rule_guide.py:464
 msgid "The part keeps enough of its rating at the temperature found."
 msgstr ""
 
@@ -5755,7 +5767,7 @@ msgstr ""
 msgid "The project's saved files could not be read for declared rails ({p0}: {p1}); rails are guessed from net names."
 msgstr ""
 
-#: rule_guide.py:283
+#: rule_guide.py:289
 msgid "The rail holds its target over the swept band."
 msgstr ""
 
@@ -5775,19 +5787,19 @@ msgstr ""
 msgid "The selected language is applied the next time the Ki-PIDA window is opened."
 msgstr ""
 
-#: rule_guide.py:314
+#: rule_guide.py:320
 msgid "The simulated converter did not regulate: a pin may be wired wrong, or the model may not support how it is wired."
 msgstr ""
 
-#: rule_guide.py:304
+#: rule_guide.py:310
 msgid "The simulation did not complete, so its results are missing."
 msgstr ""
 
-#: rule_guide.py:299
+#: rule_guide.py:305
 msgid "The simulator could not run the model."
 msgstr ""
 
-#: rule_guide.py:392
+#: rule_guide.py:398
 msgid "The switching node swings at full voltage; each square millimetre of it is antenna area."
 msgstr ""
 
@@ -5795,7 +5807,7 @@ msgstr ""
 msgid "The temperature of the silicon inside a package, estimated from the board temperature and the part's thermal resistance."
 msgstr ""
 
-#: rule_guide.py:430
+#: rule_guide.py:436
 msgid "The temperatures of an unconverged solve cannot be relied on."
 msgstr ""
 
@@ -5807,11 +5819,11 @@ msgstr ""
 msgid "the thermal pipeline"
 msgstr ""
 
-#: rule_guide.py:273
+#: rule_guide.py:279
 msgid "The tool assumed the cable stays inside the enclosure."
 msgstr ""
 
-#: rule_guide.py:166
+#: rule_guide.py:172
 msgid "The trace between a capacitor and its pin adds inductance, which leaves high-frequency current to the rest of the board."
 msgstr ""
 
@@ -5819,11 +5831,11 @@ msgstr ""
 msgid "the traces overlap once their widths are removed"
 msgstr ""
 
-#: rule_guide.py:309
+#: rule_guide.py:315
 msgid "The value entered for EMC differs from what the simulated board circuit gives."
 msgstr ""
 
-#: rule_guide.py:126
+#: rule_guide.py:132
 msgid "The voltages and currents of an unconverged solve cannot be relied on."
 msgstr ""
 
@@ -5877,7 +5889,7 @@ msgstr ""
 msgid "Thermal colour maximum must be greater than the colour minimum."
 msgstr ""
 
-#: rule_guide.py:434
+#: rule_guide.py:440
 msgid "Thermal energy balance off"
 msgstr ""
 
@@ -5957,7 +5969,7 @@ msgstr ""
 msgid "Thermal RAM limit GiB (0 = conservative default):"
 msgstr ""
 
-#: rule_guide.py:439
+#: rule_guide.py:445
 msgid "Thermal result changes with the grid"
 msgstr ""
 
@@ -5973,7 +5985,7 @@ msgstr ""
 msgid "Thermal solve complete; rendering plots in background."
 msgstr ""
 
-#: rule_guide.py:429
+#: rule_guide.py:435
 msgid "Thermal solve did not converge"
 msgstr ""
 
@@ -6002,7 +6014,7 @@ msgstr ""
 msgid "Thickness (mm)"
 msgstr ""
 
-#: rule_guide.py:451
+#: rule_guide.py:457
 msgid "Thin temperature margin"
 msgstr ""
 
@@ -6055,7 +6067,7 @@ msgstr ""
 msgid "Tolerance:"
 msgstr ""
 
-#: rule_guide.py:131
+#: rule_guide.py:137
 msgid "Too much drop in the copper leaves the load below its supply tolerance."
 msgstr ""
 
@@ -6079,7 +6091,7 @@ msgstr ""
 msgid "Trace is too wide for the stripline approximation."
 msgstr ""
 
-#: rule_guide.py:474
+#: rule_guide.py:480
 msgid "Traces running side by side couple part of one signal into the other."
 msgstr ""
 
@@ -6095,11 +6107,11 @@ msgstr ""
 msgid "TVS has insufficient nearby ground vias"
 msgstr ""
 
-#: rule_guide.py:215
+#: rule_guide.py:221
 msgid "TVS short of ground vias"
 msgstr ""
 
-#: rule_guide.py:375
+#: rule_guide.py:381
 msgid "Two signal layers side by side"
 msgstr ""
 
@@ -6127,7 +6139,7 @@ msgstr ""
 msgid "Unavailable — "
 msgstr ""
 
-#: rule_guide.py:329
+#: rule_guide.py:335
 msgid "Unconnected pin"
 msgstr ""
 
@@ -6168,7 +6180,7 @@ msgstr ""
 msgid "Unsupported config version: {p0}"
 msgstr ""
 
-#: rule_guide.py:346
+#: rule_guide.py:352
 msgid "Update the PCB from the schematic in KiCad and read the changes it lists."
 msgstr ""
 
@@ -6298,7 +6310,7 @@ msgstr ""
 msgid "Voltage (V)"
 msgstr ""
 
-#: rule_guide.py:130
+#: rule_guide.py:136
 msgid "Voltage drop above the limit"
 msgstr ""
 
@@ -6350,11 +6362,11 @@ msgstr ""
 msgid "What to do"
 msgstr ""
 
-#: rule_guide.py:320
+#: rule_guide.py:326
 msgid "When a signal changes layer, its return current needs a nearby via to follow it."
 msgstr ""
 
-#: rule_guide.py:179
+#: rule_guide.py:185
 msgid "When one line of a pair is longer, part of the signal turns into common mode, which radiates."
 msgstr ""
 
@@ -6375,11 +6387,11 @@ msgstr ""
 msgid "Width (mm):"
 msgstr ""
 
-#: rule_guide.py:355
+#: rule_guide.py:361
 msgid "With its rail across it, the resistor stays well under its package's rating."
 msgstr ""
 
-#: rule_guide.py:173
+#: rule_guide.py:179
 msgid "With no local capacitor, a pin draws its fast current through the whole power network."
 msgstr ""
 
@@ -6387,19 +6399,19 @@ msgstr ""
 msgid "Without a load current or an explicit target, the sweep has nothing to be judged against."
 msgstr ""
 
-#: rule_guide.py:288
+#: rule_guide.py:294
 msgid "Without a model the converter's waveforms are not simulated, and the EMC estimate keeps the entered values."
 msgstr ""
 
-#: rule_guide.py:376
+#: rule_guide.py:382
 msgid "Without a plane between them, two signal layers couple to each other."
 msgstr ""
 
-#: rule_guide.py:233
+#: rule_guide.py:239
 msgid "Without a plane, every return current takes its own path and no reference is quiet."
 msgstr ""
 
-#: rule_guide.py:335
+#: rule_guide.py:341
 msgid "Without a rating, the dissipation of a resistor cannot be checked."
 msgstr ""
 
@@ -6495,7 +6507,7 @@ msgstr ""
 msgid "{p0} Analysis Error: {p1}"
 msgstr ""
 
-#: analysis_adapters.py:994
+#: analysis_adapters.py:1016
 #, python-brace-format
 msgid "{p0} could not be meshed for sizing: {p1}"
 msgstr ""
@@ -6510,12 +6522,12 @@ msgstr ""
 msgid "{p0} frequency point(s) solved with {p1} LU factorisation(s) and {p2} GMRES iteration(s) in {p3} s."
 msgstr ""
 
-#: analysis_adapters.py:997
+#: analysis_adapters.py:1019
 #, python-brace-format
 msgid "{p0} has no meshable copper; skipped."
 msgstr ""
 
-#: analysis_adapters.py:939
+#: analysis_adapters.py:961
 #, python-brace-format
 msgid "{p0} has no nominal voltage, so there is no drop target to size against; skipped."
 msgstr ""
@@ -6540,37 +6552,37 @@ msgstr ""
 msgid "{p0} is on no pin of {p1}"
 msgstr ""
 
-#: analysis_adapters.py:968
+#: analysis_adapters.py:990
 #, python-brace-format
 msgid "{p0} sized on the DC result's own mesh ({p1} mm): {p2} source node(s), {p3} load node(s)."
 msgstr ""
 
-#: analysis_adapters.py:1021
+#: analysis_adapters.py:1043
 #, python-brace-format
 msgid "{p0} skipped: no load current could be placed on the mesh, so there is no drop to size against."
 msgstr ""
 
-#: analysis_adapters.py:958
+#: analysis_adapters.py:980
 #, python-brace-format
 msgid "{p0} skipped: the DC result holds no source or no load to size against."
 msgstr ""
 
-#: analysis_adapters.py:961
+#: analysis_adapters.py:983
 #, python-brace-format
 msgid "{p0} skipped: {p1} load node(s) are not connected to a source in the solved copper, so any drop computed would be fictitious."
 msgstr ""
 
-#: analysis_adapters.py:1034
+#: analysis_adapters.py:1056
 #, python-brace-format
 msgid "{p0} skipped: {p1} of {p2} load node(s) are not connected to source {p3} in the meshed copper, so any drop computed would be fictitious."
 msgstr ""
 
-#: analysis_adapters.py:988
+#: analysis_adapters.py:1010
 #, python-brace-format
 msgid "{p0} skipped: {p1}."
 msgstr ""
 
-#: analysis_adapters.py:1012
+#: analysis_adapters.py:1034
 #, python-brace-format
 msgid "{p0} source resolved to {p1} via {p2} ({p3} node(s))."
 msgstr ""

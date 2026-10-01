@@ -79,6 +79,12 @@ GUIDE: Dict[str, RuleGuide] = {
         "Rerun on the finer grid the finding names: the verdict should be the same on both "
         "grids.",
         _C, _LOW),
+    "AC-006": RuleGuide(
+        "Rail source impedance left at its default",
+        "Below a few MHz the source feeding a rail sets its impedance, and the default "
+        "describes no real cable or regulator.",
+        "Rerun AC after choosing the source: the finding should not return.",
+        _D, _LOW),
     "BE-001": RuleGuide(
         "Copper near or beyond the board edge",
         "Copper at the edge radiates more easily and can be cut or exposed when the panel is "

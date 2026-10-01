@@ -5292,3 +5292,12 @@ msgstr "Dissipation de résistance dans les limites de son boîtier"
 
 msgid "With its rail across it, the resistor stays well under its package's rating."
 msgstr "Même avec la tension de son rail à ses bornes, la résistance reste loin sous la puissance nominale de son boîtier."
+
+msgid "Below a few MHz the source feeding a rail sets its impedance, and the default describes no real cable or regulator."
+msgstr "Sous quelques MHz, la source qui alimente un rail fixe son impédance, et la valeur par défaut ne décrit aucun câble ni régulateur réel."
+
+msgid "Rail source impedance left at its default"
+msgstr "Impédance de source du rail laissée par défaut"
+
+msgid "Rerun AC after choosing the source: the finding should not return."
+msgstr "Relancez l’AC après avoir choisi la source : l’observation ne doit plus revenir."

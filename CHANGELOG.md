@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added AC-006, data to complete, for a rail whose source impedance is
+  the untouched 10 mOhm + 1 nH default: P02 Rev E's 21:42 report passed
+  /+5V_RAIL (U15) and /+5V_U4 (R49) on it, and only the appendix said
+  that the default sets the impedance below a few MHz. The rail keeps
+  its status; the finding names the source and the rail.
 - Changed SCH-003 to bound a chip resistor's dissipation itself, from its
   value, its footprint's size and the known rail voltage across it. P02
   Rev E's 29 resistors without a Power field were all data to complete;

@@ -66,6 +66,23 @@ class ConfidenceCalibrationTests(unittest.TestCase):
         self.assertEqual(finding.confidence, EvidenceConfidence.HEURISTIC)
         self.assertTrue(any("no board evidence" in item for item in result.limitations))
 
+    def test_a_pass_on_the_default_source_names_it_as_data_to_complete(self):
+        # P02 Rev E, 2026-10-01 21:42: /+5V_RAIL (source U15) passed on the
+        # untouched default and only the appendix said so.
+        sweep = SimpleNamespace(
+            meets_target=True, worst_impedance_ohm=0.0149, worst_frequency_hz=1e3,
+            target_impedance_ohm=0.043, frequencies_hz=[1e3, 1e6], impedance_ohm=[0.0149 + 0j, 0.01 + 0j],
+        )
+        settings = ACAnalysisSettings(
+            rail_name="/+5V_RAIL", ground_net_name="GND", source=ACSourceModel(ref_des="U15"),
+            measurement_port=ACMeasurementPort(ref_des="J6"),
+        )
+        result = adapt_ac_result(sweep, settings=settings)
+        self.assertEqual(result.status.value, "PASS")
+        (finding,) = [f for f in result.findings if f.rule_id == "AC-006"]
+        self.assertEqual((finding.severity.value, finding.components, finding.nets),
+                         ("INFO", ["U15"], ["/+5V_RAIL"]))
+
     def test_dc_001_names_the_mesh_as_a_possible_cause(self):
         result = adapt_dc_result({"+3V3": {
             "stats": (3.2, 3.3, 0.1),
