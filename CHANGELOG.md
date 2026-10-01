@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fixed TE-002's title and recommendation showing in English under the
+  French interface since they became plural (one finding per
+  dielectric). The template is regenerated and both are translated.
 - Fixed TH-004 saying no part's margin depended on the thermal mesh
   while TE-002 judged capacitors closer to their rating than the mesh
   moves: on P02 Rev E's 21:42 run the hotspot moved 4.02 K between the

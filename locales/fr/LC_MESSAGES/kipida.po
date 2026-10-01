@@ -4216,8 +4216,8 @@ msgstr "Annulation de l’analyse AC..."
 msgid "Cancelling EMI/EMC..."
 msgstr "Annulation de la CEM..."
 
-msgid "Capacitor above its dielectric's rated temperature"
-msgstr "Condensateur au-delà de la température nominale de son diélectrique"
+msgid "Capacitors above their dielectric's rated temperature"
+msgstr "Condensateurs au-delà de la température nominale de leur diélectrique"
 
 msgid "Capturing live PCB data for {p0} DC stage."
 msgstr "Capture des données du PCB ouvert pour l’étape DC de {p0}."
@@ -5200,8 +5200,8 @@ msgstr "Schéma de campagne non pris en charge : {p0}"
 msgid "Uploading the explicit Palace project directory to {p0}..."
 msgstr "Envoi du dossier de projet Palace explicite vers {p0}..."
 
-msgid "Use a dielectric rated higher (X7R, 125 C) in the same value and voltage, or move the capacitor away from the heat; check its capacitance at temperature and DC bias."
-msgstr "Utilisez un diélectrique de température nominale plus haute (X7R, 125 C) de même valeur et même tension, ou éloignez le condensateur de la chaleur ; vérifiez sa capacité en température et sous polarisation DC."
+msgid "Use a dielectric rated higher (X7R, 125 C) in the same value and voltage, or move the capacitors away from the heat; check their capacitance at temperature and DC bias."
+msgstr "Utilisez un diélectrique de température nominale plus haute (X7R, 125 C) de même valeur et même tension, ou éloignez les condensateurs de la chaleur ; vérifiez leur capacité en température et sous polarisation DC."
 
 msgid "User-configured source parameters."
 msgstr "Paramètres de source configurés par l’utilisateur."

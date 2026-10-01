@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Ki-PIDA\n"
-"POT-Creation-Date: 2026-10-01 14:22+0000\n"
+"POT-Creation-Date: 2026-10-01 20:09+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -23,11 +23,11 @@ msgstr ""
 msgid "  Layer {p0} vectorized mesh: {p1} nodes."
 msgstr ""
 
-#: emc_analyzer.py:2371
+#: emc_analyzer.py:2415
 msgid " MHz."
 msgstr ""
 
-#: emc_analyzer.py:2106
+#: emc_analyzer.py:2111
 msgid " No aggressor rise time is configured, so only the saturated worst case is given."
 msgstr ""
 
@@ -35,7 +35,7 @@ msgstr ""
 msgid " — colours clipped"
 msgstr ""
 
-#: report/html_report.py:1009
+#: report/html_report.py:1048
 msgid "(no path recorded)"
 msgstr ""
 
@@ -60,61 +60,61 @@ msgstr ""
 msgid "- Remove"
 msgstr ""
 
-#: ui/main_dialog.py:569
+#: ui/main_dialog.py:577
 msgid "--- Analysis batch abandoned: no analysis could be prepared ---"
 msgstr ""
 
-#: ui/main_dialog.py:785
+#: ui/main_dialog.py:802
 #, python-brace-format
 msgid "--- Analysis batch finished: {p0} analysis(es) ran [{p1}], verdict {p2}, {p3} ranked action(s) ---"
 msgstr ""
 
-#: ui/main_dialog.py:1705
+#: ui/main_dialog.py:1722
 msgid "--- Starting 3D Thermal Analysis ---"
 msgstr ""
 
-#: ui/main_dialog.py:1718
+#: ui/main_dialog.py:1735
 msgid "--- Starting Coupled DC / 3D Thermal Analysis ---"
 msgstr ""
 
-#: ui/main_dialog.py:1446
+#: ui/main_dialog.py:1463
 msgid "--- Starting Differential Pair Impedance Analysis ---"
 msgstr ""
 
-#: ui/main_dialog.py:1612
+#: ui/main_dialog.py:1629
 msgid "--- Starting EMI / EMC Pre-compliance Analysis ---"
 msgstr ""
 
-#: ui/main_dialog.py:2140
+#: ui/main_dialog.py:2157
 msgid "--- Starting Phase 4 Enclosure CFD Analysis ---"
 msgstr ""
 
-#: ui/main_dialog.py:1264
+#: ui/main_dialog.py:1281
 #, python-brace-format
 msgid "--- Starting {p0} ---"
 msgstr ""
 
-#: emc_analyzer.py:2412
+#: emc_analyzer.py:2456
 msgid ". Enter the real current to replace it."
 msgstr ""
 
-#: report/html_report.py:658
+#: report/html_report.py:681
 msgid "1. Decision"
 msgstr ""
 
-#: report/html_report.py:349
+#: report/html_report.py:370
 msgid "100 minus a penalty per finding, weighted by severity and certainty. It summarises; it is not a margin. The EMC score is the analysis's own uncalibrated risk figure."
 msgstr ""
 
-#: report/html_report.py:767
+#: report/html_report.py:790
 msgid "2. Actions"
 msgstr ""
 
-#: emc_analyzer.py:659
+#: emc_analyzer.py:664
 msgid "240 MHz maximum-toggle fundamental of the 480 Mbit/s USB 2.0 high-speed rate."
 msgstr ""
 
-#: report/html_report.py:833
+#: report/html_report.py:856
 msgid "3. Components"
 msgstr ""
 
@@ -126,7 +126,7 @@ msgstr ""
 msgid "3D Thermal"
 msgstr ""
 
-#: ui/main_dialog.py:502
+#: ui/main_dialog.py:510
 msgid "3D thermal (coupled)"
 msgstr ""
 
@@ -134,15 +134,15 @@ msgstr ""
 msgid "3D Thermal and Airflow Setup"
 msgstr ""
 
-#: report/html_report.py:1046
+#: report/html_report.py:1085
 msgid "4. Per domain"
 msgstr ""
 
-#: report/html_report.py:1140
+#: report/html_report.py:1179
 msgid "5. Appendices"
 msgstr ""
 
-#: emc_analyzer.py:660
+#: emc_analyzer.py:665
 msgid "6 MHz maximum-toggle fundamental of the 12 Mbit/s USB full-speed rate."
 msgstr ""
 
@@ -210,12 +210,12 @@ msgstr ""
 msgid "[HybridMesher] Zone '{p0}' on {p1}: no polygon geometry available — zone skipped."
 msgstr ""
 
-#: ui/main_dialog.py:1751
+#: ui/main_dialog.py:1768
 #, python-brace-format
 msgid "[INIT] Could not check module provenance: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1754
+#: ui/main_dialog.py:1771
 #, python-brace-format
 msgid "[INIT] WARNING: {p0} -- this module is NOT from the plugin directory. Its results come from a different copy."
 msgstr ""
@@ -249,7 +249,7 @@ msgstr ""
 msgid "[PHASE 10] Cancelled: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1604
+#: ui/main_dialog.py:1621
 msgid "[PHASE 10] Full-wave execution declined; exporting regions only."
 msgstr ""
 
@@ -273,12 +273,12 @@ msgstr ""
 msgid "[PHASE 10] Timeout: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1585
+#: ui/main_dialog.py:1602
 #, python-brace-format
 msgid "[PHASE 10] Transferring the Palace project directory to {p0} and running Palace with {p1} MPI process(es); timeout {p2} s. Turn off 'auto-run full wave' on the EMI/EMC panel to stop this."
 msgstr ""
 
-#: report/html_report.py:371
+#: report/html_report.py:392
 msgid "A capacitor at a power pin that supplies the pin's fast current locally."
 msgstr ""
 
@@ -290,7 +290,7 @@ msgstr ""
 msgid "A converter's sharp edges spread energy over many harmonics, some inside the band the standard limits."
 msgstr ""
 
-#: report/html_report.py:317
+#: report/html_report.py:338
 msgid "A defect the analyses establish on the board itself, such as a broken connection or a voltage drop beyond its limit."
 msgstr ""
 
@@ -310,11 +310,11 @@ msgstr ""
 msgid "A gap in the reference under the pair breaks the return path at that spot."
 msgstr ""
 
-#: report/html_report.py:323
+#: report/html_report.py:344
 msgid "A layout rule of thumb is not met. Only a measurement on the prototype, such as an emissions scan or an ESD test, settles whether it matters. Improving the layout first is cheaper than a respin."
 msgstr ""
 
-#: report/html_report.py:330
+#: report/html_report.py:351
 msgid "A limit of the calculation, not of the board: a mesh too coarse, a solve that did not settle. It takes nothing off the scores and is not an action; it says how far to trust the figures it names."
 msgstr ""
 
@@ -354,7 +354,7 @@ msgstr ""
 msgid "A rail that was not swept is neither checked nor scored."
 msgstr ""
 
-#: report/html_report.py:320
+#: report/html_report.py:341
 msgid "A smaller defect, or a margin worth a second look; decide whether to change the board."
 msgstr ""
 
@@ -374,7 +374,7 @@ msgstr ""
 msgid "A stackup requires at least two copper layers."
 msgstr ""
 
-#: report/html_report.py:380
+#: report/html_report.py:401
 msgid "A switching edge carries energy at every multiple of the switching frequency. Standards limit what a product radiates in set bands."
 msgstr ""
 
@@ -386,7 +386,7 @@ msgstr ""
 msgid "A TVS clamps only as well as its path to ground is short."
 msgstr ""
 
-#: report/html_report.py:386
+#: report/html_report.py:407
 msgid "A via joining ground planes on different layers, so that they act as one at high frequency."
 msgstr ""
 
@@ -398,7 +398,7 @@ msgstr ""
 msgid "Above its target impedance, a rail lets the load's current steps move its voltage more than the load tolerates."
 msgstr ""
 
-#: emc_analyzer.py:2379
+#: emc_analyzer.py:2423
 msgid "Absolute emissions, immunity, enclosure seams and cable routing require physical tests."
 msgstr ""
 
@@ -406,54 +406,54 @@ msgstr ""
 msgid "AC analysis"
 msgstr ""
 
-#: ui/main_dialog.py:1340
+#: ui/main_dialog.py:1357
 msgid "AC analysis cancelled."
 msgstr ""
 
-#: ui/main_dialog.py:1344
+#: ui/main_dialog.py:1361
 msgid "AC Analysis Error"
 msgstr ""
 
-#: ui/main_dialog.py:1343
+#: ui/main_dialog.py:1360
 #, python-brace-format
 msgid "AC Analysis Error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1339
+#: ui/main_dialog.py:1356
 msgid "AC analysis · cancelled"
 msgstr ""
 
-#: ui/main_dialog.py:1161 ui/main_dialog.py:2323
+#: ui/main_dialog.py:1178 ui/main_dialog.py:2340
 msgid "AC analysis · cancelling"
 msgstr ""
 
-#: ui/main_dialog.py:1294 ui/main_dialog.py:1311
+#: ui/main_dialog.py:1311 ui/main_dialog.py:1328
 msgid "AC analysis · complete"
 msgstr ""
 
-#: ui/main_dialog.py:1342
+#: ui/main_dialog.py:1359
 msgid "AC analysis · failed"
 msgstr ""
 
-#: ui/main_dialog.py:1243
+#: ui/main_dialog.py:1260
 #, python-brace-format
 msgid "AC backend CUDA (forced): {p0} nodes solved iteratively on the GPU at every frequency; the first point is verified against a CPU direct solve, and the sweep continues on CPU if they disagree."
 msgstr ""
 
-#: ui/main_dialog.py:1252
+#: ui/main_dialog.py:1269
 #, python-brace-format
 msgid "AC backend {p0}: {p1} nodes solved on CPU, one sparse LU factorisation reused across neighbouring frequencies and refined by GMRES, which is faster here than the GPU's iterative solver. Force CUDA in Runtime settings to use the GPU anyway."
 msgstr ""
 
-#: ui/dialog_pages.py:71 ui/main_dialog.py:1359 ui/workspace_navigation.py:22
+#: ui/dialog_pages.py:71 ui/main_dialog.py:1376 ui/workspace_navigation.py:22
 msgid "AC Impedance"
 msgstr ""
 
-#: ui/main_dialog.py:500
+#: ui/main_dialog.py:508
 msgid "AC impedance"
 msgstr ""
 
-#: ui/main_dialog.py:1263
+#: ui/main_dialog.py:1280
 msgid "AC Impedance Analysis"
 msgstr ""
 
@@ -461,7 +461,7 @@ msgstr ""
 msgid "AC Impedance Setup"
 msgstr ""
 
-#: ui/main_dialog.py:1141
+#: ui/main_dialog.py:1158
 #, python-brace-format
 msgid "AC mesh contains {p0} nodes, above the safe limit of {p1}. Increase 'AC mesh resolution' above {p2} mm and retry."
 msgstr ""
@@ -474,12 +474,12 @@ msgstr ""
 msgid "AC mesh resolution must be between 0.2 and 2.0 mm."
 msgstr ""
 
-#: ui/main_dialog.py:1134
+#: ui/main_dialog.py:1151
 #, python-brace-format
 msgid "AC network ({p0} mesh): {p1} nodes, requested grid {p2} mm, effective grid {p3} mm, {p4} frequency points."
 msgstr ""
 
-#: ui/main_dialog.py:1194
+#: ui/main_dialog.py:1211
 #, python-brace-format
 msgid "AC profile '{p0}' not swept: {p1}"
 msgstr ""
@@ -488,7 +488,7 @@ msgstr ""
 msgid "AC profiles left out of the campaign"
 msgstr ""
 
-#: ui/main_dialog.py:1153
+#: ui/main_dialog.py:1170
 #, python-brace-format
 msgid "AC progress: {p0}/{p1} ({p2})"
 msgstr ""
@@ -516,22 +516,22 @@ msgstr ""
 msgid "AC source resolved to '{p0}' via {p1}."
 msgstr ""
 
-#: ui/main_dialog.py:1062
+#: ui/main_dialog.py:1079
 #, python-brace-format
 msgid "AC target band for {p0} not resolved ({p1}); flat target kept."
 msgstr ""
 
-#: ui/main_dialog.py:1065
+#: ui/main_dialog.py:1082
 #, python-brace-format
 msgid "AC target for {p0}: flat to {p1} MHz ({p2}), rising with frequency above it."
 msgstr ""
 
-#: ui/main_dialog.py:1073
+#: ui/main_dialog.py:1090
 #, python-brace-format
 msgid "AC target for {p0}: {p1} ohm {p2}."
 msgstr ""
 
-#: ui/main_dialog.py:1109
+#: ui/main_dialog.py:1126
 #, python-brace-format
 msgid "AC target impedance: {p0}."
 msgstr ""
@@ -544,7 +544,7 @@ msgstr ""
 msgid "Acceptance tolerance (+/-%):"
 msgstr ""
 
-#: report/html_report.py:705 ui/differential_analysis_panel.py:164
+#: report/html_report.py:728 ui/differential_analysis_panel.py:164
 msgid "Action"
 msgstr ""
 
@@ -552,7 +552,7 @@ msgstr ""
 msgid "Actionable (Critical–Medium)"
 msgstr ""
 
-#: emc_analyzer.py:1236
+#: emc_analyzer.py:1241
 msgid "Add a continuous ground plane and verify the configured ground-net aliases."
 msgstr ""
 
@@ -568,7 +568,7 @@ msgstr ""
 msgid "Add Fan Pair"
 msgstr ""
 
-#: emc_analyzer.py:1690
+#: emc_analyzer.py:1695
 msgid "Add ground stitching around board edges, connectors and reference transitions."
 msgstr ""
 
@@ -592,7 +592,7 @@ msgstr ""
 msgid "Add Regulator"
 msgstr ""
 
-#: emc_analyzer.py:1941
+#: emc_analyzer.py:1946
 msgid "Add symmetric transitions and adjacent ground vias at every layer change."
 msgstr ""
 
@@ -600,7 +600,7 @@ msgstr ""
 msgid "Adjacent copper layers require a dielectric between them."
 msgstr ""
 
-#: emc_analyzer.py:1283
+#: emc_analyzer.py:1288
 msgid "Adjacent signal layers"
 msgstr ""
 
@@ -641,12 +641,12 @@ msgstr ""
 msgid "All saved results"
 msgstr ""
 
-#: report/html_report.py:923
+#: report/html_report.py:962
 #, python-brace-format
 msgid "All {count} figures"
 msgstr ""
 
-#: report/html_report.py:707
+#: report/html_report.py:730
 msgid "Alternatives"
 msgstr ""
 
@@ -658,11 +658,11 @@ msgstr ""
 msgid "Ambient temperature"
 msgstr ""
 
-#: report/html_report.py:383
+#: report/html_report.py:404
 msgid "An electrostatic discharge enters through a connector. A TVS diode clamps it to ground, if its ground path is short."
 msgstr ""
 
-#: emc_analyzer.py:2097
+#: emc_analyzer.py:2102
 msgid "an engineering default, not a datasheet value"
 msgstr ""
 
@@ -682,7 +682,7 @@ msgstr ""
 msgid "An inlet or fan patch requires a positive velocity."
 msgstr ""
 
-#: report/html_report.py:327
+#: report/html_report.py:348
 msgid "An input the analyses needed and did not have. The verdict sharpens once it is filled in."
 msgstr ""
 
@@ -690,11 +690,11 @@ msgstr ""
 msgid "An unconverged flow field can put the hot air in the wrong place."
 msgstr ""
 
-#: report/html_report.py:1110 report/html_report.py:660
+#: report/html_report.py:1149 report/html_report.py:683
 msgid "Analyses"
 msgstr ""
 
-#: report/html_report.py:1112 report/html_report.py:593 report/html_report.py:758
+#: report/html_report.py:1151 report/html_report.py:616 report/html_report.py:781
 msgid "Analysis"
 msgstr ""
 
@@ -703,7 +703,7 @@ msgstr ""
 msgid "Analysis already registered: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:347
+#: ui/main_dialog.py:350
 msgid "Analysis already running"
 msgstr ""
 
@@ -711,11 +711,11 @@ msgstr ""
 msgid "Analysis batch"
 msgstr ""
 
-#: ui/main_dialog.py:806
+#: ui/main_dialog.py:823
 msgid "Analysis Batch Error"
 msgstr ""
 
-#: ui/main_dialog.py:804
+#: ui/main_dialog.py:821
 #, python-brace-format
 msgid "Analysis batch failed: {p0}"
 msgstr ""
@@ -744,7 +744,7 @@ msgstr ""
 msgid "analysis_type must not be empty"
 msgstr ""
 
-#: report/html_report.py:481
+#: report/html_report.py:475
 #, python-brace-format
 msgid "and {count} more"
 msgstr ""
@@ -769,7 +769,7 @@ msgstr ""
 msgid "Apply Selected to KiCad Rules"
 msgstr ""
 
-#: report/html_report.py:1007
+#: report/html_report.py:1046
 msgid "Artifact unavailable:"
 msgstr ""
 
@@ -815,67 +815,67 @@ msgstr ""
 msgid "Barrel current density (A/mm²)"
 msgstr ""
 
-#: ui/main_dialog.py:558
+#: ui/main_dialog.py:566
 msgid "Batch cancelled: no analysis selected."
 msgstr ""
 
-#: ui/main_dialog.py:707
+#: ui/main_dialog.py:715
 msgid "Batch · cancelling"
 msgstr ""
 
-#: ui/main_dialog.py:805
+#: ui/main_dialog.py:822
 msgid "Batch · failed"
 msgstr ""
 
-#: ui/main_dialog.py:570
+#: ui/main_dialog.py:578
 msgid "Batch · nothing to run"
 msgstr ""
 
-#: ui/main_dialog.py:610
+#: ui/main_dialog.py:618
 #, python-brace-format
 msgid "Batch: capturing live board data for {p0} analysis(es) before the run starts."
 msgstr ""
 
-#: ui/main_dialog.py:669
+#: ui/main_dialog.py:677
 #, python-brace-format
 msgid "Batch: KiCad answered after {p0} retry(ies): {p1} tracks, {p2} vias, {p3} zones, {p4} footprints."
 msgstr ""
 
-#: ui/main_dialog.py:675
+#: ui/main_dialog.py:683
 #, python-brace-format
 msgid "Batch: KiCad IPC returned an empty board (attempt {p0}/{p1}); waiting for PCB Editor synchronisation."
 msgstr ""
 
-#: ui/main_dialog.py:683 ui/main_dialog.py:684
+#: ui/main_dialog.py:691 ui/main_dialog.py:692
 msgid "Batch: KiCad IPC still returns an empty board; analyses that read the live board will refuse to run. Retry once the PCB Editor has synchronised."
 msgstr ""
 
-#: ui/main_dialog.py:665
+#: ui/main_dialog.py:673
 #, python-brace-format
 msgid "Batch: live board probe failed -- {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:625
+#: ui/main_dialog.py:633
 #, python-brace-format
 msgid "Batch: preparing {p0}."
 msgstr ""
 
-#: ui/main_dialog.py:775
+#: ui/main_dialog.py:792
 #, python-brace-format
 msgid "Batch: {p0} failed -- {p1}"
 msgstr ""
 
-#: ui/main_dialog.py:764
+#: ui/main_dialog.py:777
 #, python-brace-format
 msgid "Batch: {p0} results could not be displayed -- {p1}"
 msgstr ""
 
-#: ui/main_dialog.py:777
+#: ui/main_dialog.py:794
 #, python-brace-format
 msgid "Batch: {p0} skipped ({p1})."
 msgstr ""
 
-#: ui/main_dialog.py:629
+#: ui/main_dialog.py:637
 #, python-brace-format
 msgid "Batch: {p0} was not prepared and will be skipped -- {p1}"
 msgstr ""
@@ -888,7 +888,7 @@ msgstr ""
 msgid "Beyond the temperature its dielectric is rated to (X5R 85 °C, X7R 125 °C), a ceramic capacitor's capacitance and life are no longer specified."
 msgstr ""
 
-#: report/html_report.py:1112 report/html_report.py:889
+#: report/html_report.py:1151 report/html_report.py:927
 msgid "Board"
 msgstr ""
 
@@ -896,11 +896,11 @@ msgstr ""
 msgid "Board cavity resonances"
 msgstr ""
 
-#: emc_analyzer.py:2182
+#: emc_analyzer.py:2187
 msgid "Board cavity resonances estimated"
 msgstr ""
 
-#: analysis_adapters.py:904
+#: analysis_adapters.py:914
 #, python-brace-format
 msgid "Board could not be read for remediation sizing: {p0}"
 msgstr ""
@@ -909,7 +909,7 @@ msgstr ""
 msgid "Board edge"
 msgstr ""
 
-#: report/html_report.py:1108
+#: report/html_report.py:1147
 msgid "Board fingerprint"
 msgstr ""
 
@@ -918,7 +918,7 @@ msgstr ""
 msgid "Board in-plane conductivity {p0} W/mK from its copper coverage."
 msgstr ""
 
-#: ui/main_dialog.py:168
+#: ui/main_dialog.py:171
 #, python-brace-format
 msgid "Board object connected: {p0}"
 msgstr ""
@@ -979,15 +979,15 @@ msgstr ""
 msgid "CALCULATION QUALITY"
 msgstr ""
 
-#: report/html_report.py:329
+#: report/html_report.py:350
 msgid "Calculation reliability"
 msgstr ""
 
-#: report/html_report.py:1108
+#: report/html_report.py:1147
 msgid "Campaign"
 msgstr ""
 
-#: report/html_report.py:1173
+#: report/html_report.py:1212
 #, python-brace-format
 msgid "Campaign schema {version}"
 msgstr ""
@@ -996,43 +996,43 @@ msgstr ""
 msgid "Cancel"
 msgstr ""
 
-#: ui/main_dialog.py:1273
+#: ui/main_dialog.py:1290
 msgid "Cancel AC Analysis"
 msgstr ""
 
-#: ui/main_dialog.py:717
+#: ui/main_dialog.py:725
 msgid "Cancel Analysis Batch"
 msgstr ""
 
-#: ui/dialog_action_bar.py:15 ui/main_dialog.py:1651 ui/main_dialog.py:1686
+#: ui/dialog_action_bar.py:15 ui/main_dialog.py:1668 ui/main_dialog.py:1703
 msgid "Cancel EMI/EMC"
 msgstr ""
 
-#: ui/main_dialog.py:2151
+#: ui/main_dialog.py:2168
 msgid "Cancel Enclosure CFD"
 msgstr ""
 
-#: ui/main_dialog.py:1162
+#: ui/main_dialog.py:1179
 msgid "Cancellation requested for AC impedance analysis."
 msgstr ""
 
-#: ui/main_dialog.py:2133
+#: ui/main_dialog.py:2150
 msgid "Cancellation requested for enclosure CFD."
 msgstr ""
 
-#: ui/main_dialog.py:708 ui/main_dialog.py:709
+#: ui/main_dialog.py:716 ui/main_dialog.py:717
 msgid "Cancellation requested for the analysis batch; the domains that already finished are kept."
 msgstr ""
 
-#: ui/main_dialog.py:1160
+#: ui/main_dialog.py:1177
 msgid "Cancelling AC Analysis..."
 msgstr ""
 
-#: ui/main_dialog.py:2132 ui/main_dialog.py:2345
+#: ui/main_dialog.py:2149 ui/main_dialog.py:2362
 msgid "Cancelling CFD..."
 msgstr ""
 
-#: ui/main_dialog.py:1635 ui/main_dialog.py:2339
+#: ui/main_dialog.py:1652 ui/main_dialog.py:2356
 msgid "Cancelling EMI/EMC..."
 msgstr ""
 
@@ -1048,10 +1048,6 @@ msgstr ""
 msgid "Capacitance:"
 msgstr ""
 
-#: emc_analyzer.py:2319
-msgid "Capacitor above its dielectric's rated temperature"
-msgstr ""
-
 #: rule_guide.py:411
 msgid "Capacitor above its rated temperature"
 msgstr ""
@@ -1061,12 +1057,16 @@ msgstr ""
 msgid "Capacitor Model: {reference}"
 msgstr ""
 
-#: ui/main_dialog.py:697
+#: emc_analyzer.py:2361
+msgid "Capacitors above their dielectric's rated temperature"
+msgstr ""
+
+#: ui/main_dialog.py:705
 #, python-brace-format
 msgid "Capturing live PCB data for {p0} DC stage."
 msgstr ""
 
-#: ui/main_dialog.py:1842
+#: ui/main_dialog.py:1859
 msgid "Capturing the thermal board model on the KiCad UI thread."
 msgstr ""
 
@@ -1086,11 +1086,11 @@ msgstr ""
 msgid "Center V (0..1):"
 msgstr ""
 
-#: report/html_report.py:341 report/html_report.py:758
+#: report/html_report.py:362 report/html_report.py:781
 msgid "Certainty"
 msgstr ""
 
-#: ui/main_dialog.py:2203
+#: ui/main_dialog.py:2220
 msgid "CFD 3D"
 msgstr ""
 
@@ -1132,12 +1132,12 @@ msgstr ""
 msgid "CFD mesh would contain {p0} cells. Increase the CFD cell size."
 msgstr ""
 
-#: ui/main_dialog.py:2113
+#: ui/main_dialog.py:2130
 #, python-brace-format
 msgid "CFD progress: {p0}/{p1} ({p2})"
 msgstr ""
 
-#: report/html_report.py:705
+#: report/html_report.py:728
 msgid "Change"
 msgstr ""
 
@@ -1165,7 +1165,7 @@ msgstr ""
 msgid "Check mesh sensitivity (2x grid)"
 msgstr ""
 
-#: report/html_report.py:322
+#: report/html_report.py:343
 msgid "Check on the prototype"
 msgstr ""
 
@@ -1193,7 +1193,7 @@ msgstr ""
 msgid "Check where the cable runs in the enclosure."
 msgstr ""
 
-#: report/html_report.py:334
+#: report/html_report.py:355
 msgid "Checks that passed. Read them as what the analyses covered, not as a guarantee."
 msgstr ""
 
@@ -1233,11 +1233,11 @@ msgstr ""
 msgid "Clear Thermal Cache"
 msgstr ""
 
-#: ui/main_dialog.py:382
+#: ui/main_dialog.py:385
 msgid "Cleared the in-session thermal mesh, CSR, CUDA workspace and copper-geometry cache."
 msgstr ""
 
-#: emc_analyzer.py:1451
+#: emc_analyzer.py:1456
 msgid "Clock close to connector"
 msgstr ""
 
@@ -1249,7 +1249,7 @@ msgstr ""
 msgid "Clock on outer copper"
 msgstr ""
 
-#: emc_analyzer.py:1439
+#: emc_analyzer.py:1444
 msgid "Clock routed mostly on outer copper"
 msgstr ""
 
@@ -1261,31 +1261,31 @@ msgstr ""
 msgid "Close"
 msgstr ""
 
-#: ui/main_dialog.py:2324
+#: ui/main_dialog.py:2341
 msgid "Close requested; cancelling AC analysis first."
 msgstr ""
 
-#: ui/main_dialog.py:2319
+#: ui/main_dialog.py:2336
 msgid "Close requested; cancelling DC analysis first."
 msgstr ""
 
-#: ui/main_dialog.py:2329
+#: ui/main_dialog.py:2346
 msgid "Close requested; cancelling differential analysis first."
 msgstr ""
 
-#: ui/main_dialog.py:2340
+#: ui/main_dialog.py:2357
 msgid "Close requested; cancelling EMI/EMC first."
 msgstr ""
 
-#: ui/main_dialog.py:2346
+#: ui/main_dialog.py:2363
 msgid "Close requested; cancelling enclosure CFD first."
 msgstr ""
 
-#: ui/main_dialog.py:2314
+#: ui/main_dialog.py:2331
 msgid "Close requested; cancelling the analysis batch first."
 msgstr ""
 
-#: ui/main_dialog.py:2334
+#: ui/main_dialog.py:2351
 msgid "Close requested; cancelling thermal analysis first."
 msgstr ""
 
@@ -1313,11 +1313,11 @@ msgstr ""
 msgid "Compare these frequencies with the peaks of a near-field scan."
 msgstr ""
 
-#: report/html_report.py:1112
+#: report/html_report.py:1151
 msgid "Completed"
 msgstr ""
 
-#: report/html_report.py:889
+#: report/html_report.py:927
 msgid "Component"
 msgstr ""
 
@@ -1325,11 +1325,11 @@ msgstr ""
 msgid "Component Heat Sources"
 msgstr ""
 
-#: report/html_report.py:946
+#: report/html_report.py:985
 msgid "Components"
 msgstr ""
 
-#: emc_analyzer.py:2446
+#: emc_analyzer.py:2490
 msgid "Components and I/O"
 msgstr ""
 
@@ -1338,7 +1338,7 @@ msgstr ""
 msgid "Components: {components}"
 msgstr ""
 
-#: report/html_report.py:1112
+#: report/html_report.py:1151
 msgid "Compute"
 msgstr ""
 
@@ -1350,7 +1350,7 @@ msgstr ""
 msgid "Compute electric and magnetic maps"
 msgstr ""
 
-#: report/html_report.py:1137
+#: report/html_report.py:1176
 msgid "Compute metadata"
 msgstr ""
 
@@ -1363,7 +1363,7 @@ msgstr ""
 msgid "Confidence: {confidence}"
 msgstr ""
 
-#: report/html_report.py:1137
+#: report/html_report.py:1176
 msgid "Configuration"
 msgstr ""
 
@@ -1380,7 +1380,7 @@ msgstr ""
 msgid "Configure rails, sources, loads, mesh, and DC limits."
 msgstr ""
 
-#: ui/main_dialog.py:1599
+#: ui/main_dialog.py:1616
 msgid "Confirm openEMS execution"
 msgstr ""
 
@@ -1418,7 +1418,7 @@ msgstr ""
 msgid "Connector shield return not found"
 msgstr ""
 
-#: emc_analyzer.py:1665
+#: emc_analyzer.py:1670
 msgid "Connector shield return not identified"
 msgstr ""
 
@@ -1430,34 +1430,34 @@ msgstr ""
 msgid "conservative default"
 msgstr ""
 
-#: ui/main_dialog.py:844 ui/main_dialog.py:889
+#: ui/main_dialog.py:861 ui/main_dialog.py:906
 msgid "Consolidated Report Error"
 msgstr ""
 
-#: ui/main_dialog.py:842
+#: ui/main_dialog.py:859
 #, python-brace-format
 msgid "Consolidated report failed while aggregating: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:887
+#: ui/main_dialog.py:904
 #, python-brace-format
 msgid "Consolidated report failed: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:831
+#: ui/main_dialog.py:848
 msgid "Consolidated report · building"
 msgstr ""
 
-#: ui/main_dialog.py:843 ui/main_dialog.py:888
+#: ui/main_dialog.py:860 ui/main_dialog.py:905
 msgid "Consolidated report · failed"
 msgstr ""
 
-#: ui/main_dialog.py:868
+#: ui/main_dialog.py:885
 #, python-brace-format
 msgid "Consolidated report: plots attached from {p0} saved result(s)."
 msgstr ""
 
-#: ui/main_dialog.py:874
+#: ui/main_dialog.py:891
 #, python-brace-format
 msgid "Consolidated report: {p0} across [{p1}], {p2} action(s) from {p3} analysis result(s)."
 msgstr ""
@@ -1531,7 +1531,7 @@ msgstr ""
 msgid "Count the ground vias within 3 mm of the TVS's ground pad; test with an ESD gun on the prototype."
 msgstr ""
 
-#: ui/main_dialog.py:1834
+#: ui/main_dialog.py:1851
 msgid "Coupled analysis requires at least one configured power rail."
 msgstr ""
 
@@ -1539,20 +1539,20 @@ msgstr ""
 msgid "Coupled iterations:"
 msgstr ""
 
-#: ui/main_dialog.py:1944
+#: ui/main_dialog.py:1961
 msgid "Coupled Thermal"
 msgstr ""
 
-#: ui/main_dialog.py:1723
+#: ui/main_dialog.py:1740
 msgid "Coupled Thermal Analysis Error"
 msgstr ""
 
-#: ui/main_dialog.py:1722
+#: ui/main_dialog.py:1739
 #, python-brace-format
 msgid "Coupled Thermal Analysis Error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1880
+#: ui/main_dialog.py:1897
 msgid "Coupled thermal · running"
 msgstr ""
 
@@ -1596,7 +1596,7 @@ msgstr ""
 msgid "Create/update KiPIDA_DIFF net classes and predefined differential sizes in this project?\n\n"
 msgstr ""
 
-#: report/html_report.py:1109
+#: report/html_report.py:1148
 msgid "Created"
 msgstr ""
 
@@ -1604,7 +1604,7 @@ msgstr ""
 msgid "Critical / High"
 msgstr ""
 
-#: report/html_report.py:339
+#: report/html_report.py:360
 msgid "CRITICAL: the board cannot work as designed. HIGH: likely to fail a requirement. MEDIUM: a real risk with some margin. LOW: minor. INFO: a note, never an action."
 msgstr ""
 
@@ -1612,7 +1612,7 @@ msgstr ""
 msgid "Cross-board link out of date"
 msgstr ""
 
-#: emc_analyzer.py:2451 ui/emc_analysis_panel.py:38
+#: emc_analyzer.py:2495 ui/emc_analysis_panel.py:38
 msgid "Crosstalk"
 msgstr ""
 
@@ -1723,11 +1723,11 @@ msgstr ""
 msgid "Data disclosure: the directory containing the selected Palace JSON, mesh, and associated files is transferred to this LAN server. No password is stored."
 msgstr ""
 
-#: report/html_report.py:326
+#: report/html_report.py:347
 msgid "Data to complete"
 msgstr ""
 
-#: report/html_report.py:362
+#: report/html_report.py:383
 msgid "Datasheet figures linking the junction to the board 1 mm from the package (JEDEC JESD51-8 and -12)."
 msgstr ""
 
@@ -1735,72 +1735,72 @@ msgstr ""
 msgid "DC analysis"
 msgstr ""
 
-#: ui/main_dialog.py:1029
+#: ui/main_dialog.py:1046
 msgid "DC analysis cancelled."
 msgstr ""
 
-#: ui/main_dialog.py:1000 ui/main_dialog.py:1034
+#: ui/main_dialog.py:1017 ui/main_dialog.py:1051
 msgid "DC Analysis Error"
 msgstr ""
 
-#: ui/main_dialog.py:1032 ui/main_dialog.py:999
+#: ui/main_dialog.py:1016 ui/main_dialog.py:1049
 #, python-brace-format
 msgid "DC Analysis Error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1030
+#: ui/main_dialog.py:1047
 msgid "DC analysis · cancelled"
 msgstr ""
 
-#: ui/main_dialog.py:2318
+#: ui/main_dialog.py:2335
 msgid "DC analysis · cancelling"
 msgstr ""
 
-#: ui/main_dialog.py:1020
+#: ui/main_dialog.py:1037
 msgid "DC analysis · complete"
 msgstr ""
 
-#: ui/main_dialog.py:1033
+#: ui/main_dialog.py:1050
 msgid "DC analysis · failed"
 msgstr ""
 
-#: ui/main_dialog.py:996
+#: ui/main_dialog.py:1013
 msgid "DC analysis · running"
 msgstr ""
 
-#: ui/main_dialog.py:2077 ui/main_dialog.py:2078
+#: ui/main_dialog.py:2094 ui/main_dialog.py:2095
 msgid "DC copper-loss heat sources require at least one configured power rail."
 msgstr ""
 
-#: ui/main_dialog.py:2262
+#: ui/main_dialog.py:2279
 #, python-brace-format
 msgid "DC plot geometry warning: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:2309
+#: ui/main_dialog.py:2326
 #, python-brace-format
 msgid "DC plot rendering error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:499
+#: ui/main_dialog.py:507
 msgid "DC power"
 msgstr ""
 
-#: ui/main_dialog.py:1003
+#: ui/main_dialog.py:1020
 msgid "DC Preparation Error"
 msgstr ""
 
-#: ui/main_dialog.py:1002
+#: ui/main_dialog.py:1019
 #, python-brace-format
 msgid "DC preparation failed: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1012
+#: ui/main_dialog.py:1029
 #, python-brace-format
 msgid "DC progress: {p0}/{p1} ({p2})"
 msgstr ""
 
-#: ui/main_dialog.py:2303
+#: ui/main_dialog.py:2320
 msgid "DC rail maps ready."
 msgstr ""
 
@@ -1820,7 +1820,7 @@ msgstr ""
 msgid "Decoupling"
 msgstr ""
 
-#: report/html_report.py:370
+#: report/html_report.py:391
 msgid "Decoupling capacitor"
 msgstr ""
 
@@ -1828,11 +1828,11 @@ msgstr ""
 msgid "Decoupling capacitor too far"
 msgstr ""
 
-#: ui/main_dialog.py:1263
+#: ui/main_dialog.py:1280
 msgid "Decoupling Optimization"
 msgstr ""
 
-#: emc_analyzer.py:2397
+#: emc_analyzer.py:2441
 msgid "Decoupling, protection and connector roles come from the schematic's symbols."
 msgstr ""
 
@@ -1865,11 +1865,11 @@ msgstr ""
 msgid "Depth (mm):"
 msgstr ""
 
-#: report/html_report.py:364
+#: report/html_report.py:385
 msgid "Derating"
 msgstr ""
 
-#: report/html_report.py:758 report/html_report.py:946
+#: report/html_report.py:781 report/html_report.py:985
 msgid "Description"
 msgstr ""
 
@@ -1878,7 +1878,7 @@ msgstr ""
 msgid "Detached {p0} overlay image(s) from active KiCad group(s)."
 msgstr ""
 
-#: report/html_report.py:1144
+#: report/html_report.py:1183
 msgid "Detail"
 msgstr ""
 
@@ -1924,36 +1924,36 @@ msgstr ""
 msgid "Differential analysis"
 msgstr ""
 
-#: ui/main_dialog.py:1493
+#: ui/main_dialog.py:1510
 msgid "Differential analysis cancelled."
 msgstr ""
 
-#: ui/main_dialog.py:1498
+#: ui/main_dialog.py:1515
 msgid "Differential Analysis Error"
 msgstr ""
 
-#: ui/main_dialog.py:1496
+#: ui/main_dialog.py:1513
 #, python-brace-format
 msgid "Differential Analysis Error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1494
+#: ui/main_dialog.py:1511
 msgid "Differential analysis · cancelled"
 msgstr ""
 
-#: ui/main_dialog.py:2328
+#: ui/main_dialog.py:2345
 msgid "Differential analysis · cancelling"
 msgstr ""
 
-#: ui/main_dialog.py:1474
+#: ui/main_dialog.py:1491
 msgid "Differential analysis · complete"
 msgstr ""
 
-#: ui/main_dialog.py:1497
+#: ui/main_dialog.py:1514
 msgid "Differential analysis · failed"
 msgstr ""
 
-#: ui/main_dialog.py:1454
+#: ui/main_dialog.py:1471
 msgid "Differential analysis · running"
 msgstr ""
 
@@ -1961,7 +1961,7 @@ msgstr ""
 msgid "Differential excitation:"
 msgstr ""
 
-#: ui/main_dialog.py:1400
+#: ui/main_dialog.py:1417
 msgid "Differential geometry retry recovered live routed tracks."
 msgstr ""
 
@@ -1978,7 +1978,7 @@ msgstr ""
 msgid "Differential impedance off target"
 msgstr ""
 
-#: ui/main_dialog.py:1486
+#: ui/main_dialog.py:1503
 msgid "Differential impedance results ready."
 msgstr ""
 
@@ -1986,7 +1986,7 @@ msgstr ""
 msgid "Differential pair changes reference"
 msgstr ""
 
-#: emc_analyzer.py:1939
+#: emc_analyzer.py:1944
 msgid "Differential pair changes reference layer"
 msgstr ""
 
@@ -1998,11 +1998,11 @@ msgstr ""
 msgid "Differential Pairs"
 msgstr ""
 
-#: emc_analyzer.py:2450 ui/emc_analysis_panel.py:36 ui/main_dialog.py:501
+#: emc_analyzer.py:2494 ui/emc_analysis_panel.py:36 ui/main_dialog.py:509
 msgid "Differential pairs"
 msgstr ""
 
-#: ui/main_dialog.py:1423
+#: ui/main_dialog.py:1440
 #, python-brace-format
 msgid "Differential progress: {p0}/{p1} ({p2})"
 msgstr ""
@@ -2012,20 +2012,20 @@ msgstr ""
 msgid "Differential scan complete. Discovered {p0} pair candidates."
 msgstr ""
 
-#: ui/main_dialog.py:1451
+#: ui/main_dialog.py:1468
 msgid "Differential Setup Error"
 msgstr ""
 
-#: ui/main_dialog.py:1450
+#: ui/main_dialog.py:1467
 #, python-brace-format
 msgid "Differential Setup Error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1479
+#: ui/main_dialog.py:1496
 msgid "Differential Z"
 msgstr ""
 
-#: emc_analyzer.py:1934
+#: emc_analyzer.py:1939
 msgid "Differential-pair skew"
 msgstr ""
 
@@ -2044,11 +2044,11 @@ msgstr ""
 msgid "Direct CPU solve failed ({p0}); retrying iteratively, which needs no factorisation memory."
 msgstr ""
 
-#: emc_analyzer.py:1565
+#: emc_analyzer.py:1570
 msgid "Distant decoupling capacitor"
 msgstr ""
 
-#: emc_analyzer.py:1564
+#: emc_analyzer.py:1569
 msgid "Distant rail-bypass candidate"
 msgstr ""
 
@@ -2056,7 +2056,7 @@ msgstr ""
 msgid "dL / skew"
 msgstr ""
 
-#: report/html_report.py:416
+#: report/html_report.py:437
 msgid "Do not release for manufacture yet: at least one defect must be fixed first."
 msgstr ""
 
@@ -2073,7 +2073,7 @@ msgstr ""
 msgid "Duplicate workspace page index: {p0}"
 msgstr ""
 
-#: report/html_report.py:891
+#: report/html_report.py:929
 msgid "Each part a finding names, and the hottest junctions: the heat it dissipates, the board temperature under it, its junction against its limit, and what each analysis says of it."
 msgstr ""
 
@@ -2137,11 +2137,11 @@ msgstr ""
 msgid "Efficiency must be between 0.0 and 1.0"
 msgstr ""
 
-#: report/html_report.py:706
+#: report/html_report.py:729
 msgid "Effort"
 msgstr ""
 
-#: ui/main_dialog.py:1666
+#: ui/main_dialog.py:1683
 msgid "Electric Field"
 msgstr ""
 
@@ -2150,7 +2150,7 @@ msgstr ""
 msgid "Electrical mesh for {p0} still contains about {p1} nodes at {p2} mm. Increase the DC grid size."
 msgstr ""
 
-#: emc_analyzer.py:881
+#: emc_analyzer.py:886
 msgid "Electrical parameters are defaults; confirm them."
 msgstr ""
 
@@ -2159,7 +2159,7 @@ msgstr ""
 msgid "EM {quantity}-field  {value:.5g} {unit}  |  X {x:.2f} mm, Y {y:.2f} mm  |  probe height {height:g} mm"
 msgstr ""
 
-#: ui/dialog_pages.py:87 ui/main_dialog.py:503 ui/workspace_navigation.py:26
+#: ui/dialog_pages.py:87 ui/main_dialog.py:511 ui/workspace_navigation.py:26
 msgid "EMI / EMC"
 msgstr ""
 
@@ -2167,25 +2167,25 @@ msgstr ""
 msgid "EMI/EMC analysis"
 msgstr ""
 
-#: ui/main_dialog.py:1688
+#: ui/main_dialog.py:1705
 msgid "EMI/EMC analysis cancelled."
 msgstr ""
 
-#: emc_analyzer.py:2415
+#: emc_analyzer.py:2459
 #, python-brace-format
 msgid "EMI/EMC analysis completed: {p0} findings, score {p1}/100."
 msgstr ""
 
-#: ui/main_dialog.py:1693
+#: ui/main_dialog.py:1710
 msgid "EMI/EMC Analysis Error"
 msgstr ""
 
-#: ui/main_dialog.py:1691
+#: ui/main_dialog.py:1708
 #, python-brace-format
 msgid "EMI/EMC Analysis Error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1636
+#: ui/main_dialog.py:1653
 msgid "EMI/EMC cancellation requested; stopping the active Phase 10 worker."
 msgstr ""
 
@@ -2193,7 +2193,7 @@ msgstr ""
 msgid "EMI/EMC geometric risk map"
 msgstr ""
 
-#: ui/main_dialog.py:1505
+#: ui/main_dialog.py:1522
 msgid "EMI/EMC note: no clock or switching source is enabled; geometry-only rules will run."
 msgstr ""
 
@@ -2205,20 +2205,20 @@ msgstr ""
 msgid "EMI/EMC observation copied to clipboard"
 msgstr ""
 
-#: ui/main_dialog.py:1678
+#: ui/main_dialog.py:1695
 msgid "EMI/EMC pre-compliance results ready."
 msgstr ""
 
-#: ui/main_dialog.py:1543
+#: ui/main_dialog.py:1560
 #, python-brace-format
 msgid "EMI/EMC progress: {p0}/{p1} ({p2})"
 msgstr ""
 
-#: ui/main_dialog.py:1617
+#: ui/main_dialog.py:1634
 msgid "EMI/EMC Setup Error"
 msgstr ""
 
-#: ui/main_dialog.py:1616
+#: ui/main_dialog.py:1633
 #, python-brace-format
 msgid "EMI/EMC Setup Error: {p0}"
 msgstr ""
@@ -2246,19 +2246,19 @@ msgstr ""
 msgid "EMI/EMC stop frequency must be greater than the positive start frequency."
 msgstr ""
 
-#: ui/main_dialog.py:1689
+#: ui/main_dialog.py:1706
 msgid "EMI/EMC · cancelled"
 msgstr ""
 
-#: ui/main_dialog.py:1679
+#: ui/main_dialog.py:1696
 msgid "EMI/EMC · complete"
 msgstr ""
 
-#: ui/main_dialog.py:1692
+#: ui/main_dialog.py:1709
 msgid "EMI/EMC · failed"
 msgstr ""
 
-#: ui/main_dialog.py:1621
+#: ui/main_dialog.py:1638
 msgid "EMI/EMC · running"
 msgstr ""
 
@@ -2267,12 +2267,12 @@ msgstr ""
 msgid "EMI/EMC: ground nets declared by ground symbols added: {p0}."
 msgstr ""
 
-#: ui/main_dialog.py:1515
+#: ui/main_dialog.py:1532
 #, python-brace-format
 msgid "EMI/EMC: parts are classified by reference prefix only; the project's saved files could not be read ({p0})."
 msgstr ""
 
-#: emc_analyzer.py:2453 ui/emc_analysis_panel.py:40
+#: emc_analyzer.py:2497 ui/emc_analysis_panel.py:40
 msgid "Emission estimates"
 msgstr ""
 
@@ -2316,15 +2316,15 @@ msgstr ""
 msgid "Enclosure Boundary Patch"
 msgstr ""
 
-#: ui/dialog_pages.py:107 ui/main_dialog.py:504 ui/main_dialog.py:93 ui/workspace_navigation.py:30
+#: ui/dialog_pages.py:107 ui/main_dialog.py:512 ui/main_dialog.py:93 ui/workspace_navigation.py:30
 msgid "Enclosure CFD"
 msgstr ""
 
-#: cfd_solver.py:968 ui/main_dialog.py:2190
+#: cfd_solver.py:968 ui/main_dialog.py:2207
 msgid "Enclosure CFD analysis cancelled."
 msgstr ""
 
-#: ui/main_dialog.py:2176
+#: ui/main_dialog.py:2193
 #, python-brace-format
 msgid "Enclosure CFD complete: {p0} iterations, Vmax={p1} m/s."
 msgstr ""
@@ -2333,24 +2333,24 @@ msgstr ""
 msgid "Enclosure CFD convergence"
 msgstr ""
 
-#: ui/main_dialog.py:2196
+#: ui/main_dialog.py:2213
 msgid "Enclosure CFD Error"
 msgstr ""
 
-#: ui/main_dialog.py:2193
+#: ui/main_dialog.py:2210
 #, python-brace-format
 msgid "Enclosure CFD error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:1786 ui/main_dialog.py:1787
+#: ui/main_dialog.py:1803 ui/main_dialog.py:1804
 msgid "Enclosure CFD produced no usable free-stream sample over the board (mesh too coarse to offer cells clear of every solid); thermal keeps its configured airflow."
 msgstr ""
 
-#: ui/main_dialog.py:2145
+#: ui/main_dialog.py:2162
 msgid "Enclosure CFD Setup Error"
 msgstr ""
 
-#: ui/main_dialog.py:2144
+#: ui/main_dialog.py:2161
 #, python-brace-format
 msgid "Enclosure CFD setup error: {p0}"
 msgstr ""
@@ -2359,7 +2359,7 @@ msgstr ""
 msgid "Enclosure CFD volumetric temperature"
 msgstr ""
 
-#: ui/main_dialog.py:1777 ui/main_dialog.py:1778
+#: ui/main_dialog.py:1794 ui/main_dialog.py:1795
 msgid "Enclosure CFD was buoyancy-driven, so its velocity is not used for the thermal surface coefficients: it depends on the temperature field rather than setting it."
 msgstr ""
 
@@ -2368,19 +2368,19 @@ msgstr ""
 msgid "Enclosure CFD {field} - {plane} slice"
 msgstr ""
 
-#: ui/main_dialog.py:2191
+#: ui/main_dialog.py:2208
 msgid "Enclosure CFD · cancelled"
 msgstr ""
 
-#: ui/main_dialog.py:2180
+#: ui/main_dialog.py:2197
 msgid "Enclosure CFD · complete"
 msgstr ""
 
-#: ui/main_dialog.py:2194
+#: ui/main_dialog.py:2211
 msgid "Enclosure CFD · failed"
 msgstr ""
 
-#: ui/main_dialog.py:2158
+#: ui/main_dialog.py:2175
 msgid "Enclosure CFD · running"
 msgstr ""
 
@@ -2412,11 +2412,11 @@ msgstr ""
 msgid "Enter at least one ground-net alias."
 msgstr ""
 
-#: emc_analyzer.py:2210
+#: emc_analyzer.py:2215
 msgid "Enter each source's frequency, or state it on the board: a crystal or oscillator value, or a Frequency/Fsw field on the part."
 msgstr ""
 
-#: emc_analyzer.py:2264
+#: emc_analyzer.py:2277
 msgid "Enter the power tree's values, or correct the tree's loads if the entered ones are right."
 msgstr ""
 
@@ -2428,7 +2428,7 @@ msgstr ""
 msgid "Enter valid frequency points and mesh resolution to estimate solve load."
 msgstr ""
 
-#: emc_analyzer.py:2260
+#: emc_analyzer.py:2273
 msgid "Entered converter values differ from the power tree"
 msgstr ""
 
@@ -2462,11 +2462,11 @@ msgstr ""
 msgid "ERROR: Island #{p0} ({p1} nodes) has {p2} load node(s) but no voltage source; its loads and voltages are excluded."
 msgstr ""
 
-#: ui/main_dialog.py:166
+#: ui/main_dialog.py:169
 msgid "ERROR: No board object connected. Plugin will not function properly."
 msgstr ""
 
-#: emc_analyzer.py:1635 emc_analyzer.py:1642
+#: emc_analyzer.py:1640 emc_analyzer.py:1647
 msgid "ESD path is missing or too long"
 msgstr ""
 
@@ -2474,7 +2474,7 @@ msgstr ""
 msgid "ESD path missing or long"
 msgstr ""
 
-#: report/html_report.py:382
+#: report/html_report.py:403
 msgid "ESD, TVS"
 msgstr ""
 
@@ -2502,7 +2502,7 @@ msgstr ""
 msgid "ESR/ESL values inferred from package are estimates. Review them before sign-off."
 msgstr ""
 
-#: report/html_report.py:269
+#: report/html_report.py:290
 msgid "Estimate from a model of the board"
 msgstr ""
 
@@ -2510,7 +2510,7 @@ msgstr ""
 msgid "estimate only"
 msgstr ""
 
-#: report/html_report.py:703
+#: report/html_report.py:726
 msgid "ESTIMATE — NOT RE-SIMULATED"
 msgstr ""
 
@@ -2540,11 +2540,11 @@ msgstr ""
 msgid "Every copper layer requires its KiCad layer_id."
 msgstr ""
 
-#: report/html_report.py:664
+#: report/html_report.py:687
 msgid "Every rule of thumb checked is met."
 msgstr ""
 
-#: report/html_report.py:373
+#: report/html_report.py:394
 msgid "Every signal current comes back through the plane under it. A gap or a layer change without a via forces a detour, and the loop radiates."
 msgstr ""
 
@@ -2569,7 +2569,7 @@ msgstr ""
 msgid "Execution:"
 msgstr ""
 
-#: report/html_report.py:1008
+#: report/html_report.py:1047
 msgid "Expected at"
 msgstr ""
 
@@ -2581,7 +2581,7 @@ msgstr ""
 msgid "External"
 msgstr ""
 
-#: emc_analyzer.py:1614
+#: emc_analyzer.py:1619
 msgid "External connector lacks nearby EMC protection"
 msgstr ""
 
@@ -2601,7 +2601,7 @@ msgstr ""
 msgid "Face:"
 msgstr ""
 
-#: report/html_report.py:266
+#: report/html_report.py:287
 msgid "Fact: an exact count or the state of the run"
 msgstr ""
 
@@ -2650,23 +2650,23 @@ msgstr ""
 msgid "FCC Part 15 Class B"
 msgstr ""
 
-#: report/html_report.py:924
+#: report/html_report.py:963
 msgid "Figure"
 msgstr ""
 
-#: report/html_report.py:1041
+#: report/html_report.py:1080
 msgid "Figures"
 msgstr ""
 
-#: emc_analyzer.py:1258
+#: emc_analyzer.py:1263
 msgid "Filled copper exists on multiple configured grounds: "
 msgstr ""
 
-#: report/html_report.py:758 ui/results_workspace.py:63
+#: report/html_report.py:781 ui/results_workspace.py:63
 msgid "Finding"
 msgstr ""
 
-#: report/html_report.py:1050 report/html_report.py:593
+#: report/html_report.py:1089 report/html_report.py:616
 msgid "Findings"
 msgstr ""
 
@@ -2678,7 +2678,7 @@ msgstr ""
 msgid "Fine (0.5 mm)"
 msgstr ""
 
-#: emc_analyzer.py:2183
+#: emc_analyzer.py:2188
 msgid "First rectangular-board modes: "
 msgstr ""
 
@@ -2690,7 +2690,7 @@ msgstr ""
 msgid "Fit width"
 msgstr ""
 
-#: report/html_report.py:316
+#: report/html_report.py:337
 msgid "Fix before manufacture"
 msgstr ""
 
@@ -2715,7 +2715,7 @@ msgstr ""
 msgid "Found {p0} total nets on board."
 msgstr ""
 
-#: emc_analyzer.py:1244
+#: emc_analyzer.py:1249
 msgid "Fragmented ground plane"
 msgstr ""
 
@@ -2727,7 +2727,7 @@ msgstr ""
 msgid "Frequency (MHz, 0=first in-band harmonics):"
 msgstr ""
 
-#: emc_analyzer.py:826
+#: emc_analyzer.py:831
 msgid "Frequency from converter loss model; voltage from input rail; current from downstream load; 10 ns rise time remains an editable estimate."
 msgstr ""
 
@@ -2739,7 +2739,7 @@ msgstr ""
 msgid "Frequency points:"
 msgstr ""
 
-#: emc_analyzer.py:663
+#: emc_analyzer.py:668
 msgid "Frequency unknown: nothing in the project states it, so no harmonic or field estimate uses this source until it is entered."
 msgstr ""
 
@@ -2785,11 +2785,11 @@ msgstr ""
 msgid "Generated {p0} x {p1} x {p2} = {p3} cells ({p4} fluid)."
 msgstr ""
 
-#: ui/main_dialog.py:2229
+#: ui/main_dialog.py:2246
 msgid "Geometry Debug"
 msgstr ""
 
-#: ui/main_dialog.py:2229
+#: ui/main_dialog.py:2246
 msgid "Geometry debug plot"
 msgstr ""
 
@@ -2805,7 +2805,7 @@ msgstr ""
 msgid "Geometry:"
 msgstr ""
 
-#: report/html_report.py:402
+#: report/html_report.py:423
 msgid "Glossary"
 msgstr ""
 
@@ -2836,7 +2836,7 @@ msgstr ""
 msgid "Ground plane in pieces"
 msgstr ""
 
-#: emc_analyzer.py:2441 ui/emc_analysis_panel.py:33
+#: emc_analyzer.py:2485 ui/emc_analysis_panel.py:33
 msgid "Ground planes"
 msgstr ""
 
@@ -2848,15 +2848,15 @@ msgstr ""
 msgid "Ground-net aliases:"
 msgstr ""
 
-#: emc_analyzer.py:1688
+#: emc_analyzer.py:1693
 msgid "Ground-via stitching is sparse"
 msgstr ""
 
-#: report/html_report.py:379
+#: report/html_report.py:400
 msgid "Harmonic, emissions band"
 msgstr ""
 
-#: report/html_report.py:889
+#: report/html_report.py:927
 msgid "Heat"
 msgstr ""
 
@@ -2872,11 +2872,11 @@ msgstr ""
 msgid "Height (mm):"
 msgstr ""
 
-#: emc_analyzer.py:2284 emc_analyzer.py:2303
+#: emc_analyzer.py:2297 emc_analyzer.py:2316
 msgid "High temperature may alter EMC components"
 msgstr ""
 
-#: report/html_report.py:276
+#: report/html_report.py:297
 msgid "High: change the stackup or a plane"
 msgstr ""
 
@@ -2892,7 +2892,7 @@ msgstr ""
 msgid "Highlight the ground net in KiCad and look at the fill under fast signals."
 msgstr ""
 
-#: report/html_report.py:1085
+#: report/html_report.py:1124
 msgid "Host"
 msgstr ""
 
@@ -2900,7 +2900,7 @@ msgstr ""
 msgid "Host-key policy:"
 msgstr ""
 
-#: report/html_report.py:375
+#: report/html_report.py:396
 msgid "Hot loop, switching node"
 msgstr ""
 
@@ -2908,19 +2908,19 @@ msgstr ""
 msgid "Hot parts change their EMC behaviour"
 msgstr ""
 
-#: report/html_report.py:365
+#: report/html_report.py:386
 msgid "How much of its rating (current, power, voltage) a part keeps at a higher temperature, read off its datasheet curve."
 msgstr ""
 
-#: report/html_report.py:773
+#: report/html_report.py:796
 msgid "How sure"
 msgstr ""
 
-#: report/html_report.py:773
+#: report/html_report.py:796
 msgid "How to check"
 msgstr ""
 
-#: report/html_report.py:401
+#: report/html_report.py:422
 msgid "How to read this report"
 msgstr ""
 
@@ -2928,11 +2928,11 @@ msgstr ""
 msgid "I/O filtering"
 msgstr ""
 
-#: emc_analyzer.py:1568
+#: emc_analyzer.py:1573
 msgid "Identify the relevant VIN/VOUT pin from the datasheet, then verify its specified local bypass capacitor and pad-to-via loop."
 msgstr ""
 
-#: emc_analyzer.py:1596
+#: emc_analyzer.py:1601
 msgid "If its cable leaves the enclosure, protect the lines where it does, at the panel connector or next to this one."
 msgstr ""
 
@@ -2962,7 +2962,7 @@ msgstr ""
 msgid "Imported stackup from {p0} ({p1} layers)."
 msgstr ""
 
-#: report/html_report.py:376
+#: report/html_report.py:397
 msgid "In a switching converter, the loop through the input capacitor and the switches carries the fastest current edges, and the switching node swings at full input voltage. Both radiate in proportion to their area."
 msgstr ""
 
@@ -2978,27 +2978,27 @@ msgstr ""
 msgid "Include radiation"
 msgstr ""
 
-#: emc_analyzer.py:1252
+#: emc_analyzer.py:1257
 msgid "Increase continuous ground coverage, prioritising regions below fast signals."
 msgstr ""
 
-#: emc_analyzer.py:1897
+#: emc_analyzer.py:1902
 msgid "Increase inductance/current rating or validate the worst-case ripple and bias."
 msgstr ""
 
-#: emc_analyzer.py:1453
+#: emc_analyzer.py:1458
 msgid "Increase separation to reduce coupling onto attached cables."
 msgstr ""
 
-#: emc_analyzer.py:2070
+#: emc_analyzer.py:2075
 msgid "Increase spacing to at least 3H, change layer, or insert a grounded guard."
 msgstr ""
 
-#: emc_analyzer.py:2122
+#: emc_analyzer.py:2127
 msgid "Increase spacing, change layer, or insert a grounded guard trace; the coupling falls roughly with the square of the gap-to-height ratio."
 msgstr ""
 
-#: emc_analyzer.py:2448
+#: emc_analyzer.py:2492
 msgid "Inductor magnetic models"
 msgstr ""
 
@@ -3006,11 +3006,11 @@ msgstr ""
 msgid "Inductor near saturation"
 msgstr ""
 
-#: emc_analyzer.py:1894
+#: emc_analyzer.py:1899
 msgid "Inductor saturation-current margin exceeded"
 msgstr ""
 
-#: emc_analyzer.py:1904
+#: emc_analyzer.py:1909
 msgid "Inductor shielding is identified but not numerically calibrated"
 msgstr ""
 
@@ -3059,7 +3059,7 @@ msgstr ""
 msgid "input {p0} {p1} V, output {p2} {p3} V and load {p4} A must all be known"
 msgstr ""
 
-#: emc_analyzer.py:1978
+#: emc_analyzer.py:1983
 msgid "Inspect and stitch/restore GND only at the reported coordinates; do not reroute an otherwise referenced pair solely from percentage coverage."
 msgstr ""
 
@@ -3091,11 +3091,11 @@ msgstr ""
 msgid "Interface language:"
 msgstr ""
 
-#: emc_analyzer.py:1593 rule_guide.py:272
+#: emc_analyzer.py:1598 rule_guide.py:272
 msgid "Interface on a cable connector"
 msgstr ""
 
-#: emc_analyzer.py:858
+#: emc_analyzer.py:863
 msgid "Interface-name defaults; confirm activity rate and edge time."
 msgstr ""
 
@@ -3103,12 +3103,12 @@ msgstr ""
 msgid "Interface:"
 msgstr ""
 
-#: report/html_report.py:632
+#: report/html_report.py:655
 #, python-brace-format
 msgid "Internal air: thermal {thermal} °C against CFD {cfd} °C, {spread} K apart; check the enclosure inputs both use."
 msgstr ""
 
-#: report/html_report.py:628
+#: report/html_report.py:651
 #, python-brace-format
 msgid "Internal air: thermal {thermal} °C, CFD {cfd} °C, {spread} K apart."
 msgstr ""
@@ -3154,7 +3154,7 @@ msgstr ""
 msgid "JSON files (*.json)|*.json"
 msgstr ""
 
-#: report/html_report.py:889
+#: report/html_report.py:927
 msgid "Junction / limit"
 msgstr ""
 
@@ -3162,7 +3162,7 @@ msgstr ""
 msgid "Junction above its limit"
 msgstr ""
 
-#: report/html_report.py:358
+#: report/html_report.py:379
 msgid "Junction temperature (Tj)"
 msgstr ""
 
@@ -3170,11 +3170,11 @@ msgstr ""
 msgid "Keep remote job files for reproducibility"
 msgstr ""
 
-#: emc_analyzer.py:1908
+#: emc_analyzer.py:1913
 msgid "Keep the unattenuated geometric estimate as an uncertainty bound and validate locally with an H-field probe."
 msgstr ""
 
-#: report/html_report.py:593
+#: report/html_report.py:616
 msgid "Key figures"
 msgstr ""
 
@@ -3182,19 +3182,19 @@ msgstr ""
 msgid "Ki-PIDA"
 msgstr ""
 
-#: report/html_report.py:1198
+#: report/html_report.py:1237
 msgid "Ki-PIDA campaign report"
 msgstr ""
 
-#: report/html_report.py:1200
+#: report/html_report.py:1239
 msgid "Ki-PIDA consolidated analysis report"
 msgstr ""
 
-#: report/html_report.py:1199
+#: report/html_report.py:1238
 msgid "Ki-PIDA report"
 msgstr ""
 
-#: ui/main_dialog.py:163
+#: ui/main_dialog.py:166
 msgid "Ki-PIDA UI Initialized."
 msgstr ""
 
@@ -3231,11 +3231,11 @@ msgstr ""
 msgid "KiCad IPC Python bindings are not available."
 msgstr ""
 
-#: emc_analyzer.py:576 emc_analyzer.py:577
+#: emc_analyzer.py:581 emc_analyzer.py:582
 msgid "KiCad IPC returned copper but no footprint, a capture taken while the PCB Editor was still synchronising; the component rules would read a board without parts. Wait for synchronisation and retry."
 msgstr ""
 
-#: emc_analyzer.py:2434 emc_analyzer.py:2435
+#: emc_analyzer.py:2478 emc_analyzer.py:2479
 msgid "KiCad IPC returned no copper geometry on any layer (no tracks, vias, filled zones or net-connected pads), so every EMI/EMC check would read an empty board rather than the real one. Wait for PCB Editor synchronisation and retry."
 msgstr ""
 
@@ -3243,7 +3243,7 @@ msgstr ""
 msgid "KiCad IPC returned no copper geometry on any layer, so the board would be solved as bare laminate. Wait for PCB Editor synchronization and retry."
 msgstr ""
 
-#: ui/main_dialog.py:1411 ui/main_dialog.py:1412
+#: ui/main_dialog.py:1428 ui/main_dialog.py:1429
 msgid "KiCad IPC returned zero routed tracks. Analysis was cancelled to avoid false NO_DATA findings; wait for PCB Editor synchronization and retry."
 msgstr ""
 
@@ -3272,12 +3272,12 @@ msgstr ""
 msgid "KiCad Rules Applied"
 msgstr ""
 
-#: ui/main_dialog.py:408
+#: ui/main_dialog.py:411
 #, python-brace-format
 msgid "KiCad thermal overlay clear completed ({p0} image(s))."
 msgstr ""
 
-#: ui/main_dialog.py:399
+#: ui/main_dialog.py:402
 msgid "KiCad thermal overlay injection completed."
 msgstr ""
 
@@ -3285,7 +3285,7 @@ msgstr ""
 msgid "Kind"
 msgstr ""
 
-#: ui/main_dialog.py:576 ui/main_dialog.py:834
+#: ui/main_dialog.py:584 ui/main_dialog.py:851
 msgid "KiPIDA"
 msgstr ""
 
@@ -3309,11 +3309,11 @@ msgstr ""
 msgid "Large switching-node copper"
 msgstr ""
 
-#: emc_analyzer.py:1766
+#: emc_analyzer.py:1771
 msgid "Large switching-node copper area"
 msgstr ""
 
-#: ui/main_dialog.py:1531
+#: ui/main_dialog.py:1548
 msgid "Last analysed rail"
 msgstr ""
 
@@ -3338,7 +3338,7 @@ msgstr ""
 msgid "Layer change without a ground via"
 msgstr ""
 
-#: emc_analyzer.py:1485
+#: emc_analyzer.py:1490
 msgid "Layer transition lacks a nearby ground via"
 msgstr ""
 
@@ -3360,11 +3360,11 @@ msgstr ""
 msgid "Length"
 msgstr ""
 
-#: emc_analyzer.py:1935
+#: emc_analyzer.py:1940
 msgid "Length-match the pair while preserving constant spacing and reference."
 msgstr ""
 
-#: report/html_report.py:1136
+#: report/html_report.py:1175
 msgid "Limitations"
 msgstr ""
 
@@ -3385,20 +3385,20 @@ msgstr ""
 msgid "Live KiCad net-class update failed; project-file fallback retained: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:377
+#: ui/main_dialog.py:380
 #, python-brace-format
 msgid "Live KiCad PCB refresh failed: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:367
+#: ui/main_dialog.py:370
 msgid "Live PCB geometry changed; invalidated thermal mesh/CSR cache."
 msgstr ""
 
-#: ui/main_dialog.py:369
+#: ui/main_dialog.py:372
 msgid "Live PCB geometry unchanged; thermal mesh/CSR cache remains eligible."
 msgstr ""
 
-#: ui/main_dialog.py:376
+#: ui/main_dialog.py:379
 #, python-brace-format
 msgid "Live PCB refresh warning: {p0}"
 msgstr ""
@@ -3433,11 +3433,11 @@ msgstr ""
 msgid "Local-only recommendations cannot be converted into a global net-class rule. Apply these dimensions only to the identified PCB sections."
 msgstr ""
 
-#: emc_analyzer.py:1973
+#: emc_analyzer.py:1978
 msgid "Localized differential return-reference interruptions"
 msgstr ""
 
-#: report/html_report.py:707
+#: report/html_report.py:730
 msgid "Location"
 msgstr ""
 
@@ -3445,11 +3445,11 @@ msgstr ""
 msgid "Log"
 msgstr ""
 
-#: emc_analyzer.py:1444 rule_guide.py:107
+#: emc_analyzer.py:1449 rule_guide.py:107
 msgid "Long clock route"
 msgstr ""
 
-#: emc_analyzer.py:2066
+#: emc_analyzer.py:2071
 msgid "Long parallel trace coupling"
 msgstr ""
 
@@ -3461,15 +3461,15 @@ msgstr ""
 msgid "Low / Info"
 msgstr ""
 
-#: emc_analyzer.py:1250
+#: emc_analyzer.py:1255
 msgid "Low ground-plane coverage"
 msgstr ""
 
-#: report/html_report.py:274
+#: report/html_report.py:295
 msgid "Low: move a part, add a via or fill in a field"
 msgstr ""
 
-#: ui/main_dialog.py:1671
+#: ui/main_dialog.py:1688
 msgid "Magnetic Field"
 msgstr ""
 
@@ -3478,7 +3478,7 @@ msgstr ""
 msgid "Mapped {p0} Top / {p1} Bottom footprint placements (F.Cu={p2}, B.Cu={p3})."
 msgstr ""
 
-#: report/html_report.py:355 report/html_report.py:889
+#: report/html_report.py:376 report/html_report.py:927
 msgid "Margin"
 msgstr ""
 
@@ -3490,7 +3490,7 @@ msgstr ""
 msgid "Material"
 msgstr ""
 
-#: ui/main_dialog.py:2027
+#: ui/main_dialog.py:2044
 msgid "Matplotlib did not produce any thermal plot."
 msgstr ""
 
@@ -3539,11 +3539,11 @@ msgstr ""
 msgid "Measure the route's distance to the outline in KiCad and compare it with the fabricator's edge clearance."
 msgstr ""
 
-#: report/html_report.py:267
+#: report/html_report.py:288
 msgid "Measured"
 msgstr ""
 
-#: emc_analyzer.py:2095
+#: emc_analyzer.py:2100
 msgid "measured from the configured source"
 msgstr ""
 
@@ -3559,7 +3559,7 @@ msgstr ""
 msgid "Measurement port is not connected to the AC network."
 msgstr ""
 
-#: report/html_report.py:275
+#: report/html_report.py:296
 msgid "Medium: reroute or re-place a group of parts"
 msgstr ""
 
@@ -3568,11 +3568,11 @@ msgstr ""
 msgid "Merged {p0} copper shapes on layer {p1} in {p2} s."
 msgstr ""
 
-#: ui/main_dialog.py:2237
+#: ui/main_dialog.py:2254
 msgid "Mesh Debug"
 msgstr ""
 
-#: ui/main_dialog.py:2237
+#: ui/main_dialog.py:2254
 msgid "Mesh debug plot"
 msgstr ""
 
@@ -3592,7 +3592,7 @@ msgstr ""
 msgid "Mesh resolution (mm):"
 msgstr ""
 
-#: report/html_report.py:388
+#: report/html_report.py:409
 msgid "Mesh, grid step"
 msgstr ""
 
@@ -3624,7 +3624,7 @@ msgstr ""
 msgid "Min W/G/GND must contain three positive mm values, e.g. 0.10 / 0.10 / 0.15."
 msgstr ""
 
-#: emc_analyzer.py:1873
+#: emc_analyzer.py:1878
 msgid "Minimise hot-loop area and verify this band with a near-field probe."
 msgstr ""
 
@@ -3636,31 +3636,31 @@ msgstr ""
 msgid "Model enclosure airflow and conjugate heat transfer."
 msgstr ""
 
-#: emc_analyzer.py:1424
+#: emc_analyzer.py:1429
 msgid "Move or remove the off-board route and rerun KiCad DRC before EMC analysis."
 msgstr ""
 
-#: emc_analyzer.py:1359
+#: emc_analyzer.py:1364
 msgid "Move or remove the off-board tracks/vias and rerun KiCad DRC."
 msgstr ""
 
-#: emc_analyzer.py:1571
+#: emc_analyzer.py:1576
 msgid "Move the high-frequency capacitor closer and minimise pad-to-via inductance."
 msgstr ""
 
-#: emc_analyzer.py:1842
+#: emc_analyzer.py:1847
 msgid "Move the high-side FET (or diode), low-side FET/rectifier, input capacitor and inductor as close together as the footprints allow to minimise loop area and di/dt radiation."
 msgstr ""
 
-#: emc_analyzer.py:1807
+#: emc_analyzer.py:1812
 msgid "Move the input capacitor, high-side and low-side switches as close together as the footprints allow, the capacitor's ground pad next to the low side's, to minimise loop area and di/dt radiation."
 msgstr ""
 
-#: emc_analyzer.py:1646
+#: emc_analyzer.py:1651
 msgid "Move the protection next to the connector, or keep the line to it short and clear of other nets."
 msgstr ""
 
-#: emc_analyzer.py:1431
+#: emc_analyzer.py:1436
 msgid "Move the route inward or add a grounded edge guard with stitching vias."
 msgstr ""
 
@@ -3668,7 +3668,7 @@ msgstr ""
 msgid "MPI processes:"
 msgstr ""
 
-#: emc_analyzer.py:1257
+#: emc_analyzer.py:1262
 msgid "Multiple ground domains"
 msgstr ""
 
@@ -3680,11 +3680,11 @@ msgstr ""
 msgid "Name is required."
 msgstr ""
 
-#: emc_analyzer.py:799
+#: emc_analyzer.py:804
 msgid "Name-based clock defaults; confirm all electrical parameters."
 msgstr ""
 
-#: emc_analyzer.py:841
+#: emc_analyzer.py:846
 msgid "Name-based switching-source defaults; confirm all electrical parameters."
 msgstr ""
 
@@ -3713,7 +3713,7 @@ msgstr ""
 msgid "Near-field height/grid size must be positive and its frequency must be non-negative."
 msgstr ""
 
-#: emc_analyzer.py:2406
+#: emc_analyzer.py:2450
 msgid "Near-field maps are an uncalibrated quasi-static ranking of where fields concentrate; their V/m and A/m are not comparable to an emission limit."
 msgstr ""
 
@@ -3733,7 +3733,7 @@ msgstr ""
 msgid "Net"
 msgstr ""
 
-#: report/html_report.py:454
+#: report/html_report.py:480
 msgid "net"
 msgstr ""
 
@@ -3750,7 +3750,7 @@ msgstr ""
 msgid "Netclasses could not be read for the pair scan ({p0}); names alone were used."
 msgstr ""
 
-#: report/html_report.py:946
+#: report/html_report.py:985
 msgid "Nets"
 msgstr ""
 
@@ -3767,31 +3767,31 @@ msgstr ""
 msgid "No"
 msgstr ""
 
-#: ui/main_dialog.py:1208
+#: ui/main_dialog.py:1225
 msgid "No AC profile could be built: "
 msgstr ""
 
-#: report/html_report.py:769
+#: report/html_report.py:792
 msgid "No actionable findings."
 msgstr ""
 
-#: ui/main_dialog.py:823
+#: ui/main_dialog.py:840
 msgid "No analysis has produced a result yet in this session.\n\nRun at least one analysis (DC, AC, Differential, EMI/EMC, Thermal or CFD), then build the consolidated report."
 msgstr ""
 
-#: report/html_report.py:420
+#: report/html_report.py:441
 msgid "No analysis produced a result."
 msgstr ""
 
-#: report/html_report.py:1048
+#: report/html_report.py:1087
 msgid "No analysis results."
 msgstr ""
 
-#: report/html_report.py:777
+#: report/html_report.py:800
 msgid "No change was computed for this action."
 msgstr ""
 
-#: report/html_report.py:667
+#: report/html_report.py:690
 msgid "No check passed."
 msgstr ""
 
@@ -3821,11 +3821,11 @@ msgstr ""
 msgid "No decoupling near a power pin"
 msgstr ""
 
-#: report/html_report.py:419
+#: report/html_report.py:440
 msgid "No defect found by the analyses that ran."
 msgstr ""
 
-#: report/html_report.py:565
+#: report/html_report.py:588
 msgid "No domain produced a result."
 msgstr ""
 
@@ -3833,7 +3833,7 @@ msgstr ""
 msgid "No EMI/EMC analysis has been run in this session."
 msgstr ""
 
-#: ui/main_dialog.py:1368
+#: ui/main_dialog.py:1385
 msgid "No enabled differential pairs are available. Scan or add a pair first."
 msgstr ""
 
@@ -3841,7 +3841,7 @@ msgstr ""
 msgid "No enabled EMI/EMC source has usable conductor or inductor geometry."
 msgstr ""
 
-#: report/html_report.py:908
+#: report/html_report.py:946
 msgid "No figures recorded."
 msgstr ""
 
@@ -3849,7 +3849,7 @@ msgstr ""
 msgid "No finding matches the current filters."
 msgstr ""
 
-#: report/html_report.py:945
+#: report/html_report.py:984
 msgid "No findings."
 msgstr ""
 
@@ -3861,7 +3861,7 @@ msgstr ""
 msgid "No ground plane"
 msgstr ""
 
-#: emc_analyzer.py:1234
+#: emc_analyzer.py:1239
 msgid "No ground plane detected"
 msgstr ""
 
@@ -3870,23 +3870,23 @@ msgstr ""
 msgid "no inductor on {p0}"
 msgstr ""
 
-#: report/html_report.py:665
+#: report/html_report.py:688
 msgid "No input missing."
 msgstr ""
 
-#: report/html_report.py:666
+#: report/html_report.py:689
 msgid "No limit of the calculation reported."
 msgstr ""
 
-#: report/html_report.py:1139
+#: report/html_report.py:1178
 msgid "No limitations recorded."
 msgstr ""
 
-#: ui/main_dialog.py:355 ui/main_dialog.py:356
+#: ui/main_dialog.py:358 ui/main_dialog.py:359
 msgid "No live KiCad PCB is connected. Close this window and relaunch Ki-PIDA from an open PCB Editor document."
 msgstr ""
 
-#: emc_analyzer.py:372 emc_analyzer.py:373
+#: emc_analyzer.py:377 emc_analyzer.py:378
 msgid "No live KiCad PCB is connected; EMI/EMC geometry capture was cancelled."
 msgstr ""
 
@@ -3894,23 +3894,23 @@ msgstr ""
 msgid "No measurement port is connected to the AC network."
 msgstr ""
 
-#: emc_analyzer.py:1546
+#: emc_analyzer.py:1551
 msgid "No nearby decoupling capacitor"
 msgstr ""
 
-#: ui/main_dialog.py:1371
+#: ui/main_dialog.py:1388
 msgid "No PCB stackup is available for differential impedance analysis."
 msgstr ""
 
-#: ui/main_dialog.py:969
+#: ui/main_dialog.py:986
 msgid "No power rails defined."
 msgstr ""
 
-#: report/html_report.py:1138
+#: report/html_report.py:1177
 msgid "No provenance recorded."
 msgstr ""
 
-#: emc_analyzer.py:1139
+#: emc_analyzer.py:1144
 msgid "no reference plane was found for this layer"
 msgstr ""
 
@@ -3918,7 +3918,7 @@ msgstr ""
 msgid "No remaining candidate improves the target-impedance score."
 msgstr ""
 
-#: report/html_report.py:1140
+#: report/html_report.py:1179
 msgid "No results."
 msgstr ""
 
@@ -3932,7 +3932,7 @@ msgstr ""
 msgid "No return-net copper was found beneath the measurement port pads on '{p0}'."
 msgstr ""
 
-#: emc_analyzer.py:2399
+#: emc_analyzer.py:2443
 msgid "No schematic data was available: decoupling, protection and connector roles are inferred from footprint names and values, with low confidence."
 msgstr ""
 
@@ -3974,11 +3974,11 @@ msgstr ""
 msgid "non-empty finding_id values must be unique within one result"
 msgstr ""
 
-#: report/html_report.py:568
+#: report/html_report.py:591
 msgid "none"
 msgstr ""
 
-#: report/html_report.py:1130
+#: report/html_report.py:1169
 msgid "None recorded."
 msgstr ""
 
@@ -3998,7 +3998,7 @@ msgstr ""
 msgid "Not run"
 msgstr ""
 
-#: report/html_report.py:567
+#: report/html_report.py:590
 msgid "not run"
 msgstr ""
 
@@ -4006,12 +4006,12 @@ msgstr ""
 msgid "Not tested — OpenSSH key or agent authentication is required."
 msgstr ""
 
-#: report/html_report.py:939
+#: report/html_report.py:978
 #, python-brace-format
 msgid "Not to be read as results: {figures}."
 msgstr ""
 
-#: report/html_report.py:662
+#: report/html_report.py:685
 msgid "Nothing found that must change before manufacture."
 msgstr ""
 
@@ -4027,11 +4027,11 @@ msgstr ""
 msgid "Nothing to check."
 msgstr ""
 
-#: ui/main_dialog.py:826
+#: ui/main_dialog.py:843
 msgid "Nothing to consolidate"
 msgstr ""
 
-#: report/html_report.py:663
+#: report/html_report.py:686
 msgid "Nothing to review."
 msgstr ""
 
@@ -4040,7 +4040,7 @@ msgstr ""
 msgid "Observation: {description}"
 msgstr ""
 
-#: emc_analyzer.py:1364
+#: emc_analyzer.py:1369
 msgid "Off-board geometry excluded"
 msgstr ""
 
@@ -4084,7 +4084,7 @@ msgstr ""
 msgid "OpenSSH client 'ssh' was not found on this computer."
 msgstr ""
 
-#: emc_analyzer.py:2156
+#: emc_analyzer.py:2161
 msgid "Optimise capacitor values/placement and rerun the AC impedance analysis."
 msgstr ""
 
@@ -4092,7 +4092,7 @@ msgstr ""
 msgid "Optimize Decoupling"
 msgstr ""
 
-#: report/html_report.py:352
+#: report/html_report.py:373
 msgid "Orders the actions: severity, times certainty, times 1.5 for each further analysis reporting the problem, divided by the typical effort. It has no unit; only the order means something."
 msgstr ""
 
@@ -4223,7 +4223,7 @@ msgstr ""
 msgid "Patch center and size values must be between 0 and 1."
 msgstr ""
 
-#: emc_analyzer.py:2378
+#: emc_analyzer.py:2422
 msgid "PCB geometry, return paths, PDN reuse and relative source harmonics are covered."
 msgstr ""
 
@@ -4236,23 +4236,23 @@ msgstr ""
 msgid "PCB stackup — {source}"
 msgstr ""
 
-#: emc_analyzer.py:2153
+#: emc_analyzer.py:2158
 msgid "PDN impedance exceeds target"
 msgstr ""
 
-#: emc_analyzer.py:2159
+#: emc_analyzer.py:2164
 msgid "PDN remains within target"
 msgstr ""
 
-#: report/html_report.py:367
+#: report/html_report.py:388
 msgid "PDN, target impedance"
 msgstr ""
 
-#: report/html_report.py:1141
+#: report/html_report.py:1180
 msgid "Per analysis"
 msgstr ""
 
-#: report/html_report.py:346
+#: report/html_report.py:367
 msgid "Per analysis. FAIL on a CRITICAL finding, or a HIGH one resting on a fact, a measurement or a datasheet. WARN on any other HIGH, or a MEDIUM. PASS otherwise."
 msgstr ""
 
@@ -4260,7 +4260,7 @@ msgstr ""
 msgid "Per-leg impedance (ohm):"
 msgstr ""
 
-#: emc_analyzer.py:2373
+#: emc_analyzer.py:2417
 msgid "Perform a baseline conducted and radiated pre-scan across the configured band."
 msgstr ""
 
@@ -4296,15 +4296,15 @@ msgstr ""
 msgid "Pipeline:"
 msgstr ""
 
-#: emc_analyzer.py:1487
+#: emc_analyzer.py:1492
 msgid "Place a ground stitching via beside each signal transition."
 msgstr ""
 
-#: emc_analyzer.py:1616
+#: emc_analyzer.py:1621
 msgid "Place ESD protection and any interface filtering next to the connector entry point."
 msgstr ""
 
-#: emc_analyzer.py:1637
+#: emc_analyzer.py:1642
 msgid "Place the TVS at the connector and route the discharge path directly to chassis/ground."
 msgstr ""
 
@@ -4365,7 +4365,7 @@ msgstr ""
 msgid "Power pin without decoupling"
 msgstr ""
 
-#: ui/main_dialog.py:1092
+#: ui/main_dialog.py:1109
 #, python-brace-format
 msgid "Power rail '{p0}' is not available."
 msgstr ""
@@ -4374,7 +4374,7 @@ msgstr ""
 msgid "Power rail:"
 msgstr ""
 
-#: emc_analyzer.py:2449
+#: emc_analyzer.py:2493
 msgid "Power tree"
 msgstr ""
 
@@ -4382,7 +4382,7 @@ msgstr ""
 msgid "Power Tree & Config"
 msgstr ""
 
-#: ui/main_dialog.py:183 ui/workspace_navigation.py:20
+#: ui/main_dialog.py:186 ui/workspace_navigation.py:20
 msgid "Power Tree & DC"
 msgstr ""
 
@@ -4394,7 +4394,7 @@ msgstr ""
 msgid "Pre-compliance Target"
 msgstr ""
 
-#: report/html_report.py:706
+#: report/html_report.py:729
 msgid "Predicted gain"
 msgstr ""
 
@@ -4402,7 +4402,7 @@ msgstr ""
 msgid "Predicted Z"
 msgstr ""
 
-#: emc_analyzer.py:1441
+#: emc_analyzer.py:1446
 msgid "Prefer stripline routing between reference planes where practical."
 msgstr ""
 
@@ -4420,19 +4420,19 @@ msgstr ""
 msgid "Prepared {p0} heat image ({p1} KiB, {p2} DPI)."
 msgstr ""
 
-#: ui/main_dialog.py:2207
+#: ui/main_dialog.py:2224
 msgid "Pressure XY"
 msgstr ""
 
-#: emc_analyzer.py:2371
+#: emc_analyzer.py:2415
 msgid "Prioritise harmonic checks near: "
 msgstr ""
 
-#: report/html_report.py:351
+#: report/html_report.py:372
 msgid "Priority"
 msgstr ""
 
-#: report/html_report.py:761
+#: report/html_report.py:784
 #, python-brace-format
 msgid "Priority {rank} (see \"Priority\" under How to read this report)."
 msgstr ""
@@ -4441,20 +4441,20 @@ msgstr ""
 msgid "Probe height (mm):"
 msgstr ""
 
-#: report/html_report.py:1107 ui/workspace_navigation.py:20
+#: report/html_report.py:1146 ui/workspace_navigation.py:20
 msgid "Project"
 msgstr ""
 
-#: report/html_report.py:1086
+#: report/html_report.py:1125
 msgid "Project mode"
 msgstr ""
 
-#: ui/main_dialog.py:171
+#: ui/main_dialog.py:174
 #, python-brace-format
 msgid "Project: {p0} at {p1}"
 msgstr ""
 
-#: report/html_report.py:1136
+#: report/html_report.py:1175
 msgid "Provenance"
 msgstr ""
 
@@ -4467,7 +4467,7 @@ msgstr ""
 msgid "Python: {version} — {executable}"
 msgstr ""
 
-#: emc_analyzer.py:2118
+#: emc_analyzer.py:2123
 msgid "Quantified parallel trace coupling"
 msgstr ""
 
@@ -4539,7 +4539,7 @@ msgstr ""
 msgid "Ready — "
 msgstr ""
 
-#: report/html_report.py:947 ui/differential_analysis_panel.py:143
+#: report/html_report.py:986 ui/differential_analysis_panel.py:143
 msgid "Recommendation"
 msgstr ""
 
@@ -4552,7 +4552,7 @@ msgstr ""
 msgid "Recommendations"
 msgstr ""
 
-#: emc_analyzer.py:1292
+#: emc_analyzer.py:1297
 msgid "Reduce signal-to-reference spacing in the fabrication stackup."
 msgstr ""
 
@@ -4560,7 +4560,7 @@ msgstr ""
 msgid "Ref"
 msgstr ""
 
-#: emc_analyzer.py:442 report/html_report.py:1144
+#: emc_analyzer.py:447 report/html_report.py:1183
 msgid "Reference"
 msgstr ""
 
@@ -4580,7 +4580,7 @@ msgstr ""
 msgid "Refresh Power Estimates"
 msgstr ""
 
-#: ui/main_dialog.py:374
+#: ui/main_dialog.py:377
 msgid "Refreshed live PCB geometry and component discovery."
 msgstr ""
 
@@ -4602,7 +4602,7 @@ msgstr ""
 msgid "Relative EMI source spectrum — not an absolute compliance level"
 msgstr ""
 
-#: emc_analyzer.py:2392
+#: emc_analyzer.py:2436
 msgid "Relative emission estimates typically carry at least +/-10 to 20 dB uncertainty."
 msgstr ""
 
@@ -4614,7 +4614,7 @@ msgstr ""
 msgid "Relative permittivity must be at least 1.0."
 msgstr ""
 
-#: ui/main_dialog.py:1661
+#: ui/main_dialog.py:1678
 msgid "Relative Spectrum"
 msgstr ""
 
@@ -4626,7 +4626,7 @@ msgstr ""
 msgid "Relaxation:"
 msgstr ""
 
-#: analysis_adapters.py:1044 analysis_adapters.py:969
+#: analysis_adapters.py:1054 analysis_adapters.py:979
 #, python-brace-format
 msgid "Remediation sizing failed for {p0}: {p1}"
 msgstr ""
@@ -4643,7 +4643,7 @@ msgstr ""
 msgid "Remote retention:"
 msgstr ""
 
-#: emc_analyzer.py:1246
+#: emc_analyzer.py:1251
 msgid "Remove isolated islands or join them with ground copper and stitching vias."
 msgstr ""
 
@@ -4660,11 +4660,11 @@ msgstr ""
 msgid "Rendering"
 msgstr ""
 
-#: ui/main_dialog.py:2266
+#: ui/main_dialog.py:2283
 msgid "Rendering DC rail maps in background..."
 msgstr ""
 
-#: ui/main_dialog.py:1985
+#: ui/main_dialog.py:2002
 msgid "Rendering thermal plots in background..."
 msgstr ""
 
@@ -4672,7 +4672,7 @@ msgstr ""
 msgid "Report"
 msgstr ""
 
-#: ui/main_dialog.py:879
+#: ui/main_dialog.py:896
 #, python-brace-format
 msgid "Report written to {p0}"
 msgstr ""
@@ -4682,7 +4682,7 @@ msgstr ""
 msgid "Requested {p0} mm projects {p1} nodes; using {p2} mm for the {p3}-node {p4} safety budget."
 msgstr ""
 
-#: emc_analyzer.py:1404
+#: emc_analyzer.py:1409
 msgid "Reroute over continuous ground or restore the reference plane below the segment."
 msgstr ""
 
@@ -4790,7 +4790,7 @@ msgstr ""
 msgid "Residual"
 msgstr ""
 
-#: ui/main_dialog.py:2208
+#: ui/main_dialog.py:2225
 msgid "Residuals"
 msgstr ""
 
@@ -4798,15 +4798,15 @@ msgstr ""
 msgid "Resistor without a power rating"
 msgstr ""
 
-#: emc_analyzer.py:1764
+#: emc_analyzer.py:1769
 msgid "Restrict SW/PH/LX copper to the shortest IC-to-inductor connection."
 msgstr ""
 
-#: emc_analyzer.py:1761
+#: emc_analyzer.py:1766
 msgid "Restrict the FET-to-FET (or FET-to-diode) and FET-to-inductor copper to the shortest path, and keep the input capacitor's return current on the same loop."
 msgstr ""
 
-#: report/html_report.py:268
+#: report/html_report.py:289
 msgid "Rests on datasheet values"
 msgstr ""
 
@@ -4818,7 +4818,7 @@ msgstr ""
 msgid "Result History Error"
 msgstr ""
 
-#: report/html_report.py:1143
+#: report/html_report.py:1182
 #, python-brace-format
 msgid "Result schema {version}"
 msgstr ""
@@ -4827,7 +4827,7 @@ msgstr ""
 msgid "Results"
 msgstr ""
 
-#: emc_analyzer.py:2162
+#: emc_analyzer.py:2167
 msgid "Retain the analysed capacitor population and verify on the assembled board."
 msgstr ""
 
@@ -4835,11 +4835,11 @@ msgstr ""
 msgid "Return net:"
 msgstr ""
 
-#: report/html_report.py:372
+#: report/html_report.py:393
 msgid "Return path, reference plane"
 msgstr ""
 
-#: emc_analyzer.py:2444 ui/emc_analysis_panel.py:37
+#: emc_analyzer.py:2488 ui/emc_analysis_panel.py:37
 msgid "Return paths"
 msgstr ""
 
@@ -4852,16 +4852,16 @@ msgstr ""
 msgid "Reusing cached {p0}-entry thermal CSR matrix; CUDA keeps its CSR workspace resident in VRAM."
 msgstr ""
 
-#: ui/main_dialog.py:695
+#: ui/main_dialog.py:703
 #, python-brace-format
 msgid "Reusing this batch's DC copper capture for {p0}."
 msgstr ""
 
-#: report/html_report.py:319
+#: report/html_report.py:340
 msgid "Review before manufacture"
 msgstr ""
 
-#: report/html_report.py:418
+#: report/html_report.py:439
 msgid "Review before manufacture: the items below need a decision."
 msgstr ""
 
@@ -4869,7 +4869,7 @@ msgstr ""
 msgid "Review findings, metrics, plots, and saved campaigns."
 msgstr ""
 
-#: emc_analyzer.py:1361
+#: emc_analyzer.py:1366
 msgid "Review these off-board footprints; no routed electrical net was excluded."
 msgstr ""
 
@@ -4885,11 +4885,11 @@ msgstr ""
 msgid "rise_time_s must be positive."
 msgstr ""
 
-#: emc_analyzer.py:2391
+#: emc_analyzer.py:2435
 msgid "Risk analyzer only; it cannot certify FCC/CISPR/MIL compliance."
 msgstr ""
 
-#: ui/main_dialog.py:1656
+#: ui/main_dialog.py:1673
 msgid "Risk Map"
 msgstr ""
 
@@ -4902,11 +4902,11 @@ msgstr ""
 msgid "Role"
 msgstr ""
 
-#: emc_analyzer.py:1422
+#: emc_analyzer.py:1427
 msgid "Routed copper lies outside the board outline"
 msgstr ""
 
-#: report/html_report.py:758 report/html_report.py:946 ui/results_workspace.py:62
+#: report/html_report.py:781 report/html_report.py:985 ui/results_workspace.py:62
 msgid "Rule"
 msgstr ""
 
@@ -4918,7 +4918,7 @@ msgstr ""
 msgid "Rule GND"
 msgstr ""
 
-#: report/html_report.py:270
+#: report/html_report.py:291
 msgid "Rule of thumb: a threshold this tool sets"
 msgstr ""
 
@@ -4935,7 +4935,7 @@ msgstr ""
 msgid "Rule: {rule}"
 msgstr ""
 
-#: report/html_report.py:1112
+#: report/html_report.py:1151
 msgid "Run"
 msgstr ""
 
@@ -4943,19 +4943,19 @@ msgstr ""
 msgid "Run a DC analysis before coupled electro-thermal analysis."
 msgstr ""
 
-#: ui/main_dialog.py:386
+#: ui/main_dialog.py:389
 msgid "Run a thermal analysis before injecting its KiCad heat overlay."
 msgstr ""
 
-#: ui/dialog_action_bar.py:11 ui/main_dialog.py:1280 ui/main_dialog.py:1288 ui/main_dialog.py:1335
+#: ui/dialog_action_bar.py:11 ui/main_dialog.py:1297 ui/main_dialog.py:1305 ui/main_dialog.py:1352
 msgid "Run AC Analysis"
 msgstr ""
 
-#: ui/main_dialog.py:544
+#: ui/main_dialog.py:552
 msgid "Run Analysis Batch"
 msgstr ""
 
-#: ui/dialog_action_bar.py:19 ui/main_dialog.py:717
+#: ui/dialog_action_bar.py:19 ui/main_dialog.py:725
 msgid "Run Analysis Batch..."
 msgstr ""
 
@@ -4979,7 +4979,7 @@ msgstr ""
 msgid "Run EMI/EMC"
 msgstr ""
 
-#: ui/dialog_action_bar.py:18 ui/main_dialog.py:2173 ui/main_dialog.py:2187
+#: ui/dialog_action_bar.py:18 ui/main_dialog.py:2190 ui/main_dialog.py:2204
 msgid "Run Enclosure CFD"
 msgstr ""
 
@@ -5067,7 +5067,7 @@ msgstr ""
 msgid "Scan this band with a near-field probe on the prototype."
 msgstr ""
 
-#: ui/main_dialog.py:498
+#: ui/main_dialog.py:506
 msgid "Schematic rules"
 msgstr ""
 
@@ -5075,11 +5075,11 @@ msgstr ""
 msgid "SciPy SuperLU"
 msgstr ""
 
-#: report/html_report.py:1107
+#: report/html_report.py:1146
 msgid "Scope analysed"
 msgstr ""
 
-#: report/html_report.py:348 report/html_report.py:593
+#: report/html_report.py:369 report/html_report.py:616
 msgid "Score"
 msgstr ""
 
@@ -5087,7 +5087,7 @@ msgstr ""
 msgid "Search:"
 msgstr ""
 
-#: ui/main_dialog.py:1042
+#: ui/main_dialog.py:1059
 msgid "Select a power rail for AC analysis."
 msgstr ""
 
@@ -5143,7 +5143,7 @@ msgstr ""
 msgid "Select Pads:"
 msgstr ""
 
-#: ui/main_dialog.py:544
+#: ui/main_dialog.py:552
 msgid "Select the analyses to run:"
 msgstr ""
 
@@ -5188,7 +5188,7 @@ msgstr ""
 msgid "Several ground domains"
 msgstr ""
 
-#: report/html_report.py:338 ui/results_workspace.py:61
+#: report/html_report.py:359 ui/results_workspace.py:61
 msgid "Severity"
 msgstr ""
 
@@ -5221,7 +5221,7 @@ msgstr ""
 msgid "Shielding is recognised from the part, but its effect on the field is not quantified."
 msgstr ""
 
-#: emc_analyzer.py:1446
+#: emc_analyzer.py:1451
 msgid "Shorten the route and keep it referenced to uninterrupted ground."
 msgstr ""
 
@@ -5233,7 +5233,7 @@ msgstr ""
 msgid "Show:"
 msgstr ""
 
-#: emc_analyzer.py:1401
+#: emc_analyzer.py:1406
 msgid "Signal crosses a reference-plane void"
 msgstr ""
 
@@ -5245,7 +5245,7 @@ msgstr ""
 msgid "Signal layer far from its plane"
 msgstr ""
 
-#: emc_analyzer.py:1290
+#: emc_analyzer.py:1295
 msgid "Signal layer far from reference"
 msgstr ""
 
@@ -5253,11 +5253,11 @@ msgstr ""
 msgid "Signal over a gap in its plane"
 msgstr ""
 
-#: emc_analyzer.py:1429
+#: emc_analyzer.py:1434
 msgid "Signal routed near board edge"
 msgstr ""
 
-#: emc_analyzer.py:2443
+#: emc_analyzer.py:2487
 msgid "Signals and edges"
 msgstr ""
 
@@ -5269,7 +5269,7 @@ msgstr ""
 msgid "Simulation:"
 msgstr ""
 
-#: report/html_report.py:1073
+#: report/html_report.py:1112
 msgid "single-board"
 msgstr ""
 
@@ -5335,7 +5335,7 @@ msgstr ""
 msgid "Solver Exception: {p0}"
 msgstr ""
 
-#: report/html_report.py:1144 ui/thermal_analysis_panel.py:211
+#: report/html_report.py:1183 ui/thermal_analysis_panel.py:211
 msgid "Source"
 msgstr ""
 
@@ -5343,7 +5343,7 @@ msgstr ""
 msgid "Source component:"
 msgstr ""
 
-#: emc_analyzer.py:2206
+#: emc_analyzer.py:2211
 msgid "Source frequency unknown"
 msgstr ""
 
@@ -5351,7 +5351,7 @@ msgstr ""
 msgid "Source harmonic envelopes"
 msgstr ""
 
-#: emc_analyzer.py:2197
+#: emc_analyzer.py:2202
 msgid "Source harmonic envelopes estimated"
 msgstr ""
 
@@ -5372,7 +5372,7 @@ msgstr ""
 msgid "Source: {source} ({trust})"
 msgstr ""
 
-#: emc_analyzer.py:2402
+#: emc_analyzer.py:2446
 msgid "Sources without a known frequency are excluded from harmonic and near-field estimates (EE-003) rather than given a default."
 msgstr ""
 
@@ -5404,7 +5404,7 @@ msgstr ""
 msgid "SSH username:"
 msgstr ""
 
-#: emc_analyzer.py:2442 ui/emc_analysis_panel.py:35 ui/main_dialog.py:1481
+#: emc_analyzer.py:2486 ui/emc_analysis_panel.py:35 ui/main_dialog.py:1498
 msgid "Stackup"
 msgstr ""
 
@@ -5453,7 +5453,7 @@ msgstr ""
 msgid "Startup Error"
 msgstr ""
 
-#: report/html_report.py:345 report/html_report.py:593 report/html_report.py:924 ui/ac_analysis_panel.py:198 ui/differential_analysis_panel.py:143
+#: report/html_report.py:366 report/html_report.py:616 report/html_report.py:963 ui/ac_analysis_panel.py:198 ui/differential_analysis_panel.py:143
 msgid "Status"
 msgstr ""
 
@@ -5465,7 +5465,7 @@ msgstr ""
 msgid "Steady-state 3D solid conduction with convective boundaries. Estimated powers and package models must be reviewed before sign-off."
 msgstr ""
 
-#: report/html_report.py:385
+#: report/html_report.py:406
 msgid "Stitching via"
 msgstr ""
 
@@ -5528,7 +5528,7 @@ msgstr ""
 msgid "Switching"
 msgstr ""
 
-#: emc_analyzer.py:832
+#: emc_analyzer.py:837
 msgid "Switching frequency supplied by the caller."
 msgstr ""
 
@@ -5536,7 +5536,7 @@ msgstr ""
 msgid "Switching frequency unknown"
 msgstr ""
 
-#: emc_analyzer.py:1868
+#: emc_analyzer.py:1873
 msgid "Switching harmonics enter the emissions band"
 msgstr ""
 
@@ -5544,7 +5544,7 @@ msgstr ""
 msgid "Switching harmonics in the emissions band"
 msgstr ""
 
-#: emc_analyzer.py:1804 emc_analyzer.py:1840
+#: emc_analyzer.py:1809 emc_analyzer.py:1845
 msgid "Switching hot loop is spread out"
 msgstr ""
 
@@ -5552,7 +5552,7 @@ msgstr ""
 msgid "Switching Inductor Models"
 msgstr ""
 
-#: emc_analyzer.py:2447
+#: emc_analyzer.py:2491
 msgid "Switching sources"
 msgstr ""
 
@@ -5565,7 +5565,7 @@ msgstr ""
 msgid "System RAM: {available:.1f}/{total:.1f} GiB available"
 msgstr ""
 
-#: report/html_report.py:705 ui/differential_analysis_panel.py:141
+#: report/html_report.py:728 ui/differential_analysis_panel.py:141
 msgid "Target"
 msgstr ""
 
@@ -5585,7 +5585,7 @@ msgstr ""
 msgid "Target |Z| (mOhm, blank = auto):"
 msgstr ""
 
-#: report/html_report.py:760
+#: report/html_report.py:783
 msgid "Technical detail"
 msgstr ""
 
@@ -5601,11 +5601,11 @@ msgstr ""
 msgid "Temperature (C):"
 msgstr ""
 
-#: ui/main_dialog.py:2204
+#: ui/main_dialog.py:2221
 msgid "Temperature XY"
 msgstr ""
 
-#: ui/main_dialog.py:2205
+#: ui/main_dialog.py:2222
 msgid "Temperature XZ"
 msgstr ""
 
@@ -5633,7 +5633,7 @@ msgstr ""
 msgid "The 10 mm threshold is this tool's heuristic for the 'as close to the connector as possible' placement of TI SLVA680 (ESD layout guide); not a standard value."
 msgstr ""
 
-#: emc_analyzer.py:1115
+#: emc_analyzer.py:1120
 msgid "the 2-D solver is unavailable in this runtime"
 msgstr ""
 
@@ -5645,7 +5645,7 @@ msgstr ""
 msgid "The AC rail-to-ground mesh is empty."
 msgstr ""
 
-#: report/html_report.py:389
+#: report/html_report.py:410
 msgid "The analyses cut the board into small cells. A result that moves when the cells are halved depends on the mesh, not only on the copper."
 msgstr ""
 
@@ -5661,7 +5661,7 @@ msgstr ""
 msgid "The configured Palace SSH identity file does not exist."
 msgstr ""
 
-#: report/html_report.py:356
+#: report/html_report.py:377
 msgid "The distance between a value and its limit, such as 25 K under a 150 °C junction limit."
 msgstr ""
 
@@ -5669,7 +5669,7 @@ msgstr ""
 msgid "The EMC estimate of the rail exceeds its target; the AC domain judges the rail."
 msgstr ""
 
-#: ui/main_dialog.py:689
+#: ui/main_dialog.py:697
 msgid "the enclosure CFD"
 msgstr ""
 
@@ -5722,7 +5722,7 @@ msgstr ""
 msgid "The model did not settle in simulation, so its waveforms are not used."
 msgstr ""
 
-#: emc_analyzer.py:1235
+#: emc_analyzer.py:1240
 msgid "The multilayer board has no filled zone on a configured ground net."
 msgstr ""
 
@@ -5734,7 +5734,7 @@ msgstr ""
 msgid "The PCB outline is empty; near-field simulation cannot build a grid."
 msgstr ""
 
-#: report/html_report.py:368
+#: report/html_report.py:389
 msgid "The power distribution network, from regulator to load. Below its target impedance, a rail holds its voltage when the load's current steps."
 msgstr ""
 
@@ -5751,11 +5751,11 @@ msgstr ""
 msgid "The rail holds its target over the swept band."
 msgstr ""
 
-#: ui/main_dialog.py:955
+#: ui/main_dialog.py:972
 msgid "The schematic rules read the saved board, and its file is not known."
 msgstr ""
 
-#: emc_analyzer.py:2404
+#: emc_analyzer.py:2448
 msgid "The score out of 100 is a relative, uncalibrated risk ranking weighted by confidence; it is not a compliance margin."
 msgstr ""
 
@@ -5783,7 +5783,7 @@ msgstr ""
 msgid "The switching node swings at full voltage; each square millimetre of it is antenna area."
 msgstr ""
 
-#: report/html_report.py:359
+#: report/html_report.py:380
 msgid "The temperature of the silicon inside a package, estimated from the board temperature and the part's thermal resistance."
 msgstr ""
 
@@ -5795,7 +5795,7 @@ msgstr ""
 msgid "The thermal mesh is empty."
 msgstr ""
 
-#: ui/main_dialog.py:1839
+#: ui/main_dialog.py:1856
 msgid "the thermal pipeline"
 msgstr ""
 
@@ -5807,7 +5807,7 @@ msgstr ""
 msgid "The trace between a capacitor and its pin adds inductance, which leaves high-frequency current to the rest of the board."
 msgstr ""
 
-#: emc_analyzer.py:1117
+#: emc_analyzer.py:1122
 msgid "the traces overlap once their widths are removed"
 msgstr ""
 
@@ -5823,7 +5823,7 @@ msgstr ""
 msgid "The worst point is still rising where the sweep stops, so the real peak may lie outside the swept band."
 msgstr ""
 
-#: ui/main_dialog.py:1944 ui/workspace_navigation.py:28 ui/workspace_navigation.py:30
+#: ui/main_dialog.py:1961 ui/workspace_navigation.py:28 ui/workspace_navigation.py:30
 msgid "Thermal"
 msgstr ""
 
@@ -5831,25 +5831,25 @@ msgstr ""
 msgid "Thermal analysis"
 msgstr ""
 
-#: ui/main_dialog.py:1938
+#: ui/main_dialog.py:1955
 #, python-brace-format
 msgid "Thermal analysis completed in {p0} s."
 msgstr ""
 
-#: ui/main_dialog.py:1710
+#: ui/main_dialog.py:1727
 msgid "Thermal Analysis Error"
 msgstr ""
 
-#: ui/main_dialog.py:1709
+#: ui/main_dialog.py:1726
 #, python-brace-format
 msgid "Thermal Analysis Error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:2333
+#: ui/main_dialog.py:2350
 msgid "Thermal analysis · cancelling"
 msgstr ""
 
-#: ui/main_dialog.py:1939
+#: ui/main_dialog.py:1956
 msgid "Thermal analysis · complete"
 msgstr ""
 
@@ -5881,7 +5881,7 @@ msgstr ""
 msgid "Thermal heat vector does not match thermal mesh nodes."
 msgstr ""
 
-#: emc_analyzer.py:2454 ui/emc_analysis_panel.py:40
+#: emc_analyzer.py:2498 ui/emc_analysis_panel.py:40
 msgid "Thermal interaction"
 msgstr ""
 
@@ -5907,26 +5907,26 @@ msgstr ""
 msgid "Thermal Model: {reference}"
 msgstr ""
 
-#: ui/main_dialog.py:388 ui/main_dialog.py:402 ui/main_dialog.py:411
+#: ui/main_dialog.py:391 ui/main_dialog.py:405 ui/main_dialog.py:414
 msgid "Thermal overlay"
 msgstr ""
 
-#: ui/main_dialog.py:410
+#: ui/main_dialog.py:413
 #, python-brace-format
 msgid "Thermal overlay clear error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:401
+#: ui/main_dialog.py:404
 #, python-brace-format
 msgid "Thermal overlay injection error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:2057
+#: ui/main_dialog.py:2074
 #, python-brace-format
 msgid "Thermal plot rendering error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:2055
+#: ui/main_dialog.py:2072
 msgid "Thermal plot rendering failed; see Log for details."
 msgstr ""
 
@@ -5935,7 +5935,7 @@ msgstr ""
 msgid "Thermal probe  {temperature:.2f} C  |  X {x:.2f} mm, Y {y:.2f} mm, Z {z:.3f} mm  |  {layer}"
 msgstr ""
 
-#: ui/main_dialog.py:1890
+#: ui/main_dialog.py:1907
 #, python-brace-format
 msgid "Thermal progress: {p0}/{p1} ({p2})"
 msgstr ""
@@ -5953,7 +5953,7 @@ msgstr ""
 msgid "Thermal result changes with the grid"
 msgstr ""
 
-#: ui/main_dialog.py:2041
+#: ui/main_dialog.py:2058
 msgid "Thermal result plots ready."
 msgstr ""
 
@@ -5961,7 +5961,7 @@ msgstr ""
 msgid "Thermal solution contains non-finite temperatures."
 msgstr ""
 
-#: ui/main_dialog.py:1986
+#: ui/main_dialog.py:2003
 msgid "Thermal solve complete; rendering plots in background."
 msgstr ""
 
@@ -5969,16 +5969,16 @@ msgstr ""
 msgid "Thermal solve did not converge"
 msgstr ""
 
-#: ui/main_dialog.py:1792
+#: ui/main_dialog.py:1809
 #, python-brace-format
 msgid "Thermal will use the CFD free-stream speed of {p0} m/s sampled over {p1} cell(s) -- estimated, not measured."
 msgstr ""
 
-#: ui/main_dialog.py:1880
+#: ui/main_dialog.py:1897
 msgid "Thermal · running"
 msgstr ""
 
-#: report/html_report.py:653
+#: report/html_report.py:676
 msgid "these domains do not all describe the same board revision:"
 msgstr ""
 
@@ -6031,7 +6031,7 @@ msgstr ""
 msgid "Timeout per region (s):"
 msgstr ""
 
-#: report/html_report.py:946
+#: report/html_report.py:985
 msgid "Title"
 msgstr ""
 
@@ -6055,7 +6055,7 @@ msgstr ""
 msgid "Top exposed"
 msgstr ""
 
-#: report/html_report.py:1109
+#: report/html_report.py:1148
 msgid "Total compute"
 msgstr ""
 
@@ -6075,7 +6075,7 @@ msgstr ""
 msgid "Traces running side by side couple part of one signal into the other."
 msgstr ""
 
-#: emc_analyzer.py:2199
+#: emc_analyzer.py:2204
 msgid "Treat amplitudes as relative ranking only; measure absolute field strength."
 msgstr ""
 
@@ -6083,7 +6083,7 @@ msgstr ""
 msgid "Turbo"
 msgstr ""
 
-#: emc_analyzer.py:1657
+#: emc_analyzer.py:1662
 msgid "TVS has insufficient nearby ground vias"
 msgstr ""
 
@@ -6103,7 +6103,7 @@ msgstr ""
 msgid "Type:"
 msgstr ""
 
-#: report/html_report.py:774
+#: report/html_report.py:797
 msgid "Typical effort"
 msgstr ""
 
@@ -6123,7 +6123,7 @@ msgstr ""
 msgid "Unconnected pin"
 msgstr ""
 
-#: report/html_report.py:924
+#: report/html_report.py:963
 msgid "Unit"
 msgstr ""
 
@@ -6173,11 +6173,11 @@ msgstr ""
 msgid "Use"
 msgstr ""
 
-#: emc_analyzer.py:2324
-msgid "Use a dielectric rated higher (X7R, 125 C) in the same value and voltage, or move the capacitor away from the heat; check its capacitance at temperature and DC bias."
+#: emc_analyzer.py:2365
+msgid "Use a dielectric rated higher (X7R, 125 C) in the same value and voltage, or move the capacitors away from the heat; check their capacitance at temperature and DC bias."
 msgstr ""
 
-#: emc_analyzer.py:1659
+#: emc_analyzer.py:1664
 msgid "Use a short, wide discharge path and at least two nearby ground/chassis vias."
 msgstr ""
 
@@ -6185,7 +6185,7 @@ msgstr ""
 msgid "Use all connected pads"
 msgstr ""
 
-#: emc_analyzer.py:1285
+#: emc_analyzer.py:1290
 msgid "Use an adjacent solid ground plane or route the layers in orthogonal directions."
 msgstr ""
 
@@ -6193,7 +6193,7 @@ msgstr ""
 msgid "Use Phase 3 heat sources"
 msgstr ""
 
-#: emc_analyzer.py:2184
+#: emc_analyzer.py:2189
 msgid "Use these frequencies to prioritise near-field and chamber measurements."
 msgstr ""
 
@@ -6210,7 +6210,7 @@ msgstr ""
 msgid "Using pre-computed sparse matrix ({p0} entries)."
 msgstr ""
 
-#: emc_analyzer.py:416
+#: emc_analyzer.py:421
 msgid "utf-8"
 msgstr ""
 
@@ -6218,7 +6218,7 @@ msgstr ""
 msgid "Validation Error"
 msgstr ""
 
-#: report/html_report.py:924 ui/power_tree_panel.py:135
+#: report/html_report.py:963 ui/power_tree_panel.py:135
 msgid "Value"
 msgstr ""
 
@@ -6242,31 +6242,31 @@ msgstr ""
 msgid "Velocity (m/s):"
 msgstr ""
 
-#: ui/main_dialog.py:2206
+#: ui/main_dialog.py:2223
 msgid "Velocity XY"
 msgstr ""
 
-#: report/html_report.py:700
+#: report/html_report.py:723
 msgid "VERIFIED BY RE-SIMULATION"
 msgstr ""
 
-#: emc_analyzer.py:1548
+#: emc_analyzer.py:1553
 msgid "Verify every supply pin and place its high-frequency capacitor at the pin/via pair."
 msgstr ""
 
-#: emc_analyzer.py:1259
+#: emc_analyzer.py:1264
 msgid "Verify intentional single-point connections and prevent signals crossing domain boundaries."
 msgstr ""
 
-#: emc_analyzer.py:2286
+#: emc_analyzer.py:2299
 msgid "Verify MLCC DC-bias/SRF and ferrite impedance at the local operating temperature."
 msgstr ""
 
-#: emc_analyzer.py:1667
+#: emc_analyzer.py:1672
 msgid "Verify the connector shell connection and provide a short high-frequency chassis return."
 msgstr ""
 
-#: emc_analyzer.py:2307
+#: emc_analyzer.py:2320
 msgid "Verify their capacitance under DC bias, their SRF and the ferrites' impedance at these temperatures."
 msgstr ""
 
@@ -6278,7 +6278,7 @@ msgstr ""
 msgid "Via and plated-hole current density"
 msgstr ""
 
-#: emc_analyzer.py:2445 ui/emc_analysis_panel.py:39
+#: emc_analyzer.py:2489 ui/emc_analysis_panel.py:39
 msgid "Via stitching"
 msgstr ""
 
@@ -6306,15 +6306,15 @@ msgstr ""
 msgid "Wall h (W/m2K):"
 msgstr ""
 
-#: report/html_report.py:652
+#: report/html_report.py:675
 msgid "Warning:"
 msgstr ""
 
-#: ui/main_dialog.py:1406 ui/main_dialog.py:1407
+#: ui/main_dialog.py:1423 ui/main_dialog.py:1424
 msgid "WARNING: KiCad IPC returned zero tracks/zones; using the last valid differential snapshot for this unchanged pair set."
 msgstr ""
 
-#: ui/main_dialog.py:173
+#: ui/main_dialog.py:176
 msgid "WARNING: No project object available."
 msgstr ""
 
@@ -6322,23 +6322,23 @@ msgstr ""
 msgid "Warning: Solution contains NaN values."
 msgstr ""
 
-#: report/html_report.py:342
+#: report/html_report.py:363
 msgid "What a finding rests on. A fact (an exact count or the state of the run), a measurement, datasheet values, an estimate from a model of the board, or a rule of thumb (a threshold this tool sets)."
 msgstr ""
 
-#: report/html_report.py:333
+#: report/html_report.py:354
 msgid "What holds"
 msgstr ""
 
-#: report/html_report.py:890
+#: report/html_report.py:928
 msgid "What the analyses say"
 msgstr ""
 
-#: report/html_report.py:313
+#: report/html_report.py:334
 msgid "What this page answers"
 msgstr ""
 
-#: report/html_report.py:772
+#: report/html_report.py:795
 msgid "What to do"
 msgstr ""
 
@@ -6350,16 +6350,16 @@ msgstr ""
 msgid "When one line of a pair is longer, part of the signal turns into common mode, which radiates."
 msgstr ""
 
-#: report/html_report.py:776
+#: report/html_report.py:799
 #, python-brace-format
 msgid "Where: {where} · found by {domains}"
 msgstr ""
 
-#: report/html_report.py:314
+#: report/html_report.py:335
 msgid "Whether the board can go to manufacture. Each item below is one physical problem, even when several analyses report it, and links to its card in section 2."
 msgstr ""
 
-#: report/html_report.py:772
+#: report/html_report.py:795
 msgid "Why it is a risk"
 msgstr ""
 
@@ -6391,7 +6391,7 @@ msgstr ""
 msgid "Without a rating, the dissipation of a resistor cannot be checked."
 msgstr ""
 
-#: report/html_report.py:527
+#: report/html_report.py:550
 #, python-brace-format
 msgid "Worst {figure}"
 msgstr ""
@@ -6416,11 +6416,11 @@ msgstr ""
 msgid "Zdiff"
 msgstr ""
 
-#: report/html_report.py:1074
+#: report/html_report.py:1113
 msgid "Zeo container"
 msgstr ""
 
-#: report/html_report.py:1075
+#: report/html_report.py:1114
 msgid "Zeo member"
 msgstr ""
 
@@ -6433,22 +6433,22 @@ msgstr ""
 msgid "Zoom {p0}%"
 msgstr ""
 
-#: report/html_report.py:637
+#: report/html_report.py:660
 #, python-brace-format
 msgid "{analysis} passes"
 msgstr ""
 
-#: report/html_report.py:638
+#: report/html_report.py:661
 #, python-brace-format
 msgid "{analysis} passes: {figures}"
 msgstr ""
 
-#: report/html_report.py:948
+#: report/html_report.py:987
 #, python-brace-format
 msgid "{count} finding(s)"
 msgstr ""
 
-#: report/html_report.py:1033
+#: report/html_report.py:1072
 #, python-brace-format
 msgid "{count} more figures"
 msgstr ""
@@ -6473,17 +6473,17 @@ msgstr ""
 msgid "{p0} ({p1} x {p2} x {p3} mm) does not fit inside the configured {p4} x {p5} x {p6} mm enclosure."
 msgstr ""
 
-#: ui/main_dialog.py:1946
+#: ui/main_dialog.py:1963
 #, python-brace-format
 msgid "{p0} analysis cancelled."
 msgstr ""
 
-#: ui/main_dialog.py:1949
+#: ui/main_dialog.py:1966
 #, python-brace-format
 msgid "{p0} Analysis Error: {p1}"
 msgstr ""
 
-#: analysis_adapters.py:984
+#: analysis_adapters.py:994
 #, python-brace-format
 msgid "{p0} could not be meshed for sizing: {p1}"
 msgstr ""
@@ -6498,12 +6498,12 @@ msgstr ""
 msgid "{p0} frequency point(s) solved with {p1} LU factorisation(s) and {p2} GMRES iteration(s) in {p3} s."
 msgstr ""
 
-#: analysis_adapters.py:987
+#: analysis_adapters.py:997
 #, python-brace-format
 msgid "{p0} has no meshable copper; skipped."
 msgstr ""
 
-#: analysis_adapters.py:929
+#: analysis_adapters.py:939
 #, python-brace-format
 msgid "{p0} has no nominal voltage, so there is no drop target to size against; skipped."
 msgstr ""
@@ -6528,37 +6528,37 @@ msgstr ""
 msgid "{p0} is on no pin of {p1}"
 msgstr ""
 
-#: analysis_adapters.py:958
+#: analysis_adapters.py:968
 #, python-brace-format
 msgid "{p0} sized on the DC result's own mesh ({p1} mm): {p2} source node(s), {p3} load node(s)."
 msgstr ""
 
-#: analysis_adapters.py:1011
+#: analysis_adapters.py:1021
 #, python-brace-format
 msgid "{p0} skipped: no load current could be placed on the mesh, so there is no drop to size against."
 msgstr ""
 
-#: analysis_adapters.py:948
+#: analysis_adapters.py:958
 #, python-brace-format
 msgid "{p0} skipped: the DC result holds no source or no load to size against."
 msgstr ""
 
-#: analysis_adapters.py:951
+#: analysis_adapters.py:961
 #, python-brace-format
 msgid "{p0} skipped: {p1} load node(s) are not connected to a source in the solved copper, so any drop computed would be fictitious."
 msgstr ""
 
-#: analysis_adapters.py:1024
+#: analysis_adapters.py:1034
 #, python-brace-format
 msgid "{p0} skipped: {p1} of {p2} load node(s) are not connected to source {p3} in the meshed copper, so any drop computed would be fictitious."
 msgstr ""
 
-#: analysis_adapters.py:978
+#: analysis_adapters.py:988
 #, python-brace-format
 msgid "{p0} skipped: {p1}."
 msgstr ""
 
-#: analysis_adapters.py:1002
+#: analysis_adapters.py:1012
 #, python-brace-format
 msgid "{p0} source resolved to {p1} via {p2} ({p3} node(s))."
 msgstr ""
@@ -6568,17 +6568,17 @@ msgstr ""
 msgid "{p0} unknowns exceeds the {p1} direct-solve limit; solving iteratively, which needs no factorisation memory."
 msgstr ""
 
-#: report/html_report.py:554
+#: report/html_report.py:577
 #, python-brace-format
 msgid "{passed} of {total} pairs within their impedance tolerance"
 msgstr ""
 
-#: report/html_report.py:546
+#: report/html_report.py:569
 #, python-brace-format
 msgid "{passed} of {total} rail drops within the limit"
 msgstr ""
 
-#: report/html_report.py:551
+#: report/html_report.py:574
 #, python-brace-format
 msgid "{passed} of {total} rails within their target impedance"
 msgstr ""
@@ -6607,6 +6607,6 @@ msgstr ""
 msgid "~{nodes:,} nodes / {branches:,} branches — host peak {host:.0f} MiB, GPU {gpu:.0f} MiB — limit {limit:,} nodes{ceiling} — recommended: {backend}"
 msgstr ""
 
-#: report/html_report.py:361
+#: report/html_report.py:382
 msgid "θJB, ψJB"
 msgstr ""
