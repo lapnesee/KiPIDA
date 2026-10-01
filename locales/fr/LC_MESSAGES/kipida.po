@@ -3933,3 +3933,1353 @@ msgstr "Jonction / limite"
 
 msgid "What the analyses say"
 msgstr "Ce que disent les analyses"
+
+msgid " No aggressor rise time is configured, so only the saturated worst case is given."
+msgstr " Aucun temps de montée d’agresseur n’est configuré : seul le pire cas saturé est donné."
+
+msgid "--- Analysis batch abandoned: no analysis could be prepared ---"
+msgstr "--- Lot d’analyses abandonné : aucune analyse n’a pu être préparée ---"
+
+msgid "--- Analysis batch finished: {p0} analysis(es) ran [{p1}], verdict {p2}, {p3} ranked action(s) ---"
+msgstr "--- Lot d’analyses terminé : {p0} analyse(s) exécutée(s) [{p1}], verdict {p2}, {p3} action(s) classée(s) ---"
+
+msgid "--- Starting {p0} ---"
+msgstr "--- Démarrage : {p0} ---"
+
+msgid ". Enter the real current to replace it."
+msgstr ". Saisissez le courant réel pour le remplacer."
+
+msgid "240 MHz maximum-toggle fundamental of the 480 Mbit/s USB 2.0 high-speed rate."
+msgstr "Fondamental de 240 MHz à basculement maximal du débit USB 2.0 haute vitesse de 480 Mbit/s."
+
+msgid "3D thermal (coupled)"
+msgstr "Thermique 3D (couplé)"
+
+msgid "6 MHz maximum-toggle fundamental of the 12 Mbit/s USB full-speed rate."
+msgstr "Fondamental de 6 MHz à basculement maximal du débit USB pleine vitesse de 12 Mbit/s."
+
+msgid "[EM FIELD] Complete in {p0} s: Emax={p1} V/m, Hmax={p2} A/m (worse of the top-side and bottom-side observation planes)."
+msgstr "[EM FIELD] Terminé en {p0} s : Emax={p1} V/m, Hmax={p2} A/m (le pire des plans d’observation côté dessus et côté dessous)."
+
+msgid "[EM FIELD] Solving {p0} observation cells {p1} of the board ({p2} mm) with {p3} conductor/image elements on {p4}."
+msgstr "[EM FIELD] Résolution de {p0} cellules d’observation {p1} de la carte ({p2} mm) avec {p3} éléments conducteurs/images sur {p4}."
+
+msgid "[HybridMesher] Net '{p0}': zone grid degraded to {p1} mm (estimated {p2} > {p3} budget)"
+msgstr "[HybridMesher] Réseau « {p0} » : grille de zone dégradée à {p1} mm (estimation {p2} > budget {p3})"
+
+msgid "[HybridMesher] Net '{p0}': {p1} pad connections"
+msgstr "[HybridMesher] Réseau « {p0} » : {p1} connexions de pastilles"
+
+msgid "[HybridMesher] Net '{p0}': {p1} segment branches"
+msgstr "[HybridMesher] Réseau « {p0} » : {p1} branches de segments"
+
+msgid "[HybridMesher] Net '{p0}': {p1} via branches"
+msgstr "[HybridMesher] Réseau « {p0} » : {p1} branches de vias"
+
+msgid "[HybridMesher] Net '{p0}': {p1} zone and pad edges"
+msgstr "[HybridMesher] Réseau « {p0} » : {p1} arêtes de zones et de pastilles"
+
+msgid "[HybridMesher] Zone '{p0}' on {p1}: no polygon geometry available — zone skipped."
+msgstr "[HybridMesher] Zone « {p0} » sur {p1} : aucune géométrie de polygone disponible — zone ignorée."
+
+msgid "[INIT] Could not check module provenance: {p0}"
+msgstr "[INIT] Impossible de vérifier la provenance des modules : {p0}"
+
+msgid "[INIT] WARNING: {p0} -- this module is NOT from the plugin directory. Its results come from a different copy."
+msgstr "[INIT] ATTENTION : {p0} -- ce module ne vient PAS du dossier du plugin. Ses résultats viennent d’une autre copie."
+
+msgid "[PALACE REMOTE] Failed: {p0}"
+msgstr "[PALACE REMOTE] Échec : {p0}"
+
+msgid "[PHASE 10] Board circuit {p0} draws {p1} A, {p2}'s output in the power tree; the source is entered at {p3} A."
+msgstr "[PHASE 10] Le circuit de carte {p0} tire {p1} A, la sortie de {p2} dans l’arbre d’alimentation ; la source est saisie à {p3} A."
+
+msgid "[PHASE 10] Board circuit: {p0} ({p1}, {p2})"
+msgstr "[PHASE 10] Circuit de carte : {p0} ({p1}, {p2})"
+
+msgid "[PHASE 10] Board circuits skipped: the board has not been saved to a file."
+msgstr "[PHASE 10] Circuits de carte ignorés : la carte n’a pas été enregistrée dans un fichier."
+
+msgid "[PHASE 10] Board circuits skipped: {p0}"
+msgstr "[PHASE 10] Circuits de carte ignorés : {p0}"
+
+msgid "[PHASE 10] Cancelled: {p0}"
+msgstr "[PHASE 10] Annulé : {p0}"
+
+msgid "[PHASE 10] Full-wave execution declined; exporting regions only."
+msgstr "[PHASE 10] Exécution pleine onde refusée ; export des régions seulement."
+
+msgid "[PHASE 10] openEMS {p0}: {p1}"
+msgstr "[PHASE 10] openEMS {p0} : {p1}"
+
+msgid "[PHASE 10] SPICE excitation: {p0}"
+msgstr "[PHASE 10] Excitation SPICE : {p0}"
+
+msgid "[PHASE 10] SPICE model {p0}: {p1}"
+msgstr "[PHASE 10] Modèle SPICE {p0} : {p1}"
+
+msgid "[PHASE 10] Timeout: {p0}"
+msgstr "[PHASE 10] Délai dépassé : {p0}"
+
+msgid "[PHASE 10] Transferring the Palace project directory to {p0} and running Palace with {p1} MPI process(es); timeout {p2} s. Turn off 'auto-run full wave' on the EMI/EMC panel to stop this."
+msgstr "[PHASE 10] Transfert du dossier de projet Palace vers {p0} et exécution de Palace avec {p1} processus MPI ; délai {p2} s. Désactivez « exécution pleine onde automatique » dans le panneau CEM pour l’éviter."
+
+msgid "AC analysis"
+msgstr "Analyse AC"
+
+msgid "AC analysis cancelled."
+msgstr "Analyse AC annulée."
+
+msgid "AC analysis · cancelled"
+msgstr "Analyse AC · annulée"
+
+msgid "AC analysis · cancelling"
+msgstr "Analyse AC · annulation"
+
+msgid "AC analysis · complete"
+msgstr "Analyse AC · terminée"
+
+msgid "AC analysis · failed"
+msgstr "Analyse AC · échec"
+
+msgid "AC backend CUDA (forced): {p0} nodes solved iteratively on the GPU at every frequency; the first point is verified against a CPU direct solve, and the sweep continues on CPU if they disagree."
+msgstr "Backend AC CUDA (forcé) : {p0} nœuds résolus itérativement sur le GPU à chaque fréquence ; le premier point est vérifié contre une résolution directe sur CPU, et le balayage continue sur CPU en cas de désaccord."
+
+msgid "AC backend {p0}: {p1} nodes solved on CPU, one sparse LU factorisation reused across neighbouring frequencies and refined by GMRES, which is faster here than the GPU's iterative solver. Force CUDA in Runtime settings to use the GPU anyway."
+msgstr "Backend AC {p0} : {p1} nœuds résolus sur CPU, une factorisation LU creuse réutilisée entre fréquences voisines et affinée par GMRES, plus rapide ici que le solveur itératif du GPU. Forcez CUDA dans les paramètres d’exécution pour utiliser quand même le GPU."
+
+msgid "AC impedance"
+msgstr "Impédance AC"
+
+msgid "AC Impedance Analysis"
+msgstr "Analyse d’impédance AC"
+
+msgid "AC mesh contains {p0} nodes, above the safe limit of {p1}. Increase 'AC mesh resolution' above {p2} mm and retry."
+msgstr "Le maillage AC compte {p0} nœuds, au-delà de la limite sûre de {p1}. Augmentez la « résolution du maillage AC » au-dessus de {p2} mm et réessayez."
+
+msgid "AC mesh resolution (mm):"
+msgstr "Résolution du maillage AC (mm) :"
+
+msgid "AC mesh resolution must be between 0.2 and 2.0 mm."
+msgstr "La résolution du maillage AC doit être comprise entre 0,2 et 2,0 mm."
+
+msgid "AC network ({p0} mesh): {p1} nodes, requested grid {p2} mm, effective grid {p3} mm, {p4} frequency points."
+msgstr "Réseau AC (maillage {p0}) : {p1} nœuds, grille demandée {p2} mm, grille effective {p3} mm, {p4} points de fréquence."
+
+msgid "AC profile '{p0}' not swept: {p1}"
+msgstr "Profil AC « {p0} » non balayé : {p1}"
+
+msgid "AC solve produced non-finite values at {p0} Hz."
+msgstr "La résolution AC a produit des valeurs non finies à {p0} Hz."
+
+msgid "AC source resolved to '{p0}' via {p1}."
+msgstr "Source AC résolue en « {p0} » via {p1}."
+
+msgid "AC target band for {p0} not resolved ({p1}); flat target kept."
+msgstr "Bande cible AC de {p0} non résolue ({p1}) ; la cible plate est conservée."
+
+msgid "AC target for {p0}: flat to {p1} MHz ({p2}), rising with frequency above it."
+msgstr "Cible AC de {p0} : plate jusqu’à {p1} MHz ({p2}), croissante avec la fréquence au-delà."
+
+msgid "AC target for {p0}: {p1} ohm {p2}."
+msgstr "Cible AC de {p0} : {p1} ohm {p2}."
+
+msgid "AC target impedance: {p0}."
+msgstr "Impédance cible AC : {p0}."
+
+msgid "Accept new host key"
+msgstr "Accepter une nouvelle clé d’hôte"
+
+msgid "Acceptance tolerance (+/-%):"
+msgstr "Tolérance d’acceptation (+/-%) :"
+
+msgid "Actionable (Critical–Medium)"
+msgstr "À traiter (critiques à moyennes)"
+
+msgid "All"
+msgstr "Tout"
+
+msgid "All saved results"
+msgstr "Tous les résultats enregistrés"
+
+msgid "an engineering default, not a datasheet value"
+msgstr "une valeur d’ingénierie par défaut, pas une valeur de fiche technique"
+
+msgid "Analysis already registered: {p0}"
+msgstr "Analyse déjà enregistrée : {p0}"
+
+msgid "Analysis already running"
+msgstr "Analyse déjà en cours"
+
+msgid "Analysis batch"
+msgstr "Lot d’analyses"
+
+msgid "Analysis Batch Error"
+msgstr "Erreur du lot d’analyses"
+
+msgid "Analysis batch failed: {p0}"
+msgstr "Échec du lot d’analyses : {p0}"
+
+msgid "Analysis preset:"
+msgstr "Préréglage d’analyse :"
+
+msgid "Analysis Results"
+msgstr "Résultats d’analyse"
+
+msgid "analysis title and group must not be empty"
+msgstr "le titre et le groupe de l’analyse ne doivent pas être vides"
+
+msgid "Analysis:"
+msgstr "Analyse :"
+
+msgid "analysis_id must be a non-empty uppercase identifier"
+msgstr "analysis_id doit être un identifiant non vide en majuscules"
+
+msgid "analysis_type must not be empty"
+msgstr "analysis_type ne doit pas être vide"
+
+msgid "Application"
+msgstr "Application"
+
+msgid "Balanced (recommended)"
+msgstr "Équilibré (recommandé)"
+
+msgid "Batch cancelled: no analysis selected."
+msgstr "Lot annulé : aucune analyse sélectionnée."
+
+msgid "Batch · cancelling"
+msgstr "Lot · annulation"
+
+msgid "Batch · failed"
+msgstr "Lot · échec"
+
+msgid "Batch · nothing to run"
+msgstr "Lot · rien à exécuter"
+
+msgid "Batch: capturing live board data for {p0} analysis(es) before the run starts."
+msgstr "Lot : capture des données de la carte ouverte pour {p0} analyse(s) avant le lancement."
+
+msgid "Batch: KiCad answered after {p0} retry(ies): {p1} tracks, {p2} vias, {p3} zones, {p4} footprints."
+msgstr "Lot : KiCad a répondu après {p0} nouvelle(s) tentative(s) : {p1} pistes, {p2} vias, {p3} zones, {p4} empreintes."
+
+msgid "Batch: KiCad IPC returned an empty board (attempt {p0}/{p1}); waiting for PCB Editor synchronisation."
+msgstr "Lot : l’IPC de KiCad a renvoyé une carte vide (tentative {p0}/{p1}) ; attente de la synchronisation de l’éditeur de PCB."
+
+msgid "Batch: KiCad IPC still returns an empty board; analyses that read the live board will refuse to run. Retry once the PCB Editor has synchronised."
+msgstr "Lot : l’IPC de KiCad renvoie toujours une carte vide ; les analyses qui lisent la carte ouverte refuseront de s’exécuter. Réessayez une fois l’éditeur de PCB synchronisé."
+
+msgid "Batch: live board probe failed -- {p0}"
+msgstr "Lot : échec de la lecture de la carte ouverte -- {p0}"
+
+msgid "Batch: preparing {p0}."
+msgstr "Lot : préparation de {p0}."
+
+msgid "Batch: {p0} failed -- {p1}"
+msgstr "Lot : échec de {p0} -- {p1}"
+
+msgid "Batch: {p0} results could not be displayed -- {p1}"
+msgstr "Lot : les résultats de {p0} n’ont pas pu être affichés -- {p1}"
+
+msgid "Batch: {p0} skipped ({p1})."
+msgstr "Lot : {p0} ignorée ({p1})."
+
+msgid "Batch: {p0} was not prepared and will be skipped -- {p1}"
+msgstr "Lot : {p0} n’a pas été préparée et sera ignorée -- {p1}"
+
+msgid "Board could not be read for remediation sizing: {p0}"
+msgstr "La carte n’a pas pu être lue pour dimensionner la correction : {p0}"
+
+msgid "Board in-plane conductivity {p0} W/mK from its copper coverage."
+msgstr "Conductivité de la carte dans son plan : {p0} W/mK d’après sa couverture de cuivre."
+
+msgid "Build Consolidated Report"
+msgstr "Générer le rapport consolidé"
+
+msgid "Cancel AC Analysis"
+msgstr "Annuler l’analyse AC"
+
+msgid "Cancel Analysis Batch"
+msgstr "Annuler le lot d’analyses"
+
+msgid "Cancel EMI/EMC"
+msgstr "Annuler la CEM"
+
+msgid "Cancellation requested for AC impedance analysis."
+msgstr "Annulation de l’analyse d’impédance AC demandée."
+
+msgid "Cancellation requested for the analysis batch; the domains that already finished are kept."
+msgstr "Annulation du lot d’analyses demandée ; les domaines déjà terminés sont conservés."
+
+msgid "Cancelling AC Analysis..."
+msgstr "Annulation de l’analyse AC..."
+
+msgid "Cancelling EMI/EMC..."
+msgstr "Annulation de la CEM..."
+
+msgid "Capacitor above its dielectric's rated temperature"
+msgstr "Condensateur au-delà de la température nominale de son diélectrique"
+
+msgid "Capturing live PCB data for {p0} DC stage."
+msgstr "Capture des données du PCB ouvert pour l’étape DC de {p0}."
+
+msgid "Capturing the thermal board model on the KiCad UI thread."
+msgstr "Capture du modèle thermique de la carte sur le fil d’interface de KiCad."
+
+msgid "CFD progress: {p0}/{p1} ({p2})"
+msgstr "Progression CFD : {p0}/{p1} ({p2})"
+
+msgid "Check Grid at Half Step"
+msgstr "Vérifier la grille au demi-pas"
+
+msgid "Check impedance, reference planes, geometry, and length matching."
+msgstr "Vérifier l’impédance, les plans de référence, la géométrie et l’appariement des longueurs."
+
+msgid "Check mesh sensitivity (2x grid)"
+msgstr "Vérifier la sensibilité au maillage (grille x2)"
+
+msgid "Circuit source:"
+msgstr "Source du circuit :"
+
+msgid "Close requested; cancelling AC analysis first."
+msgstr "Fermeture demandée ; annulation préalable de l’analyse AC."
+
+msgid "Close requested; cancelling DC analysis first."
+msgstr "Fermeture demandée ; annulation préalable de l’analyse DC."
+
+msgid "Close requested; cancelling differential analysis first."
+msgstr "Fermeture demandée ; annulation préalable de l’analyse différentielle."
+
+msgid "Close requested; cancelling EMI/EMC first."
+msgstr "Fermeture demandée ; annulation préalable de la CEM."
+
+msgid "Close requested; cancelling the analysis batch first."
+msgstr "Fermeture demandée ; annulation préalable du lot d’analyses."
+
+msgid "Close requested; cancelling thermal analysis first."
+msgstr "Fermeture demandée ; annulation préalable de l’analyse thermique."
+
+msgid "colour capped at 99.5th percentile"
+msgstr "couleur plafonnée au 99,5e centile"
+
+msgid "Configure CPU, CUDA, memory, and optional backends."
+msgstr "Configurer le CPU, CUDA, la mémoire et les backends optionnels."
+
+msgid "Configure rails, sources, loads, mesh, and DC limits."
+msgstr "Configurer les rails, sources, charges, le maillage et les limites DC."
+
+msgid "Confirm openEMS execution"
+msgstr "Confirmer l’exécution d’openEMS"
+
+msgid "Conflicting source voltages at node {p0}: {p1} V and {p2} V."
+msgstr "Tensions de source contradictoires au nœud {p0} : {p1} V et {p2} V."
+
+msgid "Connecting..."
+msgstr "Connexion..."
+
+msgid "Connection timeout (s):"
+msgstr "Délai de connexion (s) :"
+
+msgid "Consolidated Report Error"
+msgstr "Erreur du rapport consolidé"
+
+msgid "Consolidated report failed while aggregating: {p0}"
+msgstr "Échec du rapport consolidé pendant l’agrégation : {p0}"
+
+msgid "Consolidated report failed: {p0}"
+msgstr "Échec du rapport consolidé : {p0}"
+
+msgid "Consolidated report · building"
+msgstr "Rapport consolidé · génération"
+
+msgid "Consolidated report · failed"
+msgstr "Rapport consolidé · échec"
+
+msgid "Consolidated report: plots attached from {p0} saved result(s)."
+msgstr "Rapport consolidé : graphiques rattachés depuis {p0} résultat(s) enregistré(s)."
+
+msgid "Consolidated report: {p0} across [{p1}], {p2} action(s) from {p3} analysis result(s)."
+msgstr "Rapport consolidé : {p0} sur [{p1}], {p2} action(s) issue(s) de {p3} résultat(s) d’analyse."
+
+msgid "Coplanar field solution did not produce a valid modal capacitance."
+msgstr "La résolution de champ coplanaire n’a pas produit de capacité modale valide."
+
+msgid "Coplanar GND gap (mm):"
+msgstr "Écart GND coplanaire (mm) :"
+
+msgid "Coplanar GND gap must be a positive mm value."
+msgstr "L’écart GND coplanaire doit être une valeur positive en mm."
+
+msgid "Coplanar width, pair gap, ground gap and reference height must be positive."
+msgstr "La largeur coplanaire, l’écart de paire, l’écart de masse et la hauteur de référence doivent être positifs."
+
+msgid "Coupled thermal · running"
+msgstr "Thermique couplé · en cours"
+
+msgid "coupled_length_m must be non-negative."
+msgstr "coupled_length_m ne doit pas être négatif."
+
+msgid "CPU iterative solver did not converge (status={p0}) after {p1} iterations."
+msgstr "Le solveur itératif CPU n’a pas convergé (état={p0}) après {p1} itérations."
+
+msgid "CPU sparse solution contains non-finite values."
+msgstr "La solution creuse CPU contient des valeurs non finies."
+
+msgid "CPU sparse solver residual {p0} exceeds {p1}."
+msgstr "Le résidu du solveur creux CPU, {p0}, dépasse {p1}."
+
+msgid "Critical / High"
+msgstr "Critiques / élevées"
+
+msgid "CUDA initial guess contains non-finite values."
+msgstr "L’estimation initiale CUDA contient des valeurs non finies."
+
+msgid "CUDA initial guess shape does not match RHS."
+msgstr "La forme de l’estimation initiale CUDA ne correspond pas au second membre."
+
+msgid "CUDA iterative solver reported convergence but residual {p0} exceeds {p1}."
+msgstr "Le solveur itératif CUDA a signalé une convergence mais le résidu {p0} dépasse {p1}."
+
+msgid "Custom"
+msgstr "Personnalisé"
+
+msgid "Data disclosure: the directory containing the selected Palace JSON, mesh, and associated files is transferred to this LAN server. No password is stored."
+msgstr "Divulgation de données : le dossier contenant le JSON Palace choisi, le maillage et les fichiers associés est transféré vers ce serveur du réseau local. Aucun mot de passe n’est enregistré."
+
+msgid "DC analysis"
+msgstr "Analyse DC"
+
+msgid "DC analysis cancelled."
+msgstr "Analyse DC annulée."
+
+msgid "DC Analysis Error"
+msgstr "Erreur d’analyse DC"
+
+msgid "DC Analysis Error: {p0}"
+msgstr "Erreur d’analyse DC : {p0}"
+
+msgid "DC analysis · cancelled"
+msgstr "Analyse DC · annulée"
+
+msgid "DC analysis · cancelling"
+msgstr "Analyse DC · annulation"
+
+msgid "DC analysis · complete"
+msgstr "Analyse DC · terminée"
+
+msgid "DC analysis · failed"
+msgstr "Analyse DC · échec"
+
+msgid "DC analysis · running"
+msgstr "Analyse DC · en cours"
+
+msgid "DC copper-loss heat sources require at least one configured power rail."
+msgstr "Les sources de chaleur des pertes cuivre DC exigent au moins un rail d’alimentation configuré."
+
+msgid "DC plot geometry warning: {p0}"
+msgstr "Avertissement de géométrie du graphique DC : {p0}"
+
+msgid "DC plot rendering error: {p0}"
+msgstr "Erreur de rendu du graphique DC : {p0}"
+
+msgid "DC power"
+msgstr "Alimentation DC"
+
+msgid "DC Preparation Error"
+msgstr "Erreur de préparation DC"
+
+msgid "DC preparation failed: {p0}"
+msgstr "Échec de la préparation DC : {p0}"
+
+msgid "DC progress: {p0}/{p1} ({p2})"
+msgstr "Progression DC : {p0}/{p1} ({p2})"
+
+msgid "DC rail maps ready."
+msgstr "Cartes des rails DC prêtes."
+
+msgid "Decoupling Optimization"
+msgstr "Optimisation du découplage"
+
+msgid "Decoupling, protection and connector roles come from the schematic's symbols."
+msgstr "Les rôles de découplage, de protection et de connecteur viennent des symboles du schéma."
+
+msgid "Detail view:"
+msgstr "Vue détaillée :"
+
+msgid "Detailed"
+msgstr "Détaillé"
+
+msgid "Diagnostics"
+msgstr "Diagnostic"
+
+msgid "Differential analysis"
+msgstr "Analyse différentielle"
+
+msgid "Differential analysis cancelled."
+msgstr "Analyse différentielle annulée."
+
+msgid "Differential analysis · cancelled"
+msgstr "Analyse différentielle · annulée"
+
+msgid "Differential analysis · cancelling"
+msgstr "Analyse différentielle · annulation"
+
+msgid "Differential analysis · complete"
+msgstr "Analyse différentielle · terminée"
+
+msgid "Differential analysis · failed"
+msgstr "Analyse différentielle · échec"
+
+msgid "Differential analysis · running"
+msgstr "Analyse différentielle · en cours"
+
+msgid "Differential excitation:"
+msgstr "Excitation différentielle :"
+
+msgid "Differential geometry retry recovered live routed tracks."
+msgstr "La nouvelle tentative de géométrie différentielle a récupéré les pistes routées de la carte ouverte."
+
+msgid "Differential progress: {p0}/{p1} ({p2})"
+msgstr "Progression différentielle : {p0}/{p1} ({p2})"
+
+msgid "Differential: reference nets declared by ground symbols added: {p0}."
+msgstr "Différentiel : réseaux de référence déclarés par des symboles de masse ajoutés : {p0}."
+
+msgid "Differential: the project's ground symbols could not be read ({p0})."
+msgstr "Différentiel : les symboles de masse du projet n’ont pas pu être lus ({p0})."
+
+msgid "Direct CPU solve failed ({p0}); retrying iteratively, which needs no factorisation memory."
+msgstr "Échec de la résolution directe sur CPU ({p0}) ; nouvelle tentative itérative, qui ne demande pas de mémoire de factorisation."
+
+msgid "Distant rail-bypass candidate"
+msgstr "Condensateur de découplage de rail éloigné"
+
+msgid "dL / skew"
+msgstr "dL / décalage"
+
+msgid "Dominant sources"
+msgstr "Sources dominantes"
+
+msgid "Duplicate workspace page index: {p0}"
+msgstr "Index de page d’espace de travail en double : {p0}"
+
+msgid "Edge-coupled field solution did not produce a valid modal capacitance."
+msgstr "La résolution de champ à couplage latéral n’a pas produit de capacité modale valide."
+
+msgid "Edge-coupled width, gap, thickness and reference height must be positive."
+msgstr "La largeur, l’écart, l’épaisseur et la hauteur de référence à couplage latéral doivent être positifs."
+
+msgid "Electrical parameters are defaults; confirm them."
+msgstr "Les paramètres électriques sont des valeurs par défaut ; confirmez-les."
+
+msgid "EMI/EMC analysis"
+msgstr "Analyse CEM"
+
+msgid "EMI/EMC analysis cancelled."
+msgstr "Analyse CEM annulée."
+
+msgid "EMI/EMC cancellation requested; stopping the active Phase 10 worker."
+msgstr "Annulation CEM demandée ; arrêt du processus phase 10 en cours."
+
+msgid "EMI/EMC progress: {p0}/{p1} ({p2})"
+msgstr "Progression CEM : {p0}/{p1} ({p2})"
+
+msgid "EMI/EMC sources keep the default swing: the board's parts could not be read ({p0})."
+msgstr "Les sources CEM gardent l’amplitude par défaut : les composants de la carte n’ont pas pu être lus ({p0})."
+
+msgid "EMI/EMC sources take no frequency from the project's parts: its saved files could not be read ({p0})."
+msgstr "Les sources CEM ne prennent aucune fréquence des composants du projet : ses fichiers enregistrés n’ont pas pu être lus ({p0})."
+
+msgid "EMI/EMC · cancelled"
+msgstr "CEM · annulée"
+
+msgid "EMI/EMC · complete"
+msgstr "CEM · terminée"
+
+msgid "EMI/EMC · failed"
+msgstr "CEM · échec"
+
+msgid "EMI/EMC · running"
+msgstr "CEM · en cours"
+
+msgid "EMI/EMC: ground nets declared by ground symbols added: {p0}."
+msgstr "CEM : réseaux de masse déclarés par des symboles de masse ajoutés : {p0}."
+
+msgid "EMI/EMC: parts are classified by reference prefix only; the project's saved files could not be read ({p0})."
+msgstr "CEM : les composants ne sont classés que par préfixe de référence ; les fichiers enregistrés du projet n’ont pas pu être lus ({p0})."
+
+msgid "Enable full-wave backend"
+msgstr "Activer le backend pleine onde"
+
+msgid "Enable Phase 10 pipeline"
+msgstr "Activer la chaîne phase 10"
+
+msgid "Enclosure CFD produced no usable free-stream sample over the board (mesh too coarse to offer cells clear of every solid); thermal keeps its configured airflow."
+msgstr "La CFD du boîtier n’a fourni aucun échantillon d’écoulement libre utilisable au-dessus de la carte (maillage trop grossier pour offrir des cellules dégagées de tout solide) ; le thermique garde son écoulement configuré."
+
+msgid "Enclosure CFD was buoyancy-driven, so its velocity is not used for the thermal surface coefficients: it depends on the temperature field rather than setting it."
+msgstr "La CFD du boîtier était en convection naturelle : sa vitesse n’est pas utilisée pour les coefficients de surface thermiques, car elle dépend du champ de température au lieu de le fixer."
+
+msgid "Enclosure CFD · cancelled"
+msgstr "CFD du boîtier · annulée"
+
+msgid "Enclosure CFD · complete"
+msgstr "CFD du boîtier · terminée"
+
+msgid "Enclosure CFD · failed"
+msgstr "CFD du boîtier · échec"
+
+msgid "Enclosure CFD · running"
+msgstr "CFD du boîtier · en cours"
+
+msgid "Engineering workspace"
+msgstr "Espace de travail d’ingénierie"
+
+msgid "Enter each source's frequency, or state it on the board: a crystal or oscillator value, or a Frequency/Fsw field on the part."
+msgstr "Saisissez la fréquence de chaque source, ou indiquez-la sur la carte : valeur d’un quartz ou d’un oscillateur, ou champ Frequency/Fsw sur le composant."
+
+msgid "Enter the power tree's values, or correct the tree's loads if the entered ones are right."
+msgstr "Saisissez les valeurs de l’arbre d’alimentation, ou corrigez les charges de l’arbre si les valeurs saisies sont les bonnes."
+
+msgid "Enter valid frequency points and mesh resolution to estimate solve load."
+msgstr "Saisissez un nombre de points de fréquence et une résolution de maillage valides pour estimer la charge de calcul."
+
+msgid "Entered converter values differ from the power tree"
+msgstr "Valeurs de convertisseur saisies différentes de l’arbre d’alimentation"
+
+msgid "Evidence and limits"
+msgstr "Éléments probants et limites"
+
+msgid "Evidence basis unavailable"
+msgstr "Base de preuve indisponible"
+
+msgid "Evidence basis: legacy report · structured provenance unavailable"
+msgstr "Base de preuve : rapport ancien · provenance structurée indisponible"
+
+msgid "Execution:"
+msgstr "Exécution :"
+
+msgid "External solvers run in isolated processes. Relative spectra are never compared with regulatory limits until calibrated far-field data are available."
+msgstr "Les solveurs externes s’exécutent dans des processus isolés. Les spectres relatifs ne sont jamais comparés aux limites réglementaires tant que des données de champ lointain étalonnées ne sont pas disponibles."
+
+msgid "Fast preview"
+msgstr "Aperçu rapide"
+
+msgid "Findings:"
+msgstr "Observations :"
+
+msgid "Fit page"
+msgstr "Ajuster à la page"
+
+msgid "Fit width"
+msgstr "Ajuster à la largeur"
+
+msgid "Frequency (MHz, 0=first in-band harmonics):"
+msgstr "Fréquence (MHz, 0 = premiers harmoniques dans la bande) :"
+
+msgid "Frequency from converter loss model; voltage from input rail; current from downstream load; 10 ns rise time remains an editable estimate."
+msgstr "Fréquence du modèle de pertes du convertisseur ; tension du rail d’entrée ; courant de la charge en aval ; le temps de montée de 10 ns reste une estimation modifiable."
+
+msgid "Frequency points must be between 11 and 401."
+msgstr "Le nombre de points de fréquence doit être compris entre 11 et 401."
+
+msgid "Frequency unknown: nothing in the project states it, so no harmonic or field estimate uses this source until it is entered."
+msgstr "Fréquence inconnue : rien dans le projet ne l’indique ; aucune estimation d’harmoniques ou de champ n’utilise cette source tant qu’elle n’est pas saisie."
+
+msgid "Full-wave backend:"
+msgstr "Backend pleine onde :"
+
+msgid "Full-wave:"
+msgstr "Pleine onde :"
+
+msgid "Generate ngspice excitations"
+msgstr "Générer les excitations ngspice"
+
+msgid "Geometry:"
+msgstr "Géométrie :"
+
+msgid "GPU accuracy check {p0}."
+msgstr "Contrôle de précision GPU : {p0}."
+
+msgid "Host-key policy:"
+msgstr "Politique de clé d’hôte :"
+
+msgid "Identify the relevant VIN/VOUT pin from the datasheet, then verify its specified local bypass capacitor and pad-to-via loop."
+msgstr "Identifiez la broche VIN/VOUT concernée dans la fiche technique, puis vérifiez son condensateur de découplage local spécifié et la boucle pastille-via."
+
+msgid "If its cable leaves the enclosure, protect the lines where it does, at the panel connector or next to this one."
+msgstr "Si son câble sort du boîtier, protégez les lignes là où il sort, au connecteur de façade ou à côté de celui-ci."
+
+msgid "Increase inductance/current rating or validate the worst-case ripple and bias."
+msgstr "Augmentez l’inductance ou le courant nominal, ou validez l’ondulation et la polarisation dans le pire cas."
+
+msgid "Increase spacing, change layer, or insert a grounded guard trace; the coupling falls roughly with the square of the gap-to-height ratio."
+msgstr "Augmentez l’espacement, changez de couche ou insérez une piste de garde reliée à la masse ; le couplage décroît à peu près comme le carré du rapport écart/hauteur."
+
+msgid "Inductor magnetic models"
+msgstr "Modèles magnétiques des inductances"
+
+msgid "Inductor saturation-current margin exceeded"
+msgstr "Marge du courant de saturation de l’inductance dépassée"
+
+msgid "Inductor shielding is identified but not numerically calibrated"
+msgstr "Blindage d’inductance identifié mais non étalonné numériquement"
+
+msgid "input {p0} {p1} V, output {p2} {p3} V and load {p4} A must all be known"
+msgstr "l’entrée {p0} {p1} V, la sortie {p2} {p3} V et la charge {p4} A doivent toutes être connues"
+
+msgid "Inspect and stitch/restore GND only at the reported coordinates; do not reroute an otherwise referenced pair solely from percentage coverage."
+msgstr "Inspectez et cousez ou rétablissez la masse seulement aux coordonnées signalées ; ne reroutez pas une paire par ailleurs référencée sur le seul pourcentage de couverture."
+
+msgid "Inspect execution logs and backend diagnostics."
+msgstr "Consulter les journaux d’exécution et le diagnostic des backends."
+
+msgid "Inspect return paths, emissions risks, and field estimates."
+msgstr "Examiner les chemins de retour, les risques d’émissions et les estimations de champ."
+
+msgid "Interface-name defaults; confirm activity rate and edge time."
+msgstr "Valeurs par défaut tirées du nom de l’interface ; confirmez le taux d’activité et le temps de front."
+
+msgid "Invalid Differential Settings"
+msgstr "Paramètres différentiels invalides"
+
+msgid "Keep remote job files for reproducibility"
+msgstr "Conserver les fichiers du calcul distant pour la reproductibilité"
+
+msgid "Keep the unattenuated geometric estimate as an uncertainty bound and validate locally with an H-field probe."
+msgstr "Gardez l’estimation géométrique non atténuée comme borne d’incertitude et validez localement avec une sonde de champ H."
+
+msgid "Ki-PIDA"
+msgstr "Ki-PIDA"
+
+msgid "Ki-PIDA version: {version} (build {build})"
+msgstr "Version de Ki-PIDA : {version} (build {build})"
+
+msgid "KiCad IPC returned copper but no footprint, a capture taken while the PCB Editor was still synchronising; the component rules would read a board without parts. Wait for synchronisation and retry."
+msgstr "L’IPC de KiCad a renvoyé du cuivre mais aucune empreinte : capture prise pendant que l’éditeur de PCB se synchronisait encore ; les règles de composants liraient une carte sans composants. Attendez la synchronisation et réessayez."
+
+msgid "KiCad IPC returned no copper geometry on any layer (no tracks, vias, filled zones or net-connected pads), so every EMI/EMC check would read an empty board rather than the real one. Wait for PCB Editor synchronisation and retry."
+msgstr "L’IPC de KiCad n’a renvoyé aucune géométrie de cuivre sur aucune couche (ni pistes, ni vias, ni zones remplies, ni pastilles connectées) : chaque contrôle CEM lirait une carte vide au lieu de la vraie. Attendez la synchronisation de l’éditeur de PCB et réessayez."
+
+msgid "KiCad IPC returned no copper geometry on any layer, so the board would be solved as bare laminate. Wait for PCB Editor synchronization and retry."
+msgstr "L’IPC de KiCad n’a renvoyé aucune géométrie de cuivre sur aucune couche : la carte serait résolue comme un stratifié nu. Attendez la synchronisation de l’éditeur de PCB et réessayez."
+
+msgid "KiCad IPC returned zero routed tracks. Analysis was cancelled to avoid false NO_DATA findings; wait for PCB Editor synchronization and retry."
+msgstr "L’IPC de KiCad n’a renvoyé aucune piste routée. L’analyse a été annulée pour éviter de fausses observations NO_DATA ; attendez la synchronisation de l’éditeur de PCB et réessayez."
+
+msgid "KiPIDA"
+msgstr "KiPIDA"
+
+msgid "L (uH)"
+msgstr "L (µH)"
+
+msgid "L+ / L- (mm)"
+msgstr "L+ / L- (mm)"
+
+msgid "Latest per analysis"
+msgstr "Dernier par analyse"
+
+msgid "Launching Palace {p0} analysis with {p1} MPI process(es)..."
+msgstr "Lancement de l’analyse Palace {p0} avec {p1} processus MPI..."
+
+msgid "Legacy format"
+msgstr "Ancien format"
+
+msgid "Length"
+msgstr "Longueur"
+
+msgid "Live KiCad PCB refresh failed: {p0}"
+msgstr "Échec de l’actualisation du PCB KiCad ouvert : {p0}"
+
+msgid "Local Geometry Recommendation"
+msgstr "Recommandation de géométrie locale"
+
+msgid "Local-only recommendations cannot be converted into a global net-class rule. Apply these dimensions only to the identified PCB sections."
+msgstr "Des recommandations purement locales ne peuvent pas devenir une règle de classe de réseau globale. Appliquez ces dimensions seulement aux sections du PCB identifiées."
+
+msgid "Localized differential return-reference interruptions"
+msgstr "Interruptions localisées de la référence de retour différentielle"
+
+msgid "Low / Info"
+msgstr "Faibles / info"
+
+msgid "Maximum cells:"
+msgstr "Cellules maximales :"
+
+msgid "Maximum regions:"
+msgstr "Régions maximales :"
+
+msgid "Maximum time steps:"
+msgstr "Pas de temps maximaux :"
+
+msgid "measured from the configured source"
+msgstr "mesuré à partir de la source configurée"
+
+msgid "Measured W/G"
+msgstr "L/É mesurés"
+
+msgid "Mesh resolution (mm):"
+msgstr "Résolution du maillage (mm) :"
+
+msgid "metric keys must be unique within one result"
+msgstr "les clés de métriques doivent être uniques dans un même résultat"
+
+msgid "Min check"
+msgstr "Contrôle min."
+
+msgid "Model enclosure airflow and conjugate heat transfer."
+msgstr "Modéliser l’écoulement d’air du boîtier et le transfert thermique conjugué."
+
+msgid "Move or remove the off-board route and rerun KiCad DRC before EMC analysis."
+msgstr "Déplacez ou supprimez la piste hors carte et relancez le DRC de KiCad avant l’analyse CEM."
+
+msgid "Move or remove the off-board tracks/vias and rerun KiCad DRC."
+msgstr "Déplacez ou supprimez les pistes et vias hors carte et relancez le DRC de KiCad."
+
+msgid "Move the high-side FET (or diode), low-side FET/rectifier, input capacitor and inductor as close together as the footprints allow to minimise loop area and di/dt radiation."
+msgstr "Rapprochez autant que les empreintes le permettent le FET côté haut (ou la diode), le FET ou redresseur côté bas, le condensateur d’entrée et l’inductance, pour réduire la surface de boucle et le rayonnement en di/dt."
+
+msgid "Move the input capacitor, high-side and low-side switches as close together as the footprints allow, the capacitor's ground pad next to the low side's, to minimise loop area and di/dt radiation."
+msgstr "Rapprochez autant que les empreintes le permettent le condensateur d’entrée et les interrupteurs côtés haut et bas, la pastille de masse du condensateur à côté de celle du côté bas, pour réduire la surface de boucle et le rayonnement en di/dt."
+
+msgid "Move the protection next to the connector, or keep the line to it short and clear of other nets."
+msgstr "Placez la protection à côté du connecteur, ou gardez la ligne qui y mène courte et à l’écart des autres réseaux."
+
+msgid "MPI processes:"
+msgstr "Processus MPI :"
+
+msgid "Name-based clock defaults; confirm all electrical parameters."
+msgstr "Valeurs d’horloge par défaut tirées du nom ; confirmez tous les paramètres électriques."
+
+msgid "Name-based switching-source defaults; confirm all electrical parameters."
+msgstr "Valeurs de source de commutation par défaut tirées du nom ; confirmez tous les paramètres électriques."
+
+msgid "Near-field grid cannot be reduced below the {p0}-cell limit."
+msgstr "La grille de champ proche ne peut pas être réduite sous la limite de {p0} cellules."
+
+msgid "Near-field maps are an uncalibrated quasi-static ranking of where fields concentrate; their V/m and A/m are not comparable to an emission limit."
+msgstr "Les cartes de champ proche sont un classement quasi statique non étalonné des zones où les champs se concentrent ; leurs V/m et A/m ne se comparent pas à une limite d’émission."
+
+msgid "Net + / signal:"
+msgstr "Réseau + / signal :"
+
+msgid "Net - (differential, optional):"
+msgstr "Réseau - (différentiel, facultatif) :"
+
+msgid "Netclasses could not be read for the pair scan ({p0}); names alone were used."
+msgstr "Les classes de réseau n’ont pas pu être lues pour la recherche de paires ({p0}) ; seuls les noms ont été utilisés."
+
+msgid "ngspice executable:"
+msgstr "Exécutable ngspice :"
+
+msgid "No AC profile could be built: "
+msgstr "Aucun profil AC n’a pu être construit : "
+
+msgid "No analysis has produced a result yet in this session.\n\nRun at least one analysis (DC, AC, Differential, EMI/EMC, Thermal or CFD), then build the consolidated report."
+msgstr "Aucune analyse n’a encore produit de résultat dans cette session.\n\nLancez au moins une analyse (DC, AC, différentielle, CEM, thermique ou CFD), puis générez le rapport consolidé."
+
+msgid "NO DATA"
+msgstr "AUCUNE DONNÉE"
+
+msgid "No enabled EMI/EMC source has usable conductor or inductor geometry."
+msgstr "Aucune source CEM activée n’a de géométrie de conducteur ou d’inductance utilisable."
+
+msgid "No finding matches the current filters."
+msgstr "Aucune observation ne correspond aux filtres actuels."
+
+msgid "No Geometry Rule"
+msgstr "Aucune règle de géométrie"
+
+msgid "no inductor on {p0}"
+msgstr "aucune inductance sur {p0}"
+
+msgid "No live KiCad PCB is connected. Close this window and relaunch Ki-PIDA from an open PCB Editor document."
+msgstr "Aucun PCB KiCad ouvert n’est connecté. Fermez cette fenêtre et relancez Ki-PIDA depuis un document ouvert dans l’éditeur de PCB."
+
+msgid "No live KiCad PCB is connected; EMI/EMC geometry capture was cancelled."
+msgstr "Aucun PCB KiCad ouvert n’est connecté ; la capture de géométrie CEM a été annulée."
+
+msgid "No measurement port is connected to the AC network."
+msgstr "Aucun port de mesure n’est connecté au réseau AC."
+
+msgid "no reference plane was found for this layer"
+msgstr "aucun plan de référence n’a été trouvé pour cette couche"
+
+msgid "No return-net copper was found beneath the AC source pads on '{p0}'."
+msgstr "Aucun cuivre du réseau de retour n’a été trouvé sous les pastilles de la source AC sur « {p0} »."
+
+msgid "No return-net copper was found beneath the measurement port pads on '{p0}'."
+msgstr "Aucun cuivre du réseau de retour n’a été trouvé sous les pastilles du port de mesure sur « {p0} »."
+
+msgid "No schematic data was available: decoupling, protection and connector roles are inferred from footprint names and values, with low confidence."
+msgstr "Aucune donnée de schéma n’était disponible : les rôles de découplage, de protection et de connecteur sont déduits des noms et valeurs d’empreintes, avec une faible confiance."
+
+msgid "No structured result loaded"
+msgstr "Aucun résultat structuré chargé"
+
+msgid "no VIN pin of {p0} is on the board"
+msgstr "aucune broche VIN de {p0} n’est sur la carte"
+
+msgid "non-empty finding_id values must be unique within one result"
+msgstr "les valeurs non vides de finding_id doivent être uniques dans un même résultat"
+
+msgid "Not quantified"
+msgstr "Non quantifié"
+
+msgid "Not tested — OpenSSH key or agent authentication is required."
+msgstr "Non testé — une authentification OpenSSH par clé ou par agent est requise."
+
+msgid "Nothing to consolidate"
+msgstr "Rien à consolider"
+
+msgid "Off-board geometry excluded"
+msgstr "Géométrie hors carte exclue"
+
+msgid "openEMS root:"
+msgstr "Racine openEMS :"
+
+msgid "openEMS — local"
+msgstr "openEMS — en local"
+
+msgid "OpenSSH client 'scp' was not found on this computer."
+msgstr "Le client OpenSSH « scp » est introuvable sur cet ordinateur."
+
+msgid "OpenSSH client 'ssh' was not found on this computer."
+msgstr "Le client OpenSSH « ssh » est introuvable sur cet ordinateur."
+
+msgid "Palace config JSON:"
+msgstr "JSON de configuration Palace :"
+
+msgid "Palace configuration (*.json)|*.json|All files (*.*)|*.*"
+msgstr "Configuration Palace (*.json)|*.json|Tous les fichiers (*.*)|*.*"
+
+msgid "Palace connection and run timeouts must be positive."
+msgstr "Les délais de connexion et d’exécution de Palace doivent être positifs."
+
+msgid "Palace connection settings"
+msgstr "Paramètres de connexion Palace"
+
+msgid "Palace executable:"
+msgstr "Exécutable Palace :"
+
+msgid "Palace host-key policy must be STRICT or ACCEPT_NEW."
+msgstr "La politique de clé d’hôte de Palace doit être STRICT ou ACCEPT_NEW."
+
+msgid "Palace MPI process count must be between 1 and 4096."
+msgstr "Le nombre de processus MPI de Palace doit être compris entre 1 et 4096."
+
+msgid "Palace remote root must be a dedicated non-root directory."
+msgstr "La racine distante de Palace doit être un dossier dédié, autre que la racine."
+
+msgid "Palace remote solve running: {p0} s / {p1} s"
+msgstr "Calcul Palace distant en cours : {p0} s / {p1} s"
+
+msgid "Palace server host must be a DNS name or numeric LAN address."
+msgstr "L’hôte du serveur Palace doit être un nom DNS ou une adresse numérique du réseau local."
+
+msgid "Palace server on local network"
+msgstr "Serveur Palace sur le réseau local"
+
+msgid "Palace server ready: {p0}"
+msgstr "Serveur Palace prêt : {p0}"
+
+msgid "Palace SSH port must be between 1 and 65535."
+msgstr "Le port SSH de Palace doit être compris entre 1 et 65535."
+
+msgid "Palace SSH username contains unsupported characters."
+msgstr "Le nom d’utilisateur SSH de Palace contient des caractères non pris en charge."
+
+msgid "Palace {p0} contains unsupported characters."
+msgstr "Palace : {p0} contient des caractères non pris en charge."
+
+msgid "Palace — LAN server"
+msgstr "Palace — serveur du réseau local"
+
+msgid "Per-leg impedance (ohm):"
+msgstr "Impédance par branche (ohm) :"
+
+msgid "Phase 10 requires positive mesh/timeout values, at least 1,000 cells and at least 100 time steps."
+msgstr "La phase 10 exige des valeurs de maillage et de délai positives, au moins 1 000 cellules et au moins 100 pas de temps."
+
+msgid "Phase 10 — Multi-fidelity EMC"
+msgstr "Phase 10 — CEM multi-fidélité"
+
+msgid "Pipeline:"
+msgstr "Chaîne :"
+
+msgid "Plot view:"
+msgstr "Vue graphique :"
+
+msgid "Port '{p0}' excluded: {p1}."
+msgstr "Port « {p0} » exclu : {p1}."
+
+msgid "Power Integrity"
+msgstr "Intégrité de puissance"
+
+msgid "Power tree"
+msgstr "Arbre d’alimentation"
+
+msgid "Power Tree & DC"
+msgstr "Arbre d’alimentation et DC"
+
+msgid "Pre-compliance"
+msgstr "Pré-conformité"
+
+msgid "Quantified parallel trace coupling"
+msgstr "Couplage quantifié entre pistes parallèles"
+
+msgid "Quasi-static engineering estimate. Source voltage/current are edited in the source list; continuous adjacent GND is approximated by an image return. With frequency set to 0, each source is evaluated at its first harmonic inside the selected compliance band."
+msgstr "Estimation d’ingénierie quasi statique. La tension et le courant des sources se modifient dans la liste des sources ; une masse adjacente continue est approchée par un retour image. Avec une fréquence à 0, chaque source est évaluée à son premier harmonique dans la bande de conformité choisie."
+
+msgid "Ready — "
+msgstr "Prêt — "
+
+msgid "Relative permittivity must be at least 1.0."
+msgstr "La permittivité relative doit être d’au moins 1,0."
+
+msgid "Remediation sizing failed for {p0}: {p1}"
+msgstr "Échec du dimensionnement de la correction pour {p0} : {p1}"
+
+msgid "Remediation.action must not be empty"
+msgstr "Remediation.action ne doit pas être vide"
+
+msgid "Remote job root:"
+msgstr "Racine des calculs distants :"
+
+msgid "Remote retention:"
+msgstr "Conservation distante :"
+
+msgid "Rendering DC rail maps in background..."
+msgstr "Rendu des cartes des rails DC en arrière-plan..."
+
+msgid "Report"
+msgstr "Rapport"
+
+msgid "Report written to {p0}"
+msgstr "Rapport écrit dans {p0}"
+
+msgid "Restrict the FET-to-FET (or FET-to-diode) and FET-to-inductor copper to the shortest path, and keep the input capacitor's return current on the same loop."
+msgstr "Limitez le cuivre entre FET (ou entre FET et diode) et entre FET et inductance au chemin le plus court, et gardez le courant de retour du condensateur d’entrée sur la même boucle."
+
+msgid "Reusing this batch's DC copper capture for {p0}."
+msgstr "Réutilisation de la capture du cuivre DC de ce lot pour {p0}."
+
+msgid "Review findings, metrics, plots, and saved campaigns."
+msgstr "Consulter les observations, les métriques, les graphiques et les campagnes enregistrées."
+
+msgid "Review these off-board footprints; no routed electrical net was excluded."
+msgstr "Vérifiez ces empreintes hors carte ; aucun réseau électrique routé n’a été exclu."
+
+msgid "rise_time_s must be positive."
+msgstr "rise_time_s doit être positif."
+
+msgid "Routed copper lies outside the board outline"
+msgstr "Du cuivre routé se trouve hors du contour de la carte"
+
+msgid "Rule GND"
+msgstr "GND de règle"
+
+msgid "Rule W/G"
+msgstr "L/É de règle"
+
+msgid "rule, text, net, or component"
+msgstr "règle, texte, réseau ou composant"
+
+msgid "Run Analysis Batch"
+msgstr "Lancer le lot d’analyses"
+
+msgid "Run Analysis Batch..."
+msgstr "Lancer le lot d’analyses..."
+
+msgid "Run selected backend"
+msgstr "Exécuter le backend choisi"
+
+msgid "Schematic rules"
+msgstr "Règles du schéma"
+
+msgid "Search:"
+msgstr "Recherche :"
+
+msgid "Select an existing Palace JSON configuration file."
+msgstr "Sélectionnez un fichier de configuration JSON Palace existant."
+
+msgid "Select the analyses to run:"
+msgstr "Sélectionnez les analyses à lancer :"
+
+msgid "Select the Palace JSON configuration"
+msgstr "Sélectionnez la configuration JSON Palace"
+
+msgid "Select the Palace JSON configuration to run remotely."
+msgstr "Sélectionnez la configuration JSON Palace à exécuter à distance."
+
+msgid "Select the SSH private key used for Palace"
+msgstr "Sélectionnez la clé privée SSH utilisée pour Palace"
+
+msgid "Selected finding"
+msgstr "Observation sélectionnée"
+
+msgid "Server host / IP:"
+msgstr "Hôte / IP du serveur :"
+
+msgid "Severity follows this tool's heuristic: HIGH for a harmonic order up to 10 or within 20 dB of the envelope, MEDIUM up to order 30 or a 0.25 V*A drive index."
+msgstr "La gravité suit l’heuristique de cet outil : HIGH pour un harmonique de rang 10 au plus ou à moins de 20 dB de l’enveloppe, MEDIUM jusqu’au rang 30 ou pour un indice d’attaque de 0,25 V*A."
+
+msgid "Shield"
+msgstr "Blindage"
+
+msgid "Shield attenuation"
+msgstr "Atténuation du blindage"
+
+msgid "Shield presence is reported independently from numerical attenuation. No dB reduction is applied without a manufacturer curve or measured value."
+msgstr "La présence d’un blindage est signalée indépendamment de toute atténuation chiffrée. Aucune réduction en dB n’est appliquée sans courbe du fabricant ni valeur mesurée."
+
+msgid "Show:"
+msgstr "Afficher :"
+
+msgid "Signal Integrity"
+msgstr "Intégrité du signal"
+
+msgid "Size mm"
+msgstr "Taille mm"
+
+msgid "Skipping degenerate segment on {p0}: L={p1} W={p2} T={p3}"
+msgstr "Segment dégénéré ignoré sur {p0} : L={p1} W={p2} T={p3}"
+
+msgid "Skipping port '{p0}': pads could not be mapped to both meshes."
+msgstr "Port « {p0} » ignoré : ses pastilles n’ont pas pu être associées aux deux maillages."
+
+msgid "Solve again at twice the grid step and report how far the hotspot moves."
+msgstr "Résoudre à nouveau avec un pas de grille double et indiquer de combien le point chaud se déplace."
+
+msgid "Solve every rail whose drop is at least a tenth of the budget again at half the mesh resolution, and flag a drop that moves by more than 10% (DC-005); solve each AC profile's worst frequency again at half its mesh step (AC-005)."
+msgstr "Résoudre à nouveau, au demi-pas de maillage, chaque rail dont la chute atteint au moins un dixième du budget, et signaler une chute qui varie de plus de 10 % (DC-005) ; résoudre à nouveau la pire fréquence de chaque profil AC au demi-pas de son maillage (AC-005)."
+
+msgid "Solve PCB temperature and electro-thermal coupling."
+msgstr "Résoudre la température du PCB et le couplage électrothermique."
+
+msgid "Solved {p0} nodes; hotspot {p1} C, energy error {p2}%{p3}; backend {p4}, residual {p5}."
+msgstr "{p0} nœuds résolus ; point chaud {p1} C, erreur d’énergie {p2} %{p3} ; backend {p4}, résidu {p5}."
+
+msgid "Source frequency unknown"
+msgstr "Fréquence de source inconnue"
+
+msgid "Source model:"
+msgstr "Modèle de source :"
+
+msgid "Sources without a known frequency are excluded from harmonic and near-field estimates (EE-003) rather than given a default."
+msgstr "Les sources sans fréquence connue sont exclues des estimations d’harmoniques et de champ proche (EE-003) au lieu de recevoir une valeur par défaut."
+
+msgid "SPICE model library:"
+msgstr "Bibliothèque de modèles SPICE :"
+
+msgid "SSH connected, but the configured command did not identify Palace."
+msgstr "SSH connecté, mais la commande configurée n’a pas identifié Palace."
+
+msgid "SSH port:"
+msgstr "Port SSH :"
+
+msgid "SSH private key:"
+msgstr "Clé privée SSH :"
+
+msgid "SSH username:"
+msgstr "Nom d’utilisateur SSH :"
+
+msgid "Strict (known host only)"
+msgstr "Strict (hôte connu seulement)"
+
+msgid "structured metrics unavailable"
+msgstr "métriques structurées indisponibles"
+
+msgid "Surface exchange pass {p0}: coefficients moved {p1}% -- re-solving."
+msgstr "Passe d’échange de surface {p0} : les coefficients ont varié de {p1} % -- nouvelle résolution."
+
+msgid "Surface exchange settled at W/m2K: {p0} ({p1})."
+msgstr "Échange de surface stabilisé, en W/m2K : {p0} ({p1})."
+
+msgid "Sweep rail impedance and optimize decoupling candidates."
+msgstr "Balayer l’impédance des rails et optimiser les condensateurs de découplage candidats."
+
+msgid "Swept {p0} port(s); worst is '{p1}' at {p2} ohm."
+msgstr "{p0} port(s) balayé(s) ; le pire est « {p1} » à {p2} ohm."
+
+msgid "Switching frequency supplied by the caller."
+msgstr "Fréquence de découpage fournie par l’appelant."
+
+msgid "Switching hot loop is spread out"
+msgstr "La boucle chaude de commutation est étendue"
+
+msgid "Switching Inductor Models"
+msgstr "Modèles des inductances de commutation"
+
+msgid "Target |Z| (mOhm, blank = auto):"
+msgstr "|Z| cible (mOhm, vide = auto) :"
+
+msgid "Test Palace connection"
+msgstr "Tester la connexion Palace"
+
+msgid "The 10 mm threshold is this tool's heuristic for the 'as close to the connector as possible' placement of TI SLVA680 (ESD layout guide); not a standard value."
+msgstr "Le seuil de 10 mm est l’heuristique de cet outil pour le placement « aussi près du connecteur que possible » de TI SLVA680 (guide de routage ESD) ; ce n’est pas une valeur normalisée."
+
+msgid "the 2-D solver is unavailable in this runtime"
+msgstr "le solveur 2D n’est pas disponible dans cet environnement"
+
+msgid "The configured Palace SSH identity file does not exist."
+msgstr "Le fichier d’identité SSH configuré pour Palace n’existe pas."
+
+msgid "the enclosure CFD"
+msgstr "la CFD du boîtier"
+
+msgid "The estimate scales with frequency-point count and approximately with the inverse square of mesh resolution. Final cost also depends on copper geometry."
+msgstr "L’estimation croît avec le nombre de points de fréquence et à peu près comme l’inverse du carré de la résolution du maillage. Le coût final dépend aussi de la géométrie du cuivre."
+
+msgid "the LU-preconditioned GMRES solve did not reach a relative residual of {p0}, even on a pivoting factorisation."
+msgstr "la résolution GMRES préconditionnée par LU n’a pas atteint un résidu relatif de {p0}, même avec une factorisation à pivot."
+
+msgid "The project's saved files could not be read for declared rails ({p0}: {p1}); rails are guessed from net names."
+msgstr "Les fichiers enregistrés du projet n’ont pas pu être lus pour les rails déclarés ({p0} : {p1}) ; les rails sont devinés d’après les noms de réseaux."
+
+msgid "The schematic rules read the saved board, and its file is not known."
+msgstr "Les règles du schéma lisent la carte enregistrée, et son fichier n’est pas connu."
+
+msgid "The score out of 100 is a relative, uncalibrated risk ranking weighted by confidence; it is not a compliance margin."
+msgstr "Le score sur 100 est un classement relatif du risque, non étalonné et pondéré par la confiance ; ce n’est pas une marge de conformité."
+
+msgid "The selected item is a layout correction without a width/gap rule. Select the primary route recommendation instead."
+msgstr "L’élément choisi est une correction de routage sans règle de largeur et d’écart. Sélectionnez plutôt la recommandation de routage principale."
+
+msgid "the thermal pipeline"
+msgstr "la chaîne thermique"
+
+msgid "the traces overlap once their widths are removed"
+msgstr "les pistes se chevauchent une fois leurs largeurs retirées"
+
+msgid "Thermal analysis"
+msgstr "Analyse thermique"
+
+msgid "Thermal analysis · cancelling"
+msgstr "Analyse thermique · annulation"
+
+msgid "Thermal analysis · complete"
+msgstr "Analyse thermique · terminée"
+
+msgid "Thermal will use the CFD free-stream speed of {p0} m/s sampled over {p1} cell(s) -- estimated, not measured."
+msgstr "Le thermique utilisera la vitesse d’écoulement libre de la CFD, {p0} m/s, échantillonnée sur {p1} cellule(s) -- estimée, pas mesurée."
+
+msgid "Thermal · running"
+msgstr "Thermique · en cours"
+
+msgid "Thresholds 10 mm (MEDIUM) and 20 mm (HIGH) on the loop's widest gap are this tool's heuristic for the 'as close together as possible' placement of TI SLVA959 and ADI AN-136; not a standard value."
+msgstr "Les seuils de 10 mm (MEDIUM) et 20 mm (HIGH) sur le plus grand écart de la boucle sont l’heuristique de cet outil pour le placement « aussi rapproché que possible » de TI SLVA959 et ADI AN-136 ; ce n’est pas une valeur normalisée."
+
+msgid "Thresholds 25 mm2 (MEDIUM) and 100 mm2 (HIGH) are this tool's heuristic for the 'minimise switch-node area' guidance of TI SLVA959; not a standard value."
+msgstr "Les seuils de 25 mm2 (MEDIUM) et 100 mm2 (HIGH) sont l’heuristique de cet outil pour la consigne « réduire la surface du nœud de commutation » de TI SLVA959 ; ce n’est pas une valeur normalisée."
+
+msgid "Thresholds 5 mm (MEDIUM) and 8 mm (HIGH) are this tool's heuristic for the 'at the supply pin' placement that capacitor and IC makers recommend; not a standard value."
+msgstr "Les seuils de 5 mm (MEDIUM) et 8 mm (HIGH) sont l’heuristique de cet outil pour le placement « à la broche d’alimentation » que recommandent les fabricants de condensateurs et de circuits intégrés ; ce n’est pas une valeur normalisée."
+
+msgid "Timeout per region (s):"
+msgstr "Délai par région (s) :"
+
+msgid "title must not be empty"
+msgstr "title ne doit pas être vide"
+
+msgid "Unavailable — "
+msgstr "Indisponible — "
+
+msgid "Unknown"
+msgstr "Inconnu"
+
+msgid "unknown"
+msgstr "inconnu"
+
+msgid "Unsupported analysis result schema: {p0}"
+msgstr "Schéma de résultat d’analyse non pris en charge : {p0}"
+
+msgid "Unsupported campaign schema: {p0}"
+msgstr "Schéma de campagne non pris en charge : {p0}"
+
+msgid "Uploading the explicit Palace project directory to {p0}..."
+msgstr "Envoi du dossier de projet Palace explicite vers {p0}..."
+
+msgid "Use a dielectric rated higher (X7R, 125 C) in the same value and voltage, or move the capacitor away from the heat; check its capacitance at temperature and DC bias."
+msgstr "Utilisez un diélectrique de température nominale plus haute (X7R, 125 C) de même valeur et même tension, ou éloignez le condensateur de la chaleur ; vérifiez sa capacité en température et sous polarisation DC."
+
+msgid "User-configured source parameters."
+msgstr "Paramètres de source configurés par l’utilisateur."
+
+msgid "Verify their capacitance under DC bias, their SRF and the ferrites' impedance at these temperatures."
+msgstr "Vérifiez leur capacité sous polarisation DC, leur fréquence de résonance propre et l’impédance des ferrites à ces températures."
+
+msgid "very high"
+msgstr "très élevée"
+
+msgid "WARNING: KiCad IPC returned zero tracks/zones; using the last valid differential snapshot for this unchanged pair set."
+msgstr "ATTENTION : l’IPC de KiCad n’a renvoyé aucune piste ni zone ; utilisation du dernier instantané différentiel valide pour ce jeu de paires inchangé."
+
+msgid "Zoom 100%"
+msgstr "Zoom 100 %"
+
+msgid "Zoom {p0}%"
+msgstr "Zoom {p0} %"
+
+msgid "{p0} '{p1}' has no {p2} pad; using the {p3} return-plane node(s) under its rail pads as the AC return."
+msgstr "{p0} « {p1} » n’a pas de pastille {p2} ; les {p3} nœud(s) du plan de retour sous ses pastilles de rail servent de retour AC."
+
+msgid "{p0} ({p1} x {p2} x {p3} mm) does not fit inside the configured {p4} x {p5} x {p6} mm enclosure."
+msgstr "{p0} ({p1} x {p2} x {p3} mm) ne tient pas dans le boîtier configuré de {p4} x {p5} x {p6} mm."
+
+msgid "{p0} analysis cancelled."
+msgstr "Analyse {p0} annulée."
+
+msgid "{p0} could not be meshed for sizing: {p1}"
+msgstr "{p0} n’a pas pu être maillé pour le dimensionnement : {p1}"
+
+msgid "{p0} frequency point(s) solved for {p1} port(s) and {p2} candidate node(s) in {p3} s."
+msgstr "{p0} point(s) de fréquence résolu(s) pour {p1} port(s) et {p2} nœud(s) candidat(s) en {p3} s."
+
+msgid "{p0} frequency point(s) solved with {p1} LU factorisation(s) and {p2} GMRES iteration(s) in {p3} s."
+msgstr "{p0} point(s) de fréquence résolu(s) avec {p1} factorisation(s) LU et {p2} itération(s) GMRES en {p3} s."
+
+msgid "{p0} has no meshable copper; skipped."
+msgstr "{p0} n’a pas de cuivre maillable ; ignoré."
+
+msgid "{p0} has no nominal voltage, so there is no drop target to size against; skipped."
+msgstr "{p0} n’a pas de tension nominale, donc pas de chute cible pour le dimensionnement ; ignoré."
+
+msgid "{p0} has no VOUT pin and its inductor no free end"
+msgstr "{p0} n’a pas de broche VOUT et son inductance pas d’extrémité libre"
+
+msgid "{p0} is not a covered candidate."
+msgstr "{p0} n’est pas un candidat couvert."
+
+msgid "{p0} is not on the saved board"
+msgstr "{p0} n’est pas sur la carte enregistrée"
+
+msgid "{p0} is on no pin of {p1}"
+msgstr "{p0} n’est sur aucune broche de {p1}"
+
+msgid "{p0} sized on the DC result's own mesh ({p1} mm): {p2} source node(s), {p3} load node(s)."
+msgstr "{p0} dimensionné sur le maillage propre du résultat DC ({p1} mm) : {p2} nœud(s) de source, {p3} nœud(s) de charge."
+
+msgid "{p0} skipped: no load current could be placed on the mesh, so there is no drop to size against."
+msgstr "{p0} ignoré : aucun courant de charge n’a pu être placé sur le maillage, donc aucune chute pour le dimensionnement."
+
+msgid "{p0} skipped: the DC result holds no source or no load to size against."
+msgstr "{p0} ignoré : le résultat DC ne contient pas de source ou pas de charge pour le dimensionnement."
+
+msgid "{p0} skipped: {p1} load node(s) are not connected to a source in the solved copper, so any drop computed would be fictitious."
+msgstr "{p0} ignoré : {p1} nœud(s) de charge ne sont reliés à aucune source dans le cuivre résolu ; toute chute calculée serait fictive."
+
+msgid "{p0} skipped: {p1} of {p2} load node(s) are not connected to source {p3} in the meshed copper, so any drop computed would be fictitious."
+msgstr "{p0} ignoré : {p1} nœud(s) de charge sur {p2} ne sont pas reliés à la source {p3} dans le cuivre maillé ; toute chute calculée serait fictive."
+
+msgid "{p0} skipped: {p1}."
+msgstr "{p0} ignoré : {p1}."
+
+msgid "{p0} source resolved to {p1} via {p2} ({p3} node(s))."
+msgstr "Source de {p0} résolue en {p1} via {p2} ({p3} nœud(s))."
+
+msgid "{p0} unknowns exceeds the {p1} direct-solve limit; solving iteratively, which needs no factorisation memory."
+msgstr "{p0} inconnues dépassent la limite de résolution directe de {p1} ; résolution itérative, qui ne demande pas de mémoire de factorisation."
+
+msgid "{source}\n{relative:.0f}% of map peak"
+msgstr "{source}\n{relative:.0f} % du pic de la carte"

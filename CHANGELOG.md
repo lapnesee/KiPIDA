@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed the French interface showing 450 messages in English: the
+  catalog template had not been regenerated since the DC current
+  density work. It now holds the 1,581 messages the sources show, all
+  translated (batch, AC, DC, EMC, Phase 10, Palace, results views). The
+  extractor now skips regular expressions, Windows paths, tags such as
+  "board-circuit" and log lines that are only a "[TAG] {p0}".
 - Added a component view to the campaign report: one row per part a
   finding names, plus the five hottest junctions, with its heat, the
   board temperature under it, its junction against its limit and what

@@ -34,17 +34,25 @@ def human_literal(value, force=False):
         return False
     if not force and re.fullmatch(r"[a-z_]+", text):
         return False
+    # A tag or a prefix compared against data ("board-circuit", "unconnected-"),
+    # an S-expression token ("(footprint "), a path entered as a default.
+    if not force and re.fullmatch(r"[a-z]+(?:-[a-z]*)+", text):
+        return False
+    if re.fullmatch(r"\([a-z_]+ ?", text) or re.match(r"[A-Za-z]:\\|~/", text):
+        return False
     if text.startswith(("KiPIDA-", "__", "http://", "https://")):
         return False
     if text.startswith("%") or (text.startswith(".") and " " not in text):
         return False
     if text.startswith("^") or ("|" in text and " " not in text):
         return False
-    if "(?P<" in text or "[^" in text or "[_/]" in text:
+    if "(?P<" in text or "(?<" in text or "[^" in text or "[_/]" in text:
         return False
     if re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?", text, re.I):
         return False
-    literal_text = re.sub(r"\{[A-Za-z_][^}]*\}", "", text)
+    # Fields, and a log line's "[TAG]" prefix, are not words to translate:
+    # "[EM FIELD] {p0}" has none.
+    literal_text = re.sub(r"^\s*\[[^\]]*\]", "", re.sub(r"\{[A-Za-z_][^}]*\}", "", text))
     if "{" in text and sum(char.isalpha() for char in literal_text) < 4:
         return False
     if re.fullmatch(r"[A-Za-z0-9_.-]+\.(py|json|png|toml|txt|kicad_[a-z]+)", text):
