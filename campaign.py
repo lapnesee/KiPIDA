@@ -139,6 +139,12 @@ GROUPING_MAX_COMPONENTS = 6
 # the general net-sharing rule (COH-5).
 INCOMPLETE_RAIL_RULE_ID = "DC-001"
 
+# A switch node's harmonics in the band (SW-001), its copper (SW-002) and its
+# hot loop (SW-003) are one layout around one node: findings of these rules
+# on the same net are one action. P02 Rev E's /SYS_5V_SW1 had two actions on
+# 2026-10-01, SW-003 ranked second and SW-001 with SW-002 eighth (audit CO-7).
+SWITCHING_STAGE_RULES = frozenset(("SW-001", "SW-002", "SW-003"))
+
 # The thermal analysis solves at an internal air taken from the enclosure's
 # heat balance (Q / (h x A)); the CFD resolves the same air. Read twice, they
 # agree within this: a fifth of P02 Rev E's 16 K enclosure rise.
@@ -347,6 +353,10 @@ def _group_findings(tagged: List[tuple]) -> List[List[tuple]]:
             for right in members[position + 1:]:
                 if root(left) != root(right) and _colocated(tagged[left][1], tagged[right][1]):
                     join(left, right)
+    for members in by_net.values():
+        stage = [index for index in members if tagged[index][1].rule_id in SWITCHING_STAGE_RULES]
+        for other in stage[1:]:
+            join(stage[0], other)
     for members in by_net.values():
         # An INCOMPLETE DC rail (DC-001) joins everything else on its net
         # unconditionally: DC-001 on /VBUS_SYS (U14 isolated, 81 load nodes

@@ -56,6 +56,18 @@ class CampaignGroupingTests(unittest.TestCase):
         ])
         self.assertEqual(groups(campaign), [["GP-001", "SI-DIFF-001"]])
 
+    def test_a_switching_stage_is_one_action(self):
+        # P02 Rev E, 2026-10-01: /SYS_5V_SW1's hot loop (SW-003, C37/Q10/Q11)
+        # and its harmonics and copper (SW-001, SW-002) were two actions;
+        # /J2_SRC_SW's harmonics are another stage.
+        campaign = CampaignResult.from_results([result("EMC", [
+            finding("SW-003", ["/SYS_5V_SW1"], ["C37", "Q10", "Q11"]),
+            finding("SW-001", ["/SYS_5V_SW1"], severity=FindingSeverity.MEDIUM),
+            finding("SW-002", ["/SYS_5V_SW1"], severity=FindingSeverity.MEDIUM),
+            finding("SW-001", ["/J2_SRC_SW"], severity=FindingSeverity.MEDIUM),
+        ])])
+        self.assertEqual(groups(campaign), [["SW-001"], ["SW-001", "SW-002", "SW-003"]])
+
     def test_a_finding_about_many_parts_ties_no_other_to_it(self):
         # P02 Rev E: SCH-003 named 49 parts, C11 among them, and DE-001 named
         # U18 and C11; joined through C11 they made the first priority action.

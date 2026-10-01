@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed the campaign to make one action of a switching stage: SW-001,
+  SW-002 and SW-003 findings on the same switch node now group. P02 Rev
+  E's /SYS_5V_SW1 hot loop (C37, Q10, Q11) and its harmonics and copper
+  were two actions, ranked second and eighth; they are one, second.
 - Changed the campaign report to set the thermal and CFD internal air
   side by side: under "what holds" within 3 K, under calculation
   reliability beyond. P02 Rev E: thermal 61.2 C, CFD 60.65 C, 0.55 K
