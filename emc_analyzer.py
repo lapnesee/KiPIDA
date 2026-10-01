@@ -2230,6 +2230,12 @@ class EMCAnalyzer:
         for source in self.settings.sources:
             if not source.enabled or str(source.kind).upper() != "SWITCHING":
                 continue
+            if source.source == "board-circuit":
+                # Revalued from its simulated board circuit, which already
+                # draws the tree's current: the inductor peak it carries is
+                # not an output current. On P02 Rev E's 16:51 run U14's 3.87 A
+                # and U5's 1.26 A peaks were reported against 3 A and 1 A.
+                continue
             output = converter_output_for(source.name, outputs)
             if output is not None:
                 self._check()
@@ -2245,8 +2251,9 @@ class EMCAnalyzer:
                                         float(model.switching_frequency_hz or 0.0),
                                         model.switching_net, model.ref_des))
         for output, items in entered.items():
-            strays = []
-            for label, current, frequency, _net, _ref in items:
+            strays, stray_items = [], []
+            for item in items:
+                label, current, frequency, _net, _ref = item
                 parts = []
                 if (current > 0.0 and output.current_a > 0.0
                         and abs(current - output.current_a) > CONVERTER_CURRENT_TOLERANCE * output.current_a):
@@ -2256,6 +2263,7 @@ class EMCAnalyzer:
                     parts.append(f"{frequency / 1e3:.0f} kHz")
                 if parts:
                     strays.append(f"{label} at {' and '.join(parts)}")
+                    stray_items.append(item)
             if not strays:
                 continue
             tree = f"{output.current_a:.3g} A"
@@ -2269,8 +2277,8 @@ class EMCAnalyzer:
                       "Enter the power tree's values, or correct the tree's loads if the entered ones "
                       "are right.",
                       "HIGH",
-                      nets=sorted({net for *_rest, net, _ref in items if net}),
-                      components=[reference] + sorted({ref for *_rest, ref in items if ref}))
+                      nets=sorted({net for *_rest, net, _ref in stray_items if net}),
+                      components=[reference] + sorted({ref for *_rest, ref in stray_items if ref}))
 
     def _thermal_rules(self):
         if not self._enabled("THERMAL") or self.thermal_result is None:

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed SW-004 judging a source revalued from its board circuit, whose
+  current is the simulated inductor peak: P02 Rev E's 16:51 run flagged
+  U14 (3.87 A against the tree's 3 A) and U5 (1.26 A against 1 A).
+  The finding also names only the parts whose values stray: it named L2
+  and L3, whose models agreed.
 - Changed TE-002 to one finding per dielectric, listing its capacitors
   hottest first, and left it out of the EMC risk score. P02 Rev E's
   16:51 run had 13 X5R capacitors over 85 C (C37 106.8 C, +21.8 K, down

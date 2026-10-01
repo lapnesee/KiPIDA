@@ -1,3 +1,4 @@
+from dataclasses import replace
 import re
 import unittest
 import tempfile
@@ -305,6 +306,9 @@ class TestEMCAnalyzer(unittest.TestCase):
             EMCSignalSource("U14 SW (J2 source buck)", "/J2_SRC_SW", "SWITCHING", 500e3,
                             voltage_swing_v=20.0, current_a=3.0),
         ]
+        # U14's source revalued from its board circuit carries the 3.87 A
+        # inductor peak, not an output current (16:51 run).
+        settings.sources[1] = replace(settings.sources[1], current_a=3.87, source="board-circuit")
         result = EMCAnalyzer(snap, settings).analyze()
         (finding,) = [item for item in result.findings if item.rule_id == "SW-004"]
         self.assertEqual(finding.components, ["U4"])
