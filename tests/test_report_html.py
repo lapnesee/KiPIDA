@@ -261,6 +261,20 @@ class DecisionTests(unittest.TestCase):
         self.assertIn("Hotspot 118.99 °C.", document)
 
 
+class DecisionListTests(unittest.TestCase):
+    def test_parts_beyond_the_list_are_counted_with_the_parts(self):
+        # P02 Rev E, 16:51: SCH-003's 29 resistors read "R9 · réseau /+3V3AO,
+        # ... et 21 de plus", the count of parts printed after the nets.
+        resistors = [f"R{index}" for index in range(1, 30)]
+        campaign = campaign_with([AnalysisFinding(
+            rule_id="SCH-003", category="SCHEMATIC", severity=FindingSeverity.INFO,
+            title="Missing power-rating data", description="d",
+            components=resistors, nets=["/+3V3AO", "/+5V_U4"],
+        )])
+        document = render_campaign_html(campaign)
+        self.assertIn("R7, R8 and 21 more &middot; net /+3V3AO, /+5V_U4", document)
+
+
 class CrossCheckTests(unittest.TestCase):
     def test_thermal_and_cfd_air_are_set_side_by_side(self):
         # P02 Rev E, 2026-10-01 (audit CO-5, LE-7): thermal solved at 61.2 C

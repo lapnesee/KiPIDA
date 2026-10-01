@@ -442,10 +442,15 @@ def action_bucket(action: CampaignAction) -> str:
     return REVIEW
 
 
-def _where(components: List[str], nets: List[str]) -> str:
+def _where(components: List[str], nets: List[str], more: int = 0) -> str:
+    """Parts, then nets; *more* parts beyond those listed are counted with
+    the parts, not after the nets as P02 Rev E's 16:51 report printed them."""
     parts = []
     if components:
-        parts.append(_join(components))
+        listed = _join(components)
+        if more > 0:
+            listed += " " + _esc(_("and {count} more")).format(count=more)
+        parts.append(listed)
     if nets:
         # "net" alone: the extractor skips a template with under four
         # letters outside its fields, and "net {nets}" has three.
@@ -473,15 +478,12 @@ def _finding_item(domain: str, finding: AnalysisFinding, badge: bool = True,
     with ``advice``, its recommendation follows (the finer grid TH-004
     names, on P02 Rev E)."""
     shown = finding.components[:_DECISION_COMPONENT_LIMIT]
-    where = _where(shown, finding.nets[:4])
-    more = len(finding.components) - len(shown)
-    if more > 0:
-        where += " " + _esc(_("and {count} more")).format(count=more)
+    where = _where(shown, finding.nets[:4], more=len(finding.components) - len(shown))
     text = finding.recommendation.strip() if advice else ""
     return (
         "<li>" + (f"{_severity_badge(finding.severity)} " if badge else "")
         + f'{_t(finding.title)} <span class="meta">&mdash; {_esc(domain)}'
-        + (f"; {where}" if where else "")
+        + (f" &middot; {where}" if where else "")
         + "</span>"
         + (f'<br><span class="meta">{_t(text)}</span>' if text else "")
         + "</li>"
@@ -638,7 +640,7 @@ def _render_synthesis(campaign: CampaignResult) -> str:
         if score.status != AnalysisStatus.PASS:
             continue
         result = by_domain.get(score.domain)
-        figures = "; ".join(key_metrics(result)) if result else ""
+        figures = " &middot; ".join(key_metrics(result)) if result else ""
         analysis = f"<strong>{_esc(score.domain)}</strong>"
         line = (passes_with.format(analysis=analysis, figures=figures) if figures
                 else passes.format(analysis=analysis))

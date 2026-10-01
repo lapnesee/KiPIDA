@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed the decision lists counting the parts beyond the eight shown
+  after the nets ("R9 Â· rÃ©seau /+3V3AO, ... et 21 de plus" on P02 Rev
+  E's 16:51 report): the count follows the parts. Figures and places are
+  separated by "Â·", not by an English "; ".
 - Fixed the component view dropping the hottest junctions once sixteen
   parts were cited: P02 Rev E's 16:51 report left out U14, 124 C of its
   150 C limit. The five hottest junctions now keep their rows, and a
