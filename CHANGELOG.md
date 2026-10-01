@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed a batch's consolidated report still holding no figure: each tab
+  filed its result under a run id of its own, not the campaign's, so the
+  plots were never found (P02 Rev E, 2026-10-01 16:51, a 166 kB report).
+  The campaign now sets one run id per domain run, and the tab files
+  its result under it.
 - Fixed the French interface showing 450 messages in English: the
   catalog template had not been regenerated since the DC current
   density work. It now holds the 1,581 messages the sources show, all

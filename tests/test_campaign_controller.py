@@ -110,6 +110,18 @@ def run(engine, request):
 
 
 class SequencingTests(unittest.TestCase):
+    def test_the_raw_outcome_and_the_result_share_one_run_id(self):
+        # P02 Rev E, 2026-10-01 16:51: the tabs filed results under run_ids of
+        # their own, so the consolidated report found none of the 249 saved
+        # plots of its domains.
+        engine = build({"DC": FakeEngine()}, ["DC"])
+        seen = {}
+        engine.set_raw_result_listener(
+            lambda analysis_id, _raw: seen.setdefault(analysis_id, engine.run_id_for(analysis_id)),
+        )
+        campaign, _logs, _progress = run(engine, CampaignRunRequest(domain_requests={"DC": FakeRequest()}))
+        self.assertEqual(seen["DC"], campaign.results[0].run_id)
+
     def test_domains_run_in_registry_order_not_dict_order(self):
         order = []
 

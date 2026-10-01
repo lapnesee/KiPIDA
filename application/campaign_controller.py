@@ -13,6 +13,7 @@ must cost them the thermal section, not the five domains that worked.
 
 from dataclasses import dataclass, field, replace
 import time
+import uuid
 from typing import Any, Callable, Dict, List, Optional
 
 from analysis_contract import AnalysisResult, AnalysisStatus
@@ -262,6 +263,9 @@ class CampaignEngine:
         self._cache = cache
         self._domain_listener: Optional[Callable[[DomainOutcome], None]] = None
         self._raw_listener: Optional[Callable[[str, Any], None]] = None
+        # {analysis_id: run_id} of each domain's latest run, set before its
+        # raw outcome is handed over (run_id_for).
+        self._run_ids: Dict[str, str] = {}
 
     def set_domain_listener(self, listener: Optional[Callable[[DomainOutcome], None]]) -> None:
         """Receive each DomainOutcome as it completes.
@@ -285,6 +289,17 @@ class CampaignEngine:
         caller that owns widgets is responsible for marshalling.
         """
         self._raw_listener = listener
+
+    def run_id_for(self, analysis_id: str) -> str:
+        """The run_id the campaign's result for *analysis_id* carries.
+
+        A UI publishes the raw outcome with an AnalysisResult of its own, and
+        the result history files that one. Giving it this run_id lets the
+        campaign's result find its saved plots (ProjectResultsHistory.
+        attach_artifacts): with two ids, P02 Rev E's 2026-10-01 16:51 report
+        found none of them.
+        """
+        return self._run_ids.get(analysis_id, "")
 
     def runnable_descriptors(self) -> List[Any]:
         """Registry order, executable analyses only.
@@ -714,6 +729,7 @@ class CampaignEngine:
             cached = self._cache.get(request.board_fingerprint, analysis_id, digest)
             if cached is not None:
                 emit_log(f"{analysis_id}: reused cached result (inputs unchanged).")
+                self._run_ids[analysis_id] = cached.run_id
                 if on_domain_result is not None:
                     # A cached domain still has to hand its raw outcome to
                     # the domains that couple to it -- DC's rails feed
@@ -729,6 +745,8 @@ class CampaignEngine:
                 return DomainOutcome(analysis_id, cached, from_cache=True)
 
         started = time.perf_counter()
+        run_id = uuid.uuid4().hex
+        self._run_ids[analysis_id] = run_id
         try:
             domain_result = engine.solve(
                 domain_request,
@@ -742,6 +760,7 @@ class CampaignEngine:
             if adapter is None:
                 raise KeyError(f"No adapter registered for analysis {analysis_id}")
             result = adapter(domain_result, domain_request)
+            result.run_id = run_id
         except Exception as exc:
             elapsed = time.perf_counter() - started
             emit_log(f"{analysis_id}: FAILED after {elapsed:.2f}s -- {exc}")
@@ -810,6 +829,10 @@ class CampaignController(BackgroundAnalysisController):
             cancelled_error_factory=lambda: CampaignCancelled("Campaign cancelled."),
             dispatch=dispatch,
         )
+
+    def run_id_for(self, analysis_id: str) -> str:
+        reader = getattr(self._engine, "run_id_for", None)
+        return reader(analysis_id) if callable(reader) else ""
 
     def start(self, request, callbacks) -> None:
         listener = getattr(callbacks, "on_domain_complete", None)

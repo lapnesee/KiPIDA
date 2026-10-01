@@ -145,6 +145,9 @@ class KiPIDA_MainDialog(wx.Dialog):
         # Empty means no batch is running; they are kept because a completion
         # handler needs the settings the request was built from.
         self._campaign_requests = {}
+        # {analysis_id: run_id} for the batch result each tab is about to
+        # publish, so the saved entry carries the campaign result's run_id.
+        self._batch_run_ids = {}
         self._plot_lock = threading.Lock()
         # Kept only for the dialog lifetime.  Mesh and CSR reuse is guarded by
         # a live-board fingerprint, so unsaved edits in PCB Editor invalidate
@@ -457,6 +460,11 @@ class KiPIDA_MainDialog(wx.Dialog):
         """
         if structured_result is not None and not getattr(structured_result, "board_fingerprint", ""):
             structured_result.board_fingerprint = self._board_fingerprint(self._board_file_path())
+        run_id = (getattr(self, "_batch_run_ids", None) or {}).pop(analysis_id, "")
+        if structured_result is not None and run_id:
+            # The same run as the campaign's result: the consolidated report
+            # finds this entry's plots by it.
+            structured_result.run_id = run_id
         page = self.results_workspace.publish(
             analysis_id, report, plots, result=structured_result,
         )
@@ -756,6 +764,11 @@ class KiPIDA_MainDialog(wx.Dialog):
         handler = handlers.get(analysis_id)
         if handler is None:
             return
+        reader = getattr(self.campaign_controller, "run_id_for", None)
+        run_id = reader(analysis_id) if callable(reader) else ""
+        batch_run_ids = getattr(self, "_batch_run_ids", None)
+        if run_id and batch_run_ids is not None:
+            batch_run_ids[analysis_id] = run_id
         try:
             handler(domain_result)
         except Exception as exc:
@@ -763,6 +776,10 @@ class KiPIDA_MainDialog(wx.Dialog):
             # produced it; the finding is already in the campaign either way.
             self.log(f"Batch: {analysis_id} results could not be displayed -- {exc}")
         finally:
+            # A handler that did not publish must not hand this run_id to
+            # the tab's next, unrelated run.
+            if batch_run_ids is not None:
+                batch_run_ids.pop(analysis_id, None)
             # The per-domain handlers re-enable their own run button on the
             # way out, which would hand the user a second analysis to start
             # while the batch is still going.
