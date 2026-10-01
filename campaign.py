@@ -24,6 +24,7 @@ from analysis_contract import (
     _json_safe,
     _utc_now,
 )
+from rule_guide import FindingNature, finding_nature, typical_effort
 
 
 CAMPAIGN_SCHEMA_VERSION = "1.0.0"
@@ -184,6 +185,9 @@ class CampaignAction:
     consequences: List[str] = field(default_factory=list)
     effort: RemediationEffort = RemediationEffort.MEDIUM
     gain_rank: float = 0.0
+    # BOARD when any of its findings asks for a change on the board, DATA
+    # when all of them ask for an input (rule_guide.FindingNature).
+    nature: str = FindingNature.BOARD.value
 
     @property
     def identity(self) -> str:
@@ -261,14 +265,15 @@ def score_findings(findings: List[AnalysisFinding]) -> float:
     the survey case GROUPING_MAX_COMPONENTS already treats as one cause
     rather than 159 problems tied together.
 
-    A ``calculation_quality`` finding (COH-9: CFD-003/004, DC-004/005on P02
-    Rev E) never enters the sum at all: "the tool cannot resolve this at the
-    current mesh" is a fact about the run, and scoring it the same as a
-    board defect made CFD's 82/100 say nothing about the board it graded.
+    A finding about the calculation (COH-9: CFD-003/004, DC-004/005 on P02
+    Rev E; TH-004 and every other rule rule_guide marks CALCULATION) never
+    enters the sum at all: "the tool cannot resolve this at the current
+    mesh" is a fact about the run, and scoring it the same as a board defect
+    made CFD's 82/100 say nothing about the board it graded.
     """
     by_object: Dict[tuple, List[float]] = {}
     for finding in findings:
-        if finding.calculation_quality:
+        if finding_nature(finding) == FindingNature.CALCULATION:
             continue
         net_key = tuple(sorted(finding.nets))
         key = (finding.rule_id, net_key) if net_key else (finding.rule_id, None)
@@ -509,11 +514,15 @@ class CampaignResult:
         # estimated", FID "Nothing to do" -- COH-9, 8 of them on P02 Rev E):
         # they stay out of the action list entirely, though they are still
         # listed in their own domain's section (result.findings is untouched).
+        # So do findings about the calculation: TH-004 ranked third of 13
+        # actions on P02 Rev E's 2026-10-01 campaign, ahead of real defects,
+        # though rerunning on a finer grid changes nothing on the board.
         tagged: List[tuple] = [
             (result.analysis_type, finding)
             for result in self.results
             for finding in result.findings
             if finding.severity != FindingSeverity.INFO
+            and finding_nature(finding) != FindingNature.CALCULATION
         ]
         groups = _group_findings(tagged)
 
@@ -545,9 +554,17 @@ class CampaignResult:
                     recommendations.append(text)
 
             remediations = _dedupe_remediations(remediations)
+            # Without a computed remediation, the rule's typical fix: all 13
+            # actions of P02 Rev E's 2026-10-01 campaign read MEDIUM, the old
+            # default, whether the fix was a via (DC-008) or a re-placement
+            # of a power stage (SW-003).
             effort = (
                 _worst_effort([item.effort for item in remediations])
-                if remediations else RemediationEffort.MEDIUM
+                if remediations else _worst_effort([typical_effort(rule) for rule in rule_ids])
+            )
+            natures = {finding_nature(finding) for _d, finding in group}
+            nature = (
+                FindingNature.DATA if natures == {FindingNature.DATA} else FindingNature.BOARD
             )
             # Title comes from the most severe contributing finding.
             lead_findings = [finding for _d, finding in group if finding.severity == severity]
@@ -574,6 +591,7 @@ class CampaignResult:
                 recommendations=recommendations,
                 consequences=consequences,
                 effort=effort,
+                nature=nature.value,
             )
             action.gain_rank = (
                 SEVERITY_WEIGHT[severity]

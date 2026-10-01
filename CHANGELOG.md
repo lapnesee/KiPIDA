@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added a guide to the 72 rules (rule_guide.py): name, why it is a risk,
+  how to check it, typical fix effort, and whether it asks for a change
+  on the board, an input, or a better calculation. Calculation findings
+  (TH-004, DC-005, CFD-001...) leave the campaign's actions and score:
+  on P02 Rev E's 2026-10-01 campaign TH-004 ranked third of 13 actions
+  and cost thermal 6 of its 13.8 points (score 86.2, now 92.2). An
+  action with no computed remediation takes its rules' typical effort,
+  not MEDIUM: DC-008 (C88 and R10 cut off from GND) reads LOW.
 - Added a current derating to a thermal component (rated current and its
   datasheet curve, saved in the sidecar): a fuse within 75 % of its
   derated rating (Littelfuse, UL 248-14) gets an INFO TH-007 instead of

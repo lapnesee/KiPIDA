@@ -184,8 +184,9 @@ class AnalysisFinding:
     confidence: EvidenceConfidence = EvidenceConfidence.HEURISTIC
     # True for a finding about the analysis itself -- a mesh too coarse, a
     # solver limit, a self-diagnostic -- rather than a defect on the board.
-    # CFD-004/CFD-003 and DC-004/DC-005 are this: real findings, but "the
-    # tool cannot resolve this" is not something the user's board did. Kept
+    # The adapters set it for every rule rule_guide marks CALCULATION (TH-004,
+    # DC-005, CFD-001...): real findings, but "the tool cannot resolve this"
+    # is not something the user's board did. Kept
     # separate from severity (a calculation-quality finding can still be
     # HIGH) so it can be excluded from the score and the action list without
     # hiding it from its own domain's section.

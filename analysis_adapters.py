@@ -12,6 +12,7 @@ from analysis_contract import (
     normalize_evidence_confidence,
 )
 from ac_model import target_mask
+from rule_guide import FindingNature, rule_nature
 from cfd_model import enclosure_air_rise_k
 from physical_constants import (
     COPPER_RESISTIVITY_OHM_M, COPPER_RESISTIVITY_REFERENCE_C, DEFAULT_BOARD_THICKNESS_MM,
@@ -86,6 +87,9 @@ def adapt_emc_result(settings: Any, domain_result: Any) -> AnalysisResult:
             description=str(getattr(item, "description", "")),
             recommendation=str(getattr(item, "recommendation", "")),
             confidence=_confidence(getattr(item, "confidence", "LOW")),
+            calculation_quality=(
+                rule_nature(str(getattr(item, "rule_id", ""))) == FindingNature.CALCULATION
+            ),
             nets=list(getattr(item, "nets", ()) or ()),
             components=list(getattr(item, "components", ()) or ()),
             evidence=evidence,
@@ -176,6 +180,9 @@ def _finding(rule_id, index, category, severity, title, description, recommendat
     finding is a fact about the run rather than a model output -- a solver
     that did not converge, or an island with no source, are observed, not
     estimated.
+
+    A rule the guide marks CALCULATION is flagged here, so its finding stays
+    out of the score and the actions wherever it is read.
     """
     return AnalysisFinding(
         rule_id=rule_id,
@@ -186,6 +193,7 @@ def _finding(rule_id, index, category, severity, title, description, recommendat
         description=description,
         recommendation=recommendation,
         confidence=confidence,
+        calculation_quality=rule_nature(rule_id) == FindingNature.CALCULATION,
     )
 
 
@@ -329,7 +337,6 @@ def _ac_grid_check(check: Any, target: float, rail: str, final: Any = None) -> t
         # band and edge, estimates; that two meshes disagree does not.
         confidence=EvidenceConfidence.ESTIMATED if flips else EvidenceConfidence.DETERMINISTIC,
     )
-    finding.calculation_quality = True
     finding.nets = [rail] if rail else []
     return metrics, [finding], limitations
 

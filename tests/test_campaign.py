@@ -118,6 +118,38 @@ class DomainScoreTests(unittest.TestCase):
         self.assertEqual(campaign.actions, [])
         self.assertEqual(len(campaign.results[0].findings), 1)
 
+    def test_calculation_findings_leave_the_score_and_the_actions(self):
+        # P02 Rev E, 2026-10-01 00:59: TH-004 cost the thermal score 6 of its
+        # 13.8 points and ranked third of 13 actions, beside the F1 and F2
+        # margins (3.9 points each). A result saved without the flag is read
+        # through the rule guide.
+        campaign = CampaignResult.from_results([result("THERMAL", findings=[
+            finding("TH-004", title="Thermal result is not converged in mesh"),
+            finding("TH-006", components=["F1"], confidence=EvidenceConfidence.ESTIMATED),
+            finding("TH-006", components=["F2"], confidence=EvidenceConfidence.ESTIMATED),
+        ])])
+        self.assertAlmostEqual(campaign.domain_scores[0].score, 92.2)
+        self.assertEqual([action.rule_ids for action in campaign.actions], [["TH-006"], ["TH-006"]])
+
+    def test_action_without_remediation_takes_its_rules_typical_effort(self):
+        # P02 Rev E, 2026-10-01: all 13 actions read MEDIUM, though joining
+        # C88 and R10 to GND (DC-008) is a via and SW-003 re-places a stage.
+        campaign = CampaignResult.from_results([
+            result("DC", findings=[
+                finding("DC-008", FindingSeverity.HIGH, nets=["GND"], components=["C88", "R10"]),
+            ]),
+            result("EMC", findings=[
+                finding("SW-003", FindingSeverity.HIGH, components=["C37", "Q10", "Q11"]),
+            ]),
+            result("THERMAL", findings=[finding("TH-005", components=["U9"])]),
+        ])
+        read = {action.rule_ids[0]: (action.effort, action.nature) for action in campaign.actions}
+        self.assertEqual(read, {
+            "DC-008": (RemediationEffort.LOW, "BOARD"),
+            "SW-003": (RemediationEffort.MEDIUM, "BOARD"),
+            "TH-005": (RemediationEffort.LOW, "DATA"),
+        })
+
     def test_no_data_domain_is_not_scored_as_clean(self):
         campaign = CampaignResult.from_results([result("CFD", AnalysisStatus.NO_DATA)])
         score = campaign.domain_scores[0]

@@ -43,9 +43,9 @@ class CampaignGroupingTests(unittest.TestCase):
         campaign = CampaignResult.from_results([
             result("AC", [finding("AC-001", ["+3V3", "GND"], ["C12"])]),
             result("EMC", [finding("GP-003", ["GND"])]),
-            result("DC", [finding("DC-002", ["+3V3"])]),
+            result("DC", [finding("DC-003", ["+3V3"])]),
         ])
-        self.assertEqual(groups(campaign), [["AC-001"], ["DC-002"], ["GP-003"]])
+        self.assertEqual(groups(campaign), [["AC-001"], ["DC-003"], ["GP-003"]])
 
     def test_a_shared_net_at_the_same_spot_merges(self):
         here = [AnalysisEvidence("PCB", "d", x_mm=10.0, y_mm=10.0, layer="F.Cu")]
@@ -91,11 +91,13 @@ class CampaignGroupingTests(unittest.TestCase):
         self.assertAlmostEqual(campaign.domain_scores[0].score, 100.0 - 4.5)
 
     def test_a_fact_costs_more_than_a_heuristic(self):
+        # DC-003, a drop: DC-002, a solve that did not converge, is about the
+        # calculation and costs the score nothing (rule_guide).
         fact = CampaignResult.from_results([result("DC", [
-            finding("DC-002", confidence=EvidenceConfidence.DETERMINISTIC),
+            finding("DC-003", confidence=EvidenceConfidence.DETERMINISTIC),
         ])])
         guess = CampaignResult.from_results([result("DC", [
-            finding("DC-002", confidence=EvidenceConfidence.HEURISTIC),
+            finding("DC-003", confidence=EvidenceConfidence.HEURISTIC),
         ])])
         self.assertAlmostEqual(fact.domain_scores[0].score, 88.0)
         self.assertAlmostEqual(guess.domain_scores[0].score, 97.0)
