@@ -139,6 +139,11 @@ GROUPING_MAX_COMPONENTS = 6
 # the general net-sharing rule (COH-5).
 INCOMPLETE_RAIL_RULE_ID = "DC-001"
 
+# The thermal analysis solves at an internal air taken from the enclosure's
+# heat balance (Q / (h x A)); the CFD resolves the same air. Read twice, they
+# agree within this: a fifth of P02 Rev E's 16 K enclosure rise.
+AIR_AGREEMENT_K = 3.0
+
 
 @dataclass
 class DomainScore:
@@ -483,6 +488,23 @@ class CampaignResult:
                 board_fingerprint=result.board_fingerprint,
             ))
         return scores
+
+    def air_cross_check(self) -> Optional[tuple]:
+        """``(thermal C, CFD C)``: the internal air each analysis found, or
+        None unless both did. On P02 Rev E's 2026-10-01 campaign, 61.2 and
+        60.65 C, shown in two tables and never set side by side (audit
+        CO-5)."""
+        found = {}
+        for domain, key in (("THERMAL", "internal_air_c"), ("CFD", "internal_ambient")):
+            for result in self.results:
+                if result.analysis_type != domain:
+                    continue
+                for metric in result.metrics:
+                    if metric.key == key and isinstance(metric.value, (int, float)):
+                        found[domain] = float(metric.value)
+        if len(found) < 2:
+            return None
+        return found["THERMAL"], found["CFD"]
 
     def provenance_warnings(self) -> List[str]:
         """State it when this campaign's domains do not describe one moment.

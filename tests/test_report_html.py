@@ -261,6 +261,27 @@ class DecisionTests(unittest.TestCase):
         self.assertIn("Hotspot 118.99 °C.", document)
 
 
+class CrossCheckTests(unittest.TestCase):
+    def test_thermal_and_cfd_air_are_set_side_by_side(self):
+        # P02 Rev E, 2026-10-01 (audit CO-5, LE-7): thermal solved at 61.2 C
+        # internal air, the CFD found 60.65 C; the CFD table also read a
+        # 170.9 C solid maximum marked NOT_USABLE, explained in the appendix.
+        thermal = AnalysisResult("THERMAL", "3D Thermal", status=AnalysisStatus.WARN, metrics=[
+            AnalysisMetric("internal_air_c", "Internal air (enclosure)", 61.2, "°C", "INFO"),
+        ])
+        cfd = AnalysisResult("CFD", "Enclosure CFD", status=AnalysisStatus.PASS, metrics=[
+            AnalysisMetric("internal_ambient", "Internal ambient", 60.65, "°C", "PASS"),
+            AnalysisMetric("maximum_solid_temperature", "Maximum solid temperature", 170.9, "°C",
+                           "NOT_USABLE"),
+        ], limitations=["Solid and air maxima are not usable at this mesh size."])
+        document = render_campaign_html(CampaignResult.from_results([thermal, cfd]))
+        holds = document.split("<h3>What holds")[1].split("<h3>")[0]
+        self.assertIn("Internal air: thermal 61.2 °C, CFD 60.65 °C, 0.55 K apart.", holds)
+        domains = document.split('id="domains"')[1]
+        self.assertIn("Not to be read as results: Maximum solid temperature. Solid and air maxima "
+                      "are not usable at this mesh size.", domains)
+
+
 class FrenchReportTests(unittest.TestCase):
     def tearDown(self):
         i18n.configure("en")

@@ -5448,3 +5448,18 @@ msgstr ""
 #: rule_guide.py:458
 msgid "The heat a converter puts on the board rests on an efficiency nobody read off a curve or measured; the temperatures of its parts move with it."
 msgstr ""
+
+#: report/html_report.py:630
+#, python-brace-format
+msgid "Internal air: thermal {thermal} °C against CFD {cfd} °C, {spread} K apart; check the enclosure inputs both use."
+msgstr ""
+
+#: report/html_report.py:626
+#, python-brace-format
+msgid "Internal air: thermal {thermal} °C, CFD {cfd} °C, {spread} K apart."
+msgstr ""
+
+#: report/html_report.py:854
+#, python-brace-format
+msgid "Not to be read as results: {figures}."
+msgstr ""

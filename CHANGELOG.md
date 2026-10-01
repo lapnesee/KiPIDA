@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Changed the campaign report to set the thermal and CFD internal air
+  side by side: under "what holds" within 3 K, under calculation
+  reliability beyond. P02 Rev E: thermal 61.2 C, CFD 60.65 C, 0.55 K
+  apart. Figures an analysis marks NOT_USABLE are named with its reason
+  above its table: the CFD's 170.9 C solid maximum, under a PASS, was
+  explained only in the appendix.
 - Added TH-008, data to complete: a converter stage whose loss is set
   by the configured efficiency fallback, an estimate. LOW from 5 % of
   the board's heat, INFO below. P02 Rev E's U4 loses 1.81 W, 38 % of

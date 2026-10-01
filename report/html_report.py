@@ -39,7 +39,7 @@ from analysis_contract import (
     Remediation,
     RemediationEffort,
 )
-from campaign import CampaignAction, CampaignResult, DomainScore
+from campaign import AIR_AGREEMENT_K, CampaignAction, CampaignResult, DomainScore
 from i18n import N_, _, current_language
 from rule_guide import CONFIRMATIONS, PROTOTYPE_CHECK, FindingNature, finding_nature, guide
 
@@ -617,6 +617,20 @@ def _render_synthesis(campaign: CampaignResult) -> str:
                 lists[DATA].append(_finding_item(result.analysis_type, finding, advice=True))
             elif finding.severity == FindingSeverity.INFO and finding.rule_id in CONFIRMATIONS:
                 holds.append(_finding_item(result.analysis_type, finding, badge=False))
+    air = campaign.air_cross_check()
+    if air is not None:
+        thermal_c, cfd_c = air
+        values = {"thermal": f"{thermal_c:.3g}", "cfd": f"{cfd_c:.4g}",
+                  "spread": f"{abs(thermal_c - cfd_c):.2g}"}
+        if abs(thermal_c - cfd_c) <= AIR_AGREEMENT_K:
+            holds.append("<li>" + _esc(_(
+                "Internal air: thermal {thermal} °C, CFD {cfd} °C, {spread} K apart."
+            ).format(**values)) + "</li>")
+        else:
+            calculation.append("<li>" + _esc(_(
+                "Internal air: thermal {thermal} °C against CFD {cfd} °C, {spread} K apart; "
+                "check the enclosure inputs both use."
+            ).format(**values)) + "</li>")
     by_domain = {result.analysis_type: result for result in campaign.results}
     passes = _esc(_("{analysis} passes"))
     passes_with = _esc(_("{analysis} passes: {figures}"))
@@ -827,6 +841,20 @@ def _render_metrics(result: AnalysisResult) -> str:
             f"<table>{head}<tbody>{''.join(rows)}</tbody></table></details>")
 
 
+def _render_unusable(result: AnalysisResult) -> str:
+    """Name the figures an analysis marks NOT_USABLE, with its own reason,
+    where the figures are. P02 Rev E's CFD passed while its table read a
+    170.9 C solid maximum; why it was not usable sat in the appendix (audit
+    LE-7)."""
+    unusable = [metric for metric in result.metrics if metric.status == "NOT_USABLE"]
+    if not unusable:
+        return ""
+    reason = next((line for line in result.limitations if "not usable" in line.lower()), "")
+    names = ", ".join(_t(metric.label) for metric in unusable)
+    text = _esc(_("Not to be read as results: {figures}.")).format(figures=names)
+    return f'<p class="meta">{text}' + (f" {_t(reason)}" if reason else "") + "</p>"
+
+
 def _render_findings(result: AnalysisResult) -> str:
     if not result.findings:
         return '<p class="muted">' + _esc(_("No findings.")) + "</p>"
@@ -943,6 +971,7 @@ def _render_domains(campaign: CampaignResult, embed_images: bool, search_roots=(
             f"<h3>{_esc(result.analysis_type)} &mdash; {_esc(result.title)} "
             f'<span class="verdict {status_class}">{_esc(result.status)}</span></h3>'
             + (f'<ul class="tight">{figures}</ul>' if figures else "")
+            + _render_unusable(result)
             + f"{_render_metrics(result)}"
             f"<h4>{findings_heading}</h4>"
             f"{_render_findings(result)}"
