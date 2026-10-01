@@ -23,6 +23,7 @@ from analysis_contract import (  # noqa: E402
     Remediation,
 )
 from campaign import CampaignResult  # noqa: E402
+import i18n  # noqa: E402
 from report.html_report import render_campaign_html, write_campaign_html  # noqa: E402
 
 
@@ -258,6 +259,26 @@ class DecisionTests(unittest.TestCase):
         self.assertIn("C37, Q10, Q11", lists["Check on the prototype"])
         self.assertIn("Rerun at 0.127 mm.", lists["Calculation reliability"])
         self.assertIn("Hotspot 118.99 °C.", document)
+
+
+class FrenchReportTests(unittest.TestCase):
+    def tearDown(self):
+        i18n.configure("en")
+
+    def test_the_decision_and_the_guide_follow_the_interface_language(self):
+        # Audit of 2026-10-01 (LE-1): the report stayed English under a French
+        # interface. P02 Rev E's DC-008 on C88 and R10.
+        campaign = campaign_with([AnalysisFinding(
+            rule_id="DC-008", category="CONNECTIVITY", severity=FindingSeverity.HIGH,
+            title="GND pads are cut off from the rest of the net", description="d",
+            nets=["GND"], components=["C88", "R10"],
+        )])
+        i18n.configure("fr")
+        document = render_campaign_html(campaign)
+        self.assertIn('<html lang="fr">', document)
+        self.assertIn("À corriger avant fabrication (1)", document)
+        self.assertIn("Une pastille isolée du reste de son réseau", document)
+        self.assertIn("C88, R10 &middot; réseau GND", document)
 
 
 class SelfContainmentTests(unittest.TestCase):

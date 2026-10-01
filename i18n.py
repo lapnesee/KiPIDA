@@ -147,6 +147,15 @@ def available_languages():
 _ = gettext_text
 
 
+def N_(message):
+    """Mark a module-level string for the catalog and return it unchanged.
+
+    A table built at import time cannot call _(): the language is chosen
+    later. Its entries are marked with N_ and passed to _() where shown.
+    """
+    return message
+
+
 def install_wx_translation_hooks(wx):
     """Translate common wx display boundaries while preserving canonical data.
 

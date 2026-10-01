@@ -2790,3 +2790,1092 @@ msgstr "{layer} — densité de courant planaire"
 
 msgid " — colours clipped"
 msgstr " — couleurs écrêtées"
+
+msgid "(no path recorded)"
+msgstr "(aucun chemin enregistré)"
+
+msgid "1. Decision"
+msgstr "1. Décision"
+
+msgid "100 minus a penalty per finding, weighted by severity and certainty. It summarises; it is not a margin. The EMC score is the analysis's own uncalibrated risk figure."
+msgstr "100 moins une pénalité par observation, pondérée par la gravité et la certitude. Il résume ; ce n’est pas une marge. Le score CEM est le chiffre de risque propre à l’analyse, non étalonné."
+
+msgid "2. Actions"
+msgstr "2. Actions"
+
+msgid "3. Per domain"
+msgstr "3. Par domaine"
+
+msgid "4. Appendices"
+msgstr "4. Annexes"
+
+msgid "A capacitor at a power pin that supplies the pin's fast current locally."
+msgstr "Condensateur placé à une broche d’alimentation, qui fournit sur place le courant rapide de la broche."
+
+msgid "A connector shell with no short path to chassis lets cable noise onto the board."
+msgstr "Un blindage de connecteur sans chemin court vers le châssis laisse entrer sur la carte le bruit du câble."
+
+msgid "A converter's sharp edges spread energy over many harmonics, some inside the band the standard limits."
+msgstr "Les fronts raides d’un convertisseur répartissent l’énergie sur de nombreux harmoniques, dont certains tombent dans la bande que la norme limite."
+
+msgid "A defect the analyses establish on the board itself, such as a broken connection or a voltage drop beyond its limit."
+msgstr "Un défaut que les analyses établissent sur la carte elle-même, comme une connexion rompue ou une chute de tension au-delà de sa limite."
+
+msgid "A discharge that travels far before its protection reaches the parts on the way."
+msgstr "Une décharge qui parcourt un long chemin avant sa protection atteint les composants situés sur ce chemin."
+
+msgid "A drop that moves when the mesh is refined is set by the mesh as much as by the copper."
+msgstr "Une chute qui change quand on affine le maillage dépend autant du maillage que du cuivre."
+
+msgid "A fast edge on an outer layer radiates with no plane on one side to contain its field."
+msgstr "Un front rapide sur une couche externe rayonne, faute de plan d’un côté pour contenir son champ."
+
+msgid "A gap in the reference under the pair breaks the return path at that spot."
+msgstr "Une coupure de la référence sous la paire interrompt le chemin de retour à cet endroit."
+
+msgid "A layout rule of thumb is not met. Only a measurement on the prototype, such as an emissions scan or an ESD test, settles whether it matters. Improving the layout first is cheaper than a respin."
+msgstr "Une règle de l’art de routage n’est pas respectée. Seule une mesure sur prototype, balayage des émissions ou essai ESD, dira si cela compte. Améliorer le routage avant coûte moins cher qu’une nouvelle révision."
+
+msgid "A limit of the calculation, not of the board: a mesh too coarse, a solve that did not settle. It takes nothing off the scores and is not an action; it says how far to trust the figures it names."
+msgstr "Une limite du calcul, pas de la carte : maillage trop grossier, résolution qui ne s’est pas stabilisée. Elle ne retire rien aux scores et n’est pas une action ; elle dit jusqu’où se fier aux chiffres qu’elle cite."
+
+msgid "A link the project declares no longer matches the boards it joins."
+msgstr "Un lien déclaré par le projet ne correspond plus aux cartes qu’il relie."
+
+msgid "A load that the power tree names but the board lacks is left out of the solve."
+msgstr "Une charge nommée dans l’arbre d’alimentation mais absente de la carte est exclue de la résolution."
+
+msgid "A load with no copper path to its source is either unconnected on the board or left out of the solve, so the rail's figures leave it out."
+msgstr "Une charge sans chemin de cuivre vers sa source est soit non connectée sur la carte, soit exclue de la résolution : les chiffres du rail ne la comptent pas."
+
+msgid "A long clock trace is a longer antenna for its harmonics."
+msgstr "Une longue piste d’horloge est une antenne plus longue pour ses harmoniques."
+
+msgid "A margin that moves when the mesh is refined is set by the mesh as much as by the copper."
+msgstr "Une marge qui change quand on affine le maillage dépend autant du maillage que du cuivre."
+
+msgid "A pad isolated from the rest of its net is an open circuit on the assembled board."
+msgstr "Une pastille isolée du reste de son réseau est un circuit ouvert sur la carte assemblée."
+
+msgid "A pin left open by mistake can float or leave a function unpowered."
+msgstr "Une broche laissée en l’air par erreur peut flotter ou laisser une fonction non alimentée."
+
+msgid "A power input with no capacitor draws its fast current through the whole network."
+msgstr "Une entrée d’alimentation sans condensateur tire son courant rapide à travers tout le réseau."
+
+msgid "A rail that was not swept is neither checked nor scored."
+msgstr "Un rail non balayé n’est ni vérifié ni noté."
+
+msgid "A smaller defect, or a margin worth a second look; decide whether to change the board."
+msgstr "Un défaut moindre, ou une marge qui mérite un second regard ; décidez s’il faut modifier la carte."
+
+msgid "A solve that does not conserve what flows in and out misstates the air temperature."
+msgstr "Une résolution qui ne conserve pas ce qui entre et sort donne une température d’air fausse."
+
+msgid "A source without a frequency cannot be placed in the emissions band."
+msgstr "Une source sans fréquence ne peut pas être située dans la bande d’émissions."
+
+msgid "A sparsely filled ground leaves signals without a reference under them."
+msgstr "Une masse peu remplie laisse des signaux sans référence sous eux."
+
+msgid "A switching edge carries energy at every multiple of the switching frequency. Standards limit what a product radiates in set bands."
+msgstr "Un front de commutation porte de l’énergie à chaque multiple de la fréquence de découpage. Les normes limitent ce qu’un produit rayonne dans des bandes définies."
+
+msgid "A temperature that moves when the mesh is refined is set by the mesh as much as by the copper."
+msgstr "Une température qui change quand on affine le maillage dépend autant du maillage que du cuivre."
+
+msgid "A TVS clamps only as well as its path to ground is short."
+msgstr "Une TVS ne protège qu’à la mesure de la brièveté de son chemin vers la masse."
+
+msgid "A via joining ground planes on different layers, so that they act as one at high frequency."
+msgstr "Via reliant des plans de masse de couches différentes, pour qu’ils agissent comme un seul en haute fréquence."
+
+msgid "Above its maximum junction temperature, a part ages fast or shuts down."
+msgstr "Au-delà de sa température de jonction maximale, un composant vieillit vite ou se coupe."
+
+msgid "Above its target impedance, a rail lets the load's current steps move its voltage more than the load tolerates."
+msgstr "Au-dessus de son impédance cible, un rail laisse les variations de courant de la charge déplacer sa tension plus que la charge ne le tolère."
+
+msgid "AC profiles left out of the campaign"
+msgstr "Profils AC absents de la campagne"
+
+msgid "AC result changes with the grid"
+msgstr "Résultat AC sensible au maillage"
+
+msgid "Airflow solve did not converge"
+msgstr "Le calcul d’écoulement n’a pas convergé"
+
+msgid "Airflow solve loses mass or heat"
+msgstr "Le calcul d’écoulement perd de la masse ou de la chaleur"
+
+msgid "All {count} figures"
+msgstr "Les {count} chiffres"
+
+msgid "Alternatives"
+msgstr "Variantes"
+
+msgid "An electrostatic discharge enters through a connector. A TVS diode clamps it to ground, if its ground path is short."
+msgstr "Une décharge électrostatique entre par un connecteur. Une diode TVS l’écrête vers la masse, si son chemin vers la masse est court."
+
+msgid "An external cable brings in and carries out noise unless it is filtered at the connector."
+msgstr "Un câble externe fait entrer et sortir du bruit, sauf s’il est filtré au connecteur."
+
+msgid "An impedance step reflects part of the signal and closes the eye."
+msgstr "Une rupture d’impédance réfléchit une partie du signal et ferme le diagramme de l’œil."
+
+msgid "An input the analyses needed and did not have. The verdict sharpens once it is filled in."
+msgstr "Une donnée dont les analyses avaient besoin et qu’elles n’avaient pas. Le verdict se précise une fois qu’elle est saisie."
+
+msgid "An unconverged flow field can put the hot air in the wrong place."
+msgstr "Un écoulement non convergé peut placer l’air chaud au mauvais endroit."
+
+msgid "Analyses"
+msgstr "Analyses"
+
+msgid "Analysis"
+msgstr "Analyse"
+
+msgid "and {count} more"
+msgstr "et {count} de plus"
+
+msgid "Artifact unavailable:"
+msgstr "Figure indisponible :"
+
+msgid "Between two planes the board resonates at frequencies set by its size."
+msgstr "Entre deux plans, la carte résonne à des fréquences fixées par ses dimensions."
+
+msgid "Board"
+msgstr "Carte"
+
+msgid "Board cavity resonances"
+msgstr "Résonances de cavité de la carte"
+
+msgid "Board fingerprint"
+msgstr "Empreinte de la carte"
+
+msgid "CALCULATION QUALITY"
+msgstr "QUALITÉ DU CALCUL"
+
+msgid "Calculation reliability"
+msgstr "Fiabilité du calcul"
+
+msgid "Campaign"
+msgstr "Campagne"
+
+msgid "Campaign schema {version}"
+msgstr "Schéma de campagne {version}"
+
+msgid "Certainty"
+msgstr "Certitude"
+
+msgid "Change"
+msgstr "Modification"
+
+msgid "Changing reference layer forces the return current to find a new path, often a long one."
+msgstr "Changer de couche de référence oblige le courant de retour à trouver un nouveau chemin, souvent long."
+
+msgid "Check for a ground via within a few millimetres of each layer change of the pair."
+msgstr "Vérifiez qu’un via de masse se trouve à quelques millimètres de chaque changement de couche de la paire."
+
+msgid "Check for a ground via within a few millimetres of each signal via."
+msgstr "Vérifiez qu’un via de masse se trouve à quelques millimètres de chaque via de signal."
+
+msgid "Check on the prototype"
+msgstr "À vérifier sur prototype"
+
+msgid "Check the connector's shell pads on the footprint and the net they are on."
+msgstr "Vérifiez les pastilles de blindage du connecteur sur l’empreinte et le réseau auquel elles appartiennent."
+
+msgid "Check the converter's enable, frequency and feedback pins against its datasheet."
+msgstr "Vérifiez les broches d’activation, de fréquence et de contre-réaction du convertisseur d’après sa fiche technique."
+
+msgid "Check the plane under the segment, layer by layer; a near-field scan on the prototype shows whether it radiates."
+msgstr "Vérifiez le plan sous le segment, couche par couche ; un balayage en champ proche sur prototype montre s’il rayonne."
+
+msgid "Check the reference plane at the coordinates given, layer by layer."
+msgstr "Vérifiez le plan de référence aux coordonnées données, couche par couche."
+
+msgid "Check the stackup in KiCad's board setup."
+msgstr "Vérifiez l’empilage dans la configuration de carte de KiCad."
+
+msgid "Check where the cable runs in the enclosure."
+msgstr "Vérifiez par où passe le câble dans le boîtier."
+
+msgid "Checks that passed. Read them as what the analyses covered, not as a guarantee."
+msgstr "Les contrôles réussis. Lisez-les comme ce que les analyses ont couvert, pas comme une garantie."
+
+msgid "Clock near a connector"
+msgstr "Horloge près d’un connecteur"
+
+msgid "Clock on outer copper"
+msgstr "Horloge sur une couche externe"
+
+msgid "Compare the entered value with the datasheet and with the simulated circuit."
+msgstr "Comparez la valeur saisie à la fiche technique et au circuit simulé."
+
+msgid "Compare the peak current with the datasheet's saturation current at temperature."
+msgstr "Comparez le courant crête au courant de saturation de la fiche technique, à la température atteinte."
+
+msgid "Compare these frequencies with the peaks of a near-field scan."
+msgstr "Comparez ces fréquences aux pics d’un balayage en champ proche."
+
+msgid "Completed"
+msgstr "Terminé"
+
+msgid "Components"
+msgstr "Composants"
+
+msgid "Compute"
+msgstr "Calcul"
+
+msgid "Compute metadata"
+msgstr "Métadonnées de calcul"
+
+msgid "Configuration"
+msgstr "Configuration"
+
+msgid "Connector shield return not found"
+msgstr "Retour du blindage de connecteur introuvable"
+
+msgid "Connector without EMC protection"
+msgstr "Connecteur sans protection CEM"
+
+msgid "Converter model unstable"
+msgstr "Modèle de convertisseur instable"
+
+msgid "Converter model unusable"
+msgstr "Modèle de convertisseur inutilisable"
+
+msgid "Converter not running in its board circuit"
+msgstr "Convertisseur inactif dans son circuit de carte"
+
+msgid "Copper at the edge radiates more easily and can be cut or exposed when the panel is routed."
+msgstr "Le cuivre en bord de carte rayonne plus facilement et peut être coupé ou mis à nu au détourage du panneau."
+
+msgid "Copper near or beyond the board edge"
+msgstr "Cuivre près du bord de carte ou au-delà"
+
+msgid "Copper outside the board ignored"
+msgstr "Cuivre hors carte ignoré"
+
+msgid "Count the ground vias within 3 mm of the TVS's ground pad; test with an ESD gun on the prototype."
+msgstr "Comptez les vias de masse à moins de 3 mm de la pastille de masse de la TVS ; testez au pistolet ESD sur prototype."
+
+msgid "Created"
+msgstr "Créée"
+
+msgid "CRITICAL: the board cannot work as designed. HIGH: likely to fail a requirement. MEDIUM: a real risk with some margin. LOW: minor. INFO: a note, never an action."
+msgstr "CRITICAL : la carte ne peut pas fonctionner comme prévu. HIGH : risque probable de manquer une exigence. MEDIUM : risque réel, avec de la marge. LOW : mineur. INFO : une note, jamais une action."
+
+msgid "Cross-board link out of date"
+msgstr "Lien inter-cartes périmé"
+
+msgid "Crosstalk between parallel traces"
+msgstr "Diaphonie entre pistes parallèles"
+
+msgid "Data to complete"
+msgstr "Données à compléter"
+
+msgid "Datasheet figures linking the junction to the board 1 mm from the package (JEDEC JESD51-8 and -12)."
+msgstr "Grandeurs de fiche technique reliant la jonction à la carte, à 1 mm du boîtier (JEDEC JESD51-8 et -12)."
+
+msgid "DC result changes with the grid"
+msgstr "Résultat DC sensible au maillage"
+
+msgid "DC solve did not converge"
+msgstr "La résolution DC n’a pas convergé"
+
+msgid "DC solved on an older save"
+msgstr "DC calculé sur une sauvegarde antérieure"
+
+msgid "Decoupling capacitor"
+msgstr "Condensateur de découplage"
+
+msgid "Decoupling capacitor too far"
+msgstr "Condensateur de découplage trop éloigné"
+
+msgid "Derating"
+msgstr "Déclassement"
+
+msgid "Description"
+msgstr "Description"
+
+msgid "Detail"
+msgstr "Détail"
+
+msgid "Differential impedance off target"
+msgstr "Impédance différentielle hors cible"
+
+msgid "Differential pair changes reference"
+msgstr "La paire différentielle change de référence"
+
+msgid "Differential pair skew"
+msgstr "Décalage de la paire différentielle"
+
+msgid "Do not release for manufacture yet: at least one defect must be fixed first."
+msgstr "Ne lancez pas encore la fabrication : au moins un défaut doit d’abord être corrigé."
+
+msgid "Drop through fuses, switches and shunts"
+msgstr "Chute dans les fusibles, interrupteurs et shunts"
+
+msgid "Each part in series between the source and the regulator takes its own share of the voltage before the copper does."
+msgstr "Chaque composant en série entre la source et le régulateur prélève sa part de tension avant le cuivre."
+
+msgid "Each switching source has a spectrum that other findings compare with the band."
+msgstr "Chaque source de commutation a un spectre que d’autres observations comparent à la bande."
+
+msgid "Effort"
+msgstr "Effort"
+
+msgid "Entered source differs from its board circuit"
+msgstr "La source saisie diffère de son circuit de carte"
+
+msgid "ESD path missing or long"
+msgstr "Chemin ESD absent ou long"
+
+msgid "ESD, TVS"
+msgstr "ESD, TVS"
+
+msgid "Estimate from a model of the board"
+msgstr "Estimation par un modèle de la carte"
+
+msgid "ESTIMATE — NOT RE-SIMULATED"
+msgstr "ESTIMATION — NON RE-SIMULÉE"
+
+msgid "Every rule of thumb checked is met."
+msgstr "Toutes les règles de l’art vérifiées sont respectées."
+
+msgid "Every signal current comes back through the plane under it. A gap or a layer change without a via forces a detour, and the loop radiates."
+msgstr "Tout courant de signal revient par le plan situé sous lui. Une coupure, ou un changement de couche sans via, impose un détour, et la boucle rayonne."
+
+msgid "Expected at"
+msgstr "Attendue à"
+
+msgid "Fact: an exact count or the state of the run"
+msgstr "Fait : un décompte exact ou l’état de l’exécution"
+
+msgid "Figure"
+msgstr "Chiffre"
+
+msgid "Figures"
+msgstr "Figures"
+
+msgid "Finding"
+msgstr "Observation"
+
+msgid "Fix before manufacture"
+msgstr "À corriger avant fabrication"
+
+msgid "Footprint whose symbol is gone"
+msgstr "Empreinte dont le symbole a disparu"
+
+msgid "Footprints added on the board only"
+msgstr "Empreintes ajoutées sur la carte seulement"
+
+msgid "Gaps under a differential pair"
+msgstr "Coupures sous une paire différentielle"
+
+msgid "Geometry off the outline was left out of the analysis."
+msgstr "La géométrie hors contour a été exclue de l’analyse."
+
+msgid "Glossary"
+msgstr "Glossaire"
+
+msgid "Ground plane in pieces"
+msgstr "Plan de masse morcelé"
+
+msgid "Harmonic, emissions band"
+msgstr "Harmonique, bande d’émissions"
+
+msgid "Heat left out of the thermal model"
+msgstr "Chaleur absente du modèle thermique"
+
+msgid "Heat lowers a ceramic capacitor's capacitance and a ferrite's impedance."
+msgstr "La chaleur réduit la capacité d’un condensateur céramique et l’impédance d’une ferrite."
+
+msgid "High: change the stackup or a plane"
+msgstr "Élevé : modifier l’empilage ou un plan"
+
+msgid "Highlight each ground net in KiCad and check where they join."
+msgstr "Mettez en évidence chaque réseau de masse dans KiCad et vérifiez où ils se rejoignent."
+
+msgid "Highlight the ground net in KiCad after refilling the zones and look for narrow necks."
+msgstr "Mettez en évidence le réseau de masse dans KiCad après avoir rempli les zones et cherchez les étranglements."
+
+msgid "Highlight the ground net in KiCad and look at the fill under fast signals."
+msgstr "Mettez en évidence le réseau de masse dans KiCad et regardez le remplissage sous les signaux rapides."
+
+msgid "Host"
+msgstr "Hôte"
+
+msgid "Hot loop, switching node"
+msgstr "Boucle chaude, nœud de commutation"
+
+msgid "Hot parts change their EMC behaviour"
+msgstr "Les composants chauds changent de comportement CEM"
+
+msgid "How much of its rating (current, power, voltage) a part keeps at a higher temperature, read off its datasheet curve."
+msgstr "Part de sa valeur nominale (courant, puissance, tension) qu’un composant conserve à température plus élevée, lue sur la courbe de sa fiche technique."
+
+msgid "How sure"
+msgstr "Degré de certitude"
+
+msgid "How to check"
+msgstr "Comment vérifier"
+
+msgid "How to read this report"
+msgstr "Comment lire ce rapport"
+
+msgid "Impedances computed from a guessed stackup carry the guess's error."
+msgstr "Des impédances calculées sur un empilage supposé en portent l’erreur."
+
+msgid "In a switching converter, the loop through the input capacitor and the switches carries the fastest current edges, and the switching node swings at full input voltage. Both radiate in proportion to their area."
+msgstr "Dans un convertisseur à découpage, la boucle formée par le condensateur d’entrée et les interrupteurs porte les fronts de courant les plus rapides, et le nœud de commutation bascule à pleine tension d’entrée. Les deux rayonnent en proportion de leur surface."
+
+msgid "Inductor near saturation"
+msgstr "Inductance proche de la saturation"
+
+msgid "Inductor shielding not calibrated"
+msgstr "Blindage d’inductance non étalonné"
+
+msgid "Interface on a cable connector"
+msgstr "Interface sur un connecteur de câble"
+
+msgid "Junction above its limit"
+msgstr "Jonction au-delà de sa limite"
+
+msgid "Junction temperature (Tj)"
+msgstr "Température de jonction (Tj)"
+
+msgid "Key figures"
+msgstr "Chiffres clés"
+
+msgid "Ki-PIDA campaign report"
+msgstr "Rapport de campagne Ki-PIDA"
+
+msgid "Ki-PIDA consolidated analysis report"
+msgstr "Rapport d’analyse consolidé Ki-PIDA"
+
+msgid "Ki-PIDA report"
+msgstr "Rapport Ki-PIDA"
+
+msgid "Large switching-node copper"
+msgstr "Grande surface de cuivre au nœud de commutation"
+
+msgid "Layer change without a ground via"
+msgstr "Changement de couche sans via de masse"
+
+msgid "Limitations"
+msgstr "Limites"
+
+msgid "List the footprints with no symbol and check that each is mechanical."
+msgstr "Listez les empreintes sans symbole et vérifiez que chacune est mécanique."
+
+msgid "Little ground copper"
+msgstr "Peu de cuivre de masse"
+
+msgid "Little margin to the limit leaves no room for a warmer enclosure or higher losses."
+msgstr "Une faible marge à la limite ne laisse aucune place à un boîtier plus chaud ou à des pertes plus fortes."
+
+msgid "Load not found on the board"
+msgstr "Charge introuvable sur la carte"
+
+msgid "Loads the source cannot reach"
+msgstr "Charges que la source n’atteint pas"
+
+msgid "Location"
+msgstr "Emplacement"
+
+msgid "Losses that are not placed on the board are missing from the temperatures."
+msgstr "Les pertes non placées sur la carte manquent aux températures."
+
+msgid "Low: move a part, add a via or fill in a field"
+msgstr "Faible : déplacer un composant, ajouter un via ou remplir un champ"
+
+msgid "Margin"
+msgstr "Marge"
+
+msgid "Measure the capacitor-to-pin distance after the move; on the prototype, look at the pin's ripple with a short ground spring."
+msgstr "Mesurez la distance condensateur-broche après le déplacement ; sur prototype, observez l’ondulation de la broche avec un ressort de masse court."
+
+msgid "Measure the common-mode current on the connector's cable with a current probe on the prototype."
+msgstr "Mesurez le courant de mode commun sur le câble du connecteur avec une sonde de courant, sur prototype."
+
+msgid "Measure the loop's widest gap after the move; scan the switching harmonics with a near-field probe on the prototype."
+msgstr "Mesurez le plus grand écart de la boucle après le déplacement ; balayez les harmoniques de découpage avec une sonde de champ proche, sur prototype."
+
+msgid "Measure the route's distance to the outline in KiCad and compare it with the fabricator's edge clearance."
+msgstr "Mesurez dans KiCad la distance de la piste au contour et comparez-la à la garde au bord du fabricant."
+
+msgid "Measured"
+msgstr "Mesuré"
+
+msgid "Medium: reroute or re-place a group of parts"
+msgstr "Moyen : rerouter ou replacer un groupe de composants"
+
+msgid "Mesh, grid step"
+msgstr "Maillage, pas de grille"
+
+msgid "Near saturation, inductance collapses and the current peak rises quickly."
+msgstr "Près de la saturation, l’inductance s’effondre et le courant crête monte vite."
+
+msgid "Nets"
+msgstr "Réseaux"
+
+msgid "No actionable findings."
+msgstr "Aucune observation à traiter."
+
+msgid "No analysis produced a result."
+msgstr "Aucune analyse n’a produit de résultat."
+
+msgid "No analysis results."
+msgstr "Aucun résultat d’analyse."
+
+msgid "No change was computed for this action."
+msgstr "Aucune modification n’a été calculée pour cette action."
+
+msgid "No check passed."
+msgstr "Aucun contrôle réussi."
+
+msgid "No decoupling near a power pin"
+msgstr "Pas de découplage près d’une broche d’alimentation"
+
+msgid "No defect found by the analyses that ran."
+msgstr "Aucun défaut trouvé par les analyses exécutées."
+
+msgid "No domain produced a result."
+msgstr "Aucun domaine n’a produit de résultat."
+
+msgid "No figures recorded."
+msgstr "Aucun chiffre enregistré."
+
+msgid "No findings."
+msgstr "Aucune observation."
+
+msgid "No ground plane"
+msgstr "Pas de plan de masse"
+
+msgid "No input missing."
+msgstr "Aucune donnée manquante."
+
+msgid "No limit of the calculation reported."
+msgstr "Aucune limite du calcul signalée."
+
+msgid "No limitations recorded."
+msgstr "Aucune limite enregistrée."
+
+msgid "No provenance recorded."
+msgstr "Aucune provenance enregistrée."
+
+msgid "No results."
+msgstr "Aucun résultat."
+
+msgid "No SPICE model for a converter"
+msgstr "Pas de modèle SPICE pour un convertisseur"
+
+msgid "Noise coupled into a connector's lines leaves the board on the cable, which radiates."
+msgstr "Le bruit couplé sur les lignes d’un connecteur sort de la carte par le câble, qui rayonne."
+
+msgid "none"
+msgstr "aucun"
+
+msgid "None recorded."
+msgstr "Rien d’enregistré."
+
+msgid "not run"
+msgstr "non exécutée"
+
+msgid "Nothing found that must change before manufacture."
+msgstr "Rien à modifier avant la fabrication."
+
+msgid "Nothing to check if that copper is intentional, such as a test coupon."
+msgstr "Rien à vérifier si ce cuivre est voulu, comme un coupon de test."
+
+msgid "Nothing to check while its current and temperature stay as estimated."
+msgstr "Rien à vérifier tant que son courant et sa température restent ceux estimés."
+
+msgid "Nothing to check."
+msgstr "Rien à vérifier."
+
+msgid "Nothing to review."
+msgstr "Rien à revoir."
+
+msgid "On the prototype, look at the power pin's ripple with a short ground spring."
+msgstr "Sur prototype, observez l’ondulation de la broche d’alimentation avec un ressort de masse court."
+
+msgid "On the prototype, look at the victim line with an oscilloscope while the aggressor switches."
+msgstr "Sur prototype, observez la ligne victime à l’oscilloscope pendant que l’agresseur commute."
+
+msgid "On the prototype, measure the voltage on both sides of each pass element under load."
+msgstr "Sur prototype, mesurez la tension de part et d’autre de chaque élément série, en charge."
+
+msgid "Orders the actions: severity, times certainty, times 1.5 for each further analysis reporting the problem, divided by the typical effort. It has no unit; only the order means something."
+msgstr "Classe les actions : gravité, multipliée par la certitude, puis par 1,5 pour chaque analyse de plus qui signale le problème, divisée par l’effort typique. Elle n’a pas d’unité ; seul l’ordre a un sens."
+
+msgid "Over a gap, the return current detours around it and the loop it forms radiates."
+msgstr "Au-dessus d’une coupure, le courant de retour la contourne et la boucle ainsi formée rayonne."
+
+msgid "Pads cut off from their net"
+msgstr "Pastilles coupées de leur réseau"
+
+msgid "Parts placed only on the board are not checked by schematic rules."
+msgstr "Les composants placés seulement sur la carte échappent aux règles du schéma."
+
+msgid "PDN, target impedance"
+msgstr "PDN, impédance cible"
+
+msgid "Per analysis"
+msgstr "Par analyse"
+
+msgid "Per analysis. FAIL on a CRITICAL finding, or a HIGH one resting on a fact, a measurement or a datasheet. WARN on any other HIGH, or a MEDIUM. PASS otherwise."
+msgstr "Par analyse. FAIL sur une observation CRITICAL, ou HIGH reposant sur un fait, une mesure ou une fiche technique. WARN sur tout autre HIGH, ou un MEDIUM. PASS sinon."
+
+msgid "Pieces of plane joined by narrow necks raise the return-path impedance."
+msgstr "Des morceaux de plan reliés par des étranglements augmentent l’impédance du chemin de retour."
+
+msgid "Planes stitched far apart resonate at frequencies inside the band."
+msgstr "Des plans cousus à grands intervalles résonnent à des fréquences situées dans la bande."
+
+msgid "Power pin without decoupling"
+msgstr "Broche d’alimentation sans découplage"
+
+msgid "Predicted gain"
+msgstr "Gain prévu"
+
+msgid "Priority"
+msgstr "Priorité"
+
+msgid "Priority {rank} (see \"Priority\" under How to read this report)."
+msgstr "Priorité {rank} (voir « Priorité » dans Comment lire ce rapport)."
+
+msgid "Project"
+msgstr "Projet"
+
+msgid "Project mode"
+msgstr "Mode du projet"
+
+msgid "Provenance"
+msgstr "Provenance"
+
+msgid "Rail impedance above its target"
+msgstr "Impédance du rail au-dessus de sa cible"
+
+msgid "Rail impedance estimate above target"
+msgstr "Impédance estimée du rail au-dessus de la cible"
+
+msgid "Rail impedance within target"
+msgstr "Impédance du rail dans la cible"
+
+msgid "Rail target impedance unknown"
+msgstr "Impédance cible du rail inconnue"
+
+msgid "Rail verdict open at the sweep edge"
+msgstr "Verdict du rail ouvert en bord de balayage"
+
+msgid "Rating holds at temperature"
+msgstr "La valeur nominale tient en température"
+
+msgid "Read the AC result for this rail."
+msgstr "Lisez le résultat AC de ce rail."
+
+msgid "Read the node's copper area again after the change; scan it with a near-field probe on the prototype."
+msgstr "Relisez la surface de cuivre du nœud après la modification ; balayez-le avec une sonde de champ proche, sur prototype."
+
+msgid "Read the pair's length difference in KiCad's length tuner."
+msgstr "Lisez l’écart de longueur de la paire dans l’outil d’accord de longueur de KiCad."
+
+msgid "Read the part's rating at this temperature in its datasheet; on the prototype, measure its temperature at full load."
+msgstr "Lisez la valeur nominale du composant à cette température dans sa fiche technique ; sur prototype, mesurez sa température à pleine charge."
+
+msgid "Read the solver log in the Phase 10 output directory."
+msgstr "Lisez le journal du solveur dans le dossier de sortie de la phase 10."
+
+msgid "Read those parts' ratings at the temperature found."
+msgstr "Lisez les valeurs nominales de ces composants à la température trouvée."
+
+msgid "Reference"
+msgstr "Référence"
+
+msgid "Rerun AC after the change: the curve should stay under the target at every frequency."
+msgstr "Relancez l’AC après la modification : la courbe doit rester sous la cible à toutes les fréquences."
+
+msgid "Rerun AC with a higher stop frequency: the worst point should fall inside the sweep."
+msgstr "Relancez l’AC avec une fréquence d’arrêt plus haute : le pire point doit tomber dans le balayage."
+
+msgid "Rerun AC: the rail should get a target and a PASS or FAIL."
+msgstr "Relancez l’AC : le rail doit recevoir une cible et un PASS ou un FAIL."
+
+msgid "Rerun DC after saving: this finding should not return."
+msgstr "Relancez le DC après avoir enregistré : cette observation ne doit pas revenir."
+
+msgid "Rerun DC after the change; on the prototype, measure the voltage at the load under full current."
+msgstr "Relancez le DC après la modification ; sur prototype, mesurez la tension à la charge à plein courant."
+
+msgid "Rerun DC: the load should appear in the rail's results."
+msgstr "Relancez le DC : la charge doit apparaître dans les résultats du rail."
+
+msgid "Rerun DC: the pads should be on the net's copper, and KiCad's DRC should list no unconnected item."
+msgstr "Relancez le DC : les pastilles doivent être sur le cuivre du réseau, et le DRC de KiCad ne doit lister aucun élément non connecté."
+
+msgid "Rerun DC: the solve should report convergence."
+msgstr "Relancez le DC : la résolution doit signaler sa convergence."
+
+msgid "Rerun EMC: the circuit should settle."
+msgstr "Relancez la CEM : le circuit doit se stabiliser."
+
+msgid "Rerun EMC: the converter should appear among the simulated circuits."
+msgstr "Relancez la CEM : le convertisseur doit figurer parmi les circuits simulés."
+
+msgid "Rerun EMC: the source should be placed in the band."
+msgstr "Relancez la CEM : la source doit être située dans la bande."
+
+msgid "Rerun on a finer DC grid: the drop should move by less than its margin."
+msgstr "Relancez sur une grille DC plus fine : la chute doit varier de moins que sa marge."
+
+msgid "Rerun on a finer mesh: the mass and heat balances should close."
+msgstr "Relancez sur un maillage plus fin : les bilans de masse et de chaleur doivent se boucler."
+
+msgid "Rerun on the finer grid the finding names: the temperatures should move by less than their margin."
+msgstr "Relancez sur la grille plus fine que cite l’observation : les températures doivent varier de moins que leur marge."
+
+msgid "Rerun on the finer grid the finding names: the verdict should be the same on both grids."
+msgstr "Relancez sur la grille plus fine que cite l’observation : le verdict doit être le même sur les deux grilles."
+
+msgid "Rerun the campaign: every configured profile should appear in the AC results."
+msgstr "Relancez la campagne : chaque profil configuré doit apparaître dans les résultats AC."
+
+msgid "Rerun the differential analysis after the change; ask the fabricator for an impedance coupon."
+msgstr "Relancez l’analyse différentielle après la modification ; demandez au fabricant un coupon d’impédance."
+
+msgid "Rerun the differential analysis after the import."
+msgstr "Relancez l’analyse différentielle après l’import."
+
+msgid "Rerun thermal after the change; on the prototype, measure the case with a thermocouple or a thermal camera."
+msgstr "Relancez le thermique après la modification ; sur prototype, mesurez le boîtier au thermocouple ou à la caméra thermique."
+
+msgid "Rerun thermal: the energy balance error should fall under its limit."
+msgstr "Relancez le thermique : l’erreur de bilan d’énergie doit passer sous sa limite."
+
+msgid "Rerun thermal: the input heat should match the losses."
+msgstr "Relancez le thermique : la chaleur injectée doit égaler les pertes."
+
+msgid "Rerun thermal: the solve should report convergence."
+msgstr "Relancez le thermique : la résolution doit signaler sa convergence."
+
+msgid "Rerun with more iterations: the residuals should fall under the tolerance."
+msgstr "Relancez avec plus d’itérations : les résidus doivent passer sous la tolérance."
+
+msgid "Resistor without a power rating"
+msgstr "Résistance sans puissance nominale"
+
+msgid "Rests on datasheet values"
+msgstr "Repose sur des valeurs de fiche technique"
+
+msgid "Result schema {version}"
+msgstr "Schéma de résultat {version}"
+
+msgid "Return path, reference plane"
+msgstr "Chemin de retour, plan de référence"
+
+msgid "Review before manufacture"
+msgstr "À revoir avant fabrication"
+
+msgid "Review before manufacture: the items below need a decision."
+msgstr "À revoir avant fabrication : les points ci-dessous demandent une décision."
+
+msgid "Rule"
+msgstr "Règle"
+
+msgid "Rule of thumb: a threshold this tool sets"
+msgstr "Règle de l’art : un seuil fixé par cet outil"
+
+msgid "Run"
+msgstr "Exécution"
+
+msgid "Run KiCad's DRC: it lists the unconnected items on that net."
+msgstr "Lancez le DRC de KiCad : il liste les éléments non connectés de ce réseau."
+
+msgid "Run KiCad's ERC: the pin should be connected or marked no-connect."
+msgstr "Lancez l’ERC de KiCad : la broche doit être connectée ou marquée non connectée."
+
+msgid "Run the schematic rules again: the link should match the boards."
+msgstr "Relancez les règles du schéma : le lien doit correspondre aux cartes."
+
+msgid "Run the schematic rules again: the pin should have a capacitor."
+msgstr "Relancez les règles du schéma : la broche doit avoir un condensateur."
+
+msgid "Run the schematic rules again: the resistor should have a rating."
+msgstr "Relancez les règles du schéma : la résistance doit avoir une puissance nominale."
+
+msgid "Scan the board edges with a near-field probe on the prototype."
+msgstr "Balayez les bords de la carte avec une sonde de champ proche, sur prototype."
+
+msgid "Scan the clock's harmonics with a near-field probe on the prototype."
+msgstr "Balayez les harmoniques de l’horloge avec une sonde de champ proche, sur prototype."
+
+msgid "Scan this band with a near-field probe on the prototype."
+msgstr "Balayez cette bande avec une sonde de champ proche, sur prototype."
+
+msgid "Scope analysed"
+msgstr "Périmètre analysé"
+
+msgid "Score"
+msgstr "Score"
+
+msgid "Separate grounds are a choice; a signal crossing between them loses its return path."
+msgstr "Séparer les masses est un choix ; un signal qui passe de l’une à l’autre perd son chemin de retour."
+
+msgid "Several ground domains"
+msgstr "Plusieurs domaines de masse"
+
+msgid "Severity"
+msgstr "Gravité"
+
+msgid "Shielding is recognised from the part, but its effect on the field is not quantified."
+msgstr "Le blindage est reconnu d’après le composant, mais son effet sur le champ n’est pas quantifié."
+
+msgid "Signal layer far from its plane"
+msgstr "Couche de signal éloignée de son plan"
+
+msgid "Signal over a gap in its plane"
+msgstr "Signal au-dessus d’une coupure de son plan"
+
+msgid "Simulation failed"
+msgstr "La simulation a échoué"
+
+msgid "single-board"
+msgstr "carte unique"
+
+msgid "Source harmonic envelopes"
+msgstr "Enveloppes harmoniques des sources"
+
+msgid "Sparse ground stitching"
+msgstr "Couture de masse clairsemée"
+
+msgid "Spread-out switching hot loop"
+msgstr "Boucle chaude de commutation étendue"
+
+msgid "Stackup not confirmed"
+msgstr "Empilage non confirmé"
+
+msgid "Stitching via"
+msgstr "Via de couture"
+
+msgid "Switching frequency unknown"
+msgstr "Fréquence de découpage inconnue"
+
+msgid "Switching harmonics in the emissions band"
+msgstr "Harmoniques de découpage dans la bande d’émissions"
+
+msgid "Technical detail"
+msgstr "Détail technique"
+
+msgid "Test the connector with an ESD gun and its cable with a current probe on the prototype."
+msgstr "Testez le connecteur au pistolet ESD et son câble à la sonde de courant, sur prototype."
+
+msgid "Test the connector with an ESD gun on the prototype (IEC 61000-4-2)."
+msgstr "Testez le connecteur au pistolet ESD sur prototype (CEI 61000-4-2)."
+
+msgid "The analyses cut the board into small cells. A result that moves when the cells are halved depends on the mesh, not only on the copper."
+msgstr "Les analyses découpent la carte en petites cellules. Un résultat qui change quand on divise les cellules par deux dépend du maillage, pas seulement du cuivre."
+
+msgid "The board holds a part the schematic no longer has."
+msgstr "La carte porte un composant que le schéma n’a plus."
+
+msgid "The distance between a value and its limit, such as 25 K under a 150 °C junction limit."
+msgstr "L’écart entre une valeur et sa limite, par exemple 25 K sous une limite de jonction de 150 °C."
+
+msgid "The EMC estimate of the rail exceeds its target; the AC domain judges the rail."
+msgstr "L’estimation CEM du rail dépasse sa cible ; c’est le domaine AC qui juge le rail."
+
+msgid "The farther a trace is from its plane, the larger its return loop."
+msgstr "Plus une piste est loin de son plan, plus sa boucle de retour est grande."
+
+msgid "The figures describe the saved board file, which differs from the open board."
+msgstr "Les chiffres décrivent le fichier de carte enregistré, qui diffère de la carte ouverte."
+
+msgid "The heat leaving the model does not match the heat put in."
+msgstr "La chaleur qui sort du modèle ne correspond pas à celle qui y entre."
+
+msgid "The loop through the input capacitor and the switches carries the fastest current edges; it radiates in proportion to its area."
+msgstr "La boucle formée par le condensateur d’entrée et les interrupteurs porte les fronts de courant les plus rapides ; elle rayonne en proportion de sa surface."
+
+msgid "The model did not settle in simulation, so its waveforms are not used."
+msgstr "Le modèle ne s’est pas stabilisé en simulation ; ses formes d’onde ne sont pas utilisées."
+
+msgid "The part keeps enough of its rating at the temperature found."
+msgstr "Le composant garde assez de sa valeur nominale à la température trouvée."
+
+msgid "The power distribution network, from regulator to load. Below its target impedance, a rail holds its voltage when the load's current steps."
+msgstr "Le réseau de distribution d’énergie, du régulateur à la charge. Sous son impédance cible, un rail tient sa tension quand le courant de la charge varie brusquement."
+
+msgid "The rail holds its target over the swept band."
+msgstr "Le rail tient sa cible sur toute la bande balayée."
+
+msgid "The simulated converter did not regulate: a pin may be wired wrong, or the model may not support how it is wired."
+msgstr "Le convertisseur simulé n’a pas régulé : une broche est peut-être mal câblée, ou le modèle ne prend pas en charge ce câblage."
+
+msgid "The simulation did not complete, so its results are missing."
+msgstr "La simulation n’a pas abouti ; ses résultats manquent."
+
+msgid "The simulator could not run the model."
+msgstr "Le simulateur n’a pas pu exécuter le modèle."
+
+msgid "The switching node swings at full voltage; each square millimetre of it is antenna area."
+msgstr "Le nœud de commutation bascule à pleine tension ; chaque millimètre carré de cuivre y est de la surface d’antenne."
+
+msgid "The temperature of the silicon inside a package, estimated from the board temperature and the part's thermal resistance."
+msgstr "La température du silicium dans un boîtier, estimée à partir de la température de la carte et de la résistance thermique du composant."
+
+msgid "The temperatures of an unconverged solve cannot be relied on."
+msgstr "On ne peut pas se fier aux températures d’une résolution non convergée."
+
+msgid "The tool assumed the cable stays inside the enclosure."
+msgstr "L’outil a supposé que le câble reste dans le boîtier."
+
+msgid "The trace between a capacitor and its pin adds inductance, which leaves high-frequency current to the rest of the board."
+msgstr "La piste entre un condensateur et sa broche ajoute de l’inductance, qui laisse le courant haute fréquence au reste de la carte."
+
+msgid "The value entered for EMC differs from what the simulated board circuit gives."
+msgstr "La valeur saisie pour la CEM diffère de celle que donne le circuit de carte simulé."
+
+msgid "The voltages and currents of an unconverged solve cannot be relied on."
+msgstr "On ne peut pas se fier aux tensions et courants d’une résolution non convergée."
+
+msgid "The worst point is still rising where the sweep stops, so the real peak may lie outside the swept band."
+msgstr "Le pire point monte encore là où s’arrête le balayage ; le vrai pic peut se trouver hors de la bande balayée."
+
+msgid "Thermal energy balance off"
+msgstr "Bilan d’énergie thermique faussé"
+
+msgid "Thermal result changes with the grid"
+msgstr "Résultat thermique sensible au maillage"
+
+msgid "Thermal solve did not converge"
+msgstr "La résolution thermique n’a pas convergé"
+
+msgid "these domains do not all describe the same board revision:"
+msgstr "ces domaines ne décrivent pas tous la même révision de carte :"
+
+msgid "Thin temperature margin"
+msgstr "Faible marge de température"
+
+msgid "Title"
+msgstr "Titre"
+
+msgid "Too much drop in the copper leaves the load below its supply tolerance."
+msgstr "Une chute trop forte dans le cuivre laisse la charge sous sa tolérance d’alimentation."
+
+msgid "Total compute"
+msgstr "Calcul total"
+
+msgid "Traces running side by side couple part of one signal into the other."
+msgstr "Des pistes côte à côte couplent une partie d’un signal dans l’autre."
+
+msgid "TVS short of ground vias"
+msgstr "TVS à court de vias de masse"
+
+msgid "Two signal layers side by side"
+msgstr "Deux couches de signal adjacentes"
+
+msgid "Typical effort"
+msgstr "Effort typique"
+
+msgid "Unconnected pin"
+msgstr "Broche non connectée"
+
+msgid "Unit"
+msgstr "Unité"
+
+msgid "Update the PCB from the schematic in KiCad and read the changes it lists."
+msgstr "Mettez à jour le PCB depuis le schéma dans KiCad et lisez les modifications listées."
+
+msgid "VERIFIED BY RE-SIMULATION"
+msgstr "VÉRIFIÉ PAR RE-SIMULATION"
+
+msgid "Voltage drop above the limit"
+msgstr "Chute de tension au-delà de la limite"
+
+msgid "Warning:"
+msgstr "Attention :"
+
+msgid "What a finding rests on. A fact (an exact count or the state of the run), a measurement, datasheet values, an estimate from a model of the board, or a rule of thumb (a threshold this tool sets)."
+msgstr "Ce sur quoi repose une observation. Un fait (un décompte exact ou l’état de l’exécution), une mesure, des valeurs de fiche technique, une estimation par un modèle de la carte, ou une règle de l’art (un seuil fixé par cet outil)."
+
+msgid "What holds"
+msgstr "Ce qui tient"
+
+msgid "What this page answers"
+msgstr "Ce à quoi répond cette page"
+
+msgid "What to do"
+msgstr "Que faire"
+
+msgid "When a signal changes layer, its return current needs a nearby via to follow it."
+msgstr "Quand un signal change de couche, son courant de retour a besoin d’un via proche pour le suivre."
+
+msgid "When one line of a pair is longer, part of the signal turns into common mode, which radiates."
+msgstr "Quand une ligne de la paire est plus longue, une partie du signal passe en mode commun, qui rayonne."
+
+msgid "Where: {where} · found by {domains}"
+msgstr "Où : {where} · relevé par {domains}"
+
+msgid "Whether the board can go to manufacture. Each item below is one physical problem, even when several analyses report it, and links to its card in section 2."
+msgstr "Si la carte peut partir en fabrication. Chaque point ci-dessous est un problème physique, même quand plusieurs analyses le signalent, et renvoie à sa fiche en section 2."
+
+msgid "Why it is a risk"
+msgstr "Pourquoi c’est un risque"
+
+msgid "With no local capacitor, a pin draws its fast current through the whole power network."
+msgstr "Sans condensateur local, une broche tire son courant rapide à travers tout le réseau d’alimentation."
+
+msgid "Without a load current or an explicit target, the sweep has nothing to be judged against."
+msgstr "Sans courant de charge ni cible explicite, le balayage n’a rien à quoi se comparer."
+
+msgid "Without a model the converter's waveforms are not simulated, and the EMC estimate keeps the entered values."
+msgstr "Sans modèle, les formes d’onde du convertisseur ne sont pas simulées, et l’estimation CEM garde les valeurs saisies."
+
+msgid "Without a plane between them, two signal layers couple to each other."
+msgstr "Sans plan entre elles, deux couches de signal se couplent l’une à l’autre."
+
+msgid "Without a plane, every return current takes its own path and no reference is quiet."
+msgstr "Sans plan, chaque courant de retour prend son propre chemin et aucune référence n’est calme."
+
+msgid "Without a rating, the dissipation of a resistor cannot be checked."
+msgstr "Sans puissance nominale, la dissipation d’une résistance ne peut pas être vérifiée."
+
+msgid "Worst {figure}"
+msgstr "Pire {figure}"
+
+msgid "Zeo container"
+msgstr "conteneur Zeo"
+
+msgid "Zeo member"
+msgstr "membre Zeo"
+
+msgid "{analysis} passes"
+msgstr "{analysis} réussit"
+
+msgid "{count} finding(s)"
+msgstr "{count} observation(s)"
+
+msgid "{count} more figures"
+msgstr "{count} figures de plus"
+
+msgid "{passed} of {total} pairs within their impedance tolerance"
+msgstr "{passed} paires sur {total} dans leur tolérance d’impédance"
+
+msgid "{passed} of {total} rail drops within the limit"
+msgstr "{passed} chutes de rail sur {total} dans la limite"
+
+msgid "{passed} of {total} rails within their target impedance"
+msgstr "{passed} rails sur {total} dans leur impédance cible"
+
+msgid "θJB, ψJB"
+msgstr "θJB, ψJB"
+
+msgid "net"
+msgstr "réseau"
+
+msgid "{analysis} passes: {figures}"
+msgstr "{analysis} réussit : {figures}"

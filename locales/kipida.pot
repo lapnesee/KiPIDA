@@ -3946,3 +3946,1469 @@ msgstr ""
 #: plotter.py:235 plotter.py:273
 msgid " — colours clipped"
 msgstr ""
+
+#: report/html_report.py:891
+msgid "(no path recorded)"
+msgstr ""
+
+#: report/html_report.py:637
+msgid "1. Decision"
+msgstr ""
+
+#: report/html_report.py:347
+msgid "100 minus a penalty per finding, weighted by severity and certainty. It summarises; it is not a margin. The EMC score is the analysis's own uncalibrated risk figure."
+msgstr ""
+
+#: report/html_report.py:746
+msgid "2. Actions"
+msgstr ""
+
+#: report/html_report.py:928
+msgid "3. Per domain"
+msgstr ""
+
+#: report/html_report.py:1021
+msgid "4. Appendices"
+msgstr ""
+
+#: report/html_report.py:369
+msgid "A capacitor at a power pin that supplies the pin's fast current locally."
+msgstr ""
+
+#: rule_guide.py:355
+msgid "A connector shell with no short path to chassis lets cable noise onto the board."
+msgstr ""
+
+#: rule_guide.py:381
+msgid "A converter's sharp edges spread energy over many harmonics, some inside the band the standard limits."
+msgstr ""
+
+#: report/html_report.py:315
+msgid "A defect the analyses establish on the board itself, such as a broken connection or a voltage drop beyond its limit."
+msgstr ""
+
+#: rule_guide.py:211
+msgid "A discharge that travels far before its protection reaches the parts on the way."
+msgstr ""
+
+#: rule_guide.py:142
+msgid "A drop that moves when the mesh is refined is set by the mesh as much as by the copper."
+msgstr ""
+
+#: rule_guide.py:102
+msgid "A fast edge on an outer layer radiates with no plane on one side to contain its field."
+msgstr ""
+
+#: rule_guide.py:191
+msgid "A gap in the reference under the pair breaks the return path at that spot."
+msgstr ""
+
+#: report/html_report.py:321
+msgid "A layout rule of thumb is not met. Only a measurement on the prototype, such as an emissions scan or an ESD test, settles whether it matters. Improving the layout first is cheaper than a respin."
+msgstr ""
+
+#: report/html_report.py:328
+msgid "A limit of the calculation, not of the board: a mesh too coarse, a solve that did not settle. It takes nothing off the scores and is not an action; it says how far to trust the figures it names."
+msgstr ""
+
+#: rule_guide.py:340
+msgid "A link the project declares no longer matches the boards it joins."
+msgstr ""
+
+#: rule_guide.py:155
+msgid "A load that the power tree names but the board lacks is left out of the solve."
+msgstr ""
+
+#: rule_guide.py:120
+msgid "A load with no copper path to its source is either unconnected on the board or left out of the solve, so the rail's figures leave it out."
+msgstr ""
+
+#: rule_guide.py:108
+msgid "A long clock trace is a longer antenna for its harmonics."
+msgstr ""
+
+#: rule_guide.py:77
+msgid "A margin that moves when the mesh is refined is set by the mesh as much as by the copper."
+msgstr ""
+
+#: rule_guide.py:160
+msgid "A pad isolated from the rest of its net is an open circuit on the assembled board."
+msgstr ""
+
+#: rule_guide.py:330
+msgid "A pin left open by mistake can float or leave a function unpowered."
+msgstr ""
+
+#: rule_guide.py:325
+msgid "A power input with no capacitor draws its fast current through the whole network."
+msgstr ""
+
+#: rule_guide.py:72
+msgid "A rail that was not swept is neither checked nor scored."
+msgstr ""
+
+#: report/html_report.py:318
+msgid "A smaller defect, or a margin worth a second look; decide whether to change the board."
+msgstr ""
+
+#: rule_guide.py:96
+msgid "A solve that does not conserve what flows in and out misstates the air temperature."
+msgstr ""
+
+#: rule_guide.py:206
+msgid "A source without a frequency cannot be placed in the emissions band."
+msgstr ""
+
+#: rule_guide.py:244
+msgid "A sparsely filled ground leaves signals without a reference under them."
+msgstr ""
+
+#: report/html_report.py:378
+msgid "A switching edge carries energy at every multiple of the switching frequency. Standards limit what a product radiates in set bands."
+msgstr ""
+
+#: rule_guide.py:422
+msgid "A temperature that moves when the mesh is refined is set by the mesh as much as by the copper."
+msgstr ""
+
+#: rule_guide.py:216
+msgid "A TVS clamps only as well as its path to ground is short."
+msgstr ""
+
+#: report/html_report.py:384
+msgid "A via joining ground planes on different layers, so that they act as one at high frequency."
+msgstr ""
+
+#: rule_guide.py:406
+msgid "Above its maximum junction temperature, a part ages fast or shuts down."
+msgstr ""
+
+#: rule_guide.py:52
+msgid "Above its target impedance, a rail lets the load's current steps move its voltage more than the load tolerates."
+msgstr ""
+
+#: rule_guide.py:71
+msgid "AC profiles left out of the campaign"
+msgstr ""
+
+#: rule_guide.py:76
+msgid "AC result changes with the grid"
+msgstr ""
+
+#: rule_guide.py:90
+msgid "Airflow solve did not converge"
+msgstr ""
+
+#: rule_guide.py:95
+msgid "Airflow solve loses mass or heat"
+msgstr ""
+
+#: report/html_report.py:819
+#, python-brace-format
+msgid "All {count} figures"
+msgstr ""
+
+#: report/html_report.py:686
+msgid "Alternatives"
+msgstr ""
+
+#: report/html_report.py:381
+msgid "An electrostatic discharge enters through a connector. A TVS diode clamps it to ground, if its ground path is short."
+msgstr ""
+
+#: rule_guide.py:266
+msgid "An external cable brings in and carries out noise unless it is filtered at the connector."
+msgstr ""
+
+#: rule_guide.py:360
+msgid "An impedance step reflects part of the signal and closes the eye."
+msgstr ""
+
+#: report/html_report.py:325
+msgid "An input the analyses needed and did not have. The verdict sharpens once it is filled in."
+msgstr ""
+
+#: rule_guide.py:91
+msgid "An unconverged flow field can put the hot air in the wrong place."
+msgstr ""
+
+#: report/html_report.py:639 report/html_report.py:991
+msgid "Analyses"
+msgstr ""
+
+#: report/html_report.py:589 report/html_report.py:737 report/html_report.py:993
+msgid "Analysis"
+msgstr ""
+
+#: report/html_report.py:477
+#, python-brace-format
+msgid "and {count} more"
+msgstr ""
+
+#: report/html_report.py:889
+msgid "Artifact unavailable:"
+msgstr ""
+
+#: rule_guide.py:196
+msgid "Between two planes the board resonates at frequencies set by its size."
+msgstr ""
+
+#: report/html_report.py:993
+msgid "Board"
+msgstr ""
+
+#: rule_guide.py:195
+msgid "Board cavity resonances"
+msgstr ""
+
+#: report/html_report.py:989
+msgid "Board fingerprint"
+msgstr ""
+
+#: report/html_report.py:164
+msgid "CALCULATION QUALITY"
+msgstr ""
+
+#: report/html_report.py:327
+msgid "Calculation reliability"
+msgstr ""
+
+#: report/html_report.py:989
+msgid "Campaign"
+msgstr ""
+
+#: report/html_report.py:1054
+#, python-brace-format
+msgid "Campaign schema {version}"
+msgstr ""
+
+#: report/html_report.py:339 report/html_report.py:737
+msgid "Certainty"
+msgstr ""
+
+#: report/html_report.py:684
+msgid "Change"
+msgstr ""
+
+#: rule_guide.py:185
+msgid "Changing reference layer forces the return current to find a new path, often a long one."
+msgstr ""
+
+#: rule_guide.py:187
+msgid "Check for a ground via within a few millimetres of each layer change of the pair."
+msgstr ""
+
+#: rule_guide.py:321
+msgid "Check for a ground via within a few millimetres of each signal via."
+msgstr ""
+
+#: report/html_report.py:320
+msgid "Check on the prototype"
+msgstr ""
+
+#: rule_guide.py:356
+msgid "Check the connector's shell pads on the footprint and the net they are on."
+msgstr ""
+
+#: rule_guide.py:316
+msgid "Check the converter's enable, frequency and feedback pins against its datasheet."
+msgstr ""
+
+#: rule_guide.py:228
+msgid "Check the plane under the segment, layer by layer; a near-field scan on the prototype shows whether it radiates."
+msgstr ""
+
+#: rule_guide.py:192
+msgid "Check the reference plane at the coordinates given, layer by layer."
+msgstr ""
+
+#: rule_guide.py:234 rule_guide.py:372 rule_guide.py:377
+msgid "Check the stackup in KiCad's board setup."
+msgstr ""
+
+#: rule_guide.py:274
+msgid "Check where the cable runs in the enclosure."
+msgstr ""
+
+#: report/html_report.py:332
+msgid "Checks that passed. Read them as what the analyses covered, not as a guarantee."
+msgstr ""
+
+#: rule_guide.py:112
+msgid "Clock near a connector"
+msgstr ""
+
+#: rule_guide.py:101
+msgid "Clock on outer copper"
+msgstr ""
+
+#: rule_guide.py:310
+msgid "Compare the entered value with the datasheet and with the simulated circuit."
+msgstr ""
+
+#: rule_guide.py:262
+msgid "Compare the peak current with the datasheet's saturation current at temperature."
+msgstr ""
+
+#: rule_guide.py:197
+msgid "Compare these frequencies with the peaks of a near-field scan."
+msgstr ""
+
+#: report/html_report.py:993
+msgid "Completed"
+msgstr ""
+
+#: report/html_report.py:828
+msgid "Components"
+msgstr ""
+
+#: report/html_report.py:993
+msgid "Compute"
+msgstr ""
+
+#: report/html_report.py:1018
+msgid "Compute metadata"
+msgstr ""
+
+#: report/html_report.py:1018
+msgid "Configuration"
+msgstr ""
+
+#: rule_guide.py:354
+msgid "Connector shield return not found"
+msgstr ""
+
+#: rule_guide.py:265
+msgid "Connector without EMC protection"
+msgstr ""
+
+#: rule_guide.py:293
+msgid "Converter model unstable"
+msgstr ""
+
+#: rule_guide.py:298
+msgid "Converter model unusable"
+msgstr ""
+
+#: rule_guide.py:313
+msgid "Converter not running in its board circuit"
+msgstr ""
+
+#: rule_guide.py:84
+msgid "Copper at the edge radiates more easily and can be cut or exposed when the panel is routed."
+msgstr ""
+
+#: rule_guide.py:83
+msgid "Copper near or beyond the board edge"
+msgstr ""
+
+#: rule_guide.py:221
+msgid "Copper outside the board ignored"
+msgstr ""
+
+#: rule_guide.py:217
+msgid "Count the ground vias within 3 mm of the TVS's ground pad; test with an ESD gun on the prototype."
+msgstr ""
+
+#: report/html_report.py:990
+msgid "Created"
+msgstr ""
+
+#: report/html_report.py:337
+msgid "CRITICAL: the board cannot work as designed. HIGH: likely to fail a requirement. MEDIUM: a real risk with some margin. LOW: minor. INFO: a note, never an action."
+msgstr ""
+
+#: rule_guide.py:339
+msgid "Cross-board link out of date"
+msgstr ""
+
+#: rule_guide.py:449
+msgid "Crosstalk between parallel traces"
+msgstr ""
+
+#: report/html_report.py:324
+msgid "Data to complete"
+msgstr ""
+
+#: report/html_report.py:360
+msgid "Datasheet figures linking the junction to the board 1 mm from the package (JEDEC JESD51-8 and -12)."
+msgstr ""
+
+#: rule_guide.py:141
+msgid "DC result changes with the grid"
+msgstr ""
+
+#: rule_guide.py:125
+msgid "DC solve did not converge"
+msgstr ""
+
+#: rule_guide.py:136
+msgid "DC solved on an older save"
+msgstr ""
+
+#: report/html_report.py:368
+msgid "Decoupling capacitor"
+msgstr ""
+
+#: rule_guide.py:165
+msgid "Decoupling capacitor too far"
+msgstr ""
+
+#: report/html_report.py:362
+msgid "Derating"
+msgstr ""
+
+#: report/html_report.py:737 report/html_report.py:828
+msgid "Description"
+msgstr ""
+
+#: report/html_report.py:1025
+msgid "Detail"
+msgstr ""
+
+#: rule_guide.py:359
+msgid "Differential impedance off target"
+msgstr ""
+
+#: rule_guide.py:184
+msgid "Differential pair changes reference"
+msgstr ""
+
+#: rule_guide.py:178
+msgid "Differential pair skew"
+msgstr ""
+
+#: report/html_report.py:414
+msgid "Do not release for manufacture yet: at least one defect must be fixed first."
+msgstr ""
+
+#: rule_guide.py:147
+msgid "Drop through fuses, switches and shunts"
+msgstr ""
+
+#: rule_guide.py:148
+msgid "Each part in series between the source and the regulator takes its own share of the voltage before the copper does."
+msgstr ""
+
+#: rule_guide.py:201
+msgid "Each switching source has a spectrum that other findings compare with the band."
+msgstr ""
+
+#: report/html_report.py:685
+msgid "Effort"
+msgstr ""
+
+#: rule_guide.py:308
+msgid "Entered source differs from its board circuit"
+msgstr ""
+
+#: rule_guide.py:210
+msgid "ESD path missing or long"
+msgstr ""
+
+#: report/html_report.py:380
+msgid "ESD, TVS"
+msgstr ""
+
+#: report/html_report.py:267
+msgid "Estimate from a model of the board"
+msgstr ""
+
+#: report/html_report.py:682
+msgid "ESTIMATE — NOT RE-SIMULATED"
+msgstr ""
+
+#: report/html_report.py:643
+msgid "Every rule of thumb checked is met."
+msgstr ""
+
+#: report/html_report.py:371
+msgid "Every signal current comes back through the plane under it. A gap or a layer change without a via forces a detour, and the loop radiates."
+msgstr ""
+
+#: report/html_report.py:890
+msgid "Expected at"
+msgstr ""
+
+#: report/html_report.py:264
+msgid "Fact: an exact count or the state of the run"
+msgstr ""
+
+#: report/html_report.py:820
+msgid "Figure"
+msgstr ""
+
+#: report/html_report.py:923
+msgid "Figures"
+msgstr ""
+
+#: report/html_report.py:737 ui/results_workspace.py:63
+msgid "Finding"
+msgstr ""
+
+#: report/html_report.py:314
+msgid "Fix before manufacture"
+msgstr ""
+
+#: rule_guide.py:344
+msgid "Footprint whose symbol is gone"
+msgstr ""
+
+#: rule_guide.py:349
+msgid "Footprints added on the board only"
+msgstr ""
+
+#: rule_guide.py:190
+msgid "Gaps under a differential pair"
+msgstr ""
+
+#: rule_guide.py:222
+msgid "Geometry off the outline was left out of the analysis."
+msgstr ""
+
+#: report/html_report.py:400
+msgid "Glossary"
+msgstr ""
+
+#: rule_guide.py:237
+msgid "Ground plane in pieces"
+msgstr ""
+
+#: report/html_report.py:377
+msgid "Harmonic, emissions band"
+msgstr ""
+
+#: rule_guide.py:428
+msgid "Heat left out of the thermal model"
+msgstr ""
+
+#: rule_guide.py:401
+msgid "Heat lowers a ceramic capacitor's capacitance and a ferrite's impedance."
+msgstr ""
+
+#: report/html_report.py:274
+msgid "High: change the stackup or a plane"
+msgstr ""
+
+#: rule_guide.py:251
+msgid "Highlight each ground net in KiCad and check where they join."
+msgstr ""
+
+#: rule_guide.py:239
+msgid "Highlight the ground net in KiCad after refilling the zones and look for narrow necks."
+msgstr ""
+
+#: rule_guide.py:245
+msgid "Highlight the ground net in KiCad and look at the fill under fast signals."
+msgstr ""
+
+#: report/html_report.py:966
+msgid "Host"
+msgstr ""
+
+#: report/html_report.py:373
+msgid "Hot loop, switching node"
+msgstr ""
+
+#: rule_guide.py:400
+msgid "Hot parts change their EMC behaviour"
+msgstr ""
+
+#: report/html_report.py:363
+msgid "How much of its rating (current, power, voltage) a part keeps at a higher temperature, read off its datasheet curve."
+msgstr ""
+
+#: report/html_report.py:752
+msgid "How sure"
+msgstr ""
+
+#: report/html_report.py:752
+msgid "How to check"
+msgstr ""
+
+#: report/html_report.py:399
+msgid "How to read this report"
+msgstr ""
+
+#: rule_guide.py:366
+msgid "Impedances computed from a guessed stackup carry the guess's error."
+msgstr ""
+
+#: report/html_report.py:374
+msgid "In a switching converter, the loop through the input capacitor and the switches carries the fastest current edges, and the switching node swings at full input voltage. Both radiate in proportion to their area."
+msgstr ""
+
+#: rule_guide.py:260
+msgid "Inductor near saturation"
+msgstr ""
+
+#: rule_guide.py:254
+msgid "Inductor shielding not calibrated"
+msgstr ""
+
+#: emc_analyzer.py:1558 rule_guide.py:272
+msgid "Interface on a cable connector"
+msgstr ""
+
+#: rule_guide.py:405
+msgid "Junction above its limit"
+msgstr ""
+
+#: report/html_report.py:356
+msgid "Junction temperature (Tj)"
+msgstr ""
+
+#: report/html_report.py:589
+msgid "Key figures"
+msgstr ""
+
+#: report/html_report.py:1079
+msgid "Ki-PIDA campaign report"
+msgstr ""
+
+#: report/html_report.py:1081
+msgid "Ki-PIDA consolidated analysis report"
+msgstr ""
+
+#: report/html_report.py:1080
+msgid "Ki-PIDA report"
+msgstr ""
+
+#: rule_guide.py:386
+msgid "Large switching-node copper"
+msgstr ""
+
+#: rule_guide.py:319
+msgid "Layer change without a ground via"
+msgstr ""
+
+#: report/html_report.py:1017
+msgid "Limitations"
+msgstr ""
+
+#: rule_guide.py:351
+msgid "List the footprints with no symbol and check that each is mechanical."
+msgstr ""
+
+#: rule_guide.py:243
+msgid "Little ground copper"
+msgstr ""
+
+#: rule_guide.py:434
+msgid "Little margin to the limit leaves no room for a warmer enclosure or higher losses."
+msgstr ""
+
+#: rule_guide.py:154
+msgid "Load not found on the board"
+msgstr ""
+
+#: rule_guide.py:119
+msgid "Loads the source cannot reach"
+msgstr ""
+
+#: report/html_report.py:686
+msgid "Location"
+msgstr ""
+
+#: rule_guide.py:429
+msgid "Losses that are not placed on the board are missing from the temperatures."
+msgstr ""
+
+#: report/html_report.py:272
+msgid "Low: move a part, add a via or fill in a field"
+msgstr ""
+
+#: report/html_report.py:353
+msgid "Margin"
+msgstr ""
+
+#: rule_guide.py:168
+msgid "Measure the capacitor-to-pin distance after the move; on the prototype, look at the pin's ripple with a short ground spring."
+msgstr ""
+
+#: rule_guide.py:115
+msgid "Measure the common-mode current on the connector's cable with a current probe on the prototype."
+msgstr ""
+
+#: rule_guide.py:396
+msgid "Measure the loop's widest gap after the move; scan the switching harmonics with a near-field probe on the prototype."
+msgstr ""
+
+#: rule_guide.py:86
+msgid "Measure the route's distance to the outline in KiCad and compare it with the fabricator's edge clearance."
+msgstr ""
+
+#: report/html_report.py:265
+msgid "Measured"
+msgstr ""
+
+#: report/html_report.py:273
+msgid "Medium: reroute or re-place a group of parts"
+msgstr ""
+
+#: report/html_report.py:386
+msgid "Mesh, grid step"
+msgstr ""
+
+#: rule_guide.py:261
+msgid "Near saturation, inductance collapses and the current peak rises quickly."
+msgstr ""
+
+#: report/html_report.py:828
+msgid "Nets"
+msgstr ""
+
+#: report/html_report.py:748
+msgid "No actionable findings."
+msgstr ""
+
+#: report/html_report.py:418
+msgid "No analysis produced a result."
+msgstr ""
+
+#: report/html_report.py:930
+msgid "No analysis results."
+msgstr ""
+
+#: report/html_report.py:756
+msgid "No change was computed for this action."
+msgstr ""
+
+#: report/html_report.py:646
+msgid "No check passed."
+msgstr ""
+
+#: rule_guide.py:172
+msgid "No decoupling near a power pin"
+msgstr ""
+
+#: report/html_report.py:417
+msgid "No defect found by the analyses that ran."
+msgstr ""
+
+#: report/html_report.py:561
+msgid "No domain produced a result."
+msgstr ""
+
+#: report/html_report.py:804
+msgid "No figures recorded."
+msgstr ""
+
+#: report/html_report.py:827
+msgid "No findings."
+msgstr ""
+
+#: rule_guide.py:232
+msgid "No ground plane"
+msgstr ""
+
+#: report/html_report.py:644
+msgid "No input missing."
+msgstr ""
+
+#: report/html_report.py:645
+msgid "No limit of the calculation reported."
+msgstr ""
+
+#: report/html_report.py:1020
+msgid "No limitations recorded."
+msgstr ""
+
+#: report/html_report.py:1019
+msgid "No provenance recorded."
+msgstr ""
+
+#: report/html_report.py:1021
+msgid "No results."
+msgstr ""
+
+#: rule_guide.py:287
+msgid "No SPICE model for a converter"
+msgstr ""
+
+#: rule_guide.py:113
+msgid "Noise coupled into a connector's lines leaves the board on the cable, which radiates."
+msgstr ""
+
+#: report/html_report.py:564
+msgid "none"
+msgstr ""
+
+#: report/html_report.py:1011
+msgid "None recorded."
+msgstr ""
+
+#: report/html_report.py:563
+msgid "not run"
+msgstr ""
+
+#: report/html_report.py:641
+msgid "Nothing found that must change before manufacture."
+msgstr ""
+
+#: rule_guide.py:223
+msgid "Nothing to check if that copper is intentional, such as a test coupon."
+msgstr ""
+
+#: rule_guide.py:441
+msgid "Nothing to check while its current and temperature stay as estimated."
+msgstr ""
+
+#: rule_guide.py:202 rule_guide.py:257 rule_guide.py:284
+msgid "Nothing to check."
+msgstr ""
+
+#: report/html_report.py:642
+msgid "Nothing to review."
+msgstr ""
+
+#: rule_guide.py:175
+msgid "On the prototype, look at the power pin's ripple with a short ground spring."
+msgstr ""
+
+#: rule_guide.py:451
+msgid "On the prototype, look at the victim line with an oscilloscope while the aggressor switches."
+msgstr ""
+
+#: rule_guide.py:150
+msgid "On the prototype, measure the voltage on both sides of each pass element under load."
+msgstr ""
+
+#: report/html_report.py:350
+msgid "Orders the actions: severity, times certainty, times 1.5 for each further analysis reporting the problem, divided by the typical effort. It has no unit; only the order means something."
+msgstr ""
+
+#: rule_guide.py:227
+msgid "Over a gap, the return current detours around it and the loop it forms radiates."
+msgstr ""
+
+#: rule_guide.py:159
+msgid "Pads cut off from their net"
+msgstr ""
+
+#: rule_guide.py:350
+msgid "Parts placed only on the board are not checked by schematic rules."
+msgstr ""
+
+#: report/html_report.py:365
+msgid "PDN, target impedance"
+msgstr ""
+
+#: report/html_report.py:1022
+msgid "Per analysis"
+msgstr ""
+
+#: report/html_report.py:344
+msgid "Per analysis. FAIL on a CRITICAL finding, or a HIGH one resting on a fact, a measurement or a datasheet. WARN on any other HIGH, or a MEDIUM. PASS otherwise."
+msgstr ""
+
+#: rule_guide.py:238
+msgid "Pieces of plane joined by narrow necks raise the return-path impedance."
+msgstr ""
+
+#: rule_guide.py:445
+msgid "Planes stitched far apart resonate at frequencies inside the band."
+msgstr ""
+
+#: rule_guide.py:324
+msgid "Power pin without decoupling"
+msgstr ""
+
+#: report/html_report.py:685
+msgid "Predicted gain"
+msgstr ""
+
+#: report/html_report.py:349
+msgid "Priority"
+msgstr ""
+
+#: report/html_report.py:740
+#, python-brace-format
+msgid "Priority {rank} (see \"Priority\" under How to read this report)."
+msgstr ""
+
+#: report/html_report.py:988 ui/workspace_navigation.py:20
+msgid "Project"
+msgstr ""
+
+#: report/html_report.py:967
+msgid "Project mode"
+msgstr ""
+
+#: report/html_report.py:1017
+msgid "Provenance"
+msgstr ""
+
+#: rule_guide.py:51
+msgid "Rail impedance above its target"
+msgstr ""
+
+#: rule_guide.py:277
+msgid "Rail impedance estimate above target"
+msgstr ""
+
+#: rule_guide.py:282
+msgid "Rail impedance within target"
+msgstr ""
+
+#: rule_guide.py:58
+msgid "Rail target impedance unknown"
+msgstr ""
+
+#: rule_guide.py:64
+msgid "Rail verdict open at the sweep edge"
+msgstr ""
+
+#: rule_guide.py:439
+msgid "Rating holds at temperature"
+msgstr ""
+
+#: rule_guide.py:279
+msgid "Read the AC result for this rail."
+msgstr ""
+
+#: rule_guide.py:389
+msgid "Read the node's copper area again after the change; scan it with a near-field probe on the prototype."
+msgstr ""
+
+#: rule_guide.py:181
+msgid "Read the pair's length difference in KiCad's length tuner."
+msgstr ""
+
+#: rule_guide.py:435
+msgid "Read the part's rating at this temperature in its datasheet; on the prototype, measure its temperature at full load."
+msgstr ""
+
+#: rule_guide.py:300 rule_guide.py:305
+msgid "Read the solver log in the Phase 10 output directory."
+msgstr ""
+
+#: rule_guide.py:402
+msgid "Read those parts' ratings at the temperature found."
+msgstr ""
+
+#: emc_analyzer.py:408 report/html_report.py:1025
+msgid "Reference"
+msgstr ""
+
+#: rule_guide.py:54
+msgid "Rerun AC after the change: the curve should stay under the target at every frequency."
+msgstr ""
+
+#: rule_guide.py:67
+msgid "Rerun AC with a higher stop frequency: the worst point should fall inside the sweep."
+msgstr ""
+
+#: rule_guide.py:61
+msgid "Rerun AC: the rail should get a target and a PASS or FAIL."
+msgstr ""
+
+#: rule_guide.py:138
+msgid "Rerun DC after saving: this finding should not return."
+msgstr ""
+
+#: rule_guide.py:132
+msgid "Rerun DC after the change; on the prototype, measure the voltage at the load under full current."
+msgstr ""
+
+#: rule_guide.py:156
+msgid "Rerun DC: the load should appear in the rail's results."
+msgstr ""
+
+#: rule_guide.py:161
+msgid "Rerun DC: the pads should be on the net's copper, and KiCad's DRC should list no unconnected item."
+msgstr ""
+
+#: rule_guide.py:127
+msgid "Rerun DC: the solve should report convergence."
+msgstr ""
+
+#: rule_guide.py:295
+msgid "Rerun EMC: the circuit should settle."
+msgstr ""
+
+#: rule_guide.py:290
+msgid "Rerun EMC: the converter should appear among the simulated circuits."
+msgstr ""
+
+#: rule_guide.py:207
+msgid "Rerun EMC: the source should be placed in the band."
+msgstr ""
+
+#: rule_guide.py:144
+msgid "Rerun on a finer DC grid: the drop should move by less than its margin."
+msgstr ""
+
+#: rule_guide.py:98
+msgid "Rerun on a finer mesh: the mass and heat balances should close."
+msgstr ""
+
+#: rule_guide.py:424
+msgid "Rerun on the finer grid the finding names: the temperatures should move by less than their margin."
+msgstr ""
+
+#: rule_guide.py:79
+msgid "Rerun on the finer grid the finding names: the verdict should be the same on both grids."
+msgstr ""
+
+#: rule_guide.py:73
+msgid "Rerun the campaign: every configured profile should appear in the AC results."
+msgstr ""
+
+#: rule_guide.py:361
+msgid "Rerun the differential analysis after the change; ask the fabricator for an impedance coupon."
+msgstr ""
+
+#: rule_guide.py:367
+msgid "Rerun the differential analysis after the import."
+msgstr ""
+
+#: rule_guide.py:407
+msgid "Rerun thermal after the change; on the prototype, measure the case with a thermocouple or a thermal camera."
+msgstr ""
+
+#: rule_guide.py:418
+msgid "Rerun thermal: the energy balance error should fall under its limit."
+msgstr ""
+
+#: rule_guide.py:430
+msgid "Rerun thermal: the input heat should match the losses."
+msgstr ""
+
+#: rule_guide.py:413
+msgid "Rerun thermal: the solve should report convergence."
+msgstr ""
+
+#: rule_guide.py:92
+msgid "Rerun with more iterations: the residuals should fall under the tolerance."
+msgstr ""
+
+#: rule_guide.py:334
+msgid "Resistor without a power rating"
+msgstr ""
+
+#: report/html_report.py:266
+msgid "Rests on datasheet values"
+msgstr ""
+
+#: report/html_report.py:1024
+#, python-brace-format
+msgid "Result schema {version}"
+msgstr ""
+
+#: report/html_report.py:370
+msgid "Return path, reference plane"
+msgstr ""
+
+#: report/html_report.py:317
+msgid "Review before manufacture"
+msgstr ""
+
+#: report/html_report.py:416
+msgid "Review before manufacture: the items below need a decision."
+msgstr ""
+
+#: report/html_report.py:737 report/html_report.py:828 ui/results_workspace.py:62
+msgid "Rule"
+msgstr ""
+
+#: report/html_report.py:268
+msgid "Rule of thumb: a threshold this tool sets"
+msgstr ""
+
+#: report/html_report.py:993
+msgid "Run"
+msgstr ""
+
+#: rule_guide.py:122
+msgid "Run KiCad's DRC: it lists the unconnected items on that net."
+msgstr ""
+
+#: rule_guide.py:331
+msgid "Run KiCad's ERC: the pin should be connected or marked no-connect."
+msgstr ""
+
+#: rule_guide.py:341
+msgid "Run the schematic rules again: the link should match the boards."
+msgstr ""
+
+#: rule_guide.py:326
+msgid "Run the schematic rules again: the pin should have a capacitor."
+msgstr ""
+
+#: rule_guide.py:336
+msgid "Run the schematic rules again: the resistor should have a rating."
+msgstr ""
+
+#: rule_guide.py:446
+msgid "Scan the board edges with a near-field probe on the prototype."
+msgstr ""
+
+#: rule_guide.py:104 rule_guide.py:109
+msgid "Scan the clock's harmonics with a near-field probe on the prototype."
+msgstr ""
+
+#: rule_guide.py:383
+msgid "Scan this band with a near-field probe on the prototype."
+msgstr ""
+
+#: report/html_report.py:988
+msgid "Scope analysed"
+msgstr ""
+
+#: report/html_report.py:346 report/html_report.py:589
+msgid "Score"
+msgstr ""
+
+#: rule_guide.py:249
+msgid "Separate grounds are a choice; a signal crossing between them loses its return path."
+msgstr ""
+
+#: rule_guide.py:248
+msgid "Several ground domains"
+msgstr ""
+
+#: report/html_report.py:336 ui/results_workspace.py:61
+msgid "Severity"
+msgstr ""
+
+#: rule_guide.py:255
+msgid "Shielding is recognised from the part, but its effect on the field is not quantified."
+msgstr ""
+
+#: rule_guide.py:375
+msgid "Signal layer far from its plane"
+msgstr ""
+
+#: rule_guide.py:226
+msgid "Signal over a gap in its plane"
+msgstr ""
+
+#: rule_guide.py:303
+msgid "Simulation failed"
+msgstr ""
+
+#: report/html_report.py:954
+msgid "single-board"
+msgstr ""
+
+#: rule_guide.py:200
+msgid "Source harmonic envelopes"
+msgstr ""
+
+#: rule_guide.py:444
+msgid "Sparse ground stitching"
+msgstr ""
+
+#: rule_guide.py:393
+msgid "Spread-out switching hot loop"
+msgstr ""
+
+#: rule_guide.py:365
+msgid "Stackup not confirmed"
+msgstr ""
+
+#: report/html_report.py:383
+msgid "Stitching via"
+msgstr ""
+
+#: rule_guide.py:205
+msgid "Switching frequency unknown"
+msgstr ""
+
+#: rule_guide.py:380
+msgid "Switching harmonics in the emissions band"
+msgstr ""
+
+#: report/html_report.py:739
+msgid "Technical detail"
+msgstr ""
+
+#: rule_guide.py:268
+msgid "Test the connector with an ESD gun and its cable with a current probe on the prototype."
+msgstr ""
+
+#: rule_guide.py:212
+msgid "Test the connector with an ESD gun on the prototype (IEC 61000-4-2)."
+msgstr ""
+
+#: report/html_report.py:387
+msgid "The analyses cut the board into small cells. A result that moves when the cells are halved depends on the mesh, not only on the copper."
+msgstr ""
+
+#: rule_guide.py:345
+msgid "The board holds a part the schematic no longer has."
+msgstr ""
+
+#: report/html_report.py:354
+msgid "The distance between a value and its limit, such as 25 K under a 150 °C junction limit."
+msgstr ""
+
+#: rule_guide.py:278
+msgid "The EMC estimate of the rail exceeds its target; the AC domain judges the rail."
+msgstr ""
+
+#: rule_guide.py:376
+msgid "The farther a trace is from its plane, the larger its return loop."
+msgstr ""
+
+#: rule_guide.py:137
+msgid "The figures describe the saved board file, which differs from the open board."
+msgstr ""
+
+#: rule_guide.py:417
+msgid "The heat leaving the model does not match the heat put in."
+msgstr ""
+
+#: rule_guide.py:394
+msgid "The loop through the input capacitor and the switches carries the fastest current edges; it radiates in proportion to its area."
+msgstr ""
+
+#: rule_guide.py:294
+msgid "The model did not settle in simulation, so its waveforms are not used."
+msgstr ""
+
+#: rule_guide.py:440
+msgid "The part keeps enough of its rating at the temperature found."
+msgstr ""
+
+#: report/html_report.py:366
+msgid "The power distribution network, from regulator to load. Below its target impedance, a rail holds its voltage when the load's current steps."
+msgstr ""
+
+#: rule_guide.py:283
+msgid "The rail holds its target over the swept band."
+msgstr ""
+
+#: rule_guide.py:314
+msgid "The simulated converter did not regulate: a pin may be wired wrong, or the model may not support how it is wired."
+msgstr ""
+
+#: rule_guide.py:304
+msgid "The simulation did not complete, so its results are missing."
+msgstr ""
+
+#: rule_guide.py:299
+msgid "The simulator could not run the model."
+msgstr ""
+
+#: rule_guide.py:387
+msgid "The switching node swings at full voltage; each square millimetre of it is antenna area."
+msgstr ""
+
+#: report/html_report.py:357
+msgid "The temperature of the silicon inside a package, estimated from the board temperature and the part's thermal resistance."
+msgstr ""
+
+#: rule_guide.py:412
+msgid "The temperatures of an unconverged solve cannot be relied on."
+msgstr ""
+
+#: rule_guide.py:273
+msgid "The tool assumed the cable stays inside the enclosure."
+msgstr ""
+
+#: rule_guide.py:166
+msgid "The trace between a capacitor and its pin adds inductance, which leaves high-frequency current to the rest of the board."
+msgstr ""
+
+#: rule_guide.py:309
+msgid "The value entered for EMC differs from what the simulated board circuit gives."
+msgstr ""
+
+#: rule_guide.py:126
+msgid "The voltages and currents of an unconverged solve cannot be relied on."
+msgstr ""
+
+#: rule_guide.py:65
+msgid "The worst point is still rising where the sweep stops, so the real peak may lie outside the swept band."
+msgstr ""
+
+#: rule_guide.py:416
+msgid "Thermal energy balance off"
+msgstr ""
+
+#: rule_guide.py:421
+msgid "Thermal result changes with the grid"
+msgstr ""
+
+#: rule_guide.py:411
+msgid "Thermal solve did not converge"
+msgstr ""
+
+#: report/html_report.py:632
+msgid "these domains do not all describe the same board revision:"
+msgstr ""
+
+#: rule_guide.py:433
+msgid "Thin temperature margin"
+msgstr ""
+
+#: report/html_report.py:828
+msgid "Title"
+msgstr ""
+
+#: rule_guide.py:131
+msgid "Too much drop in the copper leaves the load below its supply tolerance."
+msgstr ""
+
+#: report/html_report.py:990
+msgid "Total compute"
+msgstr ""
+
+#: rule_guide.py:450
+msgid "Traces running side by side couple part of one signal into the other."
+msgstr ""
+
+#: rule_guide.py:215
+msgid "TVS short of ground vias"
+msgstr ""
+
+#: rule_guide.py:370
+msgid "Two signal layers side by side"
+msgstr ""
+
+#: report/html_report.py:753
+msgid "Typical effort"
+msgstr ""
+
+#: rule_guide.py:329
+msgid "Unconnected pin"
+msgstr ""
+
+#: report/html_report.py:820
+msgid "Unit"
+msgstr ""
+
+#: rule_guide.py:346
+msgid "Update the PCB from the schematic in KiCad and read the changes it lists."
+msgstr ""
+
+#: report/html_report.py:679
+msgid "VERIFIED BY RE-SIMULATION"
+msgstr ""
+
+#: rule_guide.py:130
+msgid "Voltage drop above the limit"
+msgstr ""
+
+#: report/html_report.py:631
+msgid "Warning:"
+msgstr ""
+
+#: report/html_report.py:340
+msgid "What a finding rests on. A fact (an exact count or the state of the run), a measurement, datasheet values, an estimate from a model of the board, or a rule of thumb (a threshold this tool sets)."
+msgstr ""
+
+#: report/html_report.py:331
+msgid "What holds"
+msgstr ""
+
+#: report/html_report.py:311
+msgid "What this page answers"
+msgstr ""
+
+#: report/html_report.py:751
+msgid "What to do"
+msgstr ""
+
+#: rule_guide.py:320
+msgid "When a signal changes layer, its return current needs a nearby via to follow it."
+msgstr ""
+
+#: rule_guide.py:179
+msgid "When one line of a pair is longer, part of the signal turns into common mode, which radiates."
+msgstr ""
+
+#: report/html_report.py:755
+#, python-brace-format
+msgid "Where: {where} · found by {domains}"
+msgstr ""
+
+#: report/html_report.py:312
+msgid "Whether the board can go to manufacture. Each item below is one physical problem, even when several analyses report it, and links to its card in section 2."
+msgstr ""
+
+#: report/html_report.py:751
+msgid "Why it is a risk"
+msgstr ""
+
+#: rule_guide.py:173
+msgid "With no local capacitor, a pin draws its fast current through the whole power network."
+msgstr ""
+
+#: rule_guide.py:59
+msgid "Without a load current or an explicit target, the sweep has nothing to be judged against."
+msgstr ""
+
+#: rule_guide.py:288
+msgid "Without a model the converter's waveforms are not simulated, and the EMC estimate keeps the entered values."
+msgstr ""
+
+#: rule_guide.py:371
+msgid "Without a plane between them, two signal layers couple to each other."
+msgstr ""
+
+#: rule_guide.py:233
+msgid "Without a plane, every return current takes its own path and no reference is quiet."
+msgstr ""
+
+#: rule_guide.py:335
+msgid "Without a rating, the dissipation of a resistor cannot be checked."
+msgstr ""
+
+#: report/html_report.py:523
+#, python-brace-format
+msgid "Worst {figure}"
+msgstr ""
+
+#: report/html_report.py:955
+msgid "Zeo container"
+msgstr ""
+
+#: report/html_report.py:956
+msgid "Zeo member"
+msgstr ""
+
+#: report/html_report.py:619
+#, python-brace-format
+msgid "{analysis} passes"
+msgstr ""
+
+#: report/html_report.py:830
+#, python-brace-format
+msgid "{count} finding(s)"
+msgstr ""
+
+#: report/html_report.py:915
+#, python-brace-format
+msgid "{count} more figures"
+msgstr ""
+
+#: report/html_report.py:550
+#, python-brace-format
+msgid "{passed} of {total} pairs within their impedance tolerance"
+msgstr ""
+
+#: report/html_report.py:542
+#, python-brace-format
+msgid "{passed} of {total} rail drops within the limit"
+msgstr ""
+
+#: report/html_report.py:547
+#, python-brace-format
+msgid "{passed} of {total} rails within their target impedance"
+msgstr ""
+
+#: report/html_report.py:359
+msgid "θJB, ψJB"
+msgstr ""
+
+#: report/html_report.py:452
+msgid "net"
+msgstr ""
+
+#: report/html_report.py:622
+#, python-brace-format
+msgid "{analysis} passes: {figures}"
+msgstr ""

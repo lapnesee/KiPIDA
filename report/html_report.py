@@ -16,6 +16,11 @@ to R-LE-7): what to fix, what to review, what only the prototype settles,
 what data is missing, how far the calculation can be trusted, and what
 holds. Each action then gets a card: why it is a risk, what to do, how to
 check, how sure the tool is.
+
+The report's own words and the rule guide follow the interface language
+(i18n); what the analyses wrote -- finding titles, descriptions, figure
+labels -- stays as they wrote it. A label is translated with ``_()`` outside
+any f-string: the catalog extractor does not read inside f-strings.
 """
 
 from pathlib import Path
@@ -35,6 +40,7 @@ from analysis_contract import (
     RemediationEffort,
 )
 from campaign import CampaignAction, CampaignResult, DomainScore
+from i18n import N_, _, current_language
 from rule_guide import CONFIRMATIONS, PROTOTYPE_CHECK, FindingNature, finding_nature, guide
 
 _IMAGE_MEDIA_TYPES = {
@@ -144,13 +150,19 @@ def _join(values: List[str], empty: str = "&mdash;") -> str:
     return ", ".join(_esc(item) for item in values) if values else empty
 
 
+def _headers(*labels: str) -> str:
+    """A table head from labels already translated."""
+    return "<thead><tr>" + "".join(f"<th>{_esc(label)}</th>" for label in labels) + "</tr></thead>"
+
+
 def _confidence_badge(finding: AnalysisFinding) -> str:
     badge = f'<span class="confidence">{_esc(finding.confidence)}</span>'
     if finding.calculation_quality:
         # COH-9: a self-diagnostic about the analysis (mesh, solver limit),
         # not a defect on the board; it still stays in this table -- the
         # score just does not charge it (campaign.score_findings).
-        badge += ' <span class="confidence muted">CALCULATION QUALITY</span>'
+        label = _esc(_("CALCULATION QUALITY"))
+        badge += f' <span class="confidence muted">{label}</span>'
     return badge
 
 
@@ -249,17 +261,17 @@ def _data_uri(path: Path) -> Optional[str]:
 # ----------------------------------------------------------------------
 
 _CERTAINTY_WORDS = {
-    "DETERMINISTIC": "Fact: an exact count or the state of the run",
-    "MEASURED": "Measured",
-    "DATASHEET_BACKED": "Rests on datasheet values",
-    "ESTIMATED": "Estimate from a model of the board",
-    "HEURISTIC": "Rule of thumb: a threshold this tool sets",
+    "DETERMINISTIC": N_("Fact: an exact count or the state of the run"),
+    "MEASURED": N_("Measured"),
+    "DATASHEET_BACKED": N_("Rests on datasheet values"),
+    "ESTIMATED": N_("Estimate from a model of the board"),
+    "HEURISTIC": N_("Rule of thumb: a threshold this tool sets"),
 }
 
 _EFFORT_WORDS = {
-    RemediationEffort.LOW: "Low: move a part, add a via or fill in a field",
-    RemediationEffort.MEDIUM: "Medium: reroute or re-place a group of parts",
-    RemediationEffort.HIGH: "High: change the stackup or a plane",
+    RemediationEffort.LOW: N_("Low: move a part, add a via or fill in a field"),
+    RemediationEffort.MEDIUM: N_("Medium: reroute or re-place a group of parts"),
+    RemediationEffort.HIGH: N_("High: change the stackup or a plane"),
 }
 
 # The analyses write "118.99 C", "85.2 ohm" and "mm2"; P02 Rev E's report of
@@ -282,8 +294,13 @@ def _units(text: Any) -> str:
 
 
 def _t(value: Any) -> str:
-    """Prose from a finding or the guide: one unit notation, then escaped."""
+    """Prose an analysis wrote: one unit notation, then escaped."""
     return _esc(_units(value))
+
+
+def _tr(text: str) -> str:
+    """Prose this report or the rule guide wrote: translated, then as _t."""
+    return _t(_(text)) if text else ""
 
 
 def _severity_badge(severity: FindingSeverity) -> str:
@@ -291,98 +308,100 @@ def _severity_badge(severity: FindingSeverity) -> str:
 
 
 _HOW_TO_READ = (
-    ("What this page answers",
-     "Whether the board can go to manufacture. Each item below is one physical problem, "
-     "even when several analyses report it, and links to its card in section 2."),
-    ("Fix before manufacture",
-     "A defect the analyses establish on the board itself, such as a broken connection or "
-     "a voltage drop beyond its limit."),
-    ("Review before manufacture",
-     "A smaller defect, or a margin worth a second look; decide whether to change the "
-     "board."),
-    ("Check on the prototype",
-     "A layout rule of thumb is not met. Only a measurement on the prototype, such as an "
-     "emissions scan or an ESD test, settles whether it matters. Improving the layout "
-     "first is cheaper than a respin."),
-    ("Data to complete",
-     "An input the analyses needed and did not have. The verdict sharpens once it is "
-     "filled in."),
-    ("Calculation reliability",
-     "A limit of the calculation, not of the board: a mesh too coarse, a solve that did "
-     "not settle. It takes nothing off the scores and is not an action; it says how far "
-     "to trust the figures it names."),
-    ("What holds",
-     "Checks that passed. Read them as what the analyses covered, not as a guarantee."),
+    (N_("What this page answers"),
+     N_("Whether the board can go to manufacture. Each item below is one physical problem, "
+        "even when several analyses report it, and links to its card in section 2.")),
+    (N_("Fix before manufacture"),
+     N_("A defect the analyses establish on the board itself, such as a broken connection or "
+        "a voltage drop beyond its limit.")),
+    (N_("Review before manufacture"),
+     N_("A smaller defect, or a margin worth a second look; decide whether to change the "
+        "board.")),
+    (N_("Check on the prototype"),
+     N_("A layout rule of thumb is not met. Only a measurement on the prototype, such as an "
+        "emissions scan or an ESD test, settles whether it matters. Improving the layout "
+        "first is cheaper than a respin.")),
+    (N_("Data to complete"),
+     N_("An input the analyses needed and did not have. The verdict sharpens once it is "
+        "filled in.")),
+    (N_("Calculation reliability"),
+     N_("A limit of the calculation, not of the board: a mesh too coarse, a solve that did "
+        "not settle. It takes nothing off the scores and is not an action; it says how far "
+        "to trust the figures it names.")),
+    (N_("What holds"),
+     N_("Checks that passed. Read them as what the analyses covered, not as a guarantee.")),
 )
 
 _GLOSSARY = (
-    ("Severity",
-     "CRITICAL: the board cannot work as designed. HIGH: likely to fail a requirement. "
-     "MEDIUM: a real risk with some margin. LOW: minor. INFO: a note, never an action."),
-    ("Certainty",
-     "What a finding rests on. A fact (an exact count or the state of the run), a "
-     "measurement, datasheet values, an estimate from a model of the board, or a rule of "
-     "thumb (a threshold this tool sets)."),
-    ("Status",
-     "Per analysis. FAIL on a CRITICAL finding, or a HIGH one resting on a fact, a "
-     "measurement or a datasheet. WARN on any other HIGH, or a MEDIUM. PASS otherwise."),
-    ("Score",
-     "100 minus a penalty per finding, weighted by severity and certainty. It summarises; "
-     "it is not a margin. The EMC score is the analysis's own uncalibrated risk figure."),
-    ("Priority",
-     "Orders the actions: severity, times certainty, times 1.5 for each further analysis "
-     "reporting the problem, divided by the typical effort. It has no unit; only the "
-     "order means something."),
-    ("Margin",
-     "The distance between a value and its limit, such as 25 K under a 150 °C junction "
-     "limit."),
-    ("Junction temperature (Tj)",
-     "The temperature of the silicon inside a package, estimated from the board "
-     "temperature and the part's thermal resistance."),
-    ("θJB, ψJB",
-     "Datasheet figures linking the junction to the board 1 mm from the package (JEDEC "
-     "JESD51-8 and -12)."),
-    ("Derating",
-     "How much of its rating (current, power, voltage) a part keeps at a higher "
-     "temperature, read off its datasheet curve."),
-    ("PDN, target impedance",
-     "The power distribution network, from regulator to load. Below its target "
-     "impedance, a rail holds its voltage when the load's current steps."),
-    ("Decoupling capacitor",
-     "A capacitor at a power pin that supplies the pin's fast current locally."),
-    ("Return path, reference plane",
-     "Every signal current comes back through the plane under it. A gap or a layer change "
-     "without a via forces a detour, and the loop radiates."),
-    ("Hot loop, switching node",
-     "In a switching converter, the loop through the input capacitor and the switches "
-     "carries the fastest current edges, and the switching node swings at full input "
-     "voltage. Both radiate in proportion to their area."),
-    ("Harmonic, emissions band",
-     "A switching edge carries energy at every multiple of the switching frequency. "
-     "Standards limit what a product radiates in set bands."),
-    ("ESD, TVS",
-     "An electrostatic discharge enters through a connector. A TVS diode clamps it to "
-     "ground, if its ground path is short."),
-    ("Stitching via",
-     "A via joining ground planes on different layers, so that they act as one at high "
-     "frequency."),
-    ("Mesh, grid step",
-     "The analyses cut the board into small cells. A result that moves when the cells are "
-     "halved depends on the mesh, not only on the copper."),
+    (N_("Severity"),
+     N_("CRITICAL: the board cannot work as designed. HIGH: likely to fail a requirement. "
+        "MEDIUM: a real risk with some margin. LOW: minor. INFO: a note, never an action.")),
+    (N_("Certainty"),
+     N_("What a finding rests on. A fact (an exact count or the state of the run), a "
+        "measurement, datasheet values, an estimate from a model of the board, or a rule of "
+        "thumb (a threshold this tool sets).")),
+    (N_("Status"),
+     N_("Per analysis. FAIL on a CRITICAL finding, or a HIGH one resting on a fact, a "
+        "measurement or a datasheet. WARN on any other HIGH, or a MEDIUM. PASS otherwise.")),
+    (N_("Score"),
+     N_("100 minus a penalty per finding, weighted by severity and certainty. It summarises; "
+        "it is not a margin. The EMC score is the analysis's own uncalibrated risk figure.")),
+    (N_("Priority"),
+     N_("Orders the actions: severity, times certainty, times 1.5 for each further analysis "
+        "reporting the problem, divided by the typical effort. It has no unit; only the "
+        "order means something.")),
+    (N_("Margin"),
+     N_("The distance between a value and its limit, such as 25 K under a 150 °C junction "
+        "limit.")),
+    (N_("Junction temperature (Tj)"),
+     N_("The temperature of the silicon inside a package, estimated from the board "
+        "temperature and the part's thermal resistance.")),
+    (N_("θJB, ψJB"),
+     N_("Datasheet figures linking the junction to the board 1 mm from the package (JEDEC "
+        "JESD51-8 and -12).")),
+    (N_("Derating"),
+     N_("How much of its rating (current, power, voltage) a part keeps at a higher "
+        "temperature, read off its datasheet curve.")),
+    (N_("PDN, target impedance"),
+     N_("The power distribution network, from regulator to load. Below its target "
+        "impedance, a rail holds its voltage when the load's current steps.")),
+    (N_("Decoupling capacitor"),
+     N_("A capacitor at a power pin that supplies the pin's fast current locally.")),
+    (N_("Return path, reference plane"),
+     N_("Every signal current comes back through the plane under it. A gap or a layer "
+        "change without a via forces a detour, and the loop radiates.")),
+    (N_("Hot loop, switching node"),
+     N_("In a switching converter, the loop through the input capacitor and the switches "
+        "carries the fastest current edges, and the switching node swings at full input "
+        "voltage. Both radiate in proportion to their area.")),
+    (N_("Harmonic, emissions band"),
+     N_("A switching edge carries energy at every multiple of the switching frequency. "
+        "Standards limit what a product radiates in set bands.")),
+    (N_("ESD, TVS"),
+     N_("An electrostatic discharge enters through a connector. A TVS diode clamps it to "
+        "ground, if its ground path is short.")),
+    (N_("Stitching via"),
+     N_("A via joining ground planes on different layers, so that they act as one at high "
+        "frequency.")),
+    (N_("Mesh, grid step"),
+     N_("The analyses cut the board into small cells. A result that moves when the cells "
+        "are halved depends on the mesh, not only on the copper.")),
 )
 
 
 def _render_how_to_read() -> str:
     sections = "".join(
-        f"<dt>{_esc(term)}</dt><dd>{_esc(text)}</dd>" for term, text in _HOW_TO_READ
+        f"<dt>{_tr(term)}</dt><dd>{_tr(text)}</dd>" for term, text in _HOW_TO_READ
     )
     glossary = "".join(
-        f"<dt>{_esc(term)}</dt><dd>{_esc(text)}</dd>" for term, text in _GLOSSARY
+        f"<dt>{_tr(term)}</dt><dd>{_tr(text)}</dd>" for term, text in _GLOSSARY
     )
+    summary = _esc(_("How to read this report"))
+    heading = _esc(_("Glossary"))
     return (
-        '<details class="guide"><summary>How to read this report</summary>'
+        f'<details class="guide"><summary>{summary}</summary>'
         f'<dl class="glossary">{sections}</dl>'
-        "<h4>Glossary</h4>"
+        f"<h4>{heading}</h4>"
         f'<dl class="glossary">{glossary}</dl></details>'
     )
 
@@ -392,11 +411,11 @@ def _render_how_to_read() -> str:
 # ----------------------------------------------------------------------
 
 _VERDICT_WORDS = {
-    AnalysisStatus.FAIL: "Do not release for manufacture yet: at least one defect must be "
-                         "fixed first.",
-    AnalysisStatus.WARN: "Review before manufacture: the items below need a decision.",
-    AnalysisStatus.PASS: "No defect found by the analyses that ran.",
-    AnalysisStatus.NO_DATA: "No analysis produced a result.",
+    AnalysisStatus.FAIL: N_("Do not release for manufacture yet: at least one defect must be "
+                            "fixed first."),
+    AnalysisStatus.WARN: N_("Review before manufacture: the items below need a decision."),
+    AnalysisStatus.PASS: N_("No defect found by the analyses that ran."),
+    AnalysisStatus.NO_DATA: N_("No analysis produced a result."),
 }
 
 FIX, REVIEW, PROTOTYPE, DATA = "fix", "review", "prototype", "data"
@@ -428,7 +447,9 @@ def _where(components: List[str], nets: List[str]) -> str:
     if components:
         parts.append(_join(components))
     if nets:
-        parts.append(f"net {_join(nets)}")
+        # "net" alone: the extractor skips a template with under four
+        # letters outside its fields, and "net {nets}" has three.
+        parts.append(_esc(_("net")) + " " + _join(nets))
     return " &middot; ".join(parts)
 
 
@@ -455,7 +476,7 @@ def _finding_item(domain: str, finding: AnalysisFinding, badge: bool = True,
     where = _where(shown, finding.nets[:4])
     more = len(finding.components) - len(shown)
     if more > 0:
-        where += f" and {more} more"
+        where += " " + _esc(_("and {count} more")).format(count=more)
     text = finding.recommendation.strip() if advice else ""
     return (
         "<li>" + (f"{_severity_badge(finding.severity)} " if badge else "")
@@ -488,13 +509,20 @@ def _worst(metrics: List[AnalysisMetric], pattern: str) -> Optional[AnalysisMetr
     return max(found, key=lambda m: float(m.value)) if found else None
 
 
-def _verdict_count(metrics: List[AnalysisMetric], pattern: str, noun: str) -> Optional[str]:
+def _verdict_count(metrics: List[AnalysisMetric], pattern: str, template: str) -> Optional[str]:
+    """``template`` is already translated, with {passed} and {total}."""
     judged = [m for m in metrics
               if re.fullmatch(pattern, m.key) and m.status in ("PASS", "WARN", "FAIL")]
     if not judged:
         return None
     passed = sum(1 for m in judged if m.status == "PASS")
-    return f"{passed} of {len(judged)} {noun}"
+    return _esc(template.format(passed=passed, total=len(judged)))
+
+
+def _worst_line(metric: Optional[AnalysisMetric]) -> Optional[str]:
+    if metric is None:
+        return None
+    return _esc(_("Worst {figure}")).format(figure=_metric_text(metric))
 
 
 _KEY_METRIC_KEYS = (
@@ -509,43 +537,38 @@ def key_metrics(result: AnalysisResult) -> List[str]:
     DC section printed 169 figure rows, 853 of the report's 1,920 lines.
     A figure marked NOT_USABLE is never a key figure."""
     usable = [m for m in result.metrics if m.status != "NOT_USABLE"]
-    lines: List[str] = []
+    lines: List[Optional[str]] = []
     kind = result.analysis_type.upper()
     if kind == "DC":
-        count = _verdict_count(usable, r"rail_\d+_drop", "rail drops within the limit")
-        if count:
-            lines.append(_esc(count))
-        for pattern in (r"rail_\d+_drop", r"rail_\d+_maximum_via_current"):
-            metric = _worst(usable, pattern)
-            if metric is not None:
-                lines.append("Worst " + _metric_text(metric))
+        lines.append(_verdict_count(usable, r"rail_\d+_drop",
+                                    _("{passed} of {total} rail drops within the limit")))
+        lines.append(_worst_line(_worst(usable, r"rail_\d+_drop")))
+        lines.append(_worst_line(_worst(usable, r"rail_\d+_maximum_via_current")))
     elif kind == "AC":
-        count = _verdict_count(usable, r".+:worst_impedance", "rails within their target impedance")
-        if count:
-            lines.append(_esc(count))
+        lines.append(_verdict_count(usable, r".+:worst_impedance",
+                                    _("{passed} of {total} rails within their target impedance")))
     elif kind == "DIFFERENTIAL":
-        count = _verdict_count(usable, r"pair_\d+_zdiff", "pairs within their impedance tolerance")
-        if count:
-            lines.append(_esc(count))
-        skew = _worst(usable, r"pair_\d+_skew")
-        if skew is not None:
-            lines.append("Worst " + _metric_text(skew))
+        lines.append(_verdict_count(usable, r"pair_\d+_zdiff",
+                                    _("{passed} of {total} pairs within their impedance tolerance")))
+        lines.append(_worst_line(_worst(usable, r"pair_\d+_skew")))
     else:
         picked = [m for m in usable if m.key in _KEY_METRIC_KEYS]
         picked = picked or [m for m in usable if m.status in ("FAIL", "WARN")]
         lines.extend(_metric_text(m) for m in picked)
-    return lines[:_KEY_METRIC_LIMIT]
+    return [line for line in lines if line][:_KEY_METRIC_LIMIT]
 
 
 def _render_scores(scores: List[DomainScore], results: List[AnalysisResult]) -> str:
     if not scores:
-        return '<p class="muted">No domain produced a result.</p>'
+        return '<p class="muted">' + _esc(_("No domain produced a result.")) + "</p>"
     by_domain = {result.analysis_type: result for result in results}
+    not_run = _esc(_("not run"))
+    none = _esc(_("none"))
     rows = []
     for score in scores:
         status_class = _STATUS_CLASS.get(score.status, "nodata")
         if score.status == AnalysisStatus.NO_DATA:
-            bar = '<span class="muted">not run</span>'
+            bar = f'<span class="muted">{not_run}</span>'
             value = "&mdash;"
         else:
             width = max(0.0, min(100.0, score.score))
@@ -556,7 +579,7 @@ def _render_scores(scores: List[DomainScore], results: List[AnalysisResult]) -> 
             f'<span class="badge {_SEVERITY_CLASS[sev]}">{_esc(sev.value)} '
             f"{score.finding_counts.get(sev.value, 0)}</span>"
             for sev in FindingSeverity if score.finding_counts.get(sev.value, 0)
-        ) or '<span class="muted">none</span>'
+        ) or f'<span class="muted">{none}</span>'
         result = by_domain.get(score.domain)
         figures = "".join(f"<li>{line}</li>" for line in key_metrics(result)) if result else ""
         rows.append(
@@ -565,19 +588,17 @@ def _render_scores(scores: List[DomainScore], results: List[AnalysisResult]) -> 
             f"<td>{bar}{value}</td><td>{counts}</td>"
             f'<td><ul class="tight">{figures}</ul></td></tr>'
         )
-    return (
-        "<table><thead><tr><th>Analysis</th><th>Status</th><th>Score</th>"
-        "<th>Findings</th><th>Key figures</th></tr></thead>"
-        f"<tbody>{''.join(rows)}</tbody></table>"
-    )
+    head = _headers(_("Analysis"), _("Status"), _("Score"), _("Findings"), _("Key figures"))
+    return f"<table>{head}<tbody>{''.join(rows)}</tbody></table>"
 
 
 def _decision_list(title: str, explanation: str, items: List[str], empty: str) -> str:
+    """``title``, ``explanation`` and ``empty`` are English; shown translated."""
     body = (
         f'<ul class="decision">{"".join(items)}</ul>' if items
-        else f'<p class="muted">{_esc(empty)}</p>'
+        else f'<p class="muted">{_tr(empty)}</p>'
     )
-    return f'<h3>{_esc(title)} ({len(items)})</h3><p class="meta">{_esc(explanation)}</p>{body}'
+    return f'<h3>{_tr(title)} ({len(items)})</h3><p class="meta">{_tr(explanation)}</p>{body}'
 
 
 def _render_synthesis(campaign: CampaignResult) -> str:
@@ -597,40 +618,58 @@ def _render_synthesis(campaign: CampaignResult) -> str:
             elif finding.severity == FindingSeverity.INFO and finding.rule_id in CONFIRMATIONS:
                 holds.append(_finding_item(result.analysis_type, finding, badge=False))
     by_domain = {result.analysis_type: result for result in campaign.results}
+    passes = _esc(_("{analysis} passes"))
+    passes_with = _esc(_("{analysis} passes: {figures}"))
     for score in campaign.domain_scores:
         if score.status != AnalysisStatus.PASS:
             continue
         result = by_domain.get(score.domain)
         figures = "; ".join(key_metrics(result)) if result else ""
-        holds.append(f"<li><strong>{_esc(score.domain)}</strong> passes"
-                     + (f": {figures}" if figures else "") + "</li>")
+        analysis = f"<strong>{_esc(score.domain)}</strong>"
+        line = (passes_with.format(analysis=analysis, figures=figures) if figures
+                else passes.format(analysis=analysis))
+        holds.append(f"<li>{line}</li>")
     warnings = campaign.provenance_warnings()
     warning_block = ""
     if warnings:
         items = "".join(f"<li>{_esc(line)}</li>" for line in warnings)
+        label = _esc(_("Warning:"))
+        text = _esc(_("these domains do not all describe the same board revision:"))
         warning_block = (
-            '<p class="muted"><strong>Warning:</strong> these domains do not all '
-            f"describe the same board revision:</p><ul class=\"tight\">{items}</ul>"
+            f'<p class="muted"><strong>{label}</strong> {text}</p><ul class="tight">{items}</ul>'
         )
     explanation = dict(_HOW_TO_READ)
+    heading = _esc(_("1. Decision"))
+    verdict = _tr(_VERDICT_WORDS.get(campaign.overall_status, ""))
+    analyses = _esc(_("Analyses"))
+    empty = (
+        N_("Nothing found that must change before manufacture."),
+        N_("Nothing to review."),
+        N_("Every rule of thumb checked is met."),
+        N_("No input missing."),
+        N_("No limit of the calculation reported."),
+        N_("No check passed."),
+    )
+    lists_in_order = (
+        ("Fix before manufacture", lists[FIX]),
+        ("Review before manufacture", lists[REVIEW]),
+        ("Check on the prototype", lists[PROTOTYPE]),
+        ("Data to complete", lists[DATA]),
+        ("Calculation reliability", calculation),
+        ("What holds", holds),
+    )
+    body = "".join(
+        _decision_list(title, explanation[title], items, nothing)
+        for (title, items), nothing in zip(lists_in_order, empty)
+    )
     return (
-        '<section id="synthesis"><h2>1. Decision</h2>'
+        f'<section id="synthesis"><h2>{heading}</h2>'
         f'<p><span class="verdict {status_class}">{_esc(campaign.overall_status)}</span> '
-        f"{_esc(_VERDICT_WORDS.get(campaign.overall_status, ''))}</p>"
+        f"{verdict}</p>"
         f"{warning_block}"
         f"{_render_how_to_read()}"
-        + _decision_list("Fix before manufacture", explanation["Fix before manufacture"],
-                         lists[FIX], "Nothing found that must change before manufacture.")
-        + _decision_list("Review before manufacture", explanation["Review before manufacture"],
-                         lists[REVIEW], "Nothing to review.")
-        + _decision_list("Check on the prototype", explanation["Check on the prototype"],
-                         lists[PROTOTYPE], "Every rule of thumb checked is met.")
-        + _decision_list("Data to complete", explanation["Data to complete"],
-                         lists[DATA], "No input missing.")
-        + _decision_list("Calculation reliability", explanation["Calculation reliability"],
-                         calculation, "No limit of the calculation reported.")
-        + _decision_list("What holds", explanation["What holds"], holds, "No check passed.")
-        + "<h3>Analyses</h3>"
+        f"{body}"
+        f"<h3>{analyses}</h3>"
         f"{_render_scores(campaign.domain_scores, campaign.results)}"
         "</section>"
     )
@@ -642,27 +681,34 @@ def _render_synthesis(campaign: CampaignResult) -> str:
 
 def _render_remediation(remediation: Remediation) -> str:
     if remediation.verified:
-        marker = ('<span class="badge verified">VERIFIED BY RE-SIMULATION</span>')
+        marker = '<span class="badge verified">' + _esc(_("VERIFIED BY RE-SIMULATION")) + "</span>"
     else:
-        marker = ('<span class="badge unverified">ESTIMATE &mdash; NOT RE-SIMULATED</span>')
+        marker = ('<span class="badge unverified">'
+                  + _esc(_("ESTIMATE — NOT RE-SIMULATED")) + "</span>")
+    labels = {
+        "action": _esc(_("Action")), "target": _esc(_("Target")), "change": _esc(_("Change")),
+        "gain": _esc(_("Predicted gain")), "effort": _esc(_("Effort")),
+        "location": _esc(_("Location")), "alternatives": _esc(_("Alternatives")),
+    }
     location = ""
     if remediation.x_mm is not None and remediation.y_mm is not None:
-        location = (f"<tr><th>Location</th><td>x={_number(remediation.x_mm, 'mm')}, "
+        location = (f"<tr><th>{labels['location']}</th><td>x={_number(remediation.x_mm, 'mm')}, "
                     f"y={_number(remediation.y_mm, 'mm')} "
                     f"{_esc(_layer_name(remediation.layer))}</td></tr>")
     alternatives = ""
     if remediation.alternatives:
         items = "".join(f"<li>{_t(item)}</li>" for item in remediation.alternatives)
-        alternatives = f'<tr><th>Alternatives</th><td><ul class="tight">{items}</ul></td></tr>'
+        alternatives = (f"<tr><th>{labels['alternatives']}</th>"
+                        f'<td><ul class="tight">{items}</ul></td></tr>')
     unit = _units(remediation.unit)
     return (
         "<table><tbody>"
-        f"<tr><th>Action</th><td><code>{_esc(remediation.action)}</code> {marker}</td></tr>"
-        f"<tr><th>Target</th><td>{_esc(remediation.target) or '&mdash;'}</td></tr>"
-        f"<tr><th>Change</th><td>{_number(remediation.current_value, unit)}"
+        f"<tr><th>{labels['action']}</th><td><code>{_esc(remediation.action)}</code> {marker}</td></tr>"
+        f"<tr><th>{labels['target']}</th><td>{_esc(remediation.target) or '&mdash;'}</td></tr>"
+        f"<tr><th>{labels['change']}</th><td>{_number(remediation.current_value, unit)}"
         f" &rarr; {_number(remediation.proposed_value, unit)}</td></tr>"
-        f"<tr><th>Predicted gain</th><td>{_t(remediation.predicted_gain) or '&mdash;'}</td></tr>"
-        f"<tr><th>Effort</th><td>{_esc(remediation.effort)}</td></tr>"
+        f"<tr><th>{labels['gain']}</th><td>{_t(remediation.predicted_gain) or '&mdash;'}</td></tr>"
+        f"<tr><th>{labels['effort']}</th><td>{_esc(remediation.effort)}</td></tr>"
         f"{location}{alternatives}"
         "</tbody></table>"
     )
@@ -678,10 +724,11 @@ def _guide_lines(action: CampaignAction, attribute: str) -> List[str]:
     return lines
 
 
-def _paragraphs(lines: List[str]) -> str:
+def _paragraphs(lines: List[str], translate: bool = False) -> str:
+    render = _tr if translate else _t
     if len(lines) == 1:
-        return f"<p>{_t(lines[0])}</p>"
-    return '<ul class="tight">' + "".join(f"<li>{_t(line)}</li>" for line in lines) + "</ul>"
+        return f"<p>{render(lines[0])}</p>"
+    return '<ul class="tight">' + "".join(f"<li>{render(line)}</li>" for line in lines) + "</ul>"
 
 
 def _render_action_detail(action: CampaignAction) -> str:
@@ -692,23 +739,26 @@ def _render_action_detail(action: CampaignAction) -> str:
         f'<td><span class="confidence">{_esc(item.get("confidence", ""))}</span></td></tr>'
         for item in action.details
     )
-    table = (
-        "<table><thead><tr><th>Analysis</th><th>Rule</th><th>Finding</th>"
-        f"<th>Description</th><th>Certainty</th></tr></thead><tbody>{rows}</tbody></table>"
-        if rows else ""
-    )
-    return (
-        "<details><summary>Technical detail</summary>"
-        f"{table}"
-        f'<p class="meta">Priority {action.gain_rank:.1f} (see "Priority" under How to '
-        "read this report).</p></details>"
-    )
+    head = _headers(_("Analysis"), _("Rule"), _("Finding"), _("Description"), _("Certainty"))
+    table = f"<table>{head}<tbody>{rows}</tbody></table>" if rows else ""
+    summary = _esc(_("Technical detail"))
+    priority = _esc(_('Priority {rank} (see "Priority" under How to read this report).')).format(
+        rank=f"{action.gain_rank:.1f}")
+    return f'<details><summary>{summary}</summary>{table}<p class="meta">{priority}</p></details>'
 
 
 def _render_actions(campaign: CampaignResult) -> str:
+    heading = _esc(_("2. Actions"))
     if not campaign.actions:
-        return ('<section id="actions"><h2>2. Actions</h2>'
-                '<p class="muted">No actionable findings.</p></section>')
+        nothing = _esc(_("No actionable findings."))
+        return f'<section id="actions"><h2>{heading}</h2><p class="muted">{nothing}</p></section>'
+    labels = {
+        "why": _esc(_("Why it is a risk")), "todo": _esc(_("What to do")),
+        "verify": _esc(_("How to check")), "sure": _esc(_("How sure")),
+        "effort": _esc(_("Typical effort")),
+    }
+    where_template = _esc(_("Where: {where} · found by {domains}"))
+    no_change = _esc(_("No change was computed for this action."))
     blocks = []
     for action in campaign.actions:
         border = {
@@ -724,27 +774,30 @@ def _render_actions(campaign: CampaignResult) -> str:
         elif action.recommendations:
             todo = _paragraphs(action.recommendations)
         else:
-            todo = '<p class="muted">No change was computed for this action.</p>'
+            todo = f'<p class="muted">{no_change}</p>'
         why = _guide_lines(action, "why")
         verify = _guide_lines(action, "verify")
-        where = _where(action.components, action.nets) or "&mdash;"
-        certainty = _CERTAINTY_WORDS.get(action.confidence, action.confidence)
-        effort = _EFFORT_WORDS.get(action.effort, str(action.effort))
+        where = where_template.format(
+            where=_where(action.components, action.nets) or "&mdash;",
+            domains=_join(action.domains),
+        )
+        certainty = _tr(_CERTAINTY_WORDS.get(action.confidence, action.confidence))
+        effort = _tr(_EFFORT_WORDS.get(action.effort, str(action.effort)))
         blocks.append(
             f'<article class="action {border}" id="{_esc(action.action_id)}">'
             f"<h3>{_severity_badge(action.severity)} {_t(action.title)}</h3>"
-            f'<p class="meta">Where: {where} &middot; found by {_join(action.domains)}</p>'
+            f'<p class="meta">{where}</p>'
             '<dl class="card">'
-            + (f"<dt>Why it is a risk</dt><dd>{_paragraphs(why)}</dd>" if why else "")
-            + f"<dt>What to do</dt><dd>{todo}</dd>"
-            + (f"<dt>How to check</dt><dd>{_paragraphs(verify)}</dd>" if verify else "")
-            + f"<dt>How sure</dt><dd>{_esc(certainty)}</dd>"
-            f"<dt>Typical effort</dt><dd>{_esc(effort)}</dd>"
+            + (f"<dt>{labels['why']}</dt><dd>{_paragraphs(why, True)}</dd>" if why else "")
+            + f"<dt>{labels['todo']}</dt><dd>{todo}</dd>"
+            + (f"<dt>{labels['verify']}</dt><dd>{_paragraphs(verify, True)}</dd>" if verify else "")
+            + f"<dt>{labels['sure']}</dt><dd>{certainty}</dd>"
+            f"<dt>{labels['effort']}</dt><dd>{effort}</dd>"
             "</dl>"
             f"{_render_action_detail(action)}"
             "</article>"
         )
-    return f'<section id="actions"><h2>2. Actions</h2>{"".join(blocks)}</section>'
+    return f'<section id="actions"><h2>{heading}</h2>{"".join(blocks)}</section>'
 
 
 # ----------------------------------------------------------------------
@@ -753,7 +806,7 @@ def _render_actions(campaign: CampaignResult) -> str:
 
 def _render_metrics(result: AnalysisResult) -> str:
     if not result.metrics:
-        return '<p class="muted">No figures recorded.</p>'
+        return '<p class="muted">' + _esc(_("No figures recorded.")) + "</p>"
     rows = []
     for metric in result.metrics:
         value = metric.value
@@ -768,15 +821,18 @@ def _render_metrics(result: AnalysisResult) -> str:
             f"<td>{value_html}</td><td>{_t(metric.unit)}</td>"
             f"<td>{_esc(metric.status)}</td></tr>"
         )
-    return (f"<details><summary>All {len(result.metrics)} figures</summary>"
-            "<table><thead><tr><th>Figure</th><th>Value</th>"
-            "<th>Unit</th><th>Status</th></tr></thead>"
-            f"<tbody>{''.join(rows)}</tbody></table></details>")
+    summary = _esc(_("All {count} figures")).format(count=len(result.metrics))
+    head = _headers(_("Figure"), _("Value"), _("Unit"), _("Status"))
+    return (f"<details><summary>{summary}</summary>"
+            f"<table>{head}<tbody>{''.join(rows)}</tbody></table></details>")
 
 
 def _render_findings(result: AnalysisResult) -> str:
     if not result.findings:
-        return '<p class="muted">No findings.</p>'
+        return '<p class="muted">' + _esc(_("No findings.")) + "</p>"
+    head = _headers(_("Rule"), _("Title"), _("Description"), _("Nets"), _("Components"),
+                    _("Recommendation"))
+    count_template = _esc(_("{count} finding(s)"))
     blocks = []
     for severity in FindingSeverity:
         group = [f for f in result.findings if f.severity == severity]
@@ -792,12 +848,11 @@ def _render_findings(result: AnalysisResult) -> str:
                 f"<td>{_join(finding.components)}</td>"
                 f"<td>{_t(finding.recommendation) or '&mdash;'}</td></tr>"
             )
+        count = count_template.format(count=len(group))
         blocks.append(
             f'<details><summary><span class="badge {_SEVERITY_CLASS[severity]}">'
-            f"{_esc(severity)}</span> &mdash; {len(group)} finding(s)</summary>"
-            "<table><thead><tr><th>Rule</th><th>Title</th><th>Description</th>"
-            "<th>Nets</th><th>Components</th><th>Recommendation</th></tr></thead>"
-            f"<tbody>{''.join(rows)}</tbody></table></details>"
+            f"{_esc(severity)}</span> &mdash; {count}</summary>"
+            f"<table>{head}<tbody>{''.join(rows)}</tbody></table></details>"
         )
     return "".join(blocks)
 
@@ -836,6 +891,9 @@ def _render_artifacts(result: AnalysisResult, embed_images: bool, search_roots=(
         return ""
     ordered = _figure_order(result)
     shown, rest = ordered[:_EMBEDDED_FIGURES], ordered[_EMBEDDED_FIGURES:]
+    unavailable = _esc(_("Artifact unavailable:"))
+    expected = _esc(_("Expected at"))
+    no_path = _esc(_("(no path recorded)"))
     blocks = []
     for artifact in shown:
         title = _esc(artifact.title)
@@ -847,8 +905,8 @@ def _render_artifacts(result: AnalysisResult, embed_images: bool, search_roots=(
         uri = _data_uri(resolved) if resolved is not None else None
         if uri is None:
             blocks.append(
-                f'<div class="missing-artifact"><strong>Artifact unavailable:</strong> '
-                f"{title}<br>Expected at <code>{_esc(raw_path) or '(no path recorded)'}</code>"
+                f'<div class="missing-artifact"><strong>{unavailable}</strong> '
+                f"{title}<br>{expected} <code>{_esc(raw_path) or no_path}</code>"
                 "</div>"
             )
         else:
@@ -859,18 +917,24 @@ def _render_artifacts(result: AnalysisResult, embed_images: bool, search_roots=(
     if rest:
         folder = _resolve_artifact(str(rest[0].path or ""), search_roots)
         items = "".join(f"<li>{_esc(artifact.title)}</li>" for artifact in rest)
+        more = _esc(_("{count} more figures")).format(count=len(rest))
+        where = (_esc(_("In {folder}")).format(folder=f"<code>{_esc(folder.parent)}</code>")
+                 if folder else "")
         blocks.append(
-            f"<details><summary>{len(rest)} more figures</summary>"
-            + (f'<p class="meta">In <code>{_esc(folder.parent)}</code></p>' if folder else "")
+            f"<details><summary>{more}</summary>"
+            + (f'<p class="meta">{where}</p>' if where else "")
             + f'<ul class="tight">{items}</ul></details>'
         )
-    return f"<h4>Figures</h4>{''.join(blocks)}"
+    heading = _esc(_("Figures"))
+    return f"<h4>{heading}</h4>{''.join(blocks)}"
 
 
 def _render_domains(campaign: CampaignResult, embed_images: bool, search_roots=()) -> str:
+    heading = _esc(_("3. Per domain"))
     if not campaign.results:
-        return ('<section id="domains"><h2>3. Per domain</h2>'
-                '<p class="muted">No analysis results.</p></section>')
+        nothing = _esc(_("No analysis results."))
+        return f'<section id="domains"><h2>{heading}</h2><p class="muted">{nothing}</p></section>'
+    findings_heading = _esc(_("Findings"))
     blocks = []
     for result in campaign.results:
         status_class = _STATUS_CLASS.get(result.status, "nodata")
@@ -880,28 +944,35 @@ def _render_domains(campaign: CampaignResult, embed_images: bool, search_roots=(
             f'<span class="verdict {status_class}">{_esc(result.status)}</span></h3>'
             + (f'<ul class="tight">{figures}</ul>' if figures else "")
             + f"{_render_metrics(result)}"
-            "<h4>Findings</h4>"
+            f"<h4>{findings_heading}</h4>"
             f"{_render_findings(result)}"
             f"{_render_artifacts(result, embed_images, search_roots)}"
         )
-    return f'<section id="domains"><h2>3. Per domain</h2>{"".join(blocks)}</section>'
+    return f'<section id="domains"><h2>{heading}</h2>{"".join(blocks)}</section>'
 
 
 # ----------------------------------------------------------------------
 # Section 4 -- appendices
 # ----------------------------------------------------------------------
 
-_MODE_LABELS = {"single_board": "single-board", "zeo_container": "Zeo container", "zeo_member": "Zeo member"}
+_MODE_LABELS = {
+    "single_board": N_("single-board"),
+    "zeo_container": N_("Zeo container"),
+    "zeo_member": N_("Zeo member"),
+}
 
 
 def _render_project_context(context) -> str:
     if not context:
         return ""
-    mode = _MODE_LABELS.get(str(context.get("mode", "")), str(context.get("mode", "")))
+    raw = str(context.get("mode", ""))
+    mode = _(_MODE_LABELS[raw]) if raw in _MODE_LABELS else raw
     notes = "; ".join(str(note) for note in context.get("notes") or ())
+    host = _esc(_("Host"))
+    project_mode = _esc(_("Project mode"))
     return (
-        f"<tr><th>Host</th><td>{_esc(context.get('host', ''))}</td></tr>"
-        f"<tr><th>Project mode</th><td>{_esc(mode)}"
+        f"<tr><th>{host}</th><td>{_esc(context.get('host', ''))}</td></tr>"
+        f"<tr><th>{project_mode}</th><td>{_esc(mode)}"
         + (f" &mdash; {_esc(notes)}" if notes else "")
         + "</td></tr>"
     )
@@ -918,29 +989,45 @@ def _render_scope(campaign: CampaignResult) -> str:
         f"<td>{result.elapsed_seconds:.2f} s</td></tr>"
         for score, result in zip(campaign.domain_scores, campaign.results)
     )
+    label = {key: _esc(text) for key, text in (
+        ("scope", _("Scope analysed")), ("project", _("Project")),
+        ("fingerprint", _("Board fingerprint")), ("campaign", _("Campaign")),
+        ("created", _("Created")), ("compute", _("Total compute")),
+        ("analyses", _("Analyses")),
+    )}
+    head = _headers(_("Analysis"), _("Completed"), _("Board"), _("Run"), _("Compute"))
     return (
-        "<h3>Scope analysed</h3><table><tbody>"
-        f"<tr><th>Project</th><td>{_esc(campaign.project_name) or '&mdash;'}</td></tr>"
+        f"<h3>{label['scope']}</h3><table><tbody>"
+        f"<tr><th>{label['project']}</th><td>{_esc(campaign.project_name) or '&mdash;'}</td></tr>"
         f"{_render_project_context(campaign.project_context)}"
-        f"<tr><th>Board fingerprint</th><td><code>{_esc(campaign.board_fingerprint) or '&mdash;'}</code></td></tr>"
-        f"<tr><th>Campaign</th><td><code>{_esc(campaign.campaign_id)}</code></td></tr>"
-        f"<tr><th>Created</th><td>{_esc(campaign.created_at)}</td></tr>"
-        f"<tr><th>Total compute</th><td>{campaign.total_elapsed_seconds:.2f} s</td></tr>"
-        f"<tr><th>Analyses</th><td>{len(campaign.results)}</td></tr>"
+        f"<tr><th>{label['fingerprint']}</th>"
+        f"<td><code>{_esc(campaign.board_fingerprint) or '&mdash;'}</code></td></tr>"
+        f"<tr><th>{label['campaign']}</th><td><code>{_esc(campaign.campaign_id)}</code></td></tr>"
+        f"<tr><th>{label['created']}</th><td>{_esc(campaign.created_at)}</td></tr>"
+        f"<tr><th>{label['compute']}</th><td>{campaign.total_elapsed_seconds:.2f} s</td></tr>"
+        f"<tr><th>{label['analyses']}</th><td>{len(campaign.results)}</td></tr>"
         "</tbody></table>"
-        + ("<table><thead><tr><th>Analysis</th><th>Completed</th><th>Board</th>"
-           f"<th>Run</th><th>Compute</th></tr></thead><tbody>{rows}</tbody></table>"
-           if rows else "")
+        + (f"<table>{head}<tbody>{rows}</tbody></table>" if rows else "")
     )
 
 
 def _render_mapping(payload: Dict[str, Any]) -> str:
     if not payload:
-        return '<p class="muted">None recorded.</p>'
+        return '<p class="muted">' + _esc(_("None recorded.")) + "</p>"
     return f"<pre>{_esc(json.dumps(payload, indent=2, ensure_ascii=False, default=str))}</pre>"
 
 
 def _render_appendices(campaign: CampaignResult) -> str:
+    label = {key: _esc(text) for key, text in (
+        ("provenance", _("Provenance")), ("limitations", _("Limitations")),
+        ("configuration", _("Configuration")), ("compute", _("Compute metadata")),
+        ("no_provenance", _("No provenance recorded.")),
+        ("no_limitations", _("No limitations recorded.")),
+        ("no_results", _("No results.")), ("heading", _("4. Appendices")),
+        ("per_analysis", _("Per analysis")),
+    )}
+    result_schema = _esc(_("Result schema {version}"))
+    head = _headers(_("Source"), _("Detail"), _("Reference"))
     blocks = []
     for result in campaign.results:
         if result.provenance:
@@ -949,32 +1036,34 @@ def _render_appendices(campaign: CampaignResult) -> str:
                 f"<td>{_esc(item.reference) or '&mdash;'}</td></tr>"
                 for item in result.provenance
             )
-            provenance = ("<table><thead><tr><th>Source</th><th>Detail</th>"
-                          f"<th>Reference</th></tr></thead><tbody>{rows}</tbody></table>")
+            provenance = f"<table>{head}<tbody>{rows}</tbody></table>"
         else:
-            provenance = '<p class="muted">No provenance recorded.</p>'
+            provenance = f'<p class="muted">{label["no_provenance"]}</p>'
         if result.limitations:
             items = "".join(f"<li>{_t(line)}</li>" for line in result.limitations)
             limitations = f'<ul class="tight">{items}</ul>'
         else:
-            limitations = '<p class="muted">No limitations recorded.</p>'
+            limitations = f'<p class="muted">{label["no_limitations"]}</p>'
+        schema = result_schema.format(version=_esc(result.schema_version))
         blocks.append(
             f"<details><summary>{_esc(result.analysis_type)} &mdash; "
             f"{_esc(result.title)}</summary>"
-            f"<h4>Provenance</h4>{provenance}"
-            f"<h4>Limitations</h4>{limitations}"
-            f"<h4>Configuration</h4>{_render_mapping(result.configuration_snapshot)}"
-            f"<h4>Compute metadata</h4>{_render_mapping(result.compute_metadata)}"
-            f'<p class="meta">Result schema {_esc(result.schema_version)}</p>'
+            f"<h4>{label['provenance']}</h4>{provenance}"
+            f"<h4>{label['limitations']}</h4>{limitations}"
+            f"<h4>{label['configuration']}</h4>{_render_mapping(result.configuration_snapshot)}"
+            f"<h4>{label['compute']}</h4>{_render_mapping(result.compute_metadata)}"
+            f'<p class="meta">{schema}</p>'
             "</details>"
         )
-    body = "".join(blocks) or '<p class="muted">No results.</p>'
+    body = "".join(blocks) or f'<p class="muted">{label["no_results"]}</p>'
+    campaign_schema = _esc(_("Campaign schema {version}")).format(
+        version=_esc(campaign.schema_version))
     return (
-        '<section id="appendices"><h2>4. Appendices</h2>'
+        f'<section id="appendices"><h2>{label["heading"]}</h2>'
         f"{_render_scope(campaign)}"
-        "<h3>Per analysis</h3>"
+        f"<h3>{label['per_analysis']}</h3>"
         f"{body}"
-        f'<p class="meta">Campaign schema {_esc(campaign.schema_version)}</p>'
+        f'<p class="meta">{campaign_schema}</p>'
         "</section>"
     )
 
@@ -992,16 +1081,17 @@ def render_campaign_html(
     recorded path is a bare file name, which is what ProjectResultsHistory
     stores. Without them, every plot renders as "artifact unavailable".
     """
-    title = _esc(campaign.project_name or "Ki-PIDA campaign report")
+    title = _esc(campaign.project_name or _("Ki-PIDA campaign report"))
+    suffix = _esc(_("Ki-PIDA report"))
+    subtitle = _esc(_("Ki-PIDA consolidated analysis report"))
     return (
         "<!DOCTYPE html>\n"
-        '<html lang="en"><head><meta charset="utf-8">'
+        f'<html lang="{_esc(current_language())}"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>{title} &mdash; Ki-PIDA report</title>"
+        f"<title>{title} &mdash; {suffix}</title>"
         f"<style>{_CSS}</style></head><body>"
         f"<h1>{title}</h1>"
-        f'<p class="meta">Ki-PIDA consolidated analysis report &middot; '
-        f"{_esc(campaign.created_at)}</p>"
+        f'<p class="meta">{subtitle} &middot; {_esc(campaign.created_at)}</p>'
         f"{_render_synthesis(campaign)}"
         f"{_render_actions(campaign)}"
         f"{_render_domains(campaign, embed_images, artifact_roots)}"

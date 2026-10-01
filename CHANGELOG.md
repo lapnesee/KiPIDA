@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Changed the campaign report to follow the interface language: its
+  headings, decision lists, cards, glossary and the rule guide's names,
+  risks and checks are in the French catalog (363 messages). Finding
+  titles and descriptions stay as the analyses wrote them. The catalog
+  extractor now reads report/ and rule_guide.py, and N_ marks a table
+  entry built before the language is chosen.
 - Fixed the campaign report showing no figure: plots are saved after a
   result, so the results it aggregates listed none. They are now read
   from each run's own history folder, matched by run id. P02 Rev E's
