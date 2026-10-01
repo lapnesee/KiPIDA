@@ -5424,3 +5424,15 @@ msgstr ""
 #: rule_guide.py:408
 msgid "Read the capacitor's temperature range in its datasheet; on the prototype, measure its temperature at full load."
 msgstr ""
+
+#: rule_guide.py:401
+msgid "An entered current or frequency that differs from the power tree's makes each analysis judge a different converter."
+msgstr ""
+
+#: rule_guide.py:400
+msgid "Converter values differ from the power tree"
+msgstr ""
+
+#: rule_guide.py:403
+msgid "Rerun EMC: the finding should not return once the values agree."
+msgstr ""

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added power_tree.py, where every domain reads a switching converter's
+  output current and frequency from the power tree. The EMC rule SW-004
+  (LOW, data to complete) names an entered source or inductor model more
+  than 5 % off the tree's current or 10 % off its frequency, and Phase
+  10's board circuit now draws the tree's current. P02 Rev E's U4 SW1
+  source and L1's model read 4.36 A; the tree gives U4 4.726 A, which
+  the AC target used. U14's 3 A and U5's 1 A agree.
 - Added the board temperature under every footprint's pads to the
   thermal result, heat source or not. TE-001 now names the capacitors,
   inductors and ferrites above 85 C instead of the hotspot alone, and

@@ -337,6 +337,42 @@ class Phase10Tests(unittest.TestCase):
         self.assertIn("GND=0", bench["pin_mapping"])
         self.assertIn("SW3=/J2_SRC_SW", bench["pin_mapping"])
 
+    def test_a_board_circuit_draws_the_power_trees_current(self):
+        # P02 Rev E: U4's circuit drew the 4.36 A entered for its source,
+        # where the power tree's loads give U4 4.726 A.
+        from types import SimpleNamespace
+        from models import EMCBoardCircuitResult, EMCPhase10Result, EMCSpiceModelAudit
+        from power_tree import ConverterOutput
+
+        drawn = []
+
+        class FakeSimulator:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def run(self, _board, source, reference, _path, model_name, *_rest):
+                drawn.append(source.current_a)
+                return EMCBoardCircuitResult(source.name, reference, "NOT_BUILT", model_name)
+
+        source = EMCSignalSource("U4 SW1 buck leg (Q10/Q11/L1)", "/SYS_5V_SW1", kind="SWITCHING",
+                                 frequency_hz=400e3, voltage_swing_v=20.0, current_a=4.36)
+        snapshot = SimpleNamespace(rail_voltages={}, converter_outputs={
+            "U4": ConverterOutput("U4 buck-boost 5 V machine", "/SYS_5V_PRE_SENSE", 4.7262, 400e3),
+        })
+        audit = EMCSpiceModelAudit("U4", "TPS552882", source.name, "PSPICE_BENCH_PASS",
+                                   model_name="TPS55288", model_path="tps55288.lib")
+        with tempfile.TemporaryDirectory() as directory:
+            board = Path(directory) / "p02.kicad_pcb"
+            board.write_text("(kicad_pcb)", encoding="utf-8")
+            pipeline = EMCPhase10Pipeline(
+                snapshot, EMCAnalysisSettings(sources=[source]), None, board_file_path=board,
+            )
+            with patch("emc_phase10.read_board", return_value=object()),                     patch("emc_phase10.BoardCircuitSimulator", FakeSimulator):
+                pipeline._run_board_circuits(
+                    EMCPhase10Result(spice_model_audit=[audit]), None, Path(directory),
+                )
+        self.assertEqual(drawn, [4.7262])
+
     def test_a_board_circuit_gives_the_excitation_its_switched_current(self):
         # P02 Rev E's U14 in its board circuit under PSpice for TI: 478.5 kHz,
         # 5.2 V, inductor 2.16 to 3.82 A under the source's 3 A load.

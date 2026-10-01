@@ -396,6 +396,12 @@ GUIDE: Dict[str, RuleGuide] = {
         "Measure the loop's widest gap after the move; scan the switching harmonics with a "
         "near-field probe on the prototype.",
         _B, _MEDIUM),
+    "SW-004": RuleGuide(
+        "Converter values differ from the power tree",
+        "An entered current or frequency that differs from the power tree's makes each "
+        "analysis judge a different converter.",
+        "Rerun EMC: the finding should not return once the values agree.",
+        _D, _LOW),
     "TE-001": RuleGuide(
         "Hot parts change their EMC behaviour",
         "Heat lowers a ceramic capacitor's capacitance and a ferrite's impedance.",

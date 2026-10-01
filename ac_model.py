@@ -12,10 +12,12 @@ try:
     from .extractor import GeometryExtractor
     from .mesh import Mesher
     from .models import ACAnalysisSettings, CapacitorModel, MeshBranch, PowerRail
+    from .power_tree import converter_input_current, rail_supplied_current
 except (ImportError, ValueError):
     from extractor import GeometryExtractor
     from mesh import Mesher
     from models import ACAnalysisSettings, CapacitorModel, MeshBranch, PowerRail
+    from power_tree import converter_input_current, rail_supplied_current
 
 
 # kiapi.common.types.ElectricalPinType, as carried by Pad.symbol_pin.type on a
@@ -34,40 +36,6 @@ EPT_POWER_OUTPUT = 9
 # working figure.
 RIPPLE_FRACTION_DEFAULT = 0.02
 TRANSIENT_FRACTION_DEFAULT = 0.5
-
-
-def converter_input_current(rail, all_rails):
-    """Current the regulators fed by *rail* draw from it, through the whole tree.
-
-    A regulator draws what its output rail supplies -- that rail's loads and,
-    in turn, its own regulators' inputs -- scaled by Vout / (Vin x efficiency)
-    when it switches and passed through unchanged when it is linear, as the DC
-    solve and the EMC source scan count it.
-    """
-    by_name = {item.net_name: item for item in (all_rails or ())}
-
-    def supplied(name, visiting):
-        item = by_name.get(name)
-        if item is None or name in visiting:
-            return 0.0
-        own = sum(float(getattr(load, "total_current", 0.0) or 0.0) for load in (item.loads or ()))
-        return own + drawn(item, visiting | {name})
-
-    def drawn(item, visiting):
-        total = 0.0
-        for regulator in getattr(item, "child_regulators", ()) or ():
-            downstream = supplied(regulator.output_rail_name, visiting)
-            if str(regulator.reg_type).upper() == "SWITCHING":
-                output = by_name.get(regulator.output_rail_name)
-                vout = float(getattr(output, "nominal_voltage", 0.0) or 0.0)
-                vin = float(getattr(item, "nominal_voltage", 0.0) or 0.0)
-                efficiency = max(float(getattr(regulator, "efficiency", 1.0) or 1.0), 1.0e-6)
-                total += downstream * vout / (vin * efficiency) if vin > 0.0 else downstream
-            else:
-                total += downstream
-        return total
-
-    return drawn(rail, {rail.net_name})
 
 
 def switching_converter_step(rail, all_rails):
@@ -102,22 +70,16 @@ def switching_converter_step(rail, all_rails):
     def nominal(name):
         return float(getattr(by_name.get(name), "nominal_voltage", 0.0) or 0.0)
 
-    def supplied(name, visiting):
-        # A converter's output current: its rail's loads and what the
-        # regulators it feeds draw at that rail's voltage. Summing their
-        # outputs instead gave P02 Rev E's U4 a 5 A step, U5's 1 A at 3.32 V
-        # counted for the 0.726 A it draws at 5.08 V; its output is 4.726 A.
-        item = by_name.get(name)
-        if item is None or name in visiting:
-            return 0.0
-        own = sum(float(getattr(load, "total_current", 0.0) or 0.0) for load in (item.loads or ()))
-        return own + converter_input_current(item, all_rails)
-
     def steps(item, visiting):
         for regulator in (getattr(item, "child_regulators", ()) or ()):
             output = regulator.output_rail_name
             if str(getattr(regulator, "reg_type", "")).upper() == "SWITCHING":
-                yield supplied(output, visiting), regulator
+                # A converter's output current: its rail's loads and what the
+                # regulators it feeds draw at that rail's voltage. Summing
+                # their outputs instead gave P02 Rev E's U4 a 5 A step, U5's
+                # 1 A at 3.32 V counted for the 0.726 A it draws at 5.08 V;
+                # its output is 4.726 A.
+                yield rail_supplied_current(output, all_rails), regulator
             elif (
                 output not in visiting and output in by_name
                 and nominal(output) > 0.0 and abs(nominal(output) - nominal(item.net_name)) < 1e-9

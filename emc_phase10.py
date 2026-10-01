@@ -1215,7 +1215,7 @@ def board_circuit_sources(settings, circuits):
                 f"{circuit.component_ref} ({circuit.model_name}) in the board's circuit under PSpice for TI: "
                 f"{circuit.frequency_hz / 1e3:.1f} kHz, switch {circuit.switch_low_v:.2f} to "
                 f"{circuit.switch_high_v:.2f} V, inductor peak {circuit.inductor_peak_a:.2f} A under the "
-                f"{source.current_a:g} A load; configured {source.frequency_hz / 1e3:g} kHz, "
+                f"{circuit.load_a or source.current_a:.3g} A load; configured {source.frequency_hz / 1e3:g} kHz, "
                 f"{source.voltage_swing_v:g} V, {source.current_a:g} A; rise time "
                 f"{source.rise_time_ns:g} ns as configured."
             ),
@@ -1923,13 +1923,28 @@ class EMCPhase10Pipeline:
             return
         simulator = BoardCircuitSimulator(pspice_runner)
         rail_voltages = dict(getattr(self.snapshot, "rail_voltages", None) or {})
+        tree = dict(getattr(self.snapshot, "converter_outputs", None) or {})
         for source, audit in runnable:
             if self.cancellation_callback and self.cancellation_callback():
                 break
             self.log(f"[PHASE 10] Board circuit: {source.name} ({audit.component_ref}, {audit.model_name})")
+            # The circuit draws the converter's output current as the power
+            # tree sums it, not the entered source's: on P02 Rev E, U4's
+            # circuit drew 4.36 A where the tree's loads, which the AC target
+            # used, give 4.726 A.
+            loaded = source
+            converter = tree.get(str(audit.component_ref).upper())
+            if converter is not None and converter.current_a > 0.0:
+                loaded = replace(source, current_a=converter.current_a)
+                if abs(converter.current_a - float(source.current_a)) > 1e-9:
+                    self.log(
+                        f"[PHASE 10] Board circuit {audit.component_ref} draws {converter.current_a:.3g} A, "
+                        f"{converter.name}'s output in the power tree; the source is entered at "
+                        f"{float(source.current_a):g} A."
+                    )
             safe_name = "".join(char if char.isalnum() else "_" for char in source.name)
             circuit = simulator.run(
-                board, source, audit.component_ref, audit.model_path, audit.model_name,
+                board, loaded, audit.component_ref, audit.model_path, audit.model_name,
                 rail_voltages, output / "board-circuits" / safe_name,
             )
             result.board_circuits.append(circuit)

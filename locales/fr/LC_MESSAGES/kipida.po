@@ -3888,3 +3888,12 @@ msgstr "Condensateur au-delà de sa température nominale"
 
 msgid "Read the capacitor's temperature range in its datasheet; on the prototype, measure its temperature at full load."
 msgstr "Lisez la plage de température du condensateur dans sa fiche technique ; sur prototype, mesurez sa température à pleine charge."
+
+msgid "An entered current or frequency that differs from the power tree's makes each analysis judge a different converter."
+msgstr "Un courant ou une fréquence saisis qui diffèrent de ceux de l’arbre d’alimentation font juger à chaque analyse un convertisseur différent."
+
+msgid "Converter values differ from the power tree"
+msgstr "Valeurs de convertisseur différentes de l’arbre d’alimentation"
+
+msgid "Rerun EMC: the finding should not return once the values agree."
+msgstr "Relancez la CEM : l’observation ne doit plus revenir une fois les valeurs accordées."

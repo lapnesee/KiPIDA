@@ -289,6 +289,28 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertNotIn("TE-001", result.score_penalties_by_rule)
         self.assertFalse(any("editable defaults" in item for item in result.limitations))
 
+    def test_an_entered_converter_current_off_the_power_tree_is_named(self):
+        # P02 Rev E: U4's SW1 source was entered at 4.36 A; the power tree's
+        # loads give U4 4.726 A, which the AC target used. U14's 3 A agrees.
+        from power_tree import ConverterOutput
+        snap = self.snapshot()
+        snap.converter_outputs = {
+            "U4": ConverterOutput("U4 buck-boost 5 V machine", "/SYS_5V_PRE_SENSE", 4.7262, 400e3),
+            "U14": ConverterOutput("U14 buck J2 source", "/J2_SRC_VBUS", 3.0, 500e3),
+        }
+        settings = self.settings()
+        settings.sources = [
+            EMCSignalSource("U4 SW1 buck leg (Q10/Q11/L1)", "/SYS_5V_SW1", "SWITCHING", 400e3,
+                            voltage_swing_v=20.0, current_a=4.36),
+            EMCSignalSource("U14 SW (J2 source buck)", "/J2_SRC_SW", "SWITCHING", 500e3,
+                            voltage_swing_v=20.0, current_a=3.0),
+        ]
+        result = EMCAnalyzer(snap, settings).analyze()
+        (finding,) = [item for item in result.findings if item.rule_id == "SW-004"]
+        self.assertEqual(finding.components, ["U4"])
+        self.assertIn("U4 SW1 buck leg (Q10/Q11/L1) at 4.36 A entered", finding.description)
+        self.assertIn("U4 buck-boost 5 V machine 4.73 A at 400 kHz", finding.description)
+
     def test_a_capacitor_above_its_dielectric_rating_is_flagged(self):
         # P02 Rev E: C37 (22u 35V X5R) sits 4.4 mm from the 118.99 C hotspot
         # on Q10's drain pad; X5R is rated to 85 C, C63's X7R to 125 C.

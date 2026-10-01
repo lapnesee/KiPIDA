@@ -23,6 +23,7 @@ try:
     from .differential_length import protocol_skew_limit_ps
     from .extractor import GeometryExtractor, live_capture_has_no_copper, to_mm
     from .inductor_em import resolve_inductor_models, trapezoid_envelope_db, TargetedInductorRefiner
+    from .power_tree import converter_output_for, converter_outputs
     from .models import (
         EMCAnalysisResult, EMCEvidence, EMCFinding, EMCFrequencyRisk,
         EMCProbePoint, EMCSignalSource,
@@ -31,6 +32,7 @@ except (ImportError, ValueError):
     from differential_length import protocol_skew_limit_ps
     from extractor import GeometryExtractor, live_capture_has_no_copper, to_mm
     from inductor_em import resolve_inductor_models, trapezoid_envelope_db, TargetedInductorRefiner
+    from power_tree import converter_output_for, converter_outputs
     from models import (
         EMCAnalysisResult, EMCEvidence, EMCFinding, EMCFrequencyRisk,
         EMCProbePoint, EMCSignalSource,
@@ -128,6 +130,11 @@ _DIELECTRIC_RE = re.compile(
 )
 _CLASS_II_RATED_C = {"4": 65.0, "5": 85.0, "6": 105.0, "7": 125.0, "8": 150.0, "9": 200.0}
 _CLASS_I_RATED_C = 125.0
+# An entered converter current further than this from the power tree's own
+# sum, or an entered frequency further than CONVERTER_FREQUENCY_TOLERANCE from
+# the converter's loss model, is a copy that was not updated (SW-004).
+CONVERTER_CURRENT_TOLERANCE = 0.05
+CONVERTER_FREQUENCY_TOLERANCE = 0.10
 # TE-001 names the capacitors, inductors and ferrites above this: the X5R
 # limit, past which ceramics lose capacitance and ferrites impedance fast
 # enough to matter to a filter.
@@ -343,6 +350,10 @@ class EMCGeometrySnapshot:
     ignored_offboard_nets: tuple = ()
     ignored_offboard_counts: dict = field(default_factory=dict)
     inductors: list = field(default_factory=list)
+    # {reference: power_tree.ConverterOutput}: each switching converter's
+    # output current and frequency in the power tree, under every reference
+    # it goes by (SW-004, Phase 10's board-circuit load).
+    converter_outputs: dict = field(default_factory=dict)
     # {reference: {"capacitor", "powered", "connector"}} from the project's
     # saved files (ingest.declarations.component_classes); empty without them.
     component_classes: dict = field(default_factory=dict)
@@ -586,6 +597,7 @@ class EMCGeometrySnapshot:
             ignored_offboard_nets=tuple(sorted(ignored_nets)),
             ignored_offboard_counts=dict(sorted(ignored_counts.items())),
             inductors=inductors,
+            converter_outputs=converter_outputs(rails or []),
             component_classes=dict(component_classes or {}),
         )
 
@@ -2199,6 +2211,62 @@ class EMCAnalyzer:
                       "oscillator value, or a Frequency/Fsw field on the part.",
                       "HIGH", sorted({item.net_name for item in unknown}))
 
+    def _power_tree_rules(self):
+        """SW-004: an entered switching source or inductor model that
+        disagrees with what the power tree says its converter delivers.
+
+        P02 Rev E's U4 SW1 source and L1's model were entered at 4.36 A; the
+        tree's loads give U4 4.726 A, which the AC target already used.
+        """
+        outputs = dict(getattr(self.snapshot, "converter_outputs", None) or {})
+        if not outputs or not self._enabled("SWITCHING"):
+            return
+        entered = defaultdict(list)
+        for source in self.settings.sources:
+            if not source.enabled or str(source.kind).upper() != "SWITCHING":
+                continue
+            output = converter_output_for(source.name, outputs)
+            if output is not None:
+                self._check()
+                entered[output].append((source.name, float(source.current_a or 0.0),
+                                        float(source.frequency_hz or 0.0), source.net_name, ""))
+        for model in getattr(self.snapshot, "inductors", ()) or ():
+            output = (converter_output_for(getattr(model, "source_name", ""), outputs)
+                      or outputs.get(str(model.ref_des).upper()))
+            if output is not None:
+                self._check()
+                entered[output].append((f"{model.ref_des}'s magnetic model",
+                                        float(model.output_current_a or 0.0),
+                                        float(model.switching_frequency_hz or 0.0),
+                                        model.switching_net, model.ref_des))
+        for output, items in entered.items():
+            strays = []
+            for label, current, frequency, _net, _ref in items:
+                parts = []
+                if (current > 0.0 and output.current_a > 0.0
+                        and abs(current - output.current_a) > CONVERTER_CURRENT_TOLERANCE * output.current_a):
+                    parts.append(f"{current:.3g} A")
+                if (frequency > 0.0 and output.frequency_hz > 0.0 and abs(frequency - output.frequency_hz)
+                        > CONVERTER_FREQUENCY_TOLERANCE * output.frequency_hz):
+                    parts.append(f"{frequency / 1e3:.0f} kHz")
+                if parts:
+                    strays.append(f"{label} at {' and '.join(parts)}")
+            if not strays:
+                continue
+            tree = f"{output.current_a:.3g} A"
+            if output.frequency_hz > 0.0:
+                tree += f" at {output.frequency_hz / 1e3:.0f} kHz"
+            reference = output.name.split(" ", 1)[0]
+            self._add("SW-004", "SWITCHING", "LOW", "Entered converter values differ from the power tree",
+                      f"{'; '.join(strays)} entered; the power tree gives {output.name} {tree} of "
+                      f"output on {output.output_rail}. The spectrum and the inductor fields use the "
+                      "entered values; Phase 10's board circuit draws the tree's current.",
+                      "Enter the power tree's values, or correct the tree's loads if the entered ones "
+                      "are right.",
+                      "HIGH",
+                      nets=sorted({net for *_rest, net, _ref in items if net}),
+                      components=[reference] + sorted({ref for *_rest, ref in items if ref}))
+
     def _thermal_rules(self):
         if not self._enabled("THERMAL") or self.thermal_result is None:
             return
@@ -2378,6 +2446,7 @@ class EMCAnalyzer:
             ("Components and I/O", self._component_rules),
             ("Switching sources", self._switching_rules),
             ("Inductor magnetic models", self._inductor_rules),
+            ("Power tree", self._power_tree_rules),
             ("Differential pairs", self._differential_rules),
             ("Crosstalk", self._crosstalk_rules),
             ("PDN", self._pdn_rules),
