@@ -125,6 +125,25 @@ class NumberFormattingTests(unittest.TestCase):
         from report.html_report import _number
         self.assertEqual(_number(4.44444, precision=1), "4.4")
 
+    def test_large_values_print_without_an_exponent(self):
+        # P02 Rev E, 2026-10-01 21:42: 1530 EMC checks read "1.53e+03" and
+        # /VBUS_SYS's 102,048-node AC mesh "1.02e+05".
+        from report.html_report import _number
+        self.assertEqual(_number(1530), "1 530")
+        self.assertEqual(_number(102048), "102 048")
+        self.assertEqual(_number(38311.87), "38 300")
+
+    def test_frequency_metric_reads_in_its_prefix(self):
+        # Same run: /VBUS_SYS's worst frequency printed "3.83e+04 Hz".
+        campaign = campaign_with([])
+        campaign.results[0].metrics.append(AnalysisMetric(
+            key="/VBUS_SYS:worst_frequency", label="/VBUS_SYS Worst frequency",
+            value=38311.86849557285, unit="Hz",
+        ))
+        document = render_campaign_html(campaign)
+        self.assertIn("<td>38.3</td><td>kHz</td>", document)
+        self.assertNotIn("e+04", document)
+
     def test_metric_table_shows_formatted_value_not_raw_repr(self):
         campaign = campaign_with([])
         campaign.results[0].metrics.append(AnalysisMetric(

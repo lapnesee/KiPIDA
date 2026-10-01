@@ -64,7 +64,8 @@ class ValidityLimitationTests(unittest.TestCase):
             _Sweep(worst_at_edge=True, frequencies=[1e3, 1e6, 1e8])
         )
         self.assertTrue(any("lower bound" in note for note in notes))
-        self.assertTrue(any("1e+08" in note for note in notes))
+        # P02 Rev E's report of 2026-10-01 21:42 read "(1e+08 Hz)".
+        self.assertTrue(any("(100 MHz)" in note for note in notes))
 
     def test_worst_inside_the_window_says_nothing(self):
         from analysis_adapters import _ac_validity_limitations

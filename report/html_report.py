@@ -176,7 +176,10 @@ def _number(value: Optional[float], unit: str = "", precision: Optional[int] = N
     rather than raw floating-point noise around zero -- P02 Rev E printed
     "8.074349270001136e-14 %" and "1.03e-09 A/mm2" this way -- and
     everything else prints to 3 significant digits (audit R-LE-7: P02 Rev
-    E's worst drop read "0.003015 %").
+    E's worst drop read "0.003015 %"). From 1,000 up, 3 significant digits
+    need an exponent, and P02 Rev E's 1,530 EMC checks read "1.53e+03": a
+    whole number prints whole, anything else rounded to 3 digits, both with
+    a narrow space between thousands.
     """
     if value is None:
         return "&mdash;"
@@ -188,7 +191,25 @@ def _number(value: Optional[float], unit: str = "", precision: Optional[int] = N
         text = "< 1e-6" if value > 0 else "> -1e-6"
     else:
         text = f"{value:.3g}"
+        if "e+" in text:
+            whole = value if float(value).is_integer() else float(text)
+            text = f"{whole:,.0f}".replace(",", " ")
     return f"{_esc(text)}&nbsp;{_esc(unit)}" if unit else _esc(text)
+
+
+# A frequency reads in its own prefix: AC's worst frequency and target
+# corner printed "3.83e+04 Hz" and "3.5e+07 Hz" on P02 Rev E, 38.3 kHz and
+# 35 MHz.
+_FREQUENCY_PREFIXES = ((1e9, "GHz"), (1e6, "MHz"), (1e3, "kHz"))
+
+
+def _scaled(value: float, unit: str):
+    """(value, unit) with a frequency in kHz, MHz or GHz from 1 kHz up."""
+    if unit == "Hz":
+        for factor, prefixed in _FREQUENCY_PREFIXES:
+            if abs(value) >= factor:
+                return value / factor, prefixed
+    return value, unit
 
 
 _LAYER_POSITION_RE = re.compile(r"^(F|B|In\d+)\.(.+)$", re.IGNORECASE)
@@ -498,7 +519,7 @@ _KEY_METRIC_LIMIT = 5
 def _metric_text(metric: AnalysisMetric) -> str:
     value = metric.value
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        number = _number(float(value), _units(metric.unit), precision=metric.precision)
+        number = _number(*_scaled(float(value), _units(metric.unit)), precision=metric.precision)
     else:
         number = _t(value)
     return f"{_t(metric.label)}: {number}"
@@ -925,16 +946,17 @@ def _render_metrics(result: AnalysisResult) -> str:
         return '<p class="muted">' + _esc(_("No figures recorded.")) + "</p>"
     rows = []
     for metric in result.metrics:
-        value = metric.value
+        value, unit = metric.value, metric.unit
         if _numeric(metric):
-            value_html = _number(float(value), precision=metric.precision)
+            value, unit = _scaled(float(value), unit)
+            value_html = _number(value, precision=metric.precision)
         else:
             value_html = _t(value)
         # The internal key stays as a tooltip for a reader matching the CSV,
         # not as a column: 205 rows of P02 Rev E's report showed one (LE-4).
         rows.append(
             f'<tr><td title="{_esc(metric.key)}">{_t(metric.label)}</td>'
-            f"<td>{value_html}</td><td>{_t(metric.unit)}</td>"
+            f"<td>{value_html}</td><td>{_t(unit)}</td>"
             f"<td>{_esc(metric.status)}</td></tr>"
         )
     summary = _esc(_("All {count} figures")).format(count=len(result.metrics))

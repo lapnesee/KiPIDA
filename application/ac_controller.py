@@ -7,6 +7,7 @@ from typing import Any, Callable, Optional, Tuple
 
 from ac_model import ACModelBuilder
 from ac_solver import ACSolver
+from analysis_adapters import frequency_text
 from decoupling_optimizer import DecouplingOptimizer
 from application.background_controller import BackgroundAnalysisController
 from application.dc_controller import capture_dc_board, live_layer_ids, saved_board_differences
@@ -168,7 +169,7 @@ def ac_grid_check(request, result, solver, emit=lambda _message: None):
         f"[grid check] {settings.rail_name}: "
         f"{'least-margin' if critical else 'worst'} |Z| {worst * 1e3:.2f} mohm at {grid:g} mm, "
         f"{value * 1e3:.2f} mohm at {grid / 2.0:g} mm ({fine.node_count:,} nodes), "
-        f"{delta:.1f} % apart at {frequency:.4g} Hz."
+        f"{delta:.1f} % apart at {frequency_text(frequency)}."
     )
     return {
         "grid_mm": grid, "check_grid_mm": grid / 2.0, "frequency_hz": frequency,

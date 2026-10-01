@@ -165,6 +165,15 @@ def adapt_emc_result(settings: Any, domain_result: Any) -> AnalysisResult:
     return result.finish()
 
 
+def frequency_text(hz: float) -> str:
+    """A frequency in its own prefix: P02 Rev E's AC grid check read
+    "1e+08 Hz" for 100 MHz."""
+    for factor, unit in ((1e9, "GHz"), (1e6, "MHz"), (1e3, "kHz")):
+        if abs(hz) >= factor:
+            return f"{hz / factor:.4g} {unit}"
+    return f"{hz:.4g} Hz"
+
+
 def _finding(rule_id, index, category, severity, title, description, recommendation="",
              confidence=EvidenceConfidence.ESTIMATED):
     """Build a finding, stating what its confidence actually rests on.
@@ -291,7 +300,7 @@ def _ac_grid_check(check: Any, target: float, rail: str, final: Any = None) -> t
     limitations = [
         f"Grid check: {subject} reads {value:.4g} ohm at {grid:g} mm and "
         f"{check_value:.4g} ohm at {check_grid:g} mm ({delta:.1f}% apart, "
-        f"{float(data['frequency_hz']):.4g} Hz)."
+        f"{frequency_text(float(data['frequency_hz']))})."
     ]
     if not exceeded:
         return metrics, [], limitations
@@ -357,7 +366,7 @@ def _ac_validity_limitations(final: Any) -> list:
         if frequencies:
             stop_hz = float(frequencies[-1])
         notes.append(
-            f"The worst impedance falls on the last swept point ({stop_hz:.4g} Hz): "
+            f"The worst impedance falls on the last swept point ({frequency_text(stop_hz)}): "
             "the impedance was still rising when the window closed, so this is a "
             "lower bound on the maximum. Extend the stop frequency to locate it."
         )
@@ -483,7 +492,7 @@ def adapt_ac_result(
             "Target impedance could not be determined",
             f"The sweep ran but no impedance target applies: {reason}. "
             f"Worst impedance is {worst:.6g} ohm at "
-            f"{getattr(final, 'worst_frequency_hz', 0.0):.6g} Hz.",
+            f"{frequency_text(getattr(final, 'worst_frequency_hz', 0.0))}.",
             "Configure the rail's load current, or set an explicit target, to "
             "qualify this sweep.",
         )
@@ -509,7 +518,7 @@ def adapt_ac_result(
             "AC-003", 1, "TARGET_IMPEDANCE", FindingSeverity.HIGH,
             "PASS is undetermined: the worst point is still rising at the sweep edge",
             f"Worst impedance {worst:.6g} ohm sits on the last swept point "
-            f"({stop_hz:.6g} Hz) and was still rising there. Extrapolating that "
+            f"({frequency_text(stop_hz)}) and was still rising there. Extrapolating that "
             f"slope linearly, the {target:.6g} ohm target would be crossed near "
             f"{crossing_hz / 1e6:.3g} MHz, inside the model's own quasi-static "
             f"domain (limit {limit_hz / 1e6:.3g} MHz): the PASS the swept points "
@@ -524,7 +533,8 @@ def adapt_ac_result(
         rail_name = str(getattr(settings, "rail_name", ""))
         ground_name = str(getattr(settings, "ground_net_name", ""))
         band = (
-            f" The target is exceeded from {first_failure:.6g} to {last_failure:.6g} Hz."
+            f" The target is exceeded from {frequency_text(first_failure)} to "
+            f"{frequency_text(last_failure)}."
             if failing else ""
         )
         at_upper_edge = bool(sweep and failing and failing[-1] is sweep[-1])
@@ -538,11 +548,11 @@ def adapt_ac_result(
         # is stated with the number rather than left for the reader to assume.
         origin = f" Target {target_provenance}." if target_provenance else ""
         headline = (
-            f"Worst impedance is {peak['magnitude_ohm']:.6g} ohm at {peak['frequency_hz']:.6g} Hz "
+            f"Worst impedance is {peak['magnitude_ohm']:.6g} ohm at {frequency_text(peak['frequency_hz'])} "
             f"({exceedance_ratio:.3g}x the {peak['allowed_ohm']:.6g} ohm allowed there)."
             if (bandwidth > 0.0 or floor_hz > 0.0) and peak else
             f"Worst impedance is {worst:.6g} ohm at "
-            f"{getattr(final, 'worst_frequency_hz', 0.0):.6g} Hz "
+            f"{frequency_text(getattr(final, 'worst_frequency_hz', 0.0))} "
             f"({exceedance_ratio:.3g}x the {target:.6g} ohm target)."
         )
         finding = _finding(

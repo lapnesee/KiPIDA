@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed the report printing large figures with an exponent: P02 Rev E's
+  21:42 report read 1530 EMC checks as "1.53e+03", a 102,048-node AC
+  mesh as "1.02e+05" and /VBUS_SYS's worst frequency as "3.83e+04 Hz".
+  A whole number now prints whole and other values to 3 digits, with a
+  narrow space between thousands; a frequency reads in kHz, MHz or GHz
+  (38.3 kHz, 35 MHz), in the tables and in the AC texts ("100 MHz", not
+  "1e+08 Hz").
 - Added the least junction margin to the thermal figures when it is not
   the hottest part's: P02 Rev E's 19:12 report gave U14's 25.7 K (124 C
   of 150) as its key margin while U4 keeps 22.4 K under 125 C. A fuse
