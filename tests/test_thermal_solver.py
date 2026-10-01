@@ -160,6 +160,23 @@ class TestThermalSolver(unittest.TestCase):
         self.assertEqual(component.board_reference, "1 mm from the package")
         self.assertLess(component.board_temperature_c, under)
 
+    def test_every_footprint_gets_the_board_temperature_under_its_pads(self):
+        # P02 Rev E: C37 (22 uF X5R, rated to 85 C) has its supply pad 4.4 mm
+        # from Q10's drain pad, under the 2026-10-01 run's 118.99 C hotspot;
+        # only heat sources had a temperature.
+        model = self._model()
+        model.placements["C1"] = ThermalPlacement(
+            "C1", 7.5, 5.0, 1.0, 0.5, "TOP", heat_pads=[box(7.0, 4.75, 7.3, 5.25), box(7.7, 4.75, 8.0, 5.25)],
+        )
+        model.placements["C2"] = ThermalPlacement("C2", 9.5, 9.5, 1.0, 0.5, "TOP")
+        settings = self._settings()
+        settings.grid_size_mm = 0.5
+        result = ThermalSolver().solve(ThermalMesher().generate_mesh(model, settings), ambient_c=25.0)
+        temperatures = result.placement_temperatures_c
+        self.assertEqual(set(temperatures), {"U1", "C1", "C2"})
+        self.assertGreater(temperatures["C1"], temperatures["C2"])
+        self.assertGreater(temperatures["C2"], 25.0)
+
     def test_zero_heat_settles_at_ambient(self):
         mesh = ThermalMesher().generate_mesh(self._model(power_w=0.0), self._settings())
         result = ThermalSolver().solve(mesh, ambient_c=25.0)

@@ -362,6 +362,12 @@ class ThermalSolver:
                 current_derating_source=str(getattr(component, "current_derating_source", "") or ""),
             ))
         component_results.sort(key=lambda item: item.junction_temperature_c, reverse=True)
+        # The hottest cell under each footprint's pads (mesh.placement_nodes).
+        placement_temperatures = {}
+        for ref_des, nodes in (getattr(mesh, "placement_nodes", None) or {}).items():
+            indices = [index for index in (translate(node) for node in nodes) if index is not None]
+            if indices:
+                placement_temperatures[ref_des] = float(np.max(temperatures[np.asarray(indices)]))
 
         if hasattr(mesh.boundaries, "arrays"):
             boundary_ids, boundary_g = mesh.boundaries.arrays()
@@ -410,6 +416,7 @@ class ThermalSolver:
             temperature_vector_c=temperatures,
             hotspot=hotspot,
             component_results=component_results,
+            placement_temperatures_c=placement_temperatures,
             total_input_power_w=input_power,
             total_boundary_power_w=float(boundary_power),
             energy_balance_error_pct=float(balance_error),

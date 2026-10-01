@@ -117,7 +117,30 @@ CONTEXTUAL_SW_PATTERN = re.compile(
 # such as VBUS_PD_SW as often as switch nodes; switch_node_evidence decides.
 SW_NAME_PATTERN = re.compile(r"(^|[_/])SW\d*([_/]|$)", re.I)
 _INDUCTOR_REF_RE = re.compile(r"^L\d", re.I)
+_FERRITE_REF_RE = re.compile(r"^FB\d", re.I)
 _IC_REF_RE = re.compile(r"^(U|IC)\d", re.I)
+# The dielectric a ceramic capacitor's value names, and the highest
+# temperature it is rated for: an EIA class II code's digit sets it (X5R
+# 85 C, X6S 105 C, X7R 125 C, X8R 150 C); C0G/NP0 (class I) is rated to
+# 125 C. P02 Rev E's values carry the code ("22u 35V X5R").
+_DIELECTRIC_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:[XYZ]([4-9])[A-Z]|C0G|COG|NP0|NPO)(?![A-Za-z0-9])", re.I,
+)
+_CLASS_II_RATED_C = {"4": 65.0, "5": 85.0, "6": 105.0, "7": 125.0, "8": 150.0, "9": 200.0}
+_CLASS_I_RATED_C = 125.0
+# TE-001 names the capacitors, inductors and ferrites above this: the X5R
+# limit, past which ceramics lose capacitance and ferrites impedance fast
+# enough to matter to a filter.
+HOT_PASSIVE_C = 85.0
+
+
+def dielectric_rating_c(value):
+    """``(code, rated maximum C)`` for the dielectric *value* names, or None."""
+    match = _DIELECTRIC_RE.search(str(value or ""))
+    if match is None:
+        return None
+    code = match.group(0).upper()
+    return code, _CLASS_II_RATED_C[match.group(1)] if match.group(1) else _CLASS_I_RATED_C
 # A part that clamps a line to ground: a diode's annotation, or a value that
 # names a TVS or ESD part.
 _PROTECTION_REF_RE = re.compile(r"^(D\d|TVS|ESD)", re.I)
@@ -2180,15 +2203,60 @@ class EMCAnalyzer:
         if not self._enabled("THERMAL") or self.thermal_result is None:
             return
         hotspot = getattr(self.thermal_result, "hotspot", None)
-        if hotspot is not None and hotspot.temperature_c > 85.0:
-            self._check()
-            # INFO, not MEDIUM: the thermal domain already judges the hotspot,
-            # and taking 4 points off the EMC score for it counted it twice
-            # (P02 Rev E, 114.7 C; audit-2026-09-23.md EMC-9).
+        at_hotspot = (hotspot.x_mm, hotspot.y_mm, None) if hotspot is not None else None
+        temperatures = dict(getattr(self.thermal_result, "placement_temperatures_c", None) or {})
+        if not temperatures:
+            # A thermal result without the board temperature under each
+            # footprint: only its hotspot can be said.
+            if hotspot is not None and hotspot.temperature_c > HOT_PASSIVE_C:
+                self._check()
+                # INFO, not MEDIUM: the thermal domain already judges the
+                # hotspot, and taking 4 points off the EMC score for it counted
+                # it twice (P02 Rev E, 114.7 C; audit-2026-09-23.md EMC-9).
+                self._add("TE-001", "THERMAL", "INFO", "High temperature may alter EMC components",
+                          f"The latest thermal hotspot is {hotspot.temperature_c:.1f} C.",
+                          "Verify MLCC DC-bias/SRF and ferrite impedance at the local operating "
+                          "temperature.",
+                          "MEDIUM", location=at_hotspot)
+            return
+        self._check()
+        parts = {item.reference: item for item in self.snapshot.footprints}
+        # The parts that filter: the hotspot alone said nothing of them. On P02
+        # Rev E it sat on Q10's drain pad, 4.4 mm from C37 (22 uF X5R).
+        hot = sorted(
+            ((reference, temperature) for reference, temperature in temperatures.items()
+             if temperature > HOT_PASSIVE_C and reference in parts and (
+                 self._is_capacitor(parts[reference])
+                 or _INDUCTOR_REF_RE.match(reference) or _FERRITE_REF_RE.match(reference))),
+            key=lambda item: (-item[1], item[0]),
+        )
+        if hot:
+            named = ", ".join(f"{reference} {temperature:.1f} C" for reference, temperature in hot[:12])
             self._add("TE-001", "THERMAL", "INFO", "High temperature may alter EMC components",
-                      f"The latest thermal hotspot is {hotspot.temperature_c:.1f} C.",
-                      "Verify MLCC DC-bias/SRF and ferrite impedance at the local operating temperature.",
-                      "MEDIUM", location=(hotspot.x_mm, hotspot.y_mm, None))
+                      f"{len(hot)} capacitor(s), inductor(s) or ferrite(s) sit above "
+                      f"{HOT_PASSIVE_C:g} C on the latest thermal result: {named}"
+                      + (", ..." if len(hot) > 12 else "") + ".",
+                      "Verify their capacitance under DC bias, their SRF and the ferrites' "
+                      "impedance at these temperatures.",
+                      "MEDIUM", components=[reference for reference, _temperature in hot],
+                      location=at_hotspot)
+        for reference, temperature in sorted(temperatures.items()):
+            part = parts.get(reference)
+            if part is None or not self._is_capacitor(part):
+                continue
+            rating = dielectric_rating_c(part.value)
+            if rating is None or temperature <= rating[1]:
+                continue
+            code, rated_c = rating
+            self._add("TE-002", "THERMAL", "HIGH", "Capacitor above its dielectric's rated temperature",
+                      f"{reference} ({part.value}) reaches {temperature:.1f} C on the latest thermal "
+                      f"result, {temperature - rated_c:.1f} K above the {rated_c:g} C its {code} "
+                      "dielectric is rated to; beyond it the datasheet no longer specifies its "
+                      "capacitance or its life.",
+                      "Use a dielectric rated higher (X7R, 125 C) in the same value and voltage, or "
+                      "move the capacitor away from the heat; check its capacitance at temperature "
+                      "and DC bias.",
+                      "MEDIUM", components=[reference], location=(*part.position, None))
 
     def _finalize(self, started):
         order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}

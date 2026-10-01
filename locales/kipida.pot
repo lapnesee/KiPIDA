@@ -5412,3 +5412,15 @@ msgstr ""
 #, python-brace-format
 msgid "{analysis} passes: {figures}"
 msgstr ""
+
+#: rule_guide.py:406
+msgid "Beyond the temperature its dielectric is rated to (X5R 85 °C, X7R 125 °C), a ceramic capacitor's capacitance and life are no longer specified."
+msgstr ""
+
+#: rule_guide.py:405
+msgid "Capacitor above its rated temperature"
+msgstr ""
+
+#: rule_guide.py:408
+msgid "Read the capacitor's temperature range in its datasheet; on the prototype, measure its temperature at full load."
+msgstr ""

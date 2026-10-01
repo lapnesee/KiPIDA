@@ -289,6 +289,24 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertNotIn("TE-001", result.score_penalties_by_rule)
         self.assertFalse(any("editable defaults" in item for item in result.limitations))
 
+    def test_a_capacitor_above_its_dielectric_rating_is_flagged(self):
+        # P02 Rev E: C37 (22u 35V X5R) sits 4.4 mm from the 118.99 C hotspot
+        # on Q10's drain pad; X5R is rated to 85 C, C63's X7R to 125 C.
+        from types import SimpleNamespace
+        snap = self.snapshot()
+        snap.footprints += [EMCFootprint("C37", "22u 35V X5R", (271.0, 84.0)),
+                            EMCFootprint("C63", "22u 10V X7R", (200.0, 50.0))]
+        thermal = SimpleNamespace(
+            hotspot=SimpleNamespace(temperature_c=118.99, x_mm=273.35, y_mm=86.76),
+            placement_temperatures_c={"C37": 96.0, "C63": 96.0, "U1": 60.0},
+        )
+        result = EMCAnalyzer(snap, self.settings(), thermal_result=thermal).analyze()
+        te002 = [item for item in result.findings if item.rule_id == "TE-002"]
+        self.assertEqual([item.components for item in te002], [["C37"]])
+        self.assertIn("11.0 K above the 85 C its X5R", te002[0].description)
+        te001 = next(item for item in result.findings if item.rule_id == "TE-001")
+        self.assertEqual(te001.components, ["C37", "C63"])
+
     def test_a_track_on_its_own_pour_counts_once_in_the_switch_node_area(self):
         # P02 Rev E's /J2_SRC_SW read 41.8 mm2 for 31.8 mm2 of copper,
         # because tracks lying on the pour were added to it (EMC-7).

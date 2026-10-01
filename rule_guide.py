@@ -401,6 +401,13 @@ GUIDE: Dict[str, RuleGuide] = {
         "Heat lowers a ceramic capacitor's capacitance and a ferrite's impedance.",
         "Read those parts' ratings at the temperature found.",
         _N, _LOW),
+    "TE-002": RuleGuide(
+        "Capacitor above its rated temperature",
+        "Beyond the temperature its dielectric is rated to (X5R 85 °C, X7R 125 °C), a "
+        "ceramic capacitor's capacitance and life are no longer specified.",
+        "Read the capacitor's temperature range in its datasheet; on the prototype, measure "
+        "its temperature at full load.",
+        _B, _LOW),
     "TH-001": RuleGuide(
         "Junction above its limit",
         "Above its maximum junction temperature, a part ages fast or shuts down.",

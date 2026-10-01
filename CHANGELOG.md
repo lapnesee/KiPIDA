@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added the board temperature under every footprint's pads to the
+  thermal result, heat source or not. TE-001 now names the capacitors,
+  inductors and ferrites above 85 C instead of the hotspot alone, and
+  the new TE-002 flags a capacitor above its dielectric's rating (X5R
+  85 C, X6S 105 C, X7R and C0G 125 C), read from its value. P02 Rev E's
+  C37 (22u 35V X5R) has its supply pad 4.4 mm from the 118.99 C hotspot
+  on Q10's drain pad, and its own temperature was never reported.
 - Changed the campaign report to follow the interface language: its
   headings, decision lists, cards, glossary and the rule guide's names,
   risks and checks are in the French catalog (363 messages). Finding

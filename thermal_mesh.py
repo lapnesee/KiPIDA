@@ -290,6 +290,9 @@ class ThermalMesh:
     # The outer-slice cells 1 mm from each package's edge, all around it:
     # the board point a psiJB or thetaJB is referred to (theta_reference).
     component_board_nodes: Dict[str, List[int]] = field(default_factory=dict)
+    # Every footprint's outer-slice cells under its pads, heat source or not:
+    # the board temperature a capacitor's dielectric sees (placement_nodes).
+    placement_nodes: Dict[str, List[int]] = field(default_factory=dict)
     grid_size_mm: float = 1.0
     bounds_mm: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
     layer_specs: List[ThermalLayerSpec] = field(default_factory=list)
@@ -1215,6 +1218,45 @@ class ThermalMesher:
             mesh.component_board_nodes[component.ref_des] = [node for node in outer if node not in inside]
             for candidate, share in shares:
                 mesh.add_heat(candidate, component.power_w * share / total_share)
+
+        def pad_nodes(pads, iz):
+            """The slice's cells centred on *pads*; for a pad smaller than a
+            cell, the cell holding its centre."""
+            found = []
+            for pad in pads:
+                pad_min_x, pad_min_y, pad_max_x, pad_max_y = pad.bounds
+                ix_start = max(0, int(math.ceil((pad_min_x - min_x) / grid - 0.5)))
+                ix_stop = min(nx - 1, int(math.floor((pad_max_x - min_x) / grid - 0.5)))
+                iy_start = max(0, int(math.ceil((pad_min_y - min_y) / grid - 0.5)))
+                iy_stop = min(ny - 1, int(math.floor((pad_max_y - min_y) / grid - 0.5)))
+                cells = [
+                    mesh.node_map.get((ix, iy, iz))
+                    for iy in range(iy_start, iy_stop + 1) for ix in range(ix_start, ix_stop + 1)
+                ]
+                cells = [cell for cell in cells if cell is not None]
+                if not cells:
+                    ix = min(nx - 1, max(0, int((0.5 * (pad_min_x + pad_max_x) - min_x) // grid)))
+                    iy = min(ny - 1, max(0, int((0.5 * (pad_min_y + pad_max_y) - min_y) // grid)))
+                    cell = mesh.node_map.get((ix, iy, iz))
+                    cells = [cell] if cell is not None else []
+                found.extend(cells)
+            return found
+
+        # The board temperature under every footprint, not only the heat
+        # sources: a capacitor's dielectric is rated to a temperature (X5R
+        # 85 C) that its terminations set. On P02 Rev E, C37 (22 uF X5R) has
+        # its supply pad 4.4 mm from Q10's drain pad, where the 2026-10-01
+        # run read its 118.99 C hotspot, and nothing reported C37's own.
+        for ref_des, placement in model.placements.items():
+            iz = len(specs) - 1 if placement.side == "BOTTOM" else 0
+            nodes = pad_nodes(getattr(placement, "heat_pads", None) or [], iz)
+            if not nodes:
+                nodes, _on_copper = window_cells(placement, iz, None, 0.0)
+            if not nodes:
+                nearest = mesh.nearest_node(placement.x_mm, placement.y_mm, specs[iz].layer_id)
+                nodes = [nearest] if nearest is not None else []
+            if nodes:
+                mesh.placement_nodes[ref_des] = nodes
 
         for loss in model.copper_losses:
             if loss.power_w <= 0:
