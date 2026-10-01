@@ -12,6 +12,24 @@ from analysis_contract import AnalysisResult, AnalysisStatus
 from application.result_detail_presenter import format_result_basis
 
 
+class FakeImage:
+    def SaveFile(self, path, _kind):
+        Path(path).write_bytes(b"png")
+        return True
+
+
+class FakeBitmap:
+    def IsOk(self):
+        return True
+
+    def ConvertToImage(self):
+        return FakeImage()
+
+
+FAKE_WX = types.ModuleType("wx")
+FAKE_WX.BITMAP_TYPE_PNG = 1
+
+
 class ProjectResultsHistoryTests(unittest.TestCase):
     def test_v2_history_persists_structured_result_and_report(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -44,30 +62,37 @@ class ProjectResultsHistoryTests(unittest.TestCase):
             self.assertIn("findings, metrics, and evidence were not structured", basis)
 
     def test_late_plots_update_structured_artifacts(self):
-        class FakeImage:
-            def SaveFile(self, path, _kind):
-                Path(path).write_bytes(b"png")
-                return True
-
-        class FakeBitmap:
-            def IsOk(self):
-                return True
-
-            def ConvertToImage(self):
-                return FakeImage()
-
-        fake_wx = types.ModuleType("wx")
-        fake_wx.BITMAP_TYPE_PNG = 1
         with tempfile.TemporaryDirectory() as directory:
             history = ProjectResultsHistory(directory)
             result = AnalysisResult("THERMAL", "Thermal").finish()
             entry = history.save("THERMAL", "Thermal", "report", result=result)
-            with patch.dict(sys.modules, {"wx": fake_wx}):
+            with patch.dict(sys.modules, {"wx": FAKE_WX}):
                 history.update_plots(entry, [("Top Surface", FakeBitmap())])
             loaded = history.load_result(entry)
             self.assertEqual(len(loaded.artifacts), 1)
             self.assertEqual(loaded.artifacts[0].title, "Top Surface")
             self.assertEqual(loaded.artifacts[0].media_type, "image/png")
+
+    def test_a_campaign_result_gets_its_own_runs_plots(self):
+        # P02 Rev E, 2026-10-01 00:59: the campaign's results in memory had
+        # no artifacts (plots come after save), so the report held no image;
+        # every CFD run's folder holds a plot-01-CFD_3D.png.
+        with tempfile.TemporaryDirectory() as directory:
+            history = ProjectResultsHistory(directory)
+            runs = []
+            for _ in range(2):
+                result = AnalysisResult("CFD", "Enclosure CFD").finish()
+                entry = history.save("CFD", "Enclosure CFD", "report", result=result)
+                with patch.dict(sys.modules, {"wx": FAKE_WX}):
+                    history.update_plots(entry, [("CFD 3D", FakeBitmap())])
+                runs.append((result, entry))
+            latest, entry = runs[1]
+            self.assertEqual(latest.artifacts, [])
+            self.assertEqual(history.attach_artifacts([latest]), 1)
+            self.assertEqual(
+                Path(latest.artifacts[0].path),
+                Path(entry["directory"]) / "plot-01-CFD_3D.png",
+            )
 
     def test_entries_can_filter_type_and_keep_latest_per_analysis(self):
         with tempfile.TemporaryDirectory() as directory:

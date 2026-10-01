@@ -802,11 +802,42 @@ def _render_findings(result: AnalysisResult) -> str:
     return "".join(blocks)
 
 
+# A DC run saves 14 figures per rail: 227 (13 MB) for P02 Rev E's 2026-10-01
+# run. Each analysis embeds this many and lists the rest by title.
+_EMBEDDED_FIGURES = 8
+
+
+def _plain(text: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "", str(text or "")).upper()
+
+
+def _figure_order(result: AnalysisResult) -> List[Any]:
+    """Overviews first ("3D" in the title), and among them the nets the
+    analysis's findings or its worst DC drop name: on P02 Rev E the
+    /+5V_RAIL 3D view, then one 3D view per other rail."""
+    named = {
+        _plain(net) for finding in result.findings
+        if finding.severity != FindingSeverity.INFO for net in finding.nets
+    }
+    worst = _worst(result.metrics, r"rail_\d+_drop")
+    if worst is not None:
+        named.add(_plain(worst.label.split(" ")[0]))
+    indexed = list(enumerate(result.artifacts))
+    indexed.sort(key=lambda item: (
+        "3D" not in item[1].title,
+        _plain(item[1].title.split(" — ")[0]) not in named,
+        item[0],
+    ))
+    return [artifact for _index, artifact in indexed]
+
+
 def _render_artifacts(result: AnalysisResult, embed_images: bool, search_roots=()) -> str:
     if not result.artifacts:
         return ""
+    ordered = _figure_order(result)
+    shown, rest = ordered[:_EMBEDDED_FIGURES], ordered[_EMBEDDED_FIGURES:]
     blocks = []
-    for artifact in result.artifacts:
+    for artifact in shown:
         title = _esc(artifact.title)
         raw_path = str(artifact.path or "")
         if not embed_images:
@@ -825,7 +856,15 @@ def _render_artifacts(result: AnalysisResult, embed_images: bool, search_roots=(
                 f'<figure><img src="{uri}" alt="{title}">'
                 f"<figcaption>{title}</figcaption></figure>"
             )
-    return f"<h4>Artifacts</h4>{''.join(blocks)}"
+    if rest:
+        folder = _resolve_artifact(str(rest[0].path or ""), search_roots)
+        items = "".join(f"<li>{_esc(artifact.title)}</li>" for artifact in rest)
+        blocks.append(
+            f"<details><summary>{len(rest)} more figures</summary>"
+            + (f'<p class="meta">In <code>{_esc(folder.parent)}</code></p>' if folder else "")
+            + f'<ul class="tight">{items}</ul></details>'
+        )
+    return f"<h4>Figures</h4>{''.join(blocks)}"
 
 
 def _render_domains(campaign: CampaignResult, embed_images: bool, search_roots=()) -> str:

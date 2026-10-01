@@ -854,15 +854,18 @@ class KiPIDA_MainDialog(wx.Dialog):
         """
         from report.html_report import write_campaign_html
         from report.csv_export import write_actions_csv, write_findings_csv
+        from result_history import ProjectResultsHistory
 
         try:
             directory = self._campaign_output_directory()
             directory.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             html_path = directory / f"campaign-{stamp}.html"
-            # Plots live in per-analysis subdirectories of the history folder,
-            # and are recorded by bare file name, so the renderer needs a root
-            # to search or every figure reports itself unavailable.
+            # The plots are saved after each result, so the results in memory
+            # do not list them; the history entry of each run does.
+            attached = ProjectResultsHistory(directory).attach_artifacts(campaign.results)
+            if attached:
+                self.log(f"Consolidated report: plots attached from {attached} saved result(s).")
             write_campaign_html(campaign, html_path, artifact_roots=(directory,))
             write_findings_csv(campaign, directory / f"findings-{stamp}.csv")
             write_actions_csv(campaign, directory / f"actions-{stamp}.csv")

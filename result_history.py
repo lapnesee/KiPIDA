@@ -161,6 +161,43 @@ class ProjectResultsHistory:
             result.artifacts = self._plot_artifacts(saved)
             result_path.write_text(result.to_json(), encoding="utf-8")
 
+    def attach_artifacts(self, results):
+        """Give each result the plots its history entry holds; return how
+        many results gained some.
+
+        Plots are rendered after a result is saved (update_plots writes them
+        to result.json only), so the result in memory -- the one a campaign
+        aggregates -- keeps the empty list save() gave it: P02 Rev E's
+        2026-10-01 00:59 campaign report held no image, though its six
+        domains' folders held 249 plots. Entries are matched by run_id, and
+        each path is the entry's own file: a plot is recorded by a bare
+        name that repeats in every run's folder ("plot-01-CFD_3D.png"), so a
+        search of the history by name finds whichever run it meets first.
+        """
+        by_run = {}
+        for entry in self.entries():
+            run_id = str(entry.get("run_id") or "")
+            if run_id:
+                by_run.setdefault(run_id, entry)
+        attached = 0
+        for result in results or ():
+            entry = by_run.get(str(getattr(result, "run_id", "")))
+            if entry is None:
+                continue
+            directory = Path(entry["directory"])
+            plots = [
+                plot for plot in entry.get("plots", [])
+                if isinstance(plot, dict) and (directory / str(plot.get("file", ""))).is_file()
+            ]
+            if not plots:
+                continue
+            artifacts = self._plot_artifacts(plots)
+            for artifact, plot in zip(artifacts, plots):
+                artifact.path = str(directory / str(plot.get("file", "")))
+            result.artifacts = artifacts
+            attached += 1
+        return attached
+
     def load(self, metadata):
         entry_dir = Path(metadata["directory"])
         report_path = entry_dir / str(metadata.get("report_file", "report.txt"))

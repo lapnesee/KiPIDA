@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed the campaign report showing no figure: plots are saved after a
+  result, so the results it aggregates listed none. They are now read
+  from each run's own history folder, matched by run id. P02 Rev E's
+  2026-10-01 report had none of its 249 plots. Each analysis embeds 8,
+  3D overviews first, and lists the rest: 30 images in 5.5 MB, where
+  DC's 227 alone take 13 MB.
 - Changed the campaign report to open on a decision: fix before
   manufacture, review, check on the prototype, data to complete,
   calculation reliability and what holds, with a "how to read" note and
