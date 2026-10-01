@@ -186,6 +186,29 @@ class TestMissingPowerRating(unittest.TestCase):
         ctx = SchematicRuleContext(netlist=_netlist("b1", [shunt, self._resistor(False)], nets))
         self.assertEqual([f.components for f in _check_missing_power_rating(ctx)], [["R5"]])
 
+    def test_a_chip_resistor_is_bounded_by_its_rail(self):
+        # P02 Rev E, 2026-10-01 21:42: SCH-003's 29 resistors were all 0603
+        # parts on 3.3 and 5 V rails; R15 (4.7k, /J2_LDO3V3 to an EEPROM
+        # line) is the most loaded, 2.3 mW of 100 mW.
+        nets = [NetInfo("/J2_LDO3V3", "b1", True, False, 3.3), NetInfo("+5V_RAIL", "b1", True, False, 5.0)]
+        r15 = ComponentInfo(
+            reference="R15", value="4.7k", lib_id="Resistor_SMD:R_0603_1608Metric", datasheet="",
+            extra_fields={}, position=(0, 0), nets_by_pad={"1": "/J2_LDO3V3", "2": "/J2_EEPROM_SDA"},
+            pin_types_by_pad={},
+        )
+        r87 = ComponentInfo(
+            reference="R87", value="249 k / 1%", lib_id="Resistor_SMD:R_0603_1608Metric", datasheet="",
+            extra_fields={}, position=(0, 0), nets_by_pad={"1": "+5V_RAIL", "2": "/EDGE_EN"},
+            pin_types_by_pad={},
+        )
+        ctx = SchematicRuleContext(netlist=_netlist("b1", [r15, r87, self._resistor(False)], nets))
+        findings = _check_missing_power_rating(ctx)
+        self.assertEqual([(f.rule_id, f.components) for f in findings],
+                         [("SCH-003", ["R5"]), ("SCH-007", ["R15", "R87"])])
+        self.assertIn("at most 2.3 mW", findings[1].description)
+        self.assertIn("R15 (4.7k) with 3.3 V, is 2.3% of the 100 mW a 0603 chip resistor",
+                      findings[1].description)
+
 
 class TestCrossBoardLinks(unittest.TestCase):
 

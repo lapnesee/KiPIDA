@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Changed SCH-003 to bound a chip resistor's dissipation itself, from its
+  value, its footprint's size and the known rail voltage across it. P02
+  Rev E's 29 resistors without a Power field were all data to complete;
+  all are 0603 parts of 4.7 kOhm or more on 3.3 and 5 V rails, at most
+  2.3 mW (R15) of the 100 mW an 0603 is rated for. A resistor under half
+  its rating now holds (SCH-007, under "what holds"); SCH-003 keeps the
+  ones it cannot bound.
 - Fixed SCH-006 listing footprints that join no net: P02 Rev E's 21:42
   report put its six fiducials (FID1 to FID6, one pad on no net) under
   "data to complete" with "nothing to do". Only a board-only footprint

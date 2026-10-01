@@ -350,6 +350,11 @@ GUIDE: Dict[str, RuleGuide] = {
         "Parts placed only on the board are not checked by schematic rules.",
         "List the footprints with no symbol and check that each is mechanical.",
         _D, _LOW),
+    "SCH-007": RuleGuide(
+        "Resistor dissipation within its package",
+        "With its rail across it, the resistor stays well under its package's rating.",
+        "Nothing to check while the rails stay at the voltages their names give.",
+        _N, _LOW),
     "SH-001": RuleGuide(
         "Connector shield return not found",
         "A connector shell with no short path to chassis lets cable noise onto the board.",
@@ -487,7 +492,7 @@ PROTOTYPE_CHECK = frozenset((
 
 # INFO findings that say a check holds, listed under "what holds" rather
 # than lost among the other notes (LE-9): PD-002 on three P02 Rev E rails.
-CONFIRMATIONS = frozenset(("PD-002", "TH-007"))
+CONFIRMATIONS = frozenset(("PD-002", "SCH-007", "TH-007"))
 
 
 def guide(rule_id: str) -> Optional[RuleGuide]:

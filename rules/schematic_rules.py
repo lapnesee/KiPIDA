@@ -79,6 +79,19 @@ _POWER_FIELD_RE = re.compile(r"power|watt", re.IGNORECASE)
 # "250mW". P02 Rev E's shunt R49 reads "7.5m 1% / 3W".
 _POWER_RATING_RE = re.compile(r"(?<![\w.,/])(\d+(?:[.,]\d+)?|\d+/\d+)\s*[mk]?W\b")
 _UNCONNECTED_PREFIX = "unconnected-"
+# A resistance at the head of a value: "10k 1%", "249 k / 1%", "4k7", "10R".
+_RESISTANCE_RE = re.compile(r"^\s*(\d+(?:[.,]\d+)?)\s*([rRkKmM])?(\d+)?(?![\w.])")
+_RESISTANCE_MULTIPLIERS = {"r": 1.0, "k": 1e3, "m": 1e-3, "M": 1e6}
+# A chip resistor's footprint size code ("Resistor_SMD:R_0603_1608Metric")
+# and the rating thick-film parts of that size carry at 70 C.
+_CHIP_SIZE_RE = re.compile(r"(?:^|[:_])R_(\d{4})_")
+_CHIP_RATING_W = {
+    "0201": 0.05, "0402": 0.0625, "0603": 0.1, "0805": 0.125,
+    "1206": 0.25, "1210": 0.5, "2010": 0.75, "2512": 1.0,
+}
+# The share of its rating a resistor may dissipate before it is left to the
+# designer to check.
+RESISTOR_RATING_SHARE = 0.5
 
 
 def _is_capacitor_value(value: str) -> bool:
@@ -108,6 +121,48 @@ def _has_power_field(component: ComponentInfo) -> bool:
         return True
     texts = [component.value or ""] + [str(text or "") for text in component.extra_fields.values()]
     return any(_POWER_RATING_RE.search(text) for text in texts)
+
+
+def _resistance_ohm(value: str) -> Optional[float]:
+    match = _RESISTANCE_RE.match(value or "")
+    if not match:
+        return None
+    number = float(match.group(1).replace(",", "."))
+    multiplier = match.group(2)
+    if match.group(3):
+        if not multiplier:
+            return None
+        # "4k7" is 4.7k.
+        number = float(f"{match.group(1)}.{match.group(3)}")
+    scale = _RESISTANCE_MULTIPLIERS.get(multiplier if multiplier in ("m", "M") else (multiplier or "r").lower())
+    return number * scale if number > 0.0 else None
+
+
+def _dissipation_bound(component: ComponentInfo, voltage_by_net: dict):
+    """(watts, rating_w, size, volts): the most the resistor can dissipate
+    with its known voltages across it, or None when it cannot be bounded.
+
+    A net of unknown voltage is taken to sit between 0 V and the highest
+    known voltage on the part, as a pull-up's, a divider's or a feedback
+    resistor's other end does.
+    """
+    resistance = _resistance_ohm(component.value)
+    size = _CHIP_SIZE_RE.search(component.lib_id or "")
+    rating = _CHIP_RATING_W.get(size.group(1)) if size else None
+    if resistance is None or rating is None:
+        return None
+    volts = []
+    unknown = False
+    for net_name in component.nets_by_pad.values():
+        voltage = 0.0 if _is_gnd_net(net_name) else voltage_by_net.get(net_name)
+        if voltage is None:
+            unknown = True
+        else:
+            volts.append(float(voltage))
+    if not volts:
+        return None
+    across = max(abs(v) for v in volts) if unknown else max(volts) - min(volts)
+    return across * across / resistance, rating, size.group(1), across
 
 
 # ---------------------------------------------------------------------------
@@ -260,12 +315,20 @@ def _check_missing_power_rating(context: SchematicRuleContext) -> list:
     It was one INFO per resistor -- 53 on the reference board main, 29 on
     tiny_tapeout -- for a single observation about how the project records its
     parts, which buried the findings that point at a place on the board.
+
+    A resistor whose value and chip size are known is bounded instead: its
+    known voltage across it, against the rating of its size. P02 Rev E's
+    29 resistors were all 0603 parts of 4.7 kOhm or more on 3.3 and 5 V
+    rails, at most 2.3 mW of 100 mW, and all of them were data to complete.
+    Those under RESISTOR_RATING_SHARE of their rating hold (SCH-007).
     """
     netlist = context.netlist
     voltage_by_net = {n.name: n.voltage_hint for n in netlist.nets}
 
     references: list[str] = []
     nets: list[str] = []
+    bounded: list = []
+    bounded_nets: list[str] = []
     for component in netlist.components:
         if not _is_resistor(component) or _has_power_field(component):
             continue
@@ -275,30 +338,58 @@ def _check_missing_power_rating(context: SchematicRuleContext) -> list:
         ]
         if not on_known_voltage:
             continue
-        references.append(component.reference)
+        bound = _dissipation_bound(component, voltage_by_net)
+        if bound is not None and bound[0] <= RESISTOR_RATING_SHARE * bound[1]:
+            bounded.append((component, *bound))
+            target = bounded_nets
+        else:
+            references.append(component.reference)
+            target = nets
         for net_name in on_known_voltage:
-            if net_name not in nets:
-                nets.append(net_name)
-    if not references:
-        return []
-    shown = ", ".join(references[:10]) + (", ..." if len(references) > 10 else "")
-    return [AnalysisFinding(
-        rule_id="SCH-003",
-        category="SCHEMATIC",
-        severity=FindingSeverity.INFO,
-        title="Missing power-rating data",
-        description=(
-            f"{len(references)} resistor(s) sit on nets with a nominal voltage and carry no Power "
-            f"field on their schematic symbol: {shown}."
-        ),
-        recommendation=(
-            "Add a Power field to these resistors, or check by hand that each one's dissipation "
-            "stays under its package rating."
-        ),
-        confidence=EvidenceConfidence.HEURISTIC,
-        nets=nets,
-        components=references,
-    )]
+            if net_name not in target:
+                target.append(net_name)
+    findings = []
+    if references:
+        shown = ", ".join(references[:10]) + (", ..." if len(references) > 10 else "")
+        findings.append(AnalysisFinding(
+            rule_id="SCH-003",
+            category="SCHEMATIC",
+            severity=FindingSeverity.INFO,
+            title="Missing power-rating data",
+            description=(
+                f"{len(references)} resistor(s) sit on nets with a nominal voltage and carry no Power "
+                f"field on their schematic symbol: {shown}. Their value or chip size does not bound "
+                f"their dissipation under {RESISTOR_RATING_SHARE:.0%} of a rating."
+            ),
+            recommendation=(
+                "Add a Power field to these resistors, or check by hand that each one's dissipation "
+                "stays under its package rating."
+            ),
+            confidence=EvidenceConfidence.HEURISTIC,
+            nets=nets,
+            components=references,
+        ))
+    if bounded:
+        worst, watts, rating, size, across = max(bounded, key=lambda item: item[1] / item[2])
+        findings.append(AnalysisFinding(
+            rule_id="SCH-007",
+            category="SCHEMATIC",
+            severity=FindingSeverity.INFO,
+            title="Resistor dissipation within its package",
+            description=(
+                f"{len(bounded)} resistor(s) with no Power field dissipate at most "
+                f"{watts * 1e3:.2g} mW with their known rail voltage across them: the most, "
+                f"{worst.reference} ({worst.value}) with {across:g} V, is "
+                f"{watts / rating:.1%} of the {rating * 1e3:g} mW a {size} chip resistor is rated "
+                "for. A net of unknown voltage is taken between 0 V and the rail, as a pull-up's "
+                "or a divider's other end."
+            ),
+            recommendation="Nothing to change while the rails stay at the voltages their names give.",
+            confidence=EvidenceConfidence.HEURISTIC,
+            nets=bounded_nets,
+            components=[item[0].reference for item in bounded],
+        ))
+    return findings
 
 
 # ---------------------------------------------------------------------------

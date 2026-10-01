@@ -5283,3 +5283,12 @@ msgstr "{p0} inconnues dépassent la limite de résolution directe de {p1} ; ré
 
 msgid "{source}\n{relative:.0f}% of map peak"
 msgstr "{source}\n{relative:.0f} % du pic de la carte"
+
+msgid "Nothing to check while the rails stay at the voltages their names give."
+msgstr "Rien à vérifier tant que les rails restent aux tensions qu’indiquent leurs noms."
+
+msgid "Resistor dissipation within its package"
+msgstr "Dissipation de résistance dans les limites de son boîtier"
+
+msgid "With its rail across it, the resistor stays well under its package's rating."
+msgstr "Même avec la tension de son rail à ses bornes, la résistance reste loin sous la puissance nominale de son boîtier."
