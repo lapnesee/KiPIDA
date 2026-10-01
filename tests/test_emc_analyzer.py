@@ -322,12 +322,19 @@ class TestEMCAnalyzer(unittest.TestCase):
             hotspot=SimpleNamespace(temperature_c=118.99, x_mm=273.35, y_mm=86.76),
             placement_temperatures_c={"C37": 96.0, "C63": 96.0, "U1": 60.0},
         )
+        snap.footprints += [EMCFootprint("C25", "47u 16V X5R", (240.0, 80.0))]
+        thermal.placement_temperatures_c["C25"] = 87.3
         result = EMCAnalyzer(snap, self.settings(), thermal_result=thermal).analyze()
-        te002 = [item for item in result.findings if item.rule_id == "TE-002"]
-        self.assertEqual([item.components for item in te002], [["C37"]])
-        self.assertIn("11.0 K above the 85 C its X5R", te002[0].description)
+        # The 16:51 run: thirteen X5R capacitors over 85 C made thirteen
+        # actions and took 24 points off the EMC score.
+        (te002,) = [item for item in result.findings if item.rule_id == "TE-002"]
+        self.assertEqual(te002.components, ["C37", "C25"])
+        self.assertIn("2 X5R capacitor(s), rated to 85 C", te002.description)
+        self.assertIn("C37 (22u 35V X5R) 96.0 C, +11.0 K; C25 (47u 16V X5R) 87.3 C, +2.3 K",
+                      te002.description)
+        self.assertNotIn("TE-002", result.score_penalties_by_rule)
         te001 = next(item for item in result.findings if item.rule_id == "TE-001")
-        self.assertEqual(te001.components, ["C37", "C63"])
+        self.assertEqual(te001.components, ["C37", "C63", "C25"])
 
     def test_a_track_on_its_own_pour_counts_once_in_the_switch_node_area(self):
         # P02 Rev E's /J2_SRC_SW read 41.8 mm2 for 31.8 mm2 of copper,

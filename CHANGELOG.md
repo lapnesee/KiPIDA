@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Changed TE-002 to one finding per dielectric, listing its capacitors
+  hottest first, and left it out of the EMC risk score. P02 Rev E's
+  16:51 run had 13 X5R capacitors over 85 C (C37 106.8 C, +21.8 K, down
+  to C49 85.7 C): 13 actions to fix, and 24 of the 30 points the EMC
+  score lost (65 to 35), for a rating question, not an emission risk.
 - Fixed a batch's consolidated report still holding no figure: each tab
   filed its result under a run id of its own, not the campaign's, so the
   plots were never found (P02 Rev E, 2026-10-01 16:51, a 166 kB report).

@@ -135,6 +135,11 @@ _CLASS_I_RATED_C = 125.0
 # the converter's loss model, is a copy that was not updated (SW-004).
 CONVERTER_CURRENT_TOLERANCE = 0.05
 CONVERTER_FREQUENCY_TOLERANCE = 0.10
+# Findings the EMC risk score leaves out. TE-002 judges a capacitor against
+# its dielectric's temperature rating, a reliability limit hosted here
+# because this analysis reads the parts' values; on P02 Rev E it took 24 of
+# the score's 65 points, though no emission or immunity risk changed.
+UNSCORED_RULES = frozenset(("TE-002",))
 # TE-001 names the capacitors, inductors and ferrites above this: the X5R
 # limit, past which ceramics lose capacitance and ferrites impedance fast
 # enough to matter to a filter.
@@ -2308,23 +2313,33 @@ class EMCAnalyzer:
                       "impedance at these temperatures.",
                       "MEDIUM", components=[reference for reference, _temperature in hot],
                       location=at_hotspot)
-        for reference, temperature in sorted(temperatures.items()):
+        # One finding per dielectric: P02 Rev E's 2026-10-01 16:51 run had
+        # thirteen X5R capacitors over 85 C, one cause (X5R chosen in the hot
+        # power section), which made thirteen actions to fix.
+        over = defaultdict(list)
+        for reference, temperature in temperatures.items():
             part = parts.get(reference)
             if part is None or not self._is_capacitor(part):
                 continue
             rating = dielectric_rating_c(part.value)
-            if rating is None or temperature <= rating[1]:
-                continue
-            code, rated_c = rating
-            self._add("TE-002", "THERMAL", "HIGH", "Capacitor above its dielectric's rated temperature",
-                      f"{reference} ({part.value}) reaches {temperature:.1f} C on the latest thermal "
-                      f"result, {temperature - rated_c:.1f} K above the {rated_c:g} C its {code} "
-                      "dielectric is rated to; beyond it the datasheet no longer specifies its "
-                      "capacitance or its life.",
+            if rating is not None and temperature > rating[1]:
+                over[rating].append((temperature - rating[1], reference, part, temperature))
+        for (code, rated_c), items in sorted(over.items()):
+            items.sort(key=lambda item: (-item[0], item[1]))
+            named = "; ".join(
+                f"{reference} ({part.value}) {temperature:.1f} C, +{excess:.1f} K"
+                for excess, reference, part, temperature in items
+            )
+            hottest = items[0][2]
+            self._add("TE-002", "THERMAL", "HIGH", "Capacitors above their dielectric's rated temperature",
+                      f"{len(items)} {code} capacitor(s), rated to {rated_c:g} C, exceed it on the latest "
+                      f"thermal result: {named}. Beyond it the datasheet no longer specifies their "
+                      "capacitance or their life.",
                       "Use a dielectric rated higher (X7R, 125 C) in the same value and voltage, or "
-                      "move the capacitor away from the heat; check its capacitance at temperature "
+                      "move the capacitors away from the heat; check their capacitance at temperature "
                       "and DC bias.",
-                      "MEDIUM", components=[reference], location=(*part.position, None))
+                      "MEDIUM", components=[reference for _excess, reference, _part, _t in items],
+                      location=(*hottest.position, None))
 
     def _finalize(self, started):
         order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
@@ -2338,6 +2353,8 @@ class EMCAnalyzer:
         penalties_by_rule = {}
         cap = max(1, int(self.settings.maximum_findings_per_rule_for_score))
         for rule_id, findings in by_rule.items():
+            if rule_id in UNSCORED_RULES:
+                continue
             rule_penalty = sum(
                 int(round(SEVERITY_WEIGHT.get(item.severity, 0)
                           * CONFIDENCE_WEIGHT.get(item.confidence, 0.5)))
