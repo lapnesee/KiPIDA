@@ -1386,6 +1386,42 @@ def _thermal_fallback_stage_limitations(power_stage_reports: Any) -> list:
     return limitations
 
 
+# A stage whose loss rests on an estimated efficiency is data to complete;
+# from this share of the board's heat it is worth an action (LOW), below it a
+# note (INFO). On P02 Rev E U4's 1.81 W is 38 % of 4.82 W, U6's 0.013 W 0.3 %.
+ESTIMATED_EFFICIENCY_HEAT_SHARE = 0.05
+
+
+def _estimated_efficiency_findings(power_stage_reports: Any, board_heat_w: float) -> list:
+    """TH-008: a stage whose whole loss is set by the configured efficiency
+    fallback, an estimate, ranked by the heat it puts on the board (audit
+    CO-8, R-CO-7). The residual limitation above says where that heat lands;
+    this says the input it rests on is missing."""
+    findings = []
+    for index, stage in enumerate(power_stage_reports or (), start=1):
+        provenance = str(getattr(stage, "efficiency_provenance", "") or "")
+        stage_loss = float(getattr(stage, "total_loss_w", 0.0) or 0.0)
+        if not provenance.startswith("configured efficiency fallback") or stage_loss <= 0.0:
+            continue
+        share = stage_loss / board_heat_w if board_heat_w > 0.0 else 1.0
+        name = str(getattr(stage, "name", "") or "?")
+        efficiency = float(getattr(stage, "efficiency", 0.0) or 0.0)
+        finding = _finding(
+            "TH-008", index, "MODEL_INPUT",
+            FindingSeverity.LOW if share >= ESTIMATED_EFFICIENCY_HEAT_SHARE else FindingSeverity.INFO,
+            f"{name}: loss rests on an estimated efficiency",
+            f"{name} loses {stage_loss:.3g} W, {share * 100.0:.0f}% of the {board_heat_w:.3g} W "
+            f"the board dissipates, set by a configured efficiency of {efficiency * 100.0:.0f}%: "
+            f"{provenance}. The temperatures of the parts it heats move with that estimate.",
+            "Enter the converter's efficiency curve from its datasheet at this input, output "
+            "and switching frequency, or a measured efficiency, in the power tree.",
+            confidence=EvidenceConfidence.DETERMINISTIC,
+        )
+        finding.components = [name.split(" ", 1)[0]]
+        findings.append(finding)
+    return findings
+
+
 # Below this many kelvin a junction's estimated margin is within what its
 # inputs can move. A thermal PASS used to need only a margin above zero:
 # P02 Rev E's U14 read 126.1 C against 150 C at the 45 C outside ambient,
@@ -1686,9 +1722,14 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
             "Check that every heat-dissipating component is placed on the board and enabled.",
             confidence=EvidenceConfidence.DETERMINISTIC,
         ))
+    findings.extend(_estimated_efficiency_findings(
+        power_stage_reports, float(getattr(domain_result, "total_input_power_w", 0.0) or 0.0),
+    ))
     hotspot = getattr(domain_result, "hotspot", None)
+    # A note (TH-007, an INFO TH-008) leaves the analysis passing.
     status = AnalysisStatus.FAIL if any(item.severity == FindingSeverity.CRITICAL for item in findings) else (
-        AnalysisStatus.WARN if findings else AnalysisStatus.PASS
+        AnalysisStatus.WARN if any(item.severity != FindingSeverity.INFO for item in findings)
+        else AnalysisStatus.PASS
     )
     enclosure_metrics, enclosure_evidence, enclosure_limitations = (
         _thermal_enclosure_metrics_evidence_limitations(

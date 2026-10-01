@@ -5436,3 +5436,15 @@ msgstr ""
 #: rule_guide.py:403
 msgid "Rerun EMC: the finding should not return once the values agree."
 msgstr ""
+
+#: rule_guide.py:457
+msgid "Converter loss from an estimated efficiency"
+msgstr ""
+
+#: rule_guide.py:460
+msgid "Rerun thermal after entering the efficiency: the finding should not return."
+msgstr ""
+
+#: rule_guide.py:458
+msgid "The heat a converter puts on the board rests on an efficiency nobody read off a curve or measured; the temperatures of its parts move with it."
+msgstr ""

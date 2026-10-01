@@ -659,6 +659,26 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertIn("keeps 90.5 % of its 5 A rating", held.description)
         self.assertIn("4.53 A; it carries 2.17 A, 48 % of that", held.description)
 
+    def test_a_stage_closed_by_an_estimated_efficiency_is_data_to_complete(self):
+        # P02 Rev E, 2026-10-01: U4's 1.81 W rests on a configured 93 %, an
+        # engineering estimate, out of 4.82 W of board heat; U6's 0.0133 W
+        # on another. Only a residual limitation said so.
+        from models import LossContribution, PowerStageResult
+        fallback = ("configured efficiency fallback (incomplete physical data); source=estimate; "
+                    "confidence=low")
+        u4 = PowerStageResult("U4 buck-boost 5 V machine", "Q10", "U4", 20.0, 5.08, 1.29, 4.726, 0.93,
+                              fallback, losses=[LossContribution("Q10", "conduction", 1.521),
+                                                LossContribution("L1", "residual", 0.289)])
+        u6 = PowerStageResult("U6 +3V3AO module", "U6", "U6", 19.7, 3.32, 0.003, 0.016, 0.8,
+                              fallback, losses=[LossContribution("U6", "residual", 0.0133)])
+        result = adapt_thermal_result(
+            ThermalResult(total_input_power_w=4.82), power_stage_reports=[u4, u6],
+        )
+        found = {item.components[0]: item for item in result.findings if item.rule_id == "TH-008"}
+        self.assertEqual(found["U4"].severity, FindingSeverity.LOW)
+        self.assertIn("loses 1.81 W, 38% of the 4.82 W", found["U4"].description)
+        self.assertEqual(found["U6"].severity, FindingSeverity.INFO)
+
     def test_a_junction_over_its_limit_gets_a_sized_thermal_via_remediation(self):
         # COH-1: advisor.thermal_advisor was imported by no production code,
         # so no thermal action ever carried a structured remediation.

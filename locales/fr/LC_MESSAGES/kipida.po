@@ -3897,3 +3897,12 @@ msgstr "Valeurs de convertisseur différentes de l’arbre d’alimentation"
 
 msgid "Rerun EMC: the finding should not return once the values agree."
 msgstr "Relancez la CEM : l’observation ne doit plus revenir une fois les valeurs accordées."
+
+msgid "Converter loss from an estimated efficiency"
+msgstr "Pertes de convertisseur sur un rendement estimé"
+
+msgid "Rerun thermal after entering the efficiency: the finding should not return."
+msgstr "Relancez le thermique après avoir saisi le rendement : l’observation ne doit plus revenir."
+
+msgid "The heat a converter puts on the board rests on an efficiency nobody read off a curve or measured; the temperatures of its parts move with it."
+msgstr "La chaleur qu’un convertisseur dépose sur la carte repose sur un rendement que personne n’a lu sur une courbe ni mesuré ; les températures de ses composants en dépendent."

@@ -453,6 +453,12 @@ GUIDE: Dict[str, RuleGuide] = {
         "The part keeps enough of its rating at the temperature found.",
         "Nothing to check while its current and temperature stay as estimated.",
         _N, _LOW),
+    "TH-008": RuleGuide(
+        "Converter loss from an estimated efficiency",
+        "The heat a converter puts on the board rests on an efficiency nobody read off a "
+        "curve or measured; the temperatures of its parts move with it.",
+        "Rerun thermal after entering the efficiency: the finding should not return.",
+        _D, _LOW),
     "VS-001": RuleGuide(
         "Sparse ground stitching",
         "Planes stitched far apart resonate at frequencies inside the band.",

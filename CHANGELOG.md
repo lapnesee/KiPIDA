@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added TH-008, data to complete: a converter stage whose loss is set
+  by the configured efficiency fallback, an estimate. LOW from 5 % of
+  the board's heat, INFO below. P02 Rev E's U4 loses 1.81 W, 38 % of
+  4.82 W, on an estimated 93 %; U6's 0.0133 W is a note. A thermal
+  result with notes only now passes.
 - Added power_tree.py, where every domain reads a switching converter's
   output current and frequency from the power tree. The EMC rule SW-004
   (LOW, data to complete) names an entered source or inductor model more
