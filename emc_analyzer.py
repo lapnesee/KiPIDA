@@ -2332,17 +2332,36 @@ class EMCAnalyzer:
             rating = dielectric_rating_c(part.value)
             if rating is not None and temperature > rating[1]:
                 over[rating].append((temperature - rating[1], reference, part, temperature))
+        # How far the board under each part moved at twice the thermal grid
+        # step. P02 Rev E's 21:42 hotspot moved 4.02 K while C49 sat 0.7 K
+        # over its 85 C, and TH-004 said no part's margin depended on the mesh.
+        sensitivity = getattr(self.thermal_result, "mesh_sensitivity", None) or {}
+        moves = {
+            str(reference): abs(float(fine) - float(coarse))
+            for reference, (fine, coarse) in (sensitivity.get("placement_c") or {}).items()
+        }
         for (code, rated_c), items in sorted(over.items()):
             items.sort(key=lambda item: (-item[0], item[1]))
             named = "; ".join(
                 f"{reference} ({part.value}) {temperature:.1f} C, +{excess:.1f} K"
                 for excess, reference, part, temperature in items
             )
+            unsettled = ", ".join(
+                f"{reference} (+{excess:.1f} K, moved {moves[reference]:.1f} K)"
+                for excess, reference, _part, _temperature in items
+                if reference in moves and excess <= moves[reference]
+            )
+            mesh_note = (
+                f" Within the mesh's uncertainty, over by less than the board under them moved "
+                f"between the {float(sensitivity.get('fine_grid_mm', 0.0)):g} and "
+                f"{float(sensitivity.get('coarse_grid_mm', 0.0)):g} mm thermal grids: {unsettled}."
+                if unsettled else ""
+            )
             hottest = items[0][2]
             self._add("TE-002", "THERMAL", "HIGH", "Capacitors above their dielectric's rated temperature",
                       f"{len(items)} {code} capacitor(s), rated to {rated_c:g} C, exceed it on the latest "
                       f"thermal result: {named}. Beyond it the datasheet no longer specifies their "
-                      "capacitance or their life.",
+                      f"capacitance or their life.{mesh_note}",
                       "Use a dielectric rated higher (X7R, 125 C) in the same value and voltage, or "
                       "move the capacitors away from the heat; check their capacitance at temperature "
                       "and DC bias.",

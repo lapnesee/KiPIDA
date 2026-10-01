@@ -20,7 +20,7 @@ def _settings(check=True):
 
 
 class EngineSolvesTwice(unittest.TestCase):
-    def _engine(self, hotspots, grids):
+    def _engine(self, hotspots, grids, boards=None):
         from application.thermal_controller import ThermalSolverEngine
 
         class Mesher:
@@ -39,6 +39,7 @@ class EngineSolvesTwice(unittest.TestCase):
                 return SimpleNamespace(
                     hotspot=SimpleNamespace(temperature_c=hotspots[mesh.grid]),
                     effective_grid_size_mm=mesh.grid,
+                    placement_temperatures_c=(boards or {}).get(mesh.grid, {}),
                 )
 
         return ThermalSolverEngine(mesher_factory=Mesher, solver_factory=Solver)
@@ -64,6 +65,14 @@ class EngineSolvesTwice(unittest.TestCase):
         self.assertEqual(outcome.mesh_sensitivity["coarse_grid_mm"], 2.0)
         # The user's settings object is not the one coarsened.
         self.assertEqual(request.settings.grid_size_mm, 1.0)
+
+    def test_the_board_under_each_part_reaches_the_result_emc_reads(self):
+        # P02 Rev E, 2026-10-01 21:42: C49 sat 0.7 K over its X5R rating
+        # while the hotspot moved 4.02 K; EMC's TE-002 reads the result.
+        engine = self._engine({1.0: 101.3, 2.0: 105.7}, [],
+                              boards={1.0: {"C49": 85.7}, 2.0: {"C49": 83.4}})
+        outcome = engine.solve(self._request(), lambda _m: None, lambda *_: None, lambda: False)
+        self.assertEqual(outcome.result.mesh_sensitivity["placement_c"], {"C49": (85.7, 83.4)})
 
     def test_turned_off_nothing_more_is_solved(self):
         grids = []

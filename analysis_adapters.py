@@ -1236,15 +1236,15 @@ def _thermal_mesh_sensitivity(mesh_sensitivity: Any, components=()):
     if junctions_hold and moves[0][0] <= THERMAL_MESH_SENSITIVITY_LIMIT_C:
         junction_text = (
             f" The junction estimates moved at most {moves[0][0]:.2f} K ({moves[0][1]}), within "
-            f"that {THERMAL_MESH_SENSITIVITY_LIMIT_C:g} C: no part's margin depends on the mesh, "
+            f"that {THERMAL_MESH_SENSITIVITY_LIMIT_C:g} C: no junction's margin depends on the mesh, "
             "only the hotspot's figure does."
         )
     elif junctions_hold:
         move, ref = moves[0]
         junction_text = (
             f" {ref}'s junction estimate moved most, {move:.2f} K, and would still sit "
-            f"{margins[ref] - move:.1f} K under its limit moved as far again: no part's margin "
-            f"depends on the mesh, only the temperatures' figures do."
+            f"{margins[ref] - move:.1f} K under its limit moved as far again: no junction's "
+            f"margin depends on the mesh, only the temperatures' figures do."
         )
     elif moves:
         move, ref = at_risk[0]

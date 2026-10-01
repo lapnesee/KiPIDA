@@ -328,6 +328,10 @@ class TestEMCAnalyzer(unittest.TestCase):
         )
         snap.footprints += [EMCFootprint("C25", "47u 16V X5R", (240.0, 80.0))]
         thermal.placement_temperatures_c["C25"] = 87.3
+        # The 21:42 run: the hotspot moved 4.02 K at twice the grid step,
+        # more than several capacitors' excess.
+        thermal.mesh_sensitivity = {"fine_grid_mm": 0.2, "coarse_grid_mm": 0.4,
+                                    "placement_c": {"C37": (96.0, 93.1), "C25": (87.3, 84.4)}}
         result = EMCAnalyzer(snap, self.settings(), thermal_result=thermal).analyze()
         # The 16:51 run: thirteen X5R capacitors over 85 C made thirteen
         # actions and took 24 points off the EMC score.
@@ -336,6 +340,9 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertIn("2 X5R capacitor(s), rated to 85 C", te002.description)
         self.assertIn("C37 (22u 35V X5R) 96.0 C, +11.0 K; C25 (47u 16V X5R) 87.3 C, +2.3 K",
                       te002.description)
+        self.assertTrue(te002.description.endswith(
+            "Within the mesh's uncertainty, over by less than the board under them moved between "
+            "the 0.2 and 0.4 mm thermal grids: C25 (+2.3 K, moved 2.9 K)."))
         self.assertNotIn("TE-002", result.score_penalties_by_rule)
         te001 = next(item for item in result.findings if item.rule_id == "TE-001")
         self.assertEqual(te001.components, ["C37", "C63", "C25"])

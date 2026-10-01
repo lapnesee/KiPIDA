@@ -1059,6 +1059,10 @@ class ThermalResult:
     # {reference: C}, the hottest board cell under each footprint's pads,
     # heat source or not (thermal_mesh placement_nodes).
     placement_temperatures_c: Dict[str, float] = field(default_factory=dict)
+    # The check at twice the grid step, when it ran
+    # (ThermalAnalysisController._mesh_sensitivity), so a domain reading
+    # these temperatures can tell how far the mesh moves them.
+    mesh_sensitivity: Dict[str, Any] = field(default_factory=dict)
     total_input_power_w: float = 0.0
     total_boundary_power_w: float = 0.0
     energy_balance_error_pct: float = 0.0

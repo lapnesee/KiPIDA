@@ -417,6 +417,8 @@ class ThermalSolverEngine:
                 )
             else:
                 mesh_sensitivity = self._mesh_sensitivity(model, request, result, emit, cancelled)
+            # EMC reads the result, not this outcome (TE-002).
+            result.mesh_sensitivity = dict(mesh_sensitivity or {})
         return ThermalRunOutcome(
             mesh=mesh,
             result=result,
@@ -523,6 +525,9 @@ class ThermalSolverEngine:
             str(item.ref_des): float(item.junction_temperature_c)
             for item in getattr(coarse, "component_results", ()) or ()
         }
+        # And the board under each footprint, which EMC's TE-002 judges a
+        # capacitor's rating on.
+        coarse_board = dict(getattr(coarse, "placement_temperatures_c", None) or {})
         data = {
             "fine_grid_mm": fine_step,
             "coarse_grid_mm": coarse_step,
@@ -533,6 +538,11 @@ class ThermalSolverEngine:
                 str(item.ref_des): (float(item.junction_temperature_c), coarse_tj[str(item.ref_des)])
                 for item in getattr(result, "component_results", ()) or ()
                 if str(item.ref_des) in coarse_tj
+            },
+            "placement_c": {
+                str(reference): (float(value), float(coarse_board[reference]))
+                for reference, value in (getattr(result, "placement_temperatures_c", None) or {}).items()
+                if reference in coarse_board
             },
         }
         # The finest grid the mesher's node limit leaves room for, which a

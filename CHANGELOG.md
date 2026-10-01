@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed TH-004 saying no part's margin depended on the thermal mesh
+  while TE-002 judged capacitors closer to their rating than the mesh
+  moves: on P02 Rev E's 21:42 run the hotspot moved 4.02 K between the
+  0.2 and 0.4 mm grids, and six of the 13 X5R capacitors were over 85 C
+  by less (C68 +3.9 K down to C49 +0.7 K). The double-step check now
+  keeps the board under every footprint at both steps on the thermal
+  result; TE-002 names the capacitors over their rating by less than the
+  board under them moved, and TH-004 speaks of junction margins only.
 - Fixed TH-008 giving a small converter's share of the board's heat as
   "0%": P02 Rev E's 21:42 report said U6 "loses 0.0133 W, 0% of the
   4.82 W". A share under 10 % keeps two digits (0.28%).
