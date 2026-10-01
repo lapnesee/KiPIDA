@@ -39,9 +39,7 @@ from analysis_contract import (
     Remediation,
     RemediationEffort,
 )
-from campaign import (
-    AIR_AGREEMENT_K, GROUPING_MAX_COMPONENTS, CampaignAction, CampaignResult, DomainScore,
-)
+from campaign import AIR_AGREEMENT_K, CampaignAction, CampaignResult, DomainScore
 from i18n import N_, _, current_language
 from rule_guide import CONFIRMATIONS, PROTOTYPE_CHECK, FindingNature, finding_nature, guide
 
@@ -839,21 +837,25 @@ def _render_components(campaign: CampaignResult) -> str:
         for item in (result.summary or {}).get("components") or ():
             thermal[str(item.get("reference", ""))] = item
         board.update((result.summary or {}).get("placement_temperatures_c") or {})
+    # Every finding above INFO, a survey included: TE-002 names each hot X5R
+    # capacitor, and that is what their rows are for.
     cited: Dict[str, List[tuple]] = {}
     for result in campaign.results:
         for finding in result.findings:
-            if finding.severity == FindingSeverity.INFO or len(finding.components) > GROUPING_MAX_COMPONENTS:
+            if finding.severity == FindingSeverity.INFO:
                 continue
             for reference in finding.components:
                 entry = (finding.severity, finding.rule_id, result.analysis_type)
                 if entry not in cited.setdefault(reference, []):
                     cited[reference].append(entry)
     hottest = sorted(thermal.values(), key=lambda item: -float(item.get("junction_c", 0.0) or 0.0))
-    references = list(cited) + [
+    # The hottest junctions keep their rows whatever the findings: on P02
+    # Rev E's 16:51 run, sixteen cited parts pushed U14 (124 C of 150) out.
+    extra = [
         str(item.get("reference", "")) for item in hottest[:_HOTTEST_JUNCTIONS]
         if str(item.get("reference", "")) not in cited
     ]
-    if not references:
+    if not cited and not extra:
         return ""
     severities = list(FindingSeverity)
 
@@ -864,8 +866,9 @@ def _render_components(campaign: CampaignResult) -> str:
         junction = float(thermal.get(reference, {}).get("junction_c", 0.0) or 0.0)
         return worst, -len(entries), -junction, reference
 
+    references = sorted(cited, key=rank)[:max(0, _COMPONENT_LIMIT - len(extra))] + extra
     rows = []
-    for reference in sorted(references, key=rank)[:_COMPONENT_LIMIT]:
+    for reference in references:
         item = thermal.get(reference, {})
         board_c = item.get("board_c", board.get(reference))
         heat = _number(float(item["power_w"]), "W") if item.get("power_w") else "&mdash;"

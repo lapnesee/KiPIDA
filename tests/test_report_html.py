@@ -307,6 +307,25 @@ class ComponentViewTests(unittest.TestCase):
         self.assertIn("124&nbsp;°C / 150&nbsp;°C", view)
         self.assertIn("<td>96&nbsp;°C</td>", view)
 
+    def test_the_hottest_junction_keeps_its_row_past_the_limit(self):
+        # P02 Rev E, 16:51: sixteen cited parts pushed U14 (124 C of 150) out.
+        thermal = AnalysisResult("THERMAL", "3D Thermal", status=AnalysisStatus.PASS, summary={
+            "components": [{"reference": "U14", "power_w": 1.24, "board_c": 105.1, "junction_c": 124.33,
+                            "max_junction_c": 150.0, "margin_k": 25.67}],
+        })
+        survey = [f"C{index}" for index in range(1, 21)]
+        emc = AnalysisResult("EMC", "EMC", status=AnalysisStatus.WARN, findings=[AnalysisFinding(
+            rule_id="TE-002", category="THERMAL", severity=FindingSeverity.HIGH,
+            title="Capacitors above their dielectric's rated temperature", description="d",
+            components=survey,
+        )])
+        document = render_campaign_html(CampaignResult.from_results([thermal, emc]))
+        view = document.split('id="components"')[1].split("</section>")[0]
+        rows = re.findall(r"<tr><th>([^<]+)</th>", view.split("<tbody>")[1])
+        self.assertEqual(len(rows), 16)
+        self.assertEqual(rows[-1], "U14")
+        self.assertEqual(rows[0], "C1")
+
 
 class FrenchReportTests(unittest.TestCase):
     def tearDown(self):

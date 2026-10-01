@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed the component view dropping the hottest junctions once sixteen
+  parts were cited: P02 Rev E's 16:51 report left out U14, 124 C of its
+  150 C limit. The five hottest junctions now keep their rows, and a
+  finding naming many parts (TE-002's capacitors) lists them all.
 - Fixed SW-004 judging a source revalued from its board circuit, whose
   current is the simulated inductor peak: P02 Rev E's 16:51 run flagged
   U14 (3.87 A against the tree's 3 A) and U5 (1.26 A against 1 A).
