@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed SCH-006 listing footprints that join no net: P02 Rev E's 21:42
+  report put its six fiducials (FID1 to FID6, one pad on no net) under
+  "data to complete" with "nothing to do". Only a board-only footprint
+  with a pad on a net escapes the schematic rules, and only those are
+  listed.
 - Fixed TE-002's title and recommendation showing in English under the
   French interface since they became plural (one finding per
   dielectric). The template is regenerated and both are translated.

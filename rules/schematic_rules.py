@@ -421,10 +421,16 @@ def _check_pcb_schematic_consistency(context: SchematicRuleContext) -> list:
     remediation_template="Nothing to do if {ref} are mechanical or graphical parts.",
 )
 def _report_board_only_footprints(context: SchematicRuleContext) -> list:
-    """One note for the project: such footprints are normal, and rules that read the schematic skip them."""
+    """One note for the project: such footprints are normal, and rules that read the schematic skip them.
+
+    Only those with a pad on a net: one on no net joins no circuit, so no
+    rule misses anything on it. P02 Rev E's six fiducials, FID1 to FID6,
+    were listed under "data to complete" with "nothing to do".
+    """
     if context.schematic is None:
         return []
-    references = [c.reference for c in context.netlist.components if c.schematic_link == "pcb_only"]
+    references = [c.reference for c in context.netlist.components
+                  if c.schematic_link == "pcb_only" and c.nets_by_pad]
     if not references:
         return []
     shown = ", ".join(references[:10]) + (", ..." if len(references) > 10 else "")

@@ -246,14 +246,15 @@ class TestPcbSchematicConsistency(unittest.TestCase):
         self.assertEqual(findings[0].components, ["U9"])
 
     def test_a_board_only_footprint_is_one_note_not_a_mismatch(self):
-        logos = [ComponentInfo(ref, "", "", "", {}, (0, 0), {}, {}, schematic_link="pcb_only")
-                 for ref in ("G1", "MH1")]
+        # P02 Rev E's fiducials FID1 to FID6 have one pad on no net.
+        logos = [ComponentInfo(ref, "", "", "", {}, (0, 0), nets, {}, schematic_link="pcb_only")
+                 for ref, nets in (("G1", {}), ("MH1", {"1": "GND"}), ("FID1", {}))]
         ctx = SchematicRuleContext(netlist=_netlist("b1", logos, []), schematic=self._schematic(["U1"]))
         self.assertEqual(_check_pcb_schematic_consistency(ctx), [])
 
         from rules.schematic_rules import _report_board_only_footprints
         self.assertEqual([(f.rule_id, f.components) for f in _report_board_only_footprints(ctx)],
-                         [("SCH-006", ["G1", "MH1"])])
+                         [("SCH-006", ["MH1"])])
 
     def test_no_schematic_no_findings(self):
         component = ComponentInfo("U9", "", "", "", {}, (0, 0), {}, {})
