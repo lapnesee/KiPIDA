@@ -679,6 +679,23 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertIn("loses 1.81 W, 38% of the 4.82 W", found["U4"].description)
         self.assertEqual(found["U6"].severity, FindingSeverity.INFO)
 
+    def test_the_least_junction_margin_is_named_when_not_the_hottest_parts(self):
+        # P02 Rev E, 2026-10-01 19:12: U14 is the hottest junction (124.3 C of
+        # 150, 25.7 K) but U4 keeps 22.4 K under 125 C. F1, judged by its
+        # current derating, keeps 16.65 K under 105 C and is left out.
+        from models import ComponentThermalResult
+        u14 = ComponentThermalResult("U14", board_temperature_c=102.0, junction_temperature_c=124.33,
+                                     power_w=1.08, max_junction_c=150.0, margin_c=25.67)
+        u4 = ComponentThermalResult("U4", board_temperature_c=99.7, junction_temperature_c=102.6,
+                                    power_w=0.228, max_junction_c=125.0, margin_c=22.4)
+        f1 = ComponentThermalResult("F1", board_temperature_c=87.22, junction_temperature_c=88.35,
+                                    power_w=0.057, max_junction_c=105.0, margin_c=16.65,
+                                    rated_current_a=5.0,
+                                    current_derating=[{"temperature_c": 99.9, "percent": 88.7}])
+        result = adapt_thermal_result(ThermalResult(component_results=[u14, u4, f1]))
+        least = next(item for item in result.metrics if item.key == "least_junction_margin")
+        self.assertEqual((least.label, least.value), ("U4 junction margin, the least", 22.4))
+
     def test_a_junction_over_its_limit_gets_a_sized_thermal_via_remediation(self):
         # COH-1: advisor.thermal_advisor was imported by no production code,
         # so no thermal action ever carried a structured remediation.

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added the least junction margin to the thermal figures when it is not
+  the hottest part's: P02 Rev E's 19:12 report gave U14's 25.7 K (124 C
+  of 150) as its key margin while U4 keeps 22.4 K under 125 C. A fuse
+  judged by its current derating (F1, F2) is left out.
 - Fixed the component view giving its rows to a finding about many
   parts: P02 Rev E's 18:31 report listed TE-002's 13 capacitors and left
   out C88 and R10, DC-008's parts. Parts named by a narrower finding

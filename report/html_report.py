@@ -530,7 +530,7 @@ def _worst_line(metric: Optional[AnalysisMetric]) -> Optional[str]:
 
 
 _KEY_METRIC_KEYS = (
-    "hotspot", "hottest_junction_margin", "input_heat", "risk_score",
+    "hotspot", "hottest_junction_margin", "least_junction_margin", "input_heat", "risk_score",
     "maximum_velocity", "board_free_stream_velocity",
 )
 

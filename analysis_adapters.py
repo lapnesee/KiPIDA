@@ -1627,6 +1627,29 @@ def _thermal_via_remediation(component: Any, ambient_c: Any):
         return None
 
 
+def _least_junction_margin_metrics(components) -> list:
+    """The smallest junction margin, when it is not the hottest part's.
+
+    On P02 Rev E's 2026-10-01 19:12 run the report's key figure read U14's
+    25.7 K, the hottest junction (124 C of 150), while U4 keeps 22.4 K under
+    its 125 C limit. A part judged by its current derating (the fuses F1 and
+    F2, TH-007) is left out: its limit is not a junction's.
+    """
+    judged = [
+        item for item in components
+        if not (getattr(item, "rated_current_a", 0.0) and getattr(item, "current_derating", None))
+    ]
+    if not components or not judged:
+        return []
+    least = min(judged, key=lambda item: float(item.margin_c))
+    if least.ref_des == components[0].ref_des:
+        return []
+    return [AnalysisMetric(
+        "least_junction_margin", f"{least.ref_des} junction margin, the least",
+        float(least.margin_c), "K", "WARN" if float(least.margin_c) < 0 else "INFO",
+    )]
+
+
 def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seconds: float = 0.0,
                          *, copper_loss_source: str = "", mesh_sensitivity: Any = None,
                          mesh: Any = None, power_stage_reports: Any = None,
@@ -1790,7 +1813,8 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
                 float(components[0].margin_c), "K",
                 "WARN" if float(components[0].margin_c) < 0 else "INFO",
             )] if components else []
-        ) + _thermal_surface_metrics(domain_result) + sensitivity_metrics + enclosure_metrics,
+        ) + _least_junction_margin_metrics(components)
+        + _thermal_surface_metrics(domain_result) + sensitivity_metrics + enclosure_metrics,
         provenance=[
             AnalysisEvidence(
                 "PCB_GEOMETRY",
