@@ -39,7 +39,9 @@ from analysis_contract import (
     Remediation,
     RemediationEffort,
 )
-from campaign import AIR_AGREEMENT_K, CampaignAction, CampaignResult, DomainScore
+from campaign import (
+    AIR_AGREEMENT_K, GROUPING_MAX_COMPONENTS, CampaignAction, CampaignResult, DomainScore,
+)
 from i18n import N_, _, current_language
 from rule_guide import CONFIRMATIONS, PROTOTYPE_CHECK, FindingNature, finding_nature, guide
 
@@ -815,7 +817,90 @@ def _render_actions(campaign: CampaignResult) -> str:
 
 
 # ----------------------------------------------------------------------
-# Section 3 -- per domain
+# Section 3 -- components
+# ----------------------------------------------------------------------
+
+# The component view lists the parts the findings name and the hottest
+# junctions, this many at most.
+_COMPONENT_LIMIT = 16
+_HOTTEST_JUNCTIONS = 5
+
+
+def _render_components(campaign: CampaignResult) -> str:
+    """One row per part: its heat, its temperatures and what each analysis
+    says of it (audit R-LE-8). "What is wrong with U4?" took reading five
+    domain sections on P02 Rev E's 2026-10-01 report."""
+    heading = _esc(_("3. Components"))
+    thermal: Dict[str, Dict[str, Any]] = {}
+    board: Dict[str, float] = {}
+    for result in campaign.results:
+        if result.analysis_type != "THERMAL":
+            continue
+        for item in (result.summary or {}).get("components") or ():
+            thermal[str(item.get("reference", ""))] = item
+        board.update((result.summary or {}).get("placement_temperatures_c") or {})
+    cited: Dict[str, List[tuple]] = {}
+    for result in campaign.results:
+        for finding in result.findings:
+            if finding.severity == FindingSeverity.INFO or len(finding.components) > GROUPING_MAX_COMPONENTS:
+                continue
+            for reference in finding.components:
+                entry = (finding.severity, finding.rule_id, result.analysis_type)
+                if entry not in cited.setdefault(reference, []):
+                    cited[reference].append(entry)
+    hottest = sorted(thermal.values(), key=lambda item: -float(item.get("junction_c", 0.0) or 0.0))
+    references = list(cited) + [
+        str(item.get("reference", "")) for item in hottest[:_HOTTEST_JUNCTIONS]
+        if str(item.get("reference", "")) not in cited
+    ]
+    if not references:
+        return ""
+    severities = list(FindingSeverity)
+
+    def rank(reference):
+        entries = cited.get(reference, [])
+        worst = min((severities.index(severity) for severity, _rule, _domain in entries),
+                    default=len(severities))
+        junction = float(thermal.get(reference, {}).get("junction_c", 0.0) or 0.0)
+        return worst, -len(entries), -junction, reference
+
+    rows = []
+    for reference in sorted(references, key=rank)[:_COMPONENT_LIMIT]:
+        item = thermal.get(reference, {})
+        board_c = item.get("board_c", board.get(reference))
+        heat = _number(float(item["power_w"]), "W") if item.get("power_w") else "&mdash;"
+        board_text = _number(float(board_c), "°C") if board_c is not None else "&mdash;"
+        junction = (
+            f"{_number(float(item['junction_c']), '°C')} / {_number(float(item['max_junction_c']), '°C')}"
+            if item.get("max_junction_c") else "&mdash;"
+        )
+        margin = _number(float(item["margin_k"]), "K") if item.get("max_junction_c") else "&mdash;"
+        said = "".join(
+            f"<li>{_severity_badge(severity)} "
+            f"{_tr(guide(rule).name) if guide(rule) else _esc(rule)} "
+            f'<span class="meta">({_esc(domain)}, {_esc(rule)})</span></li>'
+            for severity, rule, domain in cited.get(reference, [])
+        )
+        rows.append(
+            f"<tr><th>{_esc(reference)}</th><td>{heat}</td><td>{board_text}</td>"
+            f"<td>{junction}</td><td>{margin}</td>"
+            f'<td><ul class="tight">{said}</ul></td></tr>'
+        )
+    head = _headers(_("Component"), _("Heat"), _("Board"), _("Junction / limit"), _("Margin"),
+                    _("What the analyses say"))
+    explanation = _esc(_(
+        "Each part a finding names, and the hottest junctions: the heat it dissipates, the "
+        "board temperature under it, its junction against its limit, and what each analysis "
+        "says of it."
+    ))
+    return (
+        f'<section id="components"><h2>{heading}</h2><p class="meta">{explanation}</p>'
+        f"<table>{head}<tbody>{''.join(rows)}</tbody></table></section>"
+    )
+
+
+# ----------------------------------------------------------------------
+# Section 4 -- per domain
 # ----------------------------------------------------------------------
 
 def _render_metrics(result: AnalysisResult) -> str:
@@ -958,7 +1043,7 @@ def _render_artifacts(result: AnalysisResult, embed_images: bool, search_roots=(
 
 
 def _render_domains(campaign: CampaignResult, embed_images: bool, search_roots=()) -> str:
-    heading = _esc(_("3. Per domain"))
+    heading = _esc(_("4. Per domain"))
     if not campaign.results:
         nothing = _esc(_("No analysis results."))
         return f'<section id="domains"><h2>{heading}</h2><p class="muted">{nothing}</p></section>'
@@ -981,7 +1066,7 @@ def _render_domains(campaign: CampaignResult, embed_images: bool, search_roots=(
 
 
 # ----------------------------------------------------------------------
-# Section 4 -- appendices
+# Section 5 -- appendices
 # ----------------------------------------------------------------------
 
 _MODE_LABELS = {
@@ -1052,7 +1137,7 @@ def _render_appendices(campaign: CampaignResult) -> str:
         ("configuration", _("Configuration")), ("compute", _("Compute metadata")),
         ("no_provenance", _("No provenance recorded.")),
         ("no_limitations", _("No limitations recorded.")),
-        ("no_results", _("No results.")), ("heading", _("4. Appendices")),
+        ("no_results", _("No results.")), ("heading", _("5. Appendices")),
         ("per_analysis", _("Per analysis")),
     )}
     result_schema = _esc(_("Result schema {version}"))
@@ -1123,6 +1208,7 @@ def render_campaign_html(
         f'<p class="meta">{subtitle} &middot; {_esc(campaign.created_at)}</p>'
         f"{_render_synthesis(campaign)}"
         f"{_render_actions(campaign)}"
+        f"{_render_components(campaign)}"
         f"{_render_domains(campaign, embed_images, artifact_roots)}"
         f"{_render_appendices(campaign)}"
         "</body></html>\n"

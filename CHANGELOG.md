@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added a component view to the campaign report: one row per part a
+  finding names, plus the five hottest junctions, with its heat, the
+  board temperature under it, its junction against its limit and what
+  each analysis says of it. The thermal result now carries these per
+  part. On P02 Rev E, Q10 reads its SW-003 hot loop beside its heat.
 - Changed the campaign to make one action of a switching stage: SW-001,
   SW-002 and SW-003 findings on the same switch node now group. P02 Rev
   E's /SYS_5V_SW1 hot loop (C37, Q10, Q11) and its harmonics and copper

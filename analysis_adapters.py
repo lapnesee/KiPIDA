@@ -1739,7 +1739,27 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
     return AnalysisResult(
         "THERMAL", "3D Thermal", status=status,
         elapsed_seconds=float(elapsed_seconds or 0.0),
-        summary={"coupled": bool(coupled), "component_count": len(components)},
+        summary={
+            "coupled": bool(coupled), "component_count": len(components),
+            # Per part, for the report's component view (audit R-LE-8): the
+            # heat sources' power and temperatures, and the board temperature
+            # under every footprint.
+            "components": [
+                {
+                    "reference": str(getattr(item, "ref_des", "")),
+                    "power_w": round(float(getattr(item, "power_w", 0.0) or 0.0), 4),
+                    "board_c": round(float(getattr(item, "board_temperature_c", 0.0) or 0.0), 2),
+                    "junction_c": round(float(getattr(item, "junction_temperature_c", 0.0) or 0.0), 2),
+                    "max_junction_c": round(float(getattr(item, "max_junction_c", 0.0) or 0.0), 2),
+                    "margin_k": round(float(getattr(item, "margin_c", 0.0) or 0.0), 2),
+                }
+                for item in components
+            ],
+            "placement_temperatures_c": {
+                str(reference): round(float(value), 2)
+                for reference, value in (getattr(domain_result, "placement_temperatures_c", None) or {}).items()
+            },
+        },
         findings=findings,
         metrics=[
             AnalysisMetric(

@@ -2803,12 +2803,6 @@ msgstr "100 moins une pénalité par observation, pondérée par la gravité et 
 msgid "2. Actions"
 msgstr "2. Actions"
 
-msgid "3. Per domain"
-msgstr "3. Par domaine"
-
-msgid "4. Appendices"
-msgstr "4. Annexes"
-
 msgid "A capacitor at a power pin that supplies the pin's fast current locally."
 msgstr "Condensateur placé à une broche d’alimentation, qui fournit sur place le courant rapide de la broche."
 
@@ -3915,3 +3909,27 @@ msgstr "Air intérieur : thermique {thermal} °C, CFD {cfd} °C, écart de {spre
 
 msgid "Not to be read as results: {figures}."
 msgstr "À ne pas lire comme des résultats : {figures}."
+
+msgid "3. Components"
+msgstr "3. Composants"
+
+msgid "4. Per domain"
+msgstr "4. Par domaine"
+
+msgid "5. Appendices"
+msgstr "5. Annexes"
+
+msgid "Component"
+msgstr "Composant"
+
+msgid "Each part a finding names, and the hottest junctions: the heat it dissipates, the board temperature under it, its junction against its limit, and what each analysis says of it."
+msgstr "Chaque composant cité par une observation, et les jonctions les plus chaudes : la chaleur qu’il dissipe, la température de carte sous lui, sa jonction face à sa limite, et ce qu’en dit chaque analyse."
+
+msgid "Heat"
+msgstr "Chaleur"
+
+msgid "Junction / limit"
+msgstr "Jonction / limite"
+
+msgid "What the analyses say"
+msgstr "Ce que disent les analyses"

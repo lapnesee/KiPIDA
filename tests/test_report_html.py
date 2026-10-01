@@ -282,6 +282,32 @@ class CrossCheckTests(unittest.TestCase):
                       "are not usable at this mesh size.", domains)
 
 
+class ComponentViewTests(unittest.TestCase):
+    def test_a_part_reads_its_heat_temperatures_and_findings_in_one_row(self):
+        # Audit R-LE-8, P02 Rev E 2026-10-01: Q10 is in SW-003's hot loop and
+        # U14 has the hottest junction, 25.67 K under its 150 C limit.
+        thermal = AnalysisResult("THERMAL", "3D Thermal", status=AnalysisStatus.WARN, summary={
+            "components": [
+                {"reference": "U14", "power_w": 1.24, "board_c": 105.1, "junction_c": 124.33,
+                 "max_junction_c": 150.0, "margin_k": 25.67},
+                {"reference": "Q10", "power_w": 1.06, "board_c": 118.99, "junction_c": 120.1,
+                 "max_junction_c": 175.0, "margin_k": 54.9},
+            ],
+            "placement_temperatures_c": {"C37": 96.0},
+        })
+        emc = AnalysisResult("EMC", "EMC", status=AnalysisStatus.WARN, findings=[AnalysisFinding(
+            rule_id="SW-003", category="SWITCHING", severity=FindingSeverity.HIGH,
+            title="Switching hot loop is spread out", description="d", components=["C37", "Q10", "Q11"],
+        )])
+        document = render_campaign_html(CampaignResult.from_results([thermal, emc]))
+        view = document.split('id="components"')[1].split("</section>")[0]
+        rows = re.findall(r"<tr><th>([^<]+)</th>", view.split("<tbody>")[1])
+        self.assertEqual(rows, ["Q10", "C37", "Q11", "U14"])
+        self.assertIn("Spread-out switching hot loop", view)
+        self.assertIn("124&nbsp;°C / 150&nbsp;°C", view)
+        self.assertIn("<td>96&nbsp;°C</td>", view)
+
+
 class FrenchReportTests(unittest.TestCase):
     def tearDown(self):
         i18n.configure("en")

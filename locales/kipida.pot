@@ -3963,14 +3963,6 @@ msgstr ""
 msgid "2. Actions"
 msgstr ""
 
-#: report/html_report.py:928
-msgid "3. Per domain"
-msgstr ""
-
-#: report/html_report.py:1021
-msgid "4. Appendices"
-msgstr ""
-
 #: report/html_report.py:369
 msgid "A capacitor at a power pin that supplies the pin's fast current locally."
 msgstr ""
@@ -5462,4 +5454,36 @@ msgstr ""
 #: report/html_report.py:854
 #, python-brace-format
 msgid "Not to be read as results: {figures}."
+msgstr ""
+
+#: report/html_report.py:833
+msgid "3. Components"
+msgstr ""
+
+#: report/html_report.py:1046
+msgid "4. Per domain"
+msgstr ""
+
+#: report/html_report.py:1140
+msgid "5. Appendices"
+msgstr ""
+
+#: report/html_report.py:889
+msgid "Component"
+msgstr ""
+
+#: report/html_report.py:891
+msgid "Each part a finding names, and the hottest junctions: the heat it dissipates, the board temperature under it, its junction against its limit, and what each analysis says of it."
+msgstr ""
+
+#: report/html_report.py:889
+msgid "Heat"
+msgstr ""
+
+#: report/html_report.py:889
+msgid "Junction / limit"
+msgstr ""
+
+#: report/html_report.py:890
+msgid "What the analyses say"
 msgstr ""
