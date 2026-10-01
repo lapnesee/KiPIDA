@@ -32,7 +32,7 @@ try:
         EMCPhase10Result, EMCPalaceRemoteRunResult,
         EMCPhase10ToolStatus, EMCSpiceModelAudit, EMCVirtualReceiverPoint,
     )
-    from .emc_analyzer import hot_loop_components
+    from .emc_analyzer import CONVERTER_CURRENT_TOLERANCE, hot_loop_components
     from .ingest.board_reader import read_board
     from .ingest.netlist_builder import is_ground_name
     from .palace_remote import PalaceRemoteClient, PalaceRemoteConnection
@@ -42,7 +42,7 @@ except (ImportError, ValueError):
         EMCPhase10Result, EMCPalaceRemoteRunResult,
         EMCPhase10ToolStatus, EMCSpiceModelAudit, EMCVirtualReceiverPoint,
     )
-    from emc_analyzer import hot_loop_components
+    from emc_analyzer import CONVERTER_CURRENT_TOLERANCE, hot_loop_components
     from ingest.board_reader import read_board
     from ingest.netlist_builder import is_ground_name
     from palace_remote import PalaceRemoteClient, PalaceRemoteConnection
@@ -1936,7 +1936,12 @@ class EMCPhase10Pipeline:
             converter = tree.get(str(audit.component_ref).upper())
             if converter is not None and converter.current_a > 0.0:
                 loaded = replace(source, current_a=converter.current_a)
-                if abs(converter.current_a - float(source.current_a)) > 1e-9:
+                # As far apart as SW-004 calls a stray: P02 Rev E's 22:29 run
+                # logged "draws 4.73 A ... entered at 4.726 A" for the tree's
+                # own 4.7262 A rounded.
+                if abs(converter.current_a - float(source.current_a)) > (
+                    CONVERTER_CURRENT_TOLERANCE * converter.current_a
+                ):
                     self.log(
                         f"[PHASE 10] Board circuit {audit.component_ref} draws {converter.current_a:.3g} A, "
                         f"{converter.name}'s output in the power tree; the source is entered at "

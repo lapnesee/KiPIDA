@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed Phase 10 logging a board circuit's current as differing from
+  the entered source's for a rounding: P02 Rev E's 22:29 run logged "U4
+  draws 4.73 A ... the source is entered at 4.726 A", the tree's 4.7262
+  A as entered. The line now needs SW-004's 5 % to appear.
 - Added AC-006, data to complete, for a rail whose source impedance is
   the untouched 10 mOhm + 1 nH default: P02 Rev E's 21:42 report passed
   /+5V_RAIL (U15) and /+5V_U4 (R49) on it, and only the appendix said

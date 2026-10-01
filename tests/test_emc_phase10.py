@@ -340,6 +340,7 @@ class Phase10Tests(unittest.TestCase):
     def test_a_board_circuit_draws_the_power_trees_current(self):
         # P02 Rev E: U4's circuit drew the 4.36 A entered for its source,
         # where the power tree's loads give U4 4.726 A.
+        from dataclasses import replace
         from types import SimpleNamespace
         from models import EMCBoardCircuitResult, EMCPhase10Result, EMCSpiceModelAudit
         from power_tree import ConverterOutput
@@ -361,17 +362,25 @@ class Phase10Tests(unittest.TestCase):
         })
         audit = EMCSpiceModelAudit("U4", "TPS552882", source.name, "PSPICE_BENCH_PASS",
                                    model_name="TPS55288", model_path="tps55288.lib")
-        with tempfile.TemporaryDirectory() as directory:
-            board = Path(directory) / "p02.kicad_pcb"
-            board.write_text("(kicad_pcb)", encoding="utf-8")
-            pipeline = EMCPhase10Pipeline(
-                snapshot, EMCAnalysisSettings(sources=[source]), None, board_file_path=board,
-            )
-            with patch("emc_phase10.read_board", return_value=object()),                     patch("emc_phase10.BoardCircuitSimulator", FakeSimulator):
-                pipeline._run_board_circuits(
-                    EMCPhase10Result(spice_model_audit=[audit]), None, Path(directory),
+        logged = []
+        # The 22:29 run, source entered at the tree's 4.726 A, still logged a
+        # difference against its unrounded 4.7262 A.
+        for entered in (4.36, 4.726):
+            with tempfile.TemporaryDirectory() as directory:
+                board = Path(directory) / "p02.kicad_pcb"
+                board.write_text("(kicad_pcb)", encoding="utf-8")
+                pipeline = EMCPhase10Pipeline(
+                    snapshot, EMCAnalysisSettings(sources=[replace(source, current_a=entered)]), None,
+                    board_file_path=board, log_callback=logged.append,
                 )
-        self.assertEqual(drawn, [4.7262])
+                with patch("emc_phase10.read_board", return_value=object()),                         patch("emc_phase10.BoardCircuitSimulator", FakeSimulator):
+                    pipeline._run_board_circuits(
+                        EMCPhase10Result(spice_model_audit=[audit]), None, Path(directory),
+                    )
+        self.assertEqual(drawn, [4.7262, 4.7262])
+        self.assertEqual([line for line in logged if "the source is entered at" in line],
+                         ["[PHASE 10] Board circuit U4 draws 4.73 A, U4 buck-boost 5 V machine's output "
+                          "in the power tree; the source is entered at 4.36 A."])
 
     def test_a_board_circuit_gives_the_excitation_its_switched_current(self):
         # P02 Rev E's U14 in its board circuit under PSpice for TI: 478.5 kHz,
