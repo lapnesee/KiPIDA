@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Changed the campaign report to open on a decision: fix before
+  manufacture, review, check on the prototype, data to complete,
+  calculation reliability and what holds, with a "how to read" note and
+  a glossary. Each action is a card: why it is a risk, what to do, how
+  to check, how sure, typical effort. Figures fold under 3 to 5 key
+  ones, identifiers move to the appendix, units read C as Â°C, ohm as Î©.
+  On P02 Rev E only DC-008 (C88, R10 cut off from GND) is to fix;
+  SW-003's 20 mm threshold goes to the prototype list.
 - Added a guide to the 72 rules (rule_guide.py): name, why it is a risk,
   how to check it, typical fix effort, and whether it asks for a change
   on the board, an input, or a better calculation. Calculation findings

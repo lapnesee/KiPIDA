@@ -9,9 +9,15 @@ Every number carried by a finding is shown next to its confidence label.
 The result contract has always recorded whether a value is DETERMINISTIC,
 MEASURED, ESTIMATED or HEURISTIC; a report that hides that distinction
 invites the reader to treat an estimate as a measurement.
+
+The first section answers the reader's question -- can the board go to
+manufacture -- in lists a beginner can act on (audit of 2026-10-01, R-LE-1
+to R-LE-7): what to fix, what to review, what only the prototype settles,
+what data is missing, how far the calculation can be trusted, and what
+holds. Each action then gets a card: why it is a risk, what to do, how to
+check, how sure the tool is.
 """
 
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import base64
@@ -20,14 +26,16 @@ import json
 import re
 
 from analysis_contract import (
-    AnalysisArtifact,
     AnalysisFinding,
+    AnalysisMetric,
     AnalysisResult,
     AnalysisStatus,
     FindingSeverity,
     Remediation,
+    RemediationEffort,
 )
 from campaign import CampaignAction, CampaignResult, DomainScore
+from rule_guide import CONFIRMATIONS, PROTOTYPE_CHECK, FindingNature, finding_nature, guide
 
 _IMAGE_MEDIA_TYPES = {
     ".png": "image/png",
@@ -110,6 +118,16 @@ figcaption { font-size: 0.85rem; color: #4a5057; margin-top: 0.3rem; }
 .meta { color: #4a5057; font-size: 0.9rem; }
 .muted { color: #6b737b; font-style: italic; }
 ul.tight { margin: 0.3rem 0; padding-left: 1.2rem; }
+ul.decision { margin: 0.3rem 0 0.8rem; padding-left: 1.2rem; }
+ul.decision li { margin: 0.2rem 0; }
+dl.card { margin: 0.5rem 0; display: grid; grid-template-columns: 11rem 1fr; gap: 0.3rem 1rem; }
+dl.card dt { font-weight: 600; }
+dl.card dd { margin: 0; }
+dl.card dd p { margin: 0; }
+dl.glossary dt { font-weight: 600; margin-top: 0.5rem; }
+dl.glossary dd { margin: 0 0 0 1rem; }
+details.guide { border: 1px solid #d8dee4; border-radius: 4px; padding: 0.3rem 0.8rem;
+                margin: 1rem 0; background: #f8fafc; }
 """
 
 
@@ -143,8 +161,8 @@ def _number(value: Optional[float], unit: str = "", precision: Optional[int] = N
     1e-6 in magnitude prints as "< 1e-6" (or "0" when it is exactly zero)
     rather than raw floating-point noise around zero -- P02 Rev E printed
     "8.074349270001136e-14 %" and "1.03e-09 A/mm2" this way -- and
-    everything else prints to 4 significant digits instead of Python's
-    repr-length default.
+    everything else prints to 3 significant digits (audit R-LE-7: P02 Rev
+    E's worst drop read "0.003015 %").
     """
     if value is None:
         return "&mdash;"
@@ -155,7 +173,7 @@ def _number(value: Optional[float], unit: str = "", precision: Optional[int] = N
     elif abs(value) < 1e-6:
         text = "< 1e-6" if value > 0 else "> -1e-6"
     else:
-        text = f"{value:.4g}"
+        text = f"{value:.3g}"
     return f"{_esc(text)}&nbsp;{_esc(unit)}" if unit else _esc(text)
 
 
@@ -227,12 +245,302 @@ def _data_uri(path: Path) -> Optional[str]:
 
 
 # ----------------------------------------------------------------------
-# Section 1 -- synthesis
+# Reading aids: plain words for the labels, one notation for units
 # ----------------------------------------------------------------------
 
-def _render_scores(scores: List[DomainScore]) -> str:
+_CERTAINTY_WORDS = {
+    "DETERMINISTIC": "Fact: an exact count or the state of the run",
+    "MEASURED": "Measured",
+    "DATASHEET_BACKED": "Rests on datasheet values",
+    "ESTIMATED": "Estimate from a model of the board",
+    "HEURISTIC": "Rule of thumb: a threshold this tool sets",
+}
+
+_EFFORT_WORDS = {
+    RemediationEffort.LOW: "Low: move a part, add a via or fill in a field",
+    RemediationEffort.MEDIUM: "Medium: reroute or re-place a group of parts",
+    RemediationEffort.HIGH: "High: change the stackup or a plane",
+}
+
+# The analyses write "118.99 C", "85.2 ohm" and "mm2"; P02 Rev E's report of
+# 2026-10-01 had 34 temperatures as "C" against 6 as "°C", 16 "ohm" and no
+# "Ω" (audit LE-8). One notation, applied where the report prints text. A
+# "C" counts as a temperature only after a number and a space, so I2C, C37
+# and C0G are left alone.
+_UNIT_PATTERNS = (
+    (re.compile(r"(?<=\d) C\b"), " °C"),
+    (re.compile(r"(?<![A-Za-z])([mkM]?)ohms?\b"), r"\1Ω"),
+    (re.compile(r"\bmm2\b"), "mm²"),
+)
+
+
+def _units(text: Any) -> str:
+    text = "" if text is None else str(text)
+    for pattern, replacement in _UNIT_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def _t(value: Any) -> str:
+    """Prose from a finding or the guide: one unit notation, then escaped."""
+    return _esc(_units(value))
+
+
+def _severity_badge(severity: FindingSeverity) -> str:
+    return f'<span class="badge {_SEVERITY_CLASS[severity]}">{_esc(severity)}</span>'
+
+
+_HOW_TO_READ = (
+    ("What this page answers",
+     "Whether the board can go to manufacture. Each item below is one physical problem, "
+     "even when several analyses report it, and links to its card in section 2."),
+    ("Fix before manufacture",
+     "A defect the analyses establish on the board itself, such as a broken connection or "
+     "a voltage drop beyond its limit."),
+    ("Review before manufacture",
+     "A smaller defect, or a margin worth a second look; decide whether to change the "
+     "board."),
+    ("Check on the prototype",
+     "A layout rule of thumb is not met. Only a measurement on the prototype, such as an "
+     "emissions scan or an ESD test, settles whether it matters. Improving the layout "
+     "first is cheaper than a respin."),
+    ("Data to complete",
+     "An input the analyses needed and did not have. The verdict sharpens once it is "
+     "filled in."),
+    ("Calculation reliability",
+     "A limit of the calculation, not of the board: a mesh too coarse, a solve that did "
+     "not settle. It takes nothing off the scores and is not an action; it says how far "
+     "to trust the figures it names."),
+    ("What holds",
+     "Checks that passed. Read them as what the analyses covered, not as a guarantee."),
+)
+
+_GLOSSARY = (
+    ("Severity",
+     "CRITICAL: the board cannot work as designed. HIGH: likely to fail a requirement. "
+     "MEDIUM: a real risk with some margin. LOW: minor. INFO: a note, never an action."),
+    ("Certainty",
+     "What a finding rests on. A fact (an exact count or the state of the run), a "
+     "measurement, datasheet values, an estimate from a model of the board, or a rule of "
+     "thumb (a threshold this tool sets)."),
+    ("Status",
+     "Per analysis. FAIL on a CRITICAL finding, or a HIGH one resting on a fact, a "
+     "measurement or a datasheet. WARN on any other HIGH, or a MEDIUM. PASS otherwise."),
+    ("Score",
+     "100 minus a penalty per finding, weighted by severity and certainty. It summarises; "
+     "it is not a margin. The EMC score is the analysis's own uncalibrated risk figure."),
+    ("Priority",
+     "Orders the actions: severity, times certainty, times 1.5 for each further analysis "
+     "reporting the problem, divided by the typical effort. It has no unit; only the "
+     "order means something."),
+    ("Margin",
+     "The distance between a value and its limit, such as 25 K under a 150 °C junction "
+     "limit."),
+    ("Junction temperature (Tj)",
+     "The temperature of the silicon inside a package, estimated from the board "
+     "temperature and the part's thermal resistance."),
+    ("θJB, ψJB",
+     "Datasheet figures linking the junction to the board 1 mm from the package (JEDEC "
+     "JESD51-8 and -12)."),
+    ("Derating",
+     "How much of its rating (current, power, voltage) a part keeps at a higher "
+     "temperature, read off its datasheet curve."),
+    ("PDN, target impedance",
+     "The power distribution network, from regulator to load. Below its target "
+     "impedance, a rail holds its voltage when the load's current steps."),
+    ("Decoupling capacitor",
+     "A capacitor at a power pin that supplies the pin's fast current locally."),
+    ("Return path, reference plane",
+     "Every signal current comes back through the plane under it. A gap or a layer change "
+     "without a via forces a detour, and the loop radiates."),
+    ("Hot loop, switching node",
+     "In a switching converter, the loop through the input capacitor and the switches "
+     "carries the fastest current edges, and the switching node swings at full input "
+     "voltage. Both radiate in proportion to their area."),
+    ("Harmonic, emissions band",
+     "A switching edge carries energy at every multiple of the switching frequency. "
+     "Standards limit what a product radiates in set bands."),
+    ("ESD, TVS",
+     "An electrostatic discharge enters through a connector. A TVS diode clamps it to "
+     "ground, if its ground path is short."),
+    ("Stitching via",
+     "A via joining ground planes on different layers, so that they act as one at high "
+     "frequency."),
+    ("Mesh, grid step",
+     "The analyses cut the board into small cells. A result that moves when the cells are "
+     "halved depends on the mesh, not only on the copper."),
+)
+
+
+def _render_how_to_read() -> str:
+    sections = "".join(
+        f"<dt>{_esc(term)}</dt><dd>{_esc(text)}</dd>" for term, text in _HOW_TO_READ
+    )
+    glossary = "".join(
+        f"<dt>{_esc(term)}</dt><dd>{_esc(text)}</dd>" for term, text in _GLOSSARY
+    )
+    return (
+        '<details class="guide"><summary>How to read this report</summary>'
+        f'<dl class="glossary">{sections}</dl>'
+        "<h4>Glossary</h4>"
+        f'<dl class="glossary">{glossary}</dl></details>'
+    )
+
+
+# ----------------------------------------------------------------------
+# Section 1 -- decision
+# ----------------------------------------------------------------------
+
+_VERDICT_WORDS = {
+    AnalysisStatus.FAIL: "Do not release for manufacture yet: at least one defect must be "
+                         "fixed first.",
+    AnalysisStatus.WARN: "Review before manufacture: the items below need a decision.",
+    AnalysisStatus.PASS: "No defect found by the analyses that ran.",
+    AnalysisStatus.NO_DATA: "No analysis produced a result.",
+}
+
+FIX, REVIEW, PROTOTYPE, DATA = "fix", "review", "prototype", "data"
+
+
+def action_bucket(action: CampaignAction) -> str:
+    """Which decision list an action belongs to.
+
+    A CRITICAL finding is always to fix. Otherwise an action asking only for
+    data is data to complete; one whose every rule is a layout rule of thumb
+    (rule_guide.PROTOTYPE_CHECK) is for the prototype to settle; a HIGH one
+    is to fix; the rest is to review. On P02 Rev E's 2026-10-01 campaign this
+    puts DC-008 (C88 and R10 cut off from GND) alone under "fix", and SW-003
+    (a 20 mm hot-loop threshold) under "check on the prototype".
+    """
+    if action.severity == FindingSeverity.CRITICAL:
+        return FIX
+    if action.nature == FindingNature.DATA.value:
+        return DATA
+    if action.rule_ids and all(rule in PROTOTYPE_CHECK for rule in action.rule_ids):
+        return PROTOTYPE
+    if action.severity == FindingSeverity.HIGH:
+        return FIX
+    return REVIEW
+
+
+def _where(components: List[str], nets: List[str]) -> str:
+    parts = []
+    if components:
+        parts.append(_join(components))
+    if nets:
+        parts.append(f"net {_join(nets)}")
+    return " &middot; ".join(parts)
+
+
+def _decision_item(action: CampaignAction) -> str:
+    where = _where(action.components, action.nets)
+    return (
+        f"<li>{_severity_badge(action.severity)} "
+        f'<a href="#{_esc(action.action_id)}">{_t(action.title)}</a>'
+        + (f' <span class="meta">&mdash; {where}</span>' if where else "")
+        + "</li>"
+    )
+
+
+# A survey finding (SCH-003 named 49 resistors on P02 Rev E) lists this many.
+_DECISION_COMPONENT_LIMIT = 8
+
+
+def _finding_item(domain: str, finding: AnalysisFinding, badge: bool = True,
+                  advice: bool = False) -> str:
+    """A finding that is not an action, listed under its decision heading;
+    with ``advice``, its recommendation follows (the finer grid TH-004
+    names, on P02 Rev E)."""
+    shown = finding.components[:_DECISION_COMPONENT_LIMIT]
+    where = _where(shown, finding.nets[:4])
+    more = len(finding.components) - len(shown)
+    if more > 0:
+        where += f" and {more} more"
+    text = finding.recommendation.strip() if advice else ""
+    return (
+        "<li>" + (f"{_severity_badge(finding.severity)} " if badge else "")
+        + f'{_t(finding.title)} <span class="meta">&mdash; {_esc(domain)}'
+        + (f"; {where}" if where else "")
+        + "</span>"
+        + (f'<br><span class="meta">{_t(text)}</span>' if text else "")
+        + "</li>"
+    )
+
+
+_KEY_METRIC_LIMIT = 5
+
+
+def _metric_text(metric: AnalysisMetric) -> str:
+    value = metric.value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        number = _number(float(value), _units(metric.unit), precision=metric.precision)
+    else:
+        number = _t(value)
+    return f"{_t(metric.label)}: {number}"
+
+
+def _numeric(metric: AnalysisMetric) -> bool:
+    return isinstance(metric.value, (int, float)) and not isinstance(metric.value, bool)
+
+
+def _worst(metrics: List[AnalysisMetric], pattern: str) -> Optional[AnalysisMetric]:
+    found = [m for m in metrics if re.fullmatch(pattern, m.key) and _numeric(m)]
+    return max(found, key=lambda m: float(m.value)) if found else None
+
+
+def _verdict_count(metrics: List[AnalysisMetric], pattern: str, noun: str) -> Optional[str]:
+    judged = [m for m in metrics
+              if re.fullmatch(pattern, m.key) and m.status in ("PASS", "WARN", "FAIL")]
+    if not judged:
+        return None
+    passed = sum(1 for m in judged if m.status == "PASS")
+    return f"{passed} of {len(judged)} {noun}"
+
+
+_KEY_METRIC_KEYS = (
+    "hotspot", "hottest_junction_margin", "input_heat", "risk_score",
+    "maximum_velocity", "board_free_stream_velocity",
+)
+
+
+def key_metrics(result: AnalysisResult) -> List[str]:
+    """The three to five figures a reader looks for first in an analysis
+    (audit R-LE-5), as HTML; the full table stays below, folded. P02 Rev E's
+    DC section printed 169 figure rows, 853 of the report's 1,920 lines.
+    A figure marked NOT_USABLE is never a key figure."""
+    usable = [m for m in result.metrics if m.status != "NOT_USABLE"]
+    lines: List[str] = []
+    kind = result.analysis_type.upper()
+    if kind == "DC":
+        count = _verdict_count(usable, r"rail_\d+_drop", "rail drops within the limit")
+        if count:
+            lines.append(_esc(count))
+        for pattern in (r"rail_\d+_drop", r"rail_\d+_maximum_via_current"):
+            metric = _worst(usable, pattern)
+            if metric is not None:
+                lines.append("Worst " + _metric_text(metric))
+    elif kind == "AC":
+        count = _verdict_count(usable, r".+:worst_impedance", "rails within their target impedance")
+        if count:
+            lines.append(_esc(count))
+    elif kind == "DIFFERENTIAL":
+        count = _verdict_count(usable, r"pair_\d+_zdiff", "pairs within their impedance tolerance")
+        if count:
+            lines.append(_esc(count))
+        skew = _worst(usable, r"pair_\d+_skew")
+        if skew is not None:
+            lines.append("Worst " + _metric_text(skew))
+    else:
+        picked = [m for m in usable if m.key in _KEY_METRIC_KEYS]
+        picked = picked or [m for m in usable if m.status in ("FAIL", "WARN")]
+        lines.extend(_metric_text(m) for m in picked)
+    return lines[:_KEY_METRIC_LIMIT]
+
+
+def _render_scores(scores: List[DomainScore], results: List[AnalysisResult]) -> str:
     if not scores:
         return '<p class="muted">No domain produced a result.</p>'
+    by_domain = {result.analysis_type: result for result in results}
     rows = []
     for score in scores:
         status_class = _STATUS_CLASS.get(score.status, "nodata")
@@ -245,84 +553,57 @@ def _render_scores(scores: List[DomainScore]) -> str:
                    f'<span style="width:{width:.1f}%"></span></div>')
             value = f"{score.score:.0f}/100"
         counts = " ".join(
-            f'<span class="badge {_SEVERITY_CLASS[sev]}">{sev.value[:4]} {score.finding_counts.get(sev.value, 0)}</span>'
+            f'<span class="badge {_SEVERITY_CLASS[sev]}">{_esc(sev.value)} '
+            f"{score.finding_counts.get(sev.value, 0)}</span>"
             for sev in FindingSeverity if score.finding_counts.get(sev.value, 0)
         ) or '<span class="muted">none</span>'
-        # COH-10: board_fingerprint is the SHA of the saved file while
-        # AC/differential/EMC/thermal geometry reads the open board, so two
-        # domains in the same report can describe different moments; shown
-        # here rather than only carried silently on the result.
-        when = _esc(score.completed_at) or "&mdash;"
-        fingerprint = (
-            f'<code title="{_esc(score.board_fingerprint)}">'
-            f"{_esc(score.board_fingerprint[:10])}…</code>"
-            if score.board_fingerprint else "&mdash;"
-        )
+        result = by_domain.get(score.domain)
+        figures = "".join(f"<li>{line}</li>" for line in key_metrics(result)) if result else ""
         rows.append(
             f"<tr><th>{_esc(score.domain)}</th>"
             f'<td><span class="verdict {status_class}">{_esc(score.status)}</span></td>'
-            f"<td>{bar}</td><td>{value}</td><td>{counts}</td>"
-            f"<td>{_esc(score.headline)}</td>"
-            f"<td>{when}</td><td>{fingerprint}</td></tr>"
+            f"<td>{bar}{value}</td><td>{counts}</td>"
+            f'<td><ul class="tight">{figures}</ul></td></tr>'
         )
     return (
-        "<table><thead><tr><th>Domain</th><th>Status</th><th>Score</th>"
-        "<th></th><th>Findings</th><th>Headline</th>"
-        "<th>Completed</th><th>Board</th></tr></thead>"
+        "<table><thead><tr><th>Analysis</th><th>Status</th><th>Score</th>"
+        "<th>Findings</th><th>Key figures</th></tr></thead>"
         f"<tbody>{''.join(rows)}</tbody></table>"
     )
 
 
-def _render_top_actions(actions: List[CampaignAction]) -> str:
-    if not actions:
-        return '<p class="muted">No actionable findings.</p>'
-    rows = []
-    for index, action in enumerate(actions, start=1):
-        rows.append(
-            f"<tr><td>{index}</td>"
-            f'<td><span class="badge {_SEVERITY_CLASS[action.severity]}">'
-            f"{_esc(action.severity)}</span></td>"
-            f"<td>{_esc(action.title)}</td>"
-            f"<td>{_join(action.domains)}</td>"
-            f"<td>{_esc(action.effort)}</td>"
-            f"<td>{action.gain_rank:.1f}</td></tr>"
-        )
-    return (
-        "<table><thead><tr><th>#</th><th>Severity</th><th>Action</th>"
-        "<th>Domains</th><th>Effort</th><th>Gain rank</th></tr></thead>"
-        f"<tbody>{''.join(rows)}</tbody></table>"
+def _decision_list(title: str, explanation: str, items: List[str], empty: str) -> str:
+    body = (
+        f'<ul class="decision">{"".join(items)}</ul>' if items
+        else f'<p class="muted">{_esc(empty)}</p>'
     )
-
-
-_MODE_LABELS = {"single_board": "single-board", "zeo_container": "Zeo container", "zeo_member": "Zeo member"}
-
-
-def _render_project_context(context) -> str:
-    if not context:
-        return ""
-    mode = _MODE_LABELS.get(str(context.get("mode", "")), str(context.get("mode", "")))
-    notes = "; ".join(str(note) for note in context.get("notes") or ())
-    return (
-        f"<tr><th>Host</th><td>{_esc(context.get('host', ''))}</td></tr>"
-        f"<tr><th>Project mode</th><td>{_esc(mode)}"
-        + (f" &mdash; {_esc(notes)}" if notes else "")
-        + "</td></tr>"
-    )
+    return f'<h3>{_esc(title)} ({len(items)})</h3><p class="meta">{_esc(explanation)}</p>{body}'
 
 
 def _render_synthesis(campaign: CampaignResult) -> str:
     status_class = _STATUS_CLASS.get(campaign.overall_status, "nodata")
-    scope = (
-        "<table><tbody>"
-        f"<tr><th>Project</th><td>{_esc(campaign.project_name) or '&mdash;'}</td></tr>"
-        f"{_render_project_context(campaign.project_context)}"
-        f"<tr><th>Board fingerprint</th><td><code>{_esc(campaign.board_fingerprint) or '&mdash;'}</code></td></tr>"
-        f"<tr><th>Campaign</th><td><code>{_esc(campaign.campaign_id)}</code></td></tr>"
-        f"<tr><th>Created</th><td>{_esc(campaign.created_at)}</td></tr>"
-        f"<tr><th>Total compute</th><td>{campaign.total_elapsed_seconds:.2f} s</td></tr>"
-        f"<tr><th>Analyses</th><td>{len(campaign.results)}</td></tr>"
-        "</tbody></table>"
-    )
+    lists: Dict[str, List[str]] = {FIX: [], REVIEW: [], PROTOTYPE: [], DATA: []}
+    for action in campaign.actions:
+        lists[action_bucket(action)].append(_decision_item(action))
+    calculation: List[str] = []
+    holds: List[str] = []
+    for result in campaign.results:
+        for finding in result.findings:
+            nature = finding_nature(finding)
+            if nature == FindingNature.CALCULATION:
+                calculation.append(_finding_item(result.analysis_type, finding, advice=True))
+            elif finding.severity == FindingSeverity.INFO and nature == FindingNature.DATA:
+                lists[DATA].append(_finding_item(result.analysis_type, finding, advice=True))
+            elif finding.severity == FindingSeverity.INFO and finding.rule_id in CONFIRMATIONS:
+                holds.append(_finding_item(result.analysis_type, finding, badge=False))
+    by_domain = {result.analysis_type: result for result in campaign.results}
+    for score in campaign.domain_scores:
+        if score.status != AnalysisStatus.PASS:
+            continue
+        result = by_domain.get(score.domain)
+        figures = "; ".join(key_metrics(result)) if result else ""
+        holds.append(f"<li><strong>{_esc(score.domain)}</strong> passes"
+                     + (f": {figures}" if figures else "") + "</li>")
     warnings = campaign.provenance_warnings()
     warning_block = ""
     if warnings:
@@ -331,21 +612,27 @@ def _render_synthesis(campaign: CampaignResult) -> str:
             '<p class="muted"><strong>Warning:</strong> these domains do not all '
             f"describe the same board revision:</p><ul class=\"tight\">{items}</ul>"
         )
+    explanation = dict(_HOW_TO_READ)
     return (
-        '<section id="synthesis"><h2>1. Synthesis</h2>'
-        f'<p>Overall verdict: <span class="verdict {status_class}">'
-        f"{_esc(campaign.overall_status)}</span></p>"
+        '<section id="synthesis"><h2>1. Decision</h2>'
+        f'<p><span class="verdict {status_class}">{_esc(campaign.overall_status)}</span> '
+        f"{_esc(_VERDICT_WORDS.get(campaign.overall_status, ''))}</p>"
         f"{warning_block}"
-        "<h3>Domain scores</h3>"
-        '<p class="muted">Status rule, the same for every domain: FAIL on any '
-        "CRITICAL finding, or a HIGH one backed by a DETERMINISTIC, MEASURED "
-        "or DATASHEET_BACKED confidence (a fact, not an estimate); WARN on "
-        "any other HIGH, or a MEDIUM; PASS otherwise.</p>"
-        f"{_render_scores(campaign.domain_scores)}"
-        "<h3>Priority actions</h3>"
-        f"{_render_top_actions(campaign.top_actions(10))}"
-        "<h3>Scope analysed</h3>"
-        f"{scope}</section>"
+        f"{_render_how_to_read()}"
+        + _decision_list("Fix before manufacture", explanation["Fix before manufacture"],
+                         lists[FIX], "Nothing found that must change before manufacture.")
+        + _decision_list("Review before manufacture", explanation["Review before manufacture"],
+                         lists[REVIEW], "Nothing to review.")
+        + _decision_list("Check on the prototype", explanation["Check on the prototype"],
+                         lists[PROTOTYPE], "Every rule of thumb checked is met.")
+        + _decision_list("Data to complete", explanation["Data to complete"],
+                         lists[DATA], "No input missing.")
+        + _decision_list("Calculation reliability", explanation["Calculation reliability"],
+                         calculation, "No limit of the calculation reported.")
+        + _decision_list("What holds", explanation["What holds"], holds, "No check passed.")
+        + "<h3>Analyses</h3>"
+        f"{_render_scores(campaign.domain_scores, campaign.results)}"
+        "</section>"
     )
 
 
@@ -365,18 +652,56 @@ def _render_remediation(remediation: Remediation) -> str:
                     f"{_esc(_layer_name(remediation.layer))}</td></tr>")
     alternatives = ""
     if remediation.alternatives:
-        items = "".join(f"<li>{_esc(item)}</li>" for item in remediation.alternatives)
+        items = "".join(f"<li>{_t(item)}</li>" for item in remediation.alternatives)
         alternatives = f'<tr><th>Alternatives</th><td><ul class="tight">{items}</ul></td></tr>'
+    unit = _units(remediation.unit)
     return (
         "<table><tbody>"
         f"<tr><th>Action</th><td><code>{_esc(remediation.action)}</code> {marker}</td></tr>"
         f"<tr><th>Target</th><td>{_esc(remediation.target) or '&mdash;'}</td></tr>"
-        f"<tr><th>Change</th><td>{_number(remediation.current_value, remediation.unit)}"
-        f" &rarr; {_number(remediation.proposed_value, remediation.unit)}</td></tr>"
-        f"<tr><th>Predicted gain</th><td>{_esc(remediation.predicted_gain) or '&mdash;'}</td></tr>"
+        f"<tr><th>Change</th><td>{_number(remediation.current_value, unit)}"
+        f" &rarr; {_number(remediation.proposed_value, unit)}</td></tr>"
+        f"<tr><th>Predicted gain</th><td>{_t(remediation.predicted_gain) or '&mdash;'}</td></tr>"
         f"<tr><th>Effort</th><td>{_esc(remediation.effort)}</td></tr>"
         f"{location}{alternatives}"
         "</tbody></table>"
+    )
+
+
+def _guide_lines(action: CampaignAction, attribute: str) -> List[str]:
+    lines: List[str] = []
+    for rule in action.rule_ids:
+        entry = guide(rule)
+        text = getattr(entry, attribute, "") if entry else ""
+        if text and text not in lines:
+            lines.append(text)
+    return lines
+
+
+def _paragraphs(lines: List[str]) -> str:
+    if len(lines) == 1:
+        return f"<p>{_t(lines[0])}</p>"
+    return '<ul class="tight">' + "".join(f"<li>{_t(line)}</li>" for line in lines) + "</ul>"
+
+
+def _render_action_detail(action: CampaignAction) -> str:
+    rows = "".join(
+        f"<tr><td>{_esc(item.get('domain', ''))}</td>"
+        f"<td><code>{_esc(item.get('rule_id', ''))}</code></td>"
+        f"<td>{_t(item.get('title', ''))}</td><td>{_t(item.get('description', ''))}</td>"
+        f'<td><span class="confidence">{_esc(item.get("confidence", ""))}</span></td></tr>'
+        for item in action.details
+    )
+    table = (
+        "<table><thead><tr><th>Analysis</th><th>Rule</th><th>Finding</th>"
+        f"<th>Description</th><th>Certainty</th></tr></thead><tbody>{rows}</tbody></table>"
+        if rows else ""
+    )
+    return (
+        "<details><summary>Technical detail</summary>"
+        f"{table}"
+        f'<p class="meta">Priority {action.gain_rank:.1f} (see "Priority" under How to '
+        "read this report).</p></details>"
     )
 
 
@@ -391,35 +716,32 @@ def _render_actions(campaign: CampaignResult) -> str:
             FindingSeverity.HIGH: "sev-high-border",
             FindingSeverity.MEDIUM: "sev-medium-border",
         }.get(action.severity, "")
-        consequences = "".join(f"<li>{_esc(line)}</li>" for line in action.consequences)
+        # Before this card, every P02 Rev E action of 2026-10-01 read "No
+        # structured remediation was computed", even above its own advice,
+        # and "Consequences" repeated its title (audit LE-2).
         if action.remediations:
-            remediations = "".join(_render_remediation(item) for item in action.remediations)
+            todo = "".join(_render_remediation(item) for item in action.remediations)
         elif action.recommendations:
-            # No quantified Remediation exists, but the finding(s) still carry
-            # free-text advice (e.g. the differential recommender's "0.155 mm
-            # / 0.250 mm -> 90.6 ohm"): show it rather than claim there is
-            # nothing to act on.
-            items = "".join(f"<li>{_esc(text)}</li>" for text in action.recommendations)
-            remediations = (
-                '<p class="muted">No structured remediation was computed for '
-                "this action; the underlying finding(s) recommend:</p>"
-                f'<ul class="tight">{items}</ul>'
-            )
+            todo = _paragraphs(action.recommendations)
         else:
-            remediations = ('<p class="muted">No structured remediation was computed '
-                            'for this action.</p>')
+            todo = '<p class="muted">No change was computed for this action.</p>'
+        why = _guide_lines(action, "why")
+        verify = _guide_lines(action, "verify")
+        where = _where(action.components, action.nets) or "&mdash;"
+        certainty = _CERTAINTY_WORDS.get(action.confidence, action.confidence)
+        effort = _EFFORT_WORDS.get(action.effort, str(action.effort))
         blocks.append(
-            f'<article class="action {border}">'
-            f'<h3><span class="badge {_SEVERITY_CLASS[action.severity]}">'
-            f"{_esc(action.severity)}</span> {_esc(action.title)}</h3>"
-            f'<p class="meta">Domains: {_join(action.domains)} &middot; '
-            f"Rules: {_join(action.rule_ids)} &middot; Effort: {_esc(action.effort)} "
-            f"&middot; Gain rank: {action.gain_rank:.1f}</p>"
-            f'<p class="meta">Nets: {_join(action.nets)} &middot; '
-            f"Components: {_join(action.components)}</p>"
-            '<p><strong>Consequences</strong></p>'
-            f'<ul class="tight">{consequences}</ul>'
-            f"<p><strong>Remediation</strong></p>{remediations}"
+            f'<article class="action {border}" id="{_esc(action.action_id)}">'
+            f"<h3>{_severity_badge(action.severity)} {_t(action.title)}</h3>"
+            f'<p class="meta">Where: {where} &middot; found by {_join(action.domains)}</p>'
+            '<dl class="card">'
+            + (f"<dt>Why it is a risk</dt><dd>{_paragraphs(why)}</dd>" if why else "")
+            + f"<dt>What to do</dt><dd>{todo}</dd>"
+            + (f"<dt>How to check</dt><dd>{_paragraphs(verify)}</dd>" if verify else "")
+            + f"<dt>How sure</dt><dd>{_esc(certainty)}</dd>"
+            f"<dt>Typical effort</dt><dd>{_esc(effort)}</dd>"
+            "</dl>"
+            f"{_render_action_detail(action)}"
             "</article>"
         )
     return f'<section id="actions"><h2>2. Actions</h2>{"".join(blocks)}</section>'
@@ -431,23 +753,25 @@ def _render_actions(campaign: CampaignResult) -> str:
 
 def _render_metrics(result: AnalysisResult) -> str:
     if not result.metrics:
-        return '<p class="muted">No metrics recorded.</p>'
+        return '<p class="muted">No figures recorded.</p>'
     rows = []
     for metric in result.metrics:
         value = metric.value
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if _numeric(metric):
             value_html = _number(float(value), precision=metric.precision)
         else:
-            value_html = _esc(value)
+            value_html = _t(value)
+        # The internal key stays as a tooltip for a reader matching the CSV,
+        # not as a column: 205 rows of P02 Rev E's report showed one (LE-4).
         rows.append(
-            f"<tr><td>{_esc(metric.label)}</td>"
-            f"<td><code>{_esc(metric.key)}</code></td>"
-            f"<td>{value_html}</td><td>{_esc(metric.unit)}</td>"
+            f'<tr><td title="{_esc(metric.key)}">{_t(metric.label)}</td>'
+            f"<td>{value_html}</td><td>{_t(metric.unit)}</td>"
             f"<td>{_esc(metric.status)}</td></tr>"
         )
-    return ("<table><thead><tr><th>Metric</th><th>Key</th><th>Value</th>"
+    return (f"<details><summary>All {len(result.metrics)} figures</summary>"
+            "<table><thead><tr><th>Figure</th><th>Value</th>"
             "<th>Unit</th><th>Status</th></tr></thead>"
-            f"<tbody>{''.join(rows)}</tbody></table>")
+            f"<tbody>{''.join(rows)}</tbody></table></details>")
 
 
 def _render_findings(result: AnalysisResult) -> str:
@@ -462,11 +786,11 @@ def _render_findings(result: AnalysisResult) -> str:
         for finding in group:
             rows.append(
                 f"<tr><td><code>{_esc(finding.rule_id)}</code></td>"
-                f"<td>{_esc(finding.title)}{_confidence_badge(finding)}</td>"
-                f"<td>{_esc(finding.description)}</td>"
+                f"<td>{_t(finding.title)}{_confidence_badge(finding)}</td>"
+                f"<td>{_t(finding.description)}</td>"
                 f"<td>{_join(finding.nets)}</td>"
                 f"<td>{_join(finding.components)}</td>"
-                f"<td>{_esc(finding.recommendation) or '&mdash;'}</td></tr>"
+                f"<td>{_t(finding.recommendation) or '&mdash;'}</td></tr>"
             )
         blocks.append(
             f'<details><summary><span class="badge {_SEVERITY_CLASS[severity]}">'
@@ -511,13 +835,12 @@ def _render_domains(campaign: CampaignResult, embed_images: bool, search_roots=(
     blocks = []
     for result in campaign.results:
         status_class = _STATUS_CLASS.get(result.status, "nodata")
+        figures = "".join(f"<li>{line}</li>" for line in key_metrics(result))
         blocks.append(
             f"<h3>{_esc(result.analysis_type)} &mdash; {_esc(result.title)} "
             f'<span class="verdict {status_class}">{_esc(result.status)}</span></h3>'
-            f'<p class="meta">Run <code>{_esc(result.run_id)}</code> &middot; '
-            f"{result.elapsed_seconds:.2f} s</p>"
-            "<h4>Metrics</h4>"
-            f"{_render_metrics(result)}"
+            + (f'<ul class="tight">{figures}</ul>' if figures else "")
+            + f"{_render_metrics(result)}"
             "<h4>Findings</h4>"
             f"{_render_findings(result)}"
             f"{_render_artifacts(result, embed_images, search_roots)}"
@@ -528,6 +851,49 @@ def _render_domains(campaign: CampaignResult, embed_images: bool, search_roots=(
 # ----------------------------------------------------------------------
 # Section 4 -- appendices
 # ----------------------------------------------------------------------
+
+_MODE_LABELS = {"single_board": "single-board", "zeo_container": "Zeo container", "zeo_member": "Zeo member"}
+
+
+def _render_project_context(context) -> str:
+    if not context:
+        return ""
+    mode = _MODE_LABELS.get(str(context.get("mode", "")), str(context.get("mode", "")))
+    notes = "; ".join(str(note) for note in context.get("notes") or ())
+    return (
+        f"<tr><th>Host</th><td>{_esc(context.get('host', ''))}</td></tr>"
+        f"<tr><th>Project mode</th><td>{_esc(mode)}"
+        + (f" &mdash; {_esc(notes)}" if notes else "")
+        + "</td></tr>"
+    )
+
+
+def _render_scope(campaign: CampaignResult) -> str:
+    """Identifiers and the host context, for traceability rather than for
+    the decision: shown at the top before, where "host unknown ... host
+    detection inconclusive" read like a result (audit CO-9)."""
+    rows = "".join(
+        f"<tr><td>{_esc(score.domain)}</td><td>{_esc(score.completed_at) or '&mdash;'}</td>"
+        f"<td><code>{_esc(score.board_fingerprint) or '&mdash;'}</code></td>"
+        f"<td><code>{_esc(result.run_id)}</code></td>"
+        f"<td>{result.elapsed_seconds:.2f} s</td></tr>"
+        for score, result in zip(campaign.domain_scores, campaign.results)
+    )
+    return (
+        "<h3>Scope analysed</h3><table><tbody>"
+        f"<tr><th>Project</th><td>{_esc(campaign.project_name) or '&mdash;'}</td></tr>"
+        f"{_render_project_context(campaign.project_context)}"
+        f"<tr><th>Board fingerprint</th><td><code>{_esc(campaign.board_fingerprint) or '&mdash;'}</code></td></tr>"
+        f"<tr><th>Campaign</th><td><code>{_esc(campaign.campaign_id)}</code></td></tr>"
+        f"<tr><th>Created</th><td>{_esc(campaign.created_at)}</td></tr>"
+        f"<tr><th>Total compute</th><td>{campaign.total_elapsed_seconds:.2f} s</td></tr>"
+        f"<tr><th>Analyses</th><td>{len(campaign.results)}</td></tr>"
+        "</tbody></table>"
+        + ("<table><thead><tr><th>Analysis</th><th>Completed</th><th>Board</th>"
+           f"<th>Run</th><th>Compute</th></tr></thead><tbody>{rows}</tbody></table>"
+           if rows else "")
+    )
+
 
 def _render_mapping(payload: Dict[str, Any]) -> str:
     if not payload:
@@ -540,7 +906,7 @@ def _render_appendices(campaign: CampaignResult) -> str:
     for result in campaign.results:
         if result.provenance:
             rows = "".join(
-                f"<tr><td>{_esc(item.source)}</td><td>{_esc(item.detail)}</td>"
+                f"<tr><td>{_esc(item.source)}</td><td>{_t(item.detail)}</td>"
                 f"<td>{_esc(item.reference) or '&mdash;'}</td></tr>"
                 for item in result.provenance
             )
@@ -549,7 +915,7 @@ def _render_appendices(campaign: CampaignResult) -> str:
         else:
             provenance = '<p class="muted">No provenance recorded.</p>'
         if result.limitations:
-            items = "".join(f"<li>{_esc(line)}</li>" for line in result.limitations)
+            items = "".join(f"<li>{_t(line)}</li>" for line in result.limitations)
             limitations = f'<ul class="tight">{items}</ul>'
         else:
             limitations = '<p class="muted">No limitations recorded.</p>'
@@ -566,6 +932,8 @@ def _render_appendices(campaign: CampaignResult) -> str:
     body = "".join(blocks) or '<p class="muted">No results.</p>'
     return (
         '<section id="appendices"><h2>4. Appendices</h2>'
+        f"{_render_scope(campaign)}"
+        "<h3>Per analysis</h3>"
         f"{body}"
         f'<p class="meta">Campaign schema {_esc(campaign.schema_version)}</p>'
         "</section>"
@@ -593,7 +961,8 @@ def render_campaign_html(
         f"<title>{title} &mdash; Ki-PIDA report</title>"
         f"<style>{_CSS}</style></head><body>"
         f"<h1>{title}</h1>"
-        '<p class="meta">Ki-PIDA consolidated analysis report</p>'
+        f'<p class="meta">Ki-PIDA consolidated analysis report &middot; '
+        f"{_esc(campaign.created_at)}</p>"
         f"{_render_synthesis(campaign)}"
         f"{_render_actions(campaign)}"
         f"{_render_domains(campaign, embed_images, artifact_roots)}"

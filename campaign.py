@@ -188,6 +188,13 @@ class CampaignAction:
     # BOARD when any of its findings asks for a change on the board, DATA
     # when all of them ask for an input (rule_guide.FindingNature).
     nature: str = FindingNature.BOARD.value
+    # What the ranking weighed: the lead findings' best confidence.
+    confidence: str = EvidenceConfidence.HEURISTIC.value
+    # Each contributing finding as the report's technical detail shows it:
+    # domain, rule_id, title, description and confidence. "Consequences"
+    # carried only "domain: title", the action's own title again on 13 of
+    # 13 P02 Rev E actions (2026-10-01).
+    details: List[Dict[str, str]] = field(default_factory=list)
 
     @property
     def identity(self) -> str:
@@ -536,6 +543,7 @@ class CampaignResult:
             consequences: List[str] = []
             remediations: List[Remediation] = []
             recommendations: List[str] = []
+            details: List[Dict[str, str]] = []
             for domain, finding in group:
                 if domain not in domains:
                     domains.append(domain)
@@ -548,6 +556,13 @@ class CampaignResult:
                     if component not in components:
                         components.append(component)
                 consequences.append(f"{domain}: {finding.title}")
+                details.append({
+                    "domain": domain,
+                    "rule_id": finding.rule_id,
+                    "title": finding.title,
+                    "description": finding.description,
+                    "confidence": finding.confidence.value,
+                })
                 remediations.extend(finding.remediations)
                 text = (finding.recommendation or "").strip()
                 if text and text not in recommendations:
@@ -575,10 +590,13 @@ class CampaignResult:
             # ordered by domain iteration order. On P02 Rev E six actions all
             # scored 25.0 (HIGH, no remediation, one domain) and their order
             # was purely which domain the campaign happened to run first.
-            confidence_weight = max(
-                CONFIDENCE_WEIGHT.get(f.confidence, CONFIDENCE_WEIGHT[EvidenceConfidence.HEURISTIC])
-                for f in lead_findings
+            lead_confidence = max(
+                (f.confidence for f in lead_findings),
+                key=lambda item: CONFIDENCE_WEIGHT.get(
+                    item, CONFIDENCE_WEIGHT[EvidenceConfidence.HEURISTIC]),
             )
+            confidence_weight = CONFIDENCE_WEIGHT.get(
+                lead_confidence, CONFIDENCE_WEIGHT[EvidenceConfidence.HEURISTIC])
             action = CampaignAction(
                 action_id=f"action-{index:03d}",
                 title=lead.title,
@@ -592,6 +610,8 @@ class CampaignResult:
                 consequences=consequences,
                 effort=effort,
                 nature=nature.value,
+                confidence=EvidenceConfidence(lead_confidence).value,
+                details=details,
             )
             action.gain_rank = (
                 SEVERITY_WEIGHT[severity]

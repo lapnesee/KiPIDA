@@ -182,7 +182,7 @@ class RecommendationFallbackTests(unittest.TestCase):
             ),
         )])
         document = render_campaign_html(campaign)
-        self.assertNotIn("No structured remediation was computed for this action.</p>", document)
+        self.assertNotIn("No change was computed for this action.</p>", document)
         self.assertIn("0.155 mm wide", document)
 
     def test_no_recommendation_still_reports_the_gap_honestly(self):
@@ -191,7 +191,7 @@ class RecommendationFallbackTests(unittest.TestCase):
             title="Drop", description="d", nets=["VCC"],
         )])
         document = render_campaign_html(campaign)
-        self.assertIn("No structured remediation was computed for this action.</p>", document)
+        self.assertIn("No change was computed for this action.</p>", document)
 
 
 class ArtifactTests(unittest.TestCase):
@@ -223,6 +223,41 @@ class ArtifactTests(unittest.TestCase):
             document = render_campaign_html(campaign)
             self.assertIn("data:image/png;base64,", document)
             self.assertNotIn("Artifact unavailable", document)
+
+
+class DecisionTests(unittest.TestCase):
+    def test_p02_findings_land_in_the_list_a_beginner_acts_on(self):
+        # Audit of 2026-10-01 (LE-10, LE-11): on P02 Rev E, DC-008 (C88 and
+        # R10 cut off from GND) and SW-003 (a 20 mm hot-loop threshold) both
+        # read HIGH among 13 actions, with TH-004, a mesh diagnostic, third.
+        campaign = CampaignResult.from_results([
+            AnalysisResult("DC", "DC", status=AnalysisStatus.WARN, findings=[AnalysisFinding(
+                rule_id="DC-008", category="CONNECTIVITY", severity=FindingSeverity.HIGH,
+                title="GND pads are cut off from the rest of the net", description="d",
+                nets=["GND"], components=["C88", "R10"],
+            )]),
+            AnalysisResult("EMC", "EMC", status=AnalysisStatus.WARN, findings=[AnalysisFinding(
+                rule_id="SW-003", category="SWITCHING", severity=FindingSeverity.HIGH,
+                title="Switching hot loop is spread out", description="Q10 and Q11 are 21.3 mm apart.",
+                components=["C37", "Q10", "Q11"],
+            )]),
+            AnalysisResult("THERMAL", "Thermal", status=AnalysisStatus.WARN, findings=[AnalysisFinding(
+                rule_id="TH-004", category="NUMERICS", severity=FindingSeverity.MEDIUM,
+                title="Thermal result is not converged in mesh", description="Hotspot 118.99 C.",
+                recommendation="Rerun at 0.127 mm.",
+            )]),
+        ])
+        document = render_campaign_html(campaign)
+        decision = document.split('id="actions"')[0]
+        lists = {
+            heading: decision.split(f"<h3>{heading}")[1].split("<h3>")[0]
+            for heading in ("Fix before manufacture", "Check on the prototype",
+                            "Calculation reliability")
+        }
+        self.assertIn("C88, R10", lists["Fix before manufacture"])
+        self.assertIn("C37, Q10, Q11", lists["Check on the prototype"])
+        self.assertIn("Rerun at 0.127 mm.", lists["Calculation reliability"])
+        self.assertIn("Hotspot 118.99 °C.", document)
 
 
 class SelfContainmentTests(unittest.TestCase):
