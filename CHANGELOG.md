@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+The CSV files name their campaign, and finding rows the run, the domain's
+status and the build; each action says which list of the report it is in
+(fix, review, prototype, data); a new domains-<stamp>.csv gives one row
+per domain, those that did not complete included.
 A batch that ends on DC or THERMAL now writes its report once their plots
 are drawn (five minutes at most), instead of a report without them.
 The campaign report shows its times in local time with the UTC offset, has

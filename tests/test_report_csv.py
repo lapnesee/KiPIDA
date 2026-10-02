@@ -23,6 +23,7 @@ from report.csv_export import (  # noqa: E402
     ACTION_COLUMNS,
     FINDING_COLUMNS,
     write_actions_csv,
+    write_domains_csv,
     write_findings_csv,
 )
 
@@ -112,6 +113,31 @@ class ActionsCsvTests(unittest.TestCase):
             rows = read_csv(write_actions_csv(campaign, Path(tmp) / "a.csv"))
         self.assertEqual(rows[0]["remediation_actions"], "")
         self.assertEqual(rows[0]["recommendations"], "Route 0.155 mm / 0.250 mm gap -> 90.6 ohm.")
+
+
+class IdentityColumnsTests(unittest.TestCase):
+    def test_rows_name_their_campaign_run_and_decision(self):
+        # P02 Rev E's 39 findings-*.csv named neither campaign nor run, and
+        # actions-*.csv left out which list of the report each action is in.
+        dc = AnalysisResult("DC", "DC Power", status=AnalysisStatus.WARN, findings=[AnalysisFinding(
+            rule_id="DC-008", category="CONNECTIVITY", severity=FindingSeverity.HIGH,
+            title="GND pads are cut off from the rest of the net", description="C88.2, R10.2",
+            nets=["GND"], components=["C88", "R10"],
+        )], tool_version="0.19.0+38bcd630 (19242f5 2026-10-02)")
+        campaign = CampaignResult.from_results([dc], coverage=[
+            {"domain": "THERMAL", "state": "FAILED", "reason": "RuntimeError: boom"},
+        ])
+        with tempfile.TemporaryDirectory() as tmp:
+            finding = read_csv(write_findings_csv(campaign, Path(tmp) / "f.csv"))[0]
+            action = read_csv(write_actions_csv(campaign, Path(tmp) / "a.csv"))[0]
+            domains = read_csv(write_domains_csv(campaign, Path(tmp) / "d.csv"))
+        self.assertEqual((finding["campaign_id"], finding["run_id"]), (campaign.campaign_id, dc.run_id))
+        self.assertEqual(finding["tool_version"], "0.19.0+38bcd630 (19242f5 2026-10-02)")
+        self.assertEqual((action["campaign_id"], action["decision"]), (campaign.campaign_id, "fix"))
+        self.assertEqual([(row["domain"], row["status"], row["campaign_status"]) for row in domains],
+                         [("DC", "WARN", "FAIL"), ("THERMAL", "FAILED", "FAIL")])
+        self.assertEqual(domains[0]["finding_counts"], "HIGH=1")
+        self.assertEqual(domains[1]["reason"], "RuntimeError: boom")
 
 
 if __name__ == "__main__":

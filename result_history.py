@@ -297,7 +297,7 @@ class ProjectResultsHistory:
             return [], 0
         stamps = sorted({
             match.group(2) for match in (
-                re.fullmatch(r"(campaign|findings|actions)-(\d{8}-\d{6})\.(json|html|csv)", path.name)
+                re.fullmatch(r"(campaign|findings|actions|domains)-(\d{8}-\d{6})\.(json|html|csv)", path.name)
                 for path in self.directory.iterdir()
             ) if match
         }, reverse=True)
@@ -311,7 +311,7 @@ class ProjectResultsHistory:
                 continue
         doomed = [
             path for path in self.directory.iterdir()
-            if re.fullmatch(r"(campaign|findings|actions)-(\d{8}-\d{6})\.(json|html|csv)", path.name)
+            if re.fullmatch(r"(campaign|findings|actions|domains)-(\d{8}-\d{6})\.(json|html|csv)", path.name)
             and path.name.split("-", 1)[1].rsplit(".", 1)[0] not in kept_stamps
         ]
         counts = {}

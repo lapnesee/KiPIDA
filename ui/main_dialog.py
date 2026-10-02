@@ -979,7 +979,7 @@ class KiPIDA_MainDialog(wx.Dialog):
 
         Shared by the batch, which produces its CampaignResult by running the
         analyses, and by the consolidate button, which builds one from results
-        already published. Both end in the same four files.
+        already published. Both end in the same five files.
         """
         from report.campaign_files import write_campaign_files
         from result_history import ProjectResultsHistory

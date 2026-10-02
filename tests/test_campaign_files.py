@@ -32,7 +32,8 @@ class CampaignFilesTests(unittest.TestCase):
             paths = write_campaign_files(campaign, directory, "20261002-101500")
             self.assertEqual(sorted(path.name for path in Path(directory).iterdir()), [
                 "actions-20261002-101500.csv", "campaign-20261002-101500.html",
-                "campaign-20261002-101500.json", "findings-20261002-101500.csv",
+                "campaign-20261002-101500.json", "domains-20261002-101500.csv",
+                "findings-20261002-101500.csv",
             ])
             saved = CampaignResult.from_json(paths["json"].read_text(encoding="utf-8"))
         self.assertEqual(saved.campaign_id, campaign.campaign_id)
