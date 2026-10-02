@@ -161,6 +161,29 @@ class ProjectResultsHistory:
             result.artifacts = self._plot_artifacts(saved)
             result_path.write_text(result.to_json(), encoding="utf-8")
 
+    def replace_result(self, run_id, result):
+        """File *result* as the saved result of the entry with *run_id*,
+        keeping that entry's plots; False when no entry has it.
+
+        In a batch a domain's tab adapts the raw outcome a second time, and
+        that copy was the one saved: P02 Rev E's THERMAL of 2026-10-01 22:29
+        was archived WARN with 9 figures while the campaign reported it PASS
+        with 10, and its CFD archived 4 figures and a 0 s run. The
+        campaign's own result replaces it.
+        """
+        for entry in self.entries():
+            if str(entry.get("run_id") or "") != str(run_id):
+                continue
+            saved = AnalysisResult.from_dict(result.to_dict())
+            saved.artifacts = self._plot_artifacts(entry.get("plots", []))
+            path = Path(entry["directory"]) / str(entry.get("result_file") or "result.json")
+            path.write_text(saved.to_json(), encoding="utf-8")
+            entry["status"] = saved.status.value
+            entry["severity_counts"] = saved.severity_counts
+            self._write_manifest(entry)
+            return True
+        return False
+
     def attach_artifacts(self, results):
         """Give each result the plots its history entry holds; return how
         many results gained some.

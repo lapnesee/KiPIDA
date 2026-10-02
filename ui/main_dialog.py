@@ -798,6 +798,10 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.log(f"Batch: {outcome.analysis_id} failed -- {outcome.error}")
         elif outcome.skipped_reason:
             self.log(f"Batch: {outcome.analysis_id} skipped ({outcome.skipped_reason}).")
+        elif outcome.result is not None:
+            # One result per run: the campaign's replaces the tab's own
+            # adaptation of the same outcome, on screen and in the history.
+            self.results_workspace.adopt_result(outcome.analysis_id, outcome.result)
 
     def _finish_batch(self, campaign):
         if self._closing:

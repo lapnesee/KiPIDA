@@ -94,6 +94,29 @@ class ProjectResultsHistoryTests(unittest.TestCase):
                 Path(entry["directory"]) / "plot-01-CFD_3D.png",
             )
 
+    def test_the_campaigns_result_replaces_the_tabs_own_copy(self):
+        # P02 Rev E, 2026-10-01 22:29: THERMAL was archived WARN with 9 figures
+        # (the tab's adaptation) while the campaign reported it PASS with 10.
+        from analysis_contract import AnalysisMetric
+
+        with tempfile.TemporaryDirectory() as directory:
+            history = ProjectResultsHistory(directory)
+            tab = AnalysisResult("THERMAL", "3D Thermal", status=AnalysisStatus.WARN).finish()
+            entry = history.save("THERMAL", "3D Thermal", "report", result=tab)
+            with patch.dict(sys.modules, {"wx": FAKE_WX}):
+                history.update_plots(entry, [("Top Surface", FakeBitmap())])
+            campaign = AnalysisResult("THERMAL", "3D Thermal", status=AnalysisStatus.PASS,
+                                      run_id=tab.run_id, elapsed_seconds=89.19, metrics=[
+                                          AnalysisMetric("internal_air_c", "Internal air", 61.2, "°C"),
+                                      ]).finish()
+            self.assertTrue(history.replace_result(tab.run_id, campaign))
+            saved = history.load_result(history.entries()[0])
+            self.assertEqual((saved.status, saved.elapsed_seconds), (AnalysisStatus.PASS, 89.19))
+            self.assertEqual([metric.key for metric in saved.metrics], ["internal_air_c"])
+            self.assertEqual([artifact.title for artifact in saved.artifacts], ["Top Surface"])
+            self.assertEqual(history.entries()[0]["status"], "PASS")
+            self.assertFalse(history.replace_result("no-such-run", campaign))
+
     def test_entries_can_filter_type_and_keep_latest_per_analysis(self):
         with tempfile.TemporaryDirectory() as directory:
             history = ProjectResultsHistory(directory)

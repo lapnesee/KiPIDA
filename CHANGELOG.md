@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed a batch archiving each domain's result as its tab adapted it,
+  not as the campaign reported it: P02 Rev E's 22:29 THERMAL was saved
+  WARN with 9 figures while the report gave it PASS with 10, and its CFD
+  4 figures and a 0 s run. The campaign's result now replaces the tab's
+  on screen and in the history, keeping the run's plots, so the tab, the
+  history and the consolidate button hold what the campaign reported.
 - Added "Since the previous campaign" to the campaign report: what was
   resolved, what is new, what changed severity and what is still
   present, finding by finding, on the analyses both campaigns ran, with

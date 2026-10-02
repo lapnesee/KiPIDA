@@ -520,6 +520,17 @@ class ResultsWorkspace(wx.Panel):
             self._log(f"Saved {self.TITLES.get(analysis_id, analysis_id)} result history entry.")
         return page
 
+    def adopt_result(self, analysis_id, result):
+        """Show and file a batch's own result for *analysis_id* in place of
+        the one the tab adapted from the same run (same run_id), so the tab,
+        its history entry and the consolidate button all hold what the
+        campaign reported."""
+        page = self._pages.get(analysis_id)
+        shown = getattr(page, "result", None) if page is not None else None
+        if shown is not None and shown.run_id == result.run_id:
+            page.set_result(result)
+        return self._history.replace_result(result.run_id, result)
+
     def session_results(self):
         """Every structured result published in this session, in page order.
 
