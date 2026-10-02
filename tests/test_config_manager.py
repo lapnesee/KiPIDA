@@ -687,5 +687,22 @@ class TestConfigManager(unittest.TestCase):
             self.assertEqual(saved, [path])
             self.assertIn("changed on disk since Ki-PIDA loaded it", logged[-1])
 
+    def test_a_rescan_offers_only_the_rails_not_configured(self):
+        # P02 Rev E's sidecar holds 17 rails; the board also has
+        # /Eclairage chassis protege/+5V_LED_EDGE, which only a missing
+        # sidecar would have scanned for.
+        from models import PowerRail
+        from ui.power_tree_panel import rescan_changes
+
+        rails = [PowerRail(net_name=name) for name in ("/+5V_RAIL", "/VBUS_SYS", "/OLD_RAIL")]
+        scanned = [PowerRail(net_name=name) for name in
+                   ("/+5V_RAIL", "/Eclairage chassis protege/+5V_LED_EDGE")]
+        board_nets = {"/+5V_RAIL", "/VBUS_SYS", "/Eclairage chassis protege/+5V_LED_EDGE"}
+        new, gone = rescan_changes(rails, scanned, board_nets)
+        self.assertEqual([rail.net_name for rail in new], ["/Eclairage chassis protege/+5V_LED_EDGE"])
+        self.assertEqual(gone, ["/OLD_RAIL"])
+        self.assertEqual(len(rails), 3)
+
+
 if __name__ == '__main__':
     unittest.main()

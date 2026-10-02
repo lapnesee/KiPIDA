@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Ki-PIDA\n"
-"POT-Creation-Date: 2026-10-02 19:25+0000\n"
+"POT-Creation-Date: 2026-10-02 19:28+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -44,15 +44,15 @@ msgstr ""
 msgid "(no path recorded)"
 msgstr ""
 
-#: ui/power_tree_panel.py:172
+#: ui/power_tree_panel.py:186
 msgid "+ Load"
 msgstr ""
 
-#: ui/power_tree_panel.py:173
+#: ui/power_tree_panel.py:187
 msgid "+ Regulator"
 msgstr ""
 
-#: ui/power_tree_panel.py:171
+#: ui/power_tree_panel.py:185
 msgid "+ Source"
 msgstr ""
 
@@ -61,7 +61,7 @@ msgstr ""
 msgid ", RAM ceiling {memory:g} GiB"
 msgstr ""
 
-#: ui/power_tree_panel.py:174
+#: ui/power_tree_panel.py:188
 msgid "- Remove"
 msgstr ""
 
@@ -591,7 +591,7 @@ msgstr ""
 msgid "Add ground stitching around board edges, connectors and reference transitions."
 msgstr ""
 
-#: ui/power_tree_panel.py:128
+#: ui/power_tree_panel.py:140
 msgid "Add Manual Net"
 msgstr ""
 
@@ -607,7 +607,7 @@ msgstr ""
 msgid "Add Patch"
 msgstr ""
 
-#: ui/power_tree_panel.py:611
+#: ui/power_tree_panel.py:650
 msgid "Add Regulator"
 msgstr ""
 
@@ -652,7 +652,7 @@ msgstr ""
 msgid "All"
 msgstr ""
 
-#: ui/power_tree_panel.py:354
+#: ui/power_tree_panel.py:393
 msgid "All components on this net have been assigned."
 msgstr ""
 
@@ -1434,12 +1434,12 @@ msgstr ""
 msgid "Configuration"
 msgstr ""
 
-#: ui/power_tree_panel.py:745
+#: ui/power_tree_panel.py:784
 #, python-brace-format
 msgid "Configuration not saved {p0}: {p1} changed on disk since Ki-PIDA loaded it. Save Config overwrites it."
 msgstr ""
 
-#: ui/power_tree_panel.py:767
+#: ui/power_tree_panel.py:806
 #, python-brace-format
 msgid "Configuration saved to {p0}"
 msgstr ""
@@ -1449,7 +1449,7 @@ msgstr ""
 msgid "Configuration saved to {p0} on close."
 msgstr ""
 
-#: ui/power_tree_panel.py:755
+#: ui/power_tree_panel.py:794
 #, python-brace-format
 msgid "Configuration saved to {p0} {p1}."
 msgstr ""
@@ -1600,7 +1600,7 @@ msgstr ""
 msgid "Copper outside the board ignored"
 msgstr ""
 
-#: ui/power_tree_panel.py:562
+#: ui/power_tree_panel.py:601
 msgid "Could not locate regulator."
 msgstr ""
 
@@ -1998,7 +1998,7 @@ msgstr ""
 msgid "Detected Differential Pairs"
 msgstr ""
 
-#: ui/power_tree_panel.py:123
+#: ui/power_tree_panel.py:135
 msgid "Detected Power Rails"
 msgstr ""
 
@@ -2209,7 +2209,7 @@ msgstr ""
 msgid "Edit EMI/EMC Source"
 msgstr ""
 
-#: ui/power_tree_panel.py:477
+#: ui/power_tree_panel.py:516
 msgid "Edit Load"
 msgstr ""
 
@@ -2217,7 +2217,7 @@ msgstr ""
 msgid "Edit Patch"
 msgstr ""
 
-#: ui/power_tree_panel.py:503 ui/power_tree_panel.py:569
+#: ui/power_tree_panel.py:542 ui/power_tree_panel.py:608
 msgid "Edit Regulator"
 msgstr ""
 
@@ -2229,7 +2229,7 @@ msgstr ""
 msgid "Edit Selected Model"
 msgstr ""
 
-#: ui/power_tree_panel.py:433
+#: ui/power_tree_panel.py:472
 msgid "Edit Source"
 msgstr ""
 
@@ -2564,20 +2564,20 @@ msgstr ""
 msgid "Er"
 msgstr ""
 
-#: ui/power_tree_panel.py:762 ui/power_tree_panel.py:771 ui/power_tree_panel.py:777 ui/power_tree_panel.py:781 ui/power_tree_panel.py:812 ui/regulator_dialog.py:355 ui/regulator_dialog.py:362 ui/regulator_dialog.py:365 ui/regulator_dialog.py:369 ui/regulator_dialog.py:373 ui/regulator_dialog.py:377 ui/regulator_dialog.py:385 ui/regulator_dialog.py:390
+#: ui/power_tree_panel.py:801 ui/power_tree_panel.py:810 ui/power_tree_panel.py:816 ui/power_tree_panel.py:820 ui/power_tree_panel.py:851 ui/regulator_dialog.py:355 ui/regulator_dialog.py:362 ui/regulator_dialog.py:365 ui/regulator_dialog.py:369 ui/regulator_dialog.py:373 ui/regulator_dialog.py:377 ui/regulator_dialog.py:385 ui/regulator_dialog.py:390
 msgid "Error"
 msgstr ""
 
-#: ui/power_tree_panel.py:700
+#: ui/power_tree_panel.py:739
 #, python-brace-format
 msgid "Error getting config path: {p0}"
 msgstr ""
 
-#: ui/power_tree_panel.py:649
+#: ui/power_tree_panel.py:688
 msgid "Error locating input rail."
 msgstr ""
 
-#: ui/power_tree_panel.py:688
+#: ui/power_tree_panel.py:727
 msgid "ERROR: Cannot determine project path - no project object and board has no filename attribute."
 msgstr ""
 
@@ -2738,12 +2738,12 @@ msgstr ""
 msgid "Failed to apply KiCad differential rules: {p0}"
 msgstr ""
 
-#: ui/power_tree_panel.py:811
+#: ui/power_tree_panel.py:850
 #, python-brace-format
 msgid "Failed to load config: {p0}"
 msgstr ""
 
-#: ui/power_tree_panel.py:224
+#: ui/power_tree_panel.py:239
 #, python-brace-format
 msgid "Failed to load config: {p0}. Running auto-scan instead."
 msgstr ""
@@ -2753,12 +2753,12 @@ msgstr ""
 msgid "Failed to save config on close: {p0}"
 msgstr ""
 
-#: ui/power_tree_panel.py:753
+#: ui/power_tree_panel.py:792
 #, python-brace-format
 msgid "Failed to save config {p0}: {p1}"
 msgstr ""
 
-#: ui/power_tree_panel.py:770
+#: ui/power_tree_panel.py:809
 #, python-brace-format
 msgid "Failed to save config: {p0}"
 msgstr ""
@@ -2852,7 +2852,7 @@ msgstr ""
 msgid "Forced enclosure flow requires at least one OUTLET or VENT patch."
 msgstr ""
 
-#: ui/power_tree_panel.py:244
+#: ui/power_tree_panel.py:283
 #, python-brace-format
 msgid "Found {p0} total nets on board."
 msgstr ""
@@ -3606,7 +3606,7 @@ msgstr ""
 msgid "Load"
 msgstr ""
 
-#: ui/power_tree_panel.py:134
+#: ui/power_tree_panel.py:148
 msgid "Load Config"
 msgstr ""
 
@@ -3614,7 +3614,7 @@ msgstr ""
 msgid "Load not found on the board"
 msgstr ""
 
-#: ui/power_tree_panel.py:222 ui/power_tree_panel.py:798
+#: ui/power_tree_panel.py:237 ui/power_tree_panel.py:837
 #, python-brace-format
 msgid "Loaded configuration from {p0} ({p1} rails)"
 msgstr ""
@@ -4002,7 +4002,7 @@ msgstr ""
 msgid "No check passed."
 msgstr ""
 
-#: ui/power_tree_panel.py:326 ui/power_tree_panel.py:408 ui/power_tree_panel.py:452
+#: ui/power_tree_panel.py:365 ui/power_tree_panel.py:447 ui/power_tree_panel.py:491
 msgid "No components found on this net."
 msgstr ""
 
@@ -4177,7 +4177,7 @@ msgstr ""
 msgid "Noise coupled into a connector's lines leaves the board on the cable, which radiates."
 msgstr ""
 
-#: ui/power_tree_panel.py:149
+#: ui/power_tree_panel.py:163
 msgid "Nominal Voltage (V):"
 msgstr ""
 
@@ -4377,7 +4377,7 @@ msgstr ""
 msgid "Over a gap, the return current detours around it and the loop it forms radiates."
 msgstr ""
 
-#: ui/power_tree_panel.py:165
+#: ui/power_tree_panel.py:179
 msgid "Pads"
 msgstr ""
 
@@ -4724,6 +4724,10 @@ msgstr ""
 msgid "Quasi-static engineering estimate. Source voltage/current are edited in the source list; continuous adjacent GND is approximated by an image return. With frequency set to 0, each source is evaluated at its first harmonic inside the selected compliance band."
 msgstr ""
 
+#: ui/power_tree_panel.py:266
+msgid "Rail candidates the configuration does not have yet. Add:"
+msgstr ""
+
 #: rule_guide.py:51
 msgid "Rail impedance above its target"
 msgstr ""
@@ -4736,7 +4740,7 @@ msgstr ""
 msgid "Rail impedance within target"
 msgstr ""
 
-#: ui/power_tree_panel.py:146
+#: ui/power_tree_panel.py:160
 msgid "Rail Properties"
 msgstr ""
 
@@ -4809,7 +4813,7 @@ msgstr ""
 msgid "Reduce signal-to-reference spacing in the fabrication stackup."
 msgstr ""
 
-#: ui/ac_analysis_panel.py:198 ui/emc_analysis_panel.py:435 ui/power_tree_panel.py:163 ui/thermal_analysis_panel.py:211
+#: ui/ac_analysis_panel.py:198 ui/emc_analysis_panel.py:435 ui/power_tree_panel.py:177 ui/thermal_analysis_panel.py:211
 msgid "Ref"
 msgstr ""
 
@@ -4841,12 +4845,12 @@ msgstr ""
 msgid "Refreshed live PCB geometry and component discovery."
 msgstr ""
 
-#: ui/power_tree_panel.py:647
+#: ui/power_tree_panel.py:686
 #, python-brace-format
 msgid "Regulator added to {p0}"
 msgstr ""
 
-#: ui/power_tree_panel.py:535 ui/power_tree_panel.py:600
+#: ui/power_tree_panel.py:574 ui/power_tree_panel.py:639
 #, python-brace-format
 msgid "Regulator moved to {p0}"
 msgstr ""
@@ -5051,6 +5055,29 @@ msgstr ""
 msgid "Rerun with more iterations: the residuals should fall under the tolerance."
 msgstr ""
 
+#: ui/power_tree_panel.py:267
+msgid "Rescan Board"
+msgstr ""
+
+#: ui/power_tree_panel.py:142
+msgid "Rescan Board..."
+msgstr ""
+
+#: ui/power_tree_panel.py:263
+#, python-brace-format
+msgid "Rescan: the {p0} rail candidate(s) on the board are all configured."
+msgstr ""
+
+#: ui/power_tree_panel.py:260
+#, python-brace-format
+msgid "Rescan: {p0} configured rail(s) no longer on the board, kept: {p1}."
+msgstr ""
+
+#: ui/power_tree_panel.py:275
+#, python-brace-format
+msgid "Rescan: {p0} of {p1} new rail candidate(s) added: {p2}."
+msgstr ""
+
 #: plotter.py:978
 msgid "Residual"
 msgstr ""
@@ -5185,7 +5212,7 @@ msgstr ""
 msgid "Risk score {score}/100 — {total} findings: {critical} critical, {high} high, {medium} medium."
 msgstr ""
 
-#: ui/power_tree_panel.py:162
+#: ui/power_tree_panel.py:176
 msgid "Role"
 msgstr ""
 
@@ -5312,7 +5339,7 @@ msgstr ""
 msgid "Sampling {p0} thermal layers as {p1} row-band work items with {p2} CPU workers."
 msgstr ""
 
-#: ui/power_tree_panel.py:133
+#: ui/power_tree_panel.py:147
 msgid "Save Config"
 msgstr ""
 
@@ -5337,7 +5364,7 @@ msgstr ""
 msgid "Scan Board"
 msgstr ""
 
-#: ui/power_tree_panel.py:226 ui/power_tree_panel.py:229
+#: ui/power_tree_panel.py:241 ui/power_tree_panel.py:244
 #, python-brace-format
 msgid "Scan complete. Discovered {p0} power rail candidates."
 msgstr ""
@@ -5398,7 +5425,7 @@ msgstr ""
 msgid "Select both Input and Output rails."
 msgstr ""
 
-#: ui/power_tree_panel.py:357
+#: ui/power_tree_panel.py:396
 msgid "Select Component"
 msgstr ""
 
@@ -5418,7 +5445,7 @@ msgstr ""
 msgid "Select Input Component and at least one Pad."
 msgstr ""
 
-#: ui/power_tree_panel.py:56
+#: ui/power_tree_panel.py:68
 msgid "Select Net"
 msgstr ""
 
@@ -5809,7 +5836,7 @@ msgstr ""
 msgid "structured metrics unavailable"
 msgstr ""
 
-#: ui/power_tree_panel.py:768 ui/power_tree_panel.py:809
+#: ui/power_tree_panel.py:807 ui/power_tree_panel.py:848
 msgid "Success"
 msgstr ""
 
@@ -6440,11 +6467,11 @@ msgstr ""
 msgid "Typical effort"
 msgstr ""
 
-#: ui/power_tree_panel.py:777
+#: ui/power_tree_panel.py:816
 msgid "Unable to determine project path. Cannot load config."
 msgstr ""
 
-#: ui/power_tree_panel.py:762
+#: ui/power_tree_panel.py:801
 msgid "Unable to determine project path. Cannot save config."
 msgstr ""
 
@@ -6551,7 +6578,7 @@ msgstr ""
 msgid "Validation Error"
 msgstr ""
 
-#: report/html_report.py:1021 ui/power_tree_panel.py:164
+#: report/html_report.py:1021 ui/power_tree_panel.py:178
 msgid "Value"
 msgstr ""
 

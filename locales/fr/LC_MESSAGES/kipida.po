@@ -5529,3 +5529,21 @@ msgstr "Rapport du lot écrit sans les figures {p0}, encore en cours de rendu ap
 
 msgid "Not a number: the rail stays at {voltage} V."
 msgstr "Pas un nombre : le rail reste à {voltage} V."
+
+msgid "Rail candidates the configuration does not have yet. Add:"
+msgstr "Rails candidats absents de la configuration. Ajouter :"
+
+msgid "Rescan Board"
+msgstr "Rescanner la carte"
+
+msgid "Rescan Board..."
+msgstr "Rescanner la carte..."
+
+msgid "Rescan: the {p0} rail candidate(s) on the board are all configured."
+msgstr "Rescan : les {p0} rail(s) candidat(s) de la carte sont tous configurés."
+
+msgid "Rescan: {p0} configured rail(s) no longer on the board, kept: {p1}."
+msgstr "Rescan : {p0} rail(s) configuré(s) absent(s) de la carte, conservé(s) : {p1}."
+
+msgid "Rescan: {p0} of {p1} new rail candidate(s) added: {p2}."
+msgstr "Rescan : {p0} rail(s) candidat(s) nouveau(x) ajouté(s) sur {p1} : {p2}."

@@ -37,6 +37,18 @@ def voltage_entry(text, current):
             voltage=f"{float(current or 0):g}")
 
 
+def rescan_changes(rails, scanned, board_nets):
+    """(new, gone): the scanned rail candidates no configured rail names,
+    and the configured nets the board no longer has. Only a missing sidecar
+    ran the scan, so a rail drawn after the configuration was made -- P02
+    Rev E's /Eclairage chassis protege/+5V_LED_EDGE beside its 17 rails --
+    could only be added by hand."""
+    known = {rail.net_name for rail in rails}
+    new = [rail for rail in scanned if rail.net_name not in known]
+    gone = [rail.net_name for rail in rails if board_nets and rail.net_name not in board_nets]
+    return new, gone
+
+
 def _declared_rails_provider(project_context):
     """The rails the project's saved files declare, read when the scan asks; None without a project."""
     project = getattr(project_context, "project", None)
@@ -127,6 +139,8 @@ class PowerTreePanel(wx.Panel):
         
         self.btn_add_rail = wx.Button(left_panel, label="Add Manual Net")
         left_sizer.Add(self.btn_add_rail, 0, wx.EXPAND | wx.ALL, 2)
+        self.btn_rescan = wx.Button(left_panel, label="Rescan Board...")
+        left_sizer.Add(self.btn_rescan, 0, wx.EXPAND | wx.ALL, 2)
         
         # Config buttons
         config_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -189,6 +203,7 @@ class PowerTreePanel(wx.Panel):
         self.SetSizer(main_sizer)
         
         self.btn_add_rail.Bind(wx.EVT_BUTTON, self.on_add_rail)
+        self.btn_rescan.Bind(wx.EVT_BUTTON, self.on_rescan)
         self.btn_save_config.Bind(wx.EVT_BUTTON, self.on_save_config)
         self.btn_load_config.Bind(wx.EVT_BUTTON, self.on_load_config)
         self.rail_list.Bind(wx.EVT_LISTBOX, self.on_rail_select)
@@ -235,6 +250,30 @@ class PowerTreePanel(wx.Panel):
         if self.rails:
             self.rail_list.SetSelection(0)
             self.on_rail_select(None)
+
+    def on_rescan(self, event):
+        """Offer the rail candidates the board gained since the configuration
+        was made; the configured rails stay as they are."""
+        scanned = self.discoverer.discover_power_nets()
+        new, gone = rescan_changes(self.rails, scanned, set(self.discoverer.get_all_net_names()))
+        if gone:
+            self.log(f"Rescan: {len(gone)} configured rail(s) no longer on the board, kept: "
+                     f"{', '.join(gone)}.")
+        if not new:
+            self.log(f"Rescan: the {len(scanned)} rail candidate(s) on the board are all configured.")
+            return
+        dlg = wx.MultiChoiceDialog(
+            self, _("Rail candidates the configuration does not have yet. Add:"),
+            _("Rescan Board"), [rail_label(rail) for rail in new],
+        )
+        if dlg.ShowModal() == wx.ID_OK:
+            chosen = [new[index] for index in dlg.GetSelections()]
+            for rail in chosen:
+                self.rails.append(rail)
+                self.rail_list.Append(rail_label(rail))
+            names = ", ".join(rail.net_name for rail in chosen) or "none"
+            self.log(f"Rescan: {len(chosen)} of {len(new)} new rail candidate(s) added: {names}.")
+        dlg.Destroy()
 
     def on_add_rail(self, event):
         # Find all nets not already in self.rails

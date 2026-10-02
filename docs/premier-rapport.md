@@ -7,7 +7,9 @@ rapport. Les libellés sont ceux de l'interface en français.
 
 1. Ouvrir le PCB dans KiCad, puis Ki-PIDA.
 2. Dans **Projet → Arbre d’alimentation et DC**, vérifier les rails et leurs
-   charges : le lot travaille sur ce qui y est déclaré.
+   charges : le lot travaille sur ce qui y est déclaré. Si la carte a gagné
+   des rails depuis la création de la configuration, **Rescanner la
+   carte...** les propose ; les rails déjà configurés restent intacts.
 3. Cliquer **Lancer le lot d’analyses...** (présent sur chaque page).
 4. Le dialogue liste les analyses. Pour chacune, il indique :
    - sur quoi elle tournera (nombre de rails, profils AC, sources CEM) ;

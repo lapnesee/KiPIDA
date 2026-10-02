@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+Rescan Board... in the power tree offers the rail candidates the board
+gained since the configuration was made, to tick, and names configured
+rails the board no longer has; configured rails are left as they are.
 A rail voltage that is not a number is said under the field ("Not a
 number: the rail stays at 5 V.") instead of being dropped without a word.
 The README describes the analysis batch, the files it writes, how the
