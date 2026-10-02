@@ -5,6 +5,8 @@ from typing import Callable, Dict, Iterable, Sequence
 
 import wx
 
+from i18n import _
+
 
 @dataclass(frozen=True)
 class WorkspaceEntry:
@@ -67,10 +69,11 @@ class WorkspaceNavigator(wx.Panel):
             self._entries_by_page[entry.page_index] = entry
             groups.setdefault(entry.group, []).append(entry)
         for group, children in groups.items():
-            group_item = self.tree.AppendItem(root, group)
+            # A tree item is outside the wx translation hooks.
+            group_item = self.tree.AppendItem(root, _(group))
             self.tree.SetItemBold(group_item, True)
             for entry in children:
-                item = self.tree.AppendItem(group_item, entry.title)
+                item = self.tree.AppendItem(group_item, _(entry.title))
                 self.tree.SetItemData(item, entry.page_index)
                 self._items_by_page[entry.page_index] = item
             self.tree.Expand(group_item)

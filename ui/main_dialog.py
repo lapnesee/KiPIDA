@@ -1,5 +1,6 @@
 import wx
 from ui.number_input import parse_number
+from i18n import _
 import wx.dataview
 import sys
 import os
@@ -548,9 +549,10 @@ class KiPIDA_MainDialog(wx.Dialog):
             return
         if not self._ensure_analysis_slot():
             return
-        labels = [label for _key, label in self.BATCH_ANALYSES]
+        # A MultiChoiceDialog is outside the wx translation hooks.
+        labels = [_(label) for _key, label in self.BATCH_ANALYSES]
         dialog = wx.MultiChoiceDialog(
-            self, "Select the analyses to run:", "Run Analysis Batch",
+            self, _("Select the analyses to run:"), _("Run Analysis Batch"),
             labels,
         )
         # Everything preselected: the common case is "run the lot", and the

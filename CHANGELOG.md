@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed parts of the French interface staying in English: the sidebar
+  navigation, the batch dialog, and the results page's filters and
+  views, which sit outside the wx hooks that translate buttons and
+  labels. The findings filter, matched by the text it showed, now keeps
+  its English name by position.
 - Fixed the numeric fields refusing a decimal comma: 77 of them in the
   AC, CFD, differential, EMI/EMC, thermal, power tree, regulator and
   setup dialogs read their text with float(), so "0,1" was an error

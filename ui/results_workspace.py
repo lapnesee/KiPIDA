@@ -40,8 +40,11 @@ class AnalysisResultPage(wx.Panel):
             0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6,
         )
         self.finding_filter = wx.Choice(self.finding_tools)
-        for label in ("All", "Critical / High", "Actionable (Critical–Medium)", "Low / Info"):
-            self.finding_filter.Append(label)
+        # The filters are matched by their English name, so the choice
+        # shows a translation and keeps the name by position.
+        self._finding_filters = ("All", "Critical / High", "Actionable (Critical–Medium)", "Low / Info")
+        for label in self._finding_filters:
+            self.finding_filter.Append(_(label))
         self.finding_filter.SetSelection(0)
         finding_tools_sizer.Add(self.finding_filter, 0, wx.RIGHT, 8)
         finding_tools_sizer.Add(
@@ -74,7 +77,7 @@ class AnalysisResultPage(wx.Panel):
         )
         self.detail_view = wx.Choice(text_panel)
         for label in ("Report", "Selected finding", "Evidence and limits"):
-            self.detail_view.Append(label)
+            self.detail_view.Append(_(label))
         self.detail_view.SetSelection(0)
         detail_bar.Add(self.detail_view, 0)
         detail_bar.AddStretchSpacer()
@@ -191,7 +194,7 @@ class AnalysisResultPage(wx.Panel):
 
     def _selected_severity_filter(self):
         selection = self.finding_filter.GetSelection()
-        return self.finding_filter.GetString(selection) if selection != wx.NOT_FOUND else "All"
+        return self._finding_filters[selection] if selection != wx.NOT_FOUND else "All"
 
     def _refresh_findings(self):
         self.findings.DeleteAllItems()
@@ -341,7 +344,7 @@ class ResultsWorkspace(wx.Panel):
             (item.title, item.analysis_id) for item in DEFAULT_ANALYSES.all()
         ]
         for label, _value in self._history_filters:
-            self.history_filter.Append(label)
+            self.history_filter.Append(_(label))
         self.history_filter.SetSelection(0)
         history_bar.Add(self.history_filter, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
         history_bar.Add(
