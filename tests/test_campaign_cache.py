@@ -73,6 +73,22 @@ class DigestTests(unittest.TestCase):
         self.assertNotEqual(configuration_digest(DigestRequest(), context=("run-a",)),
                             configuration_digest(DigestRequest(), context=("run-b",)))
 
+    def test_an_object_met_again_is_read_once(self):
+        # P02 Rev E's AC batch request took 9.70 s to digest: its parsed
+        # board read six times (_build and _grid_check of three profiles)
+        # and 50,130 stat calls on net names such as "/VBUS_SYS".
+        from unittest import mock
+        from types import SimpleNamespace
+        import application.campaign_cache as cache_module
+
+        board = SimpleNamespace(nets=["/VBUS_SYS"] * 1000)
+        request = _ACLikeRequest(settings=board, _build=SimpleNamespace(parsed_board=board))
+        real = cache_module._file_state
+        with mock.patch.object(cache_module, "_file_state", side_effect=real) as state:
+            configuration_digest(request)
+        self.assertEqual([call.args[0] for call in state.call_args_list].count("/VBUS_SYS"), 1)
+        self.assertEqual(len(state.call_args_list), len({call.args[0] for call in state.call_args_list}))
+
     def test_the_thermal_session_meshes_are_not_an_input(self):
         # The first batch fills the session's mesh cache with a mesh and its
         # solver; reading them would make the second batch's thermal differ

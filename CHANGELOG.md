@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+Comparing an analysis's inputs for reuse reads each shared object and each
+path once: the AC batch's comparison went from 9.70 s to 0.81 s on P02.
 A batch sweeps its AC profiles side by side, three at a time: P02 Rev E's
 three profiles took 121.9 s through the AC engine instead of 227.4 s, to the
 same impedances. The networks are still built one at a time.
