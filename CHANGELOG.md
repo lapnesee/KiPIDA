@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+The French log no longer leaves English phrases inside its lines:
+"Configuration enregistrée dans ... avant le lot.", "... pour la chaîne
+thermique.", "... à la fermeture.".
 The DC grid check names the rails it did not refine as "... and 9 more."
 instead of ending on "....".
 The AC batch's log no longer reads "AC: AC: sweeping ..." and "AC: AC

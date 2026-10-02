@@ -1,6 +1,6 @@
 import wx
 from ui.number_input import parse_number
-from i18n import _
+from i18n import N_, _
 import wx.dataview
 import sys
 import os
@@ -642,7 +642,7 @@ class KiPIDA_MainDialog(wx.Dialog):
 
         selected = [self.BATCH_ANALYSES[index][0] for index in chosen]
         # The settings a batch runs on are worth keeping whatever happens next.
-        self.power_tree.auto_save("before the batch", create=True)
+        self.power_tree.auto_save(N_("before the batch"), create=True)
         self._select_workspace(self.PAGE_LOG)
         self.log(
             f"--- Starting analysis batch: {len(selected)} analysis(es) --- "
@@ -774,7 +774,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         )
 
     def _copper_loss_dc_request(self, rails, grid_size_mm, compute_settings,
-                                debug_mode, board_path, purpose="the enclosure CFD"):
+                                debug_mode, board_path, purpose=N_("the enclosure CFD")):
         """The DC capture a thermal or CFD run needs for its copper losses."""
         shared = reuse_dc_capture(
             getattr(self, "_batch_dc_capture", None), rails, grid_size_mm, board_path,
@@ -2004,7 +2004,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         if coupled or settings.include_dc_copper_losses:
             dc_request = self._copper_loss_dc_request(
                 rails, dc_grid_size, compute_settings, debug_mode, board_file_path,
-                purpose="the thermal pipeline",
+                purpose=N_("the thermal pipeline"),
             )
 
         self.log("Capturing the thermal board model on the KiCad UI thread.")

@@ -93,6 +93,23 @@ class LogTests(unittest.TestCase):
         self.assertIn("DC: --- Starting System Simulation (17 rails) ---", on_disk)
         self.assertIn("Saved Thermique 3D result history entry.", on_disk)
 
+    def test_a_phrase_filled_into_a_message_is_translated_with_it(self):
+        # P02 Rev E, 22:05:09: "Configuration enregistrée dans
+        # p02_revision_e.kipida.json before the batch."
+        import i18n
+
+        i18n.configure("fr")
+        try:
+            saved = i18n._("Configuration saved to p02_revision_e.kipida.json before the batch.")
+            reused = i18n._("Reusing this batch's DC copper capture for the thermal pipeline.")
+            named = i18n._("Reusing this batch's DC copper capture for Results.")
+        finally:
+            i18n.configure("en")
+        self.assertEqual(saved, "Configuration enregistrée dans p02_revision_e.kipida.json avant le lot.")
+        self.assertEqual(reused, "Réutilisation de la capture du cuivre DC de ce lot pour la chaîne thermique.")
+        # A one-word value is a name, never looked up.
+        self.assertTrue(named.endswith(" pour Results."))
+
 
 if __name__ == "__main__":
     unittest.main()
