@@ -888,7 +888,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             if attached:
                 self.log(f"Consolidated report: plots attached from {attached} saved result(s).")
             html_path = write_campaign_files(
-                campaign, directory, stamp, artifact_roots=(directory,),
+                campaign, directory, stamp, artifact_roots=(directory,), log=self.log,
             )["html"]
 
             domains = ", ".join(score.domain for score in campaign.domain_scores)

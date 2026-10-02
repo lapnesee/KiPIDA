@@ -39,6 +39,34 @@ class CampaignFilesTests(unittest.TestCase):
         self.assertEqual(saved.tool_version, campaign.tool_version)
         self.assertEqual(saved.results[0].findings[0].components, ["C88", "R10"])
 
+    def test_the_next_report_says_what_changed_since(self):
+        # The comparison existed and nothing called it: whether C88 and R10
+        # were reconnected was read off two reports by eye.
+        from report.campaign_files import write_campaign_files
+
+        def campaign_of(parts, tool):
+            result = AnalysisResult("DC", "DC Power", status=AnalysisStatus.WARN, findings=[
+                AnalysisFinding(rule_id="DC-008", category="CONNECTIVITY",
+                                severity=FindingSeverity.HIGH, title="GND pads are cut off",
+                                description="d", components=list(parts))
+            ] if parts else [])
+            campaign = CampaignResult.from_results([result], project_name="p02_revision_e")
+            campaign.tool_version = tool
+            return campaign
+
+        with tempfile.TemporaryDirectory() as directory:
+            first = write_campaign_files(campaign_of(["C88", "R10"], "0.19.0+aaaaaaaa"),
+                                         directory, "20261002-101500")
+            self.assertNotIn('id="since"', first["html"].read_text(encoding="utf-8"))
+            second = write_campaign_files(campaign_of(["C88"], "0.19.0+bbbbbbbb"),
+                                          directory, "20261002-111500")
+            html = second["html"].read_text(encoding="utf-8")
+        since = html.split('id="since"')[1].split("</section>")[0]
+        self.assertIn("Resolved (1)", since)
+        self.assertIn("GND pads are cut off", since)
+        self.assertIn("R10", since.split("New")[0])
+        self.assertIn("0.19.0+aaaaaaaa to 0.19.0+bbbbbbbb", since)
+
 
 if __name__ == "__main__":
     unittest.main()

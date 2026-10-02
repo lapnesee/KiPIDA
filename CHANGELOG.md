@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added "Since the previous campaign" to the campaign report: what was
+  resolved, what is new, what changed severity and what is still
+  present, finding by finding, on the analyses both campaigns ran, with
+  the score changes. It says when the board or Ki-PIDA changed in
+  between. The comparison of P02 Rev E's 21:42 and 22:29 campaigns
+  reads SW-004 (L1, U4) resolved and TH-008 still present; comparing
+  whole actions read "TH-008 introduced".
 - Added campaign-<stamp>.json beside each campaign report: the campaign
   itself, with every domain's result, its actions and its coverage.
   P02 Rev E's results folder held 22 reports and their CSV files, and

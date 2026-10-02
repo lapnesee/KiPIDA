@@ -1259,14 +1259,80 @@ def _render_appendices(campaign: CampaignResult) -> str:
 # Public API
 # ----------------------------------------------------------------------
 
+def _subject_items(groups) -> str:
+    return "".join(
+        f"<li>{_severity_badge(FindingSeverity(severity))} {_t(title)} "
+        f'<span class="meta">&mdash; {_esc(domain)}, <code>{_esc(rule)}</code> &middot; '
+        f"{_join(names)}</span></li>"
+        for severity, title, domain, rule, names in groups
+    )
+
+
+def _render_since(campaign: CampaignResult, previous: Optional[CampaignResult]) -> str:
+    """What changed since the previous campaign of this board, finding by
+    finding, on the analyses both ran; nothing when there is none."""
+    if previous is None:
+        return ""
+    from report.comparison import compare_campaigns, grouped
+
+    delta = compare_campaigns(previous, campaign)
+    heading = _esc(_("Since the previous campaign"))
+    intro = _esc(_("Compared with the campaign of {date}, on the analyses both ran.")).format(
+        date=_esc(previous.created_at))
+    notes = []
+    if delta.board_changed:
+        notes.append(_esc(_("The board changed in between.")))
+    if delta.tool_changed:
+        notes.append(_esc(_(
+            "Ki-PIDA changed in between ({before} to {after}): a difference may come from the "
+            "tool rather than the board."
+        )).format(before=_esc(previous.tool_version or "?"), after=_esc(campaign.tool_version or "?")))
+    if delta.not_compared:
+        notes.append(_esc(_("Not compared, run in only one of the two: {domains}.")).format(
+            domains=_esc(", ".join(delta.not_compared))))
+    scores = " &middot; ".join(
+        f"{_esc(domain)} {value:+.0f}" for domain, value in delta.score_deltas.items() if value
+    )
+    if scores:
+        notes.append(_esc(_("Score changes:")) + " " + scores)
+    changed = "".join(
+        f"<li>{_severity_badge(FindingSeverity(before.severity))} &rarr; "
+        f"{_severity_badge(FindingSeverity(after.severity))} {_t(after.title)} "
+        f'<span class="meta">&mdash; {_esc(after.domain)}, <code>{_esc(after.rule_id)}</code> '
+        f"&middot; {_esc(after.subject)}</span></li>"
+        for before, after in delta.changed
+    )
+    blocks = []
+    for title, subjects in ((_("Resolved"), delta.resolved), (_("New"), delta.introduced)):
+        items = _subject_items(grouped(subjects))
+        blocks.append(f"<h4>{_esc(title)} ({len(subjects)})</h4>"
+                      + (f'<ul class="decision">{items}</ul>' if items else ""))
+    if changed:
+        regraded = _esc(_("Severity changed"))
+        blocks.append(f"<h4>{regraded} ({len(delta.changed)})</h4>"
+                      f'<ul class="decision">{changed}</ul>')
+    persisting = _subject_items(grouped(delta.persisting))
+    if persisting:
+        summary = _esc(_("Still present ({count})")).format(count=len(delta.persisting))
+        blocks.append(f'<details><summary>{summary}</summary><ul class="decision">'
+                      f"{persisting}</ul></details>")
+    return (
+        f'<section id="since"><h2>{heading}</h2><p class="meta">{intro}</p>'
+        + "".join(f'<p class="muted">{note}</p>' for note in notes)
+        + "".join(blocks) + "</section>"
+    )
+
+
 def render_campaign_html(
     campaign: CampaignResult, *, embed_images: bool = True, artifact_roots=(),
+    previous: Optional[CampaignResult] = None,
 ) -> str:
     """Render *campaign* as a fully self-contained HTML document.
 
     ``artifact_roots`` are directories to search for artifact files whose
     recorded path is a bare file name, which is what ProjectResultsHistory
     stores. Without them, every plot renders as "artifact unavailable".
+    With ``previous``, what changed since that campaign follows the decision.
     """
     title = _esc(campaign.project_name or _("Ki-PIDA campaign report"))
     suffix = _esc(_("Ki-PIDA report"))
@@ -1280,6 +1346,7 @@ def render_campaign_html(
         f"<h1>{title}</h1>"
         f'<p class="meta">{subtitle} &middot; {_esc(campaign.created_at)}</p>'
         f"{_render_synthesis(campaign)}"
+        f"{_render_since(campaign, previous)}"
         f"{_render_actions(campaign)}"
         f"{_render_components(campaign)}"
         f"{_render_domains(campaign, embed_images, artifact_roots)}"
@@ -1290,7 +1357,7 @@ def render_campaign_html(
 
 def write_campaign_html(
     campaign: CampaignResult, path: Path, *, embed_images: bool = True,
-    artifact_roots=(),
+    artifact_roots=(), previous: Optional[CampaignResult] = None,
 ) -> Path:
     """Render *campaign* and write it to *path*, creating parent directories.
 
@@ -1303,7 +1370,7 @@ def write_campaign_html(
     roots = tuple(artifact_roots) or (path.parent,)
     path.write_text(
         render_campaign_html(
-            campaign, embed_images=embed_images, artifact_roots=roots,
+            campaign, embed_images=embed_images, artifact_roots=roots, previous=previous,
         ),
         encoding="utf-8",
     )

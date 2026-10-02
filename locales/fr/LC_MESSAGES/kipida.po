@@ -5448,3 +5448,36 @@ msgstr "excursion {} V"
 
 msgid "Ki-PIDA build"
 msgstr "Build de Ki-PIDA"
+
+msgid "Campaign {p0} could not be read for comparison: {p1}"
+msgstr "La campagne {p0} n’a pas pu être lue pour la comparaison : {p1}"
+
+msgid "Compared with the campaign of {date}, on the analyses both ran."
+msgstr "Comparée à la campagne du {date}, sur les analyses présentes dans les deux."
+
+msgid "Ki-PIDA changed in between ({before} to {after}): a difference may come from the tool rather than the board."
+msgstr "Ki-PIDA a changé entre-temps ({before} puis {after}) : une différence peut venir de l’outil plutôt que de la carte."
+
+msgid "New"
+msgstr "Nouveaux"
+
+msgid "Not compared, run in only one of the two: {domains}."
+msgstr "Non comparées, présentes dans une seule des deux : {domains}."
+
+msgid "Resolved"
+msgstr "Résolus"
+
+msgid "Score changes:"
+msgstr "Évolution des scores :"
+
+msgid "Severity changed"
+msgstr "Gravité modifiée"
+
+msgid "Since the previous campaign"
+msgstr "Depuis la campagne précédente"
+
+msgid "Still present ({count})"
+msgstr "Toujours présents ({count})"
+
+msgid "The board changed in between."
+msgstr "La carte a changé entre-temps."
