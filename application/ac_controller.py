@@ -309,17 +309,17 @@ class ACSolverEngine:
 
         def one(index, item):
             rail = getattr(item.settings, "rail_name", "")
-            emit(f"AC profile {index}/{len(items)}: {rail}.")
+            emit(f"Profile {index}/{len(items)}: {rail}.")
             try:
                 if item.network is None and item._build is not None:
                     item = replace(item, network=build_ac_network(item._build, item.settings, emit))
                 return (item, *self.solve(item, emit, summed(index), cancelled)), None
             except ValueError as exc:
-                emit(f"AC profile '{rail}' not swept: {exc}")
+                emit(f"Profile '{rail}' not swept: {exc}")
                 return None, (rail, str(exc))
 
         if workers > 1:
-            emit(f"AC: sweeping {len(items)} profiles, {workers} at a time.")
+            emit(f"Sweeping {len(items)} profiles, {workers} at a time.")
         pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="KiPIDA-AC")
         try:
             futures = [pool.submit(one, index, item) for index, item in enumerate(items, start=1)]

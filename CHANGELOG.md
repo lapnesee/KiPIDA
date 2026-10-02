@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+The AC batch's log no longer reads "AC: AC: sweeping ..." and "AC: AC
+profile 1/3": the campaign already prefixes each line with the analysis.
 The differential analysis can be reused by a batch too: its captured
 geometry is now something the comparison can read.
 Comparing an analysis's inputs for reuse reads each shared object and each
