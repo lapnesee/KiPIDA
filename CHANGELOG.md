@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added the Ki-PIDA build to every result and campaign, and to the
+  report's appendix: the version, the hash of its sources and, in a copy
+  made with git archive, the commit and its date. P02 Rev E's EMC score
+  read 65, 35, 63 and 65 between 2026-09-30 and 2026-10-01 at one board
+  fingerprint, and nothing said the tool had changed. A result saved
+  before keeps an empty build rather than borrowing the current one.
 - Fixed two dialogs passing their defaults off as entered values: a
   manual EMI/EMC source read HIGH confidence even when left at 25 MHz,
   2 ns, 3.3 V and 0.1 A (it now reads LOW and names the values kept),

@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Ki-PIDA\n"
-"POT-Creation-Date: 2026-10-02 14:53+0000\n"
+"POT-Creation-Date: 2026-10-02 15:00+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -147,7 +147,7 @@ msgstr ""
 msgid "4. Per domain"
 msgstr ""
 
-#: report/html_report.py:1209
+#: report/html_report.py:1213
 msgid "5. Appendices"
 msgstr ""
 
@@ -703,11 +703,11 @@ msgstr ""
 msgid "An unconverged flow field can put the hot air in the wrong place."
 msgstr ""
 
-#: report/html_report.py:1179 report/html_report.py:707
+#: report/html_report.py:1180 report/html_report.py:707
 msgid "Analyses"
 msgstr ""
 
-#: report/html_report.py:1181 report/html_report.py:606 report/html_report.py:811
+#: report/html_report.py:1182 report/html_report.py:606 report/html_report.py:811
 msgid "Analysis"
 msgstr ""
 
@@ -753,7 +753,7 @@ msgstr ""
 msgid "analysis_id must be a non-empty uppercase identifier"
 msgstr ""
 
-#: analysis_contract.py:265
+#: analysis_contract.py:280
 msgid "analysis_type must not be empty"
 msgstr ""
 
@@ -909,7 +909,7 @@ msgstr ""
 msgid "Beyond the temperature its dielectric is rated to (X5R 85 °C, X7R 125 °C), a ceramic capacitor's capacitance and life are no longer specified."
 msgstr ""
 
-#: report/html_report.py:1181 report/html_report.py:957
+#: report/html_report.py:1182 report/html_report.py:957
 msgid "Board"
 msgstr ""
 
@@ -930,7 +930,7 @@ msgstr ""
 msgid "Board edge"
 msgstr ""
 
-#: report/html_report.py:1177
+#: report/html_report.py:1178
 msgid "Board fingerprint"
 msgstr ""
 
@@ -1004,11 +1004,11 @@ msgstr ""
 msgid "Calculation reliability"
 msgstr ""
 
-#: report/html_report.py:1177
+#: report/html_report.py:1178
 msgid "Campaign"
 msgstr ""
 
-#: report/html_report.py:1242
+#: report/html_report.py:1246
 #, python-brace-format
 msgid "Campaign schema {version}"
 msgstr ""
@@ -1342,7 +1342,7 @@ msgstr ""
 msgid "Compare these frequencies with the peaks of a near-field scan."
 msgstr ""
 
-#: report/html_report.py:1181
+#: report/html_report.py:1182
 msgid "Completed"
 msgstr ""
 
@@ -1367,7 +1367,7 @@ msgstr ""
 msgid "Components: {components}"
 msgstr ""
 
-#: report/html_report.py:1181
+#: report/html_report.py:1182
 msgid "Compute"
 msgstr ""
 
@@ -1379,7 +1379,7 @@ msgstr ""
 msgid "Compute electric and magnetic maps"
 msgstr ""
 
-#: report/html_report.py:1206
+#: report/html_report.py:1210
 msgid "Compute metadata"
 msgstr ""
 
@@ -1392,7 +1392,7 @@ msgstr ""
 msgid "Confidence: {confidence}"
 msgstr ""
 
-#: report/html_report.py:1206
+#: report/html_report.py:1210
 msgid "Configuration"
 msgstr ""
 
@@ -1640,7 +1640,7 @@ msgstr ""
 msgid "Create/update KiPIDA_DIFF net classes and predefined differential sizes in this project?\n\n"
 msgstr ""
 
-#: report/html_report.py:1178
+#: report/html_report.py:1179
 msgid "Created"
 msgstr ""
 
@@ -1935,7 +1935,7 @@ msgstr ""
 msgid "Detached {p0} overlay image(s) from active KiCad group(s)."
 msgstr ""
 
-#: report/html_report.py:1213
+#: report/html_report.py:1217
 msgid "Detail"
 msgstr ""
 
@@ -2716,7 +2716,7 @@ msgstr ""
 msgid "Failed to save config: {p0}"
 msgstr ""
 
-#: ipc_entry.py:216
+#: ipc_entry.py:218
 #, python-brace-format
 msgid "Failed to start Ki-PIDA: {error}\n\nCheck logs for details."
 msgstr ""
@@ -3302,15 +3302,19 @@ msgstr ""
 msgid "Ki-PIDA"
 msgstr ""
 
-#: report/html_report.py:1267
+#: report/html_report.py:1180 report/html_report.py:1183
+msgid "Ki-PIDA build"
+msgstr ""
+
+#: report/html_report.py:1271
 msgid "Ki-PIDA campaign report"
 msgstr ""
 
-#: report/html_report.py:1269
+#: report/html_report.py:1273
 msgid "Ki-PIDA consolidated analysis report"
 msgstr ""
 
-#: report/html_report.py:1268
+#: report/html_report.py:1272
 msgid "Ki-PIDA report"
 msgstr ""
 
@@ -3484,7 +3488,7 @@ msgstr ""
 msgid "Length-match the pair while preserving constant spacing and reference."
 msgstr ""
 
-#: report/html_report.py:1205
+#: report/html_report.py:1209
 msgid "Limitations"
 msgstr ""
 
@@ -3735,7 +3739,7 @@ msgstr ""
 msgid "Mesh, grid step"
 msgstr ""
 
-#: analysis_contract.py:292
+#: analysis_contract.py:307
 msgid "metric keys must be unique within one result"
 msgstr ""
 
@@ -4017,7 +4021,7 @@ msgstr ""
 msgid "No limit of the calculation reported."
 msgstr ""
 
-#: report/html_report.py:1208
+#: report/html_report.py:1212
 msgid "No limitations recorded."
 msgstr ""
 
@@ -4045,7 +4049,7 @@ msgstr ""
 msgid "No power rails defined."
 msgstr ""
 
-#: report/html_report.py:1207
+#: report/html_report.py:1211
 msgid "No provenance recorded."
 msgstr ""
 
@@ -4057,7 +4061,7 @@ msgstr ""
 msgid "No remaining candidate improves the target-impedance score."
 msgstr ""
 
-#: report/html_report.py:1209
+#: report/html_report.py:1213
 msgid "No results."
 msgstr ""
 
@@ -4109,7 +4113,7 @@ msgstr ""
 msgid "Nominal Voltage (V):"
 msgstr ""
 
-#: analysis_contract.py:289
+#: analysis_contract.py:304
 msgid "non-empty finding_id values must be unique within one result"
 msgstr ""
 
@@ -4117,7 +4121,7 @@ msgstr ""
 msgid "none"
 msgstr ""
 
-#: report/html_report.py:1199
+#: report/html_report.py:1203
 msgid "None recorded."
 msgstr ""
 
@@ -4411,7 +4415,7 @@ msgstr ""
 msgid "PDN, target impedance"
 msgstr ""
 
-#: report/html_report.py:1210
+#: report/html_report.py:1214
 msgid "Per analysis"
 msgstr ""
 
@@ -4604,7 +4608,7 @@ msgstr ""
 msgid "Probe height (mm):"
 msgstr ""
 
-#: report/html_report.py:1176 ui/workspace_navigation.py:20
+#: report/html_report.py:1177 ui/workspace_navigation.py:20
 msgid "Project"
 msgstr ""
 
@@ -4617,7 +4621,7 @@ msgstr ""
 msgid "Project: {p0} at {p1}"
 msgstr ""
 
-#: report/html_report.py:1205
+#: report/html_report.py:1209
 msgid "Provenance"
 msgstr ""
 
@@ -4727,7 +4731,7 @@ msgstr ""
 msgid "Ref"
 msgstr ""
 
-#: emc_analyzer.py:447 report/html_report.py:1213
+#: emc_analyzer.py:447 report/html_report.py:1217
 msgid "Reference"
 msgstr ""
 
@@ -4802,7 +4806,7 @@ msgstr ""
 msgid "Remediation sizing failed for {p0}: {p1}"
 msgstr ""
 
-#: analysis_contract.py:164
+#: analysis_contract.py:176
 msgid "Remediation.action must not be empty"
 msgstr ""
 
@@ -5006,7 +5010,7 @@ msgstr ""
 msgid "Result History Error"
 msgstr ""
 
-#: report/html_report.py:1212
+#: report/html_report.py:1216
 #, python-brace-format
 msgid "Result schema {version}"
 msgstr ""
@@ -5132,7 +5136,7 @@ msgstr ""
 msgid "Rule: {rule}"
 msgstr ""
 
-#: report/html_report.py:1181
+#: report/html_report.py:1182
 msgid "Run"
 msgstr ""
 
@@ -5276,7 +5280,7 @@ msgstr ""
 msgid "SciPy SuperLU"
 msgstr ""
 
-#: report/html_report.py:1176
+#: report/html_report.py:1177
 msgid "Scope analysed"
 msgstr ""
 
@@ -5544,7 +5548,7 @@ msgstr ""
 msgid "Solver Exception: {p0}"
 msgstr ""
 
-#: report/html_report.py:1213 ui/thermal_analysis_panel.py:211
+#: report/html_report.py:1217 ui/thermal_analysis_panel.py:211
 msgid "Source"
 msgstr ""
 
@@ -5658,7 +5662,7 @@ msgstr ""
 msgid "Start frequency must be greater than zero."
 msgstr ""
 
-#: ipc_entry.py:217
+#: ipc_entry.py:219
 msgid "Startup Error"
 msgstr ""
 
@@ -6257,7 +6261,7 @@ msgstr ""
 msgid "Title"
 msgstr ""
 
-#: analysis_contract.py:267
+#: analysis_contract.py:282
 msgid "title must not be empty"
 msgstr ""
 
@@ -6277,7 +6281,7 @@ msgstr ""
 msgid "Top exposed"
 msgstr ""
 
-#: report/html_report.py:1178
+#: report/html_report.py:1179
 msgid "Total compute"
 msgstr ""
 
@@ -6357,12 +6361,12 @@ msgstr ""
 msgid "unknown"
 msgstr ""
 
-#: analysis_contract.py:286
+#: analysis_contract.py:301
 #, python-brace-format
 msgid "Unsupported analysis result schema: {p0}"
 msgstr ""
 
-#: campaign.py:758
+#: campaign.py:762
 #, python-brace-format
 msgid "Unsupported campaign schema: {p0}"
 msgstr ""

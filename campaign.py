@@ -22,6 +22,7 @@ from analysis_contract import (
     Remediation,
     RemediationEffort,
     _json_safe,
+    _tool_identity,
     _utc_now,
 )
 from rule_guide import PROTOTYPE_CHECK, FindingNature, finding_nature, typical_effort
@@ -475,6 +476,8 @@ class CampaignResult:
     domain_scores: List[DomainScore] = field(default_factory=list)
     actions: List[CampaignAction] = field(default_factory=list)
     overall_status: AnalysisStatus = AnalysisStatus.NO_DATA
+    # The build that aggregated it; each result carries its own as well.
+    tool_version: str = field(default_factory=lambda: _tool_identity())
     # Each domain the user selected that produced no result: {"domain",
     # "state" (NOT_PREPARED, FAILED, SKIPPED, CANCELLED), "reason"}. Only
     # results reached the report, so a THERMAL that raised left no trace in
@@ -736,6 +739,7 @@ class CampaignResult:
         return {
             "campaign_id": self.campaign_id,
             "schema_version": self.schema_version,
+            "tool_version": self.tool_version,
             "created_at": self.created_at,
             "board_fingerprint": self.board_fingerprint,
             "project_name": self.project_name,
@@ -759,6 +763,7 @@ class CampaignResult:
         return cls(
             campaign_id=str(payload.get("campaign_id", uuid.uuid4().hex)),
             schema_version=schema_version,
+            tool_version=str(payload.get("tool_version", "")),
             created_at=str(payload.get("created_at", "")),
             board_fingerprint=str(payload.get("board_fingerprint", "")),
             project_name=str(payload.get("project_name", "")),

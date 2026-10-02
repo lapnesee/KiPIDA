@@ -1169,16 +1169,18 @@ def _render_scope(campaign: CampaignResult) -> str:
         f"<tr><td>{_esc(score.domain)}</td><td>{_esc(score.completed_at) or '&mdash;'}</td>"
         f"<td><code>{_esc(score.board_fingerprint) or '&mdash;'}</code></td>"
         f"<td><code>{_esc(result.run_id)}</code></td>"
-        f"<td>{result.elapsed_seconds:.2f} s</td></tr>"
+        f"<td>{result.elapsed_seconds:.2f} s</td>"
+        f"<td><code>{_esc(result.tool_version) or '&mdash;'}</code></td></tr>"
         for score, result in zip(campaign.domain_scores, campaign.results)
     )
     label = {key: _esc(text) for key, text in (
         ("scope", _("Scope analysed")), ("project", _("Project")),
         ("fingerprint", _("Board fingerprint")), ("campaign", _("Campaign")),
         ("created", _("Created")), ("compute", _("Total compute")),
-        ("analyses", _("Analyses")),
+        ("analyses", _("Analyses")), ("tool", _("Ki-PIDA build")),
     )}
-    head = _headers(_("Analysis"), _("Completed"), _("Board"), _("Run"), _("Compute"))
+    head = _headers(_("Analysis"), _("Completed"), _("Board"), _("Run"), _("Compute"),
+                    _("Ki-PIDA build"))
     return (
         f"<h3>{label['scope']}</h3><table><tbody>"
         f"<tr><th>{label['project']}</th><td>{_esc(campaign.project_name) or '&mdash;'}</td></tr>"
@@ -1187,6 +1189,8 @@ def _render_scope(campaign: CampaignResult) -> str:
         f"<td><code>{_esc(campaign.board_fingerprint) or '&mdash;'}</code></td></tr>"
         f"<tr><th>{label['campaign']}</th><td><code>{_esc(campaign.campaign_id)}</code></td></tr>"
         f"<tr><th>{label['created']}</th><td>{_esc(campaign.created_at)}</td></tr>"
+        f"<tr><th>{label['tool']}</th><td><code>{_esc(campaign.tool_version) or '&mdash;'}</code>"
+        "</td></tr>"
         f"<tr><th>{label['compute']}</th><td>{campaign.total_elapsed_seconds:.2f} s</td></tr>"
         f"<tr><th>{label['analyses']}</th><td>{len(campaign.results)}</td></tr>"
         "</tbody></table>"

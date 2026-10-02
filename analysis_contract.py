@@ -17,6 +17,18 @@ import uuid
 SCHEMA_VERSION = "1.0.0"
 
 
+def _tool_identity() -> str:
+    """The running build, "0.19.0+2fb7b88c"; "" when it cannot be read."""
+    try:
+        try:
+            from .build_info import tool_identity
+        except (ImportError, ValueError):
+            from build_info import tool_identity
+        return tool_identity()
+    except Exception:
+        return ""
+
+
 class _StringEnum(str, Enum):
     def __str__(self) -> str:
         return self.value
@@ -257,6 +269,9 @@ class AnalysisResult:
     limitations: List[str] = field(default_factory=list)
     compute_metadata: Dict[str, Any] = field(default_factory=dict)
     report_file: str = "report.txt"
+    # The build that produced it (build_info.tool_identity); "" for a result
+    # saved before builds were recorded.
+    tool_version: str = field(default_factory=lambda: _tool_identity())
 
     def __post_init__(self) -> None:
         self.analysis_type = str(self.analysis_type).strip().upper()
@@ -305,6 +320,8 @@ class AnalysisResult:
     def from_dict(cls, data: Dict[str, Any]) -> "AnalysisResult":
         payload = dict(data)
         payload.pop("severity_counts", None)
+        # A saved result without one was made by an older build, not this one.
+        payload.setdefault("tool_version", "")
         payload["status"] = AnalysisStatus(str(payload.get("status", "NO_DATA")).upper())
         payload["findings"] = [AnalysisFinding.from_dict(item) for item in payload.get("findings", [])]
         payload["metrics"] = [AnalysisMetric.from_dict(item) for item in payload.get("metrics", [])]
