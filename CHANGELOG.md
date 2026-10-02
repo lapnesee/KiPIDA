@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fixed the report's glossary giving the priority as "times 1.5 for
+  each further analysis", which compounds, while the ranking adds 0.5
+  per analysis: three analyses weigh 2.0, not 2.25.
 - Fixed each run's log opening on "Live PCB geometry changed;
   invalidated thermal mesh/CSR cache." though nothing had changed: a
   launch starts with no geometry, so the first capture now reads "Live

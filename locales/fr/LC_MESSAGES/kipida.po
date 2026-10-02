@@ -3403,8 +3403,8 @@ msgstr "Sur prototype, observez la ligne victime à l’oscilloscope pendant que
 msgid "On the prototype, measure the voltage on both sides of each pass element under load."
 msgstr "Sur prototype, mesurez la tension de part et d’autre de chaque élément série, en charge."
 
-msgid "Orders the actions: severity, times certainty, times 1.5 for each further analysis reporting the problem, divided by the typical effort. It has no unit; only the order means something."
-msgstr "Classe les actions : gravité, multipliée par la certitude, puis par 1,5 pour chaque analyse de plus qui signale le problème, divisée par l’effort typique. Elle n’a pas d’unité ; seul l’ordre a un sens."
+msgid "Orders the actions: severity, times certainty, times 1 plus 0.5 for each further analysis reporting the problem, divided by the typical effort. It has no unit; only the order means something."
+msgstr "Classe les actions : gravité, multipliée par la certitude, puis par 1 plus 0,5 pour chaque analyse de plus qui signale le problème, divisée par l’effort typique. Elle n’a pas d’unité ; seul l’ordre a un sens."
 
 msgid "Over a gap, the return current detours around it and the loop it forms radiates."
 msgstr "Au-dessus d’une coupure, le courant de retour la contourne et la boucle ainsi formée rayonne."
@@ -5520,3 +5520,4 @@ msgstr "Dossier contenant MODEL_CATALOG.csv"
 
 msgid "Live PCB geometry captured for this session."
 msgstr "Géométrie du PCB ouvert capturée pour cette session."
+

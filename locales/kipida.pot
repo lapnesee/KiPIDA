@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Ki-PIDA\n"
-"POT-Creation-Date: 2026-10-02 19:06+0000\n"
+"POT-Creation-Date: 2026-10-02 19:07+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -4319,7 +4319,7 @@ msgid "Optimize Decoupling"
 msgstr ""
 
 #: report/html_report.py:380
-msgid "Orders the actions: severity, times certainty, times 1.5 for each further analysis reporting the problem, divided by the typical effort. It has no unit; only the order means something."
+msgid "Orders the actions: severity, times certainty, times 1 plus 0.5 for each further analysis reporting the problem, divided by the typical effort. It has no unit; only the order means something."
 msgstr ""
 
 #: ui/cfd_analysis_panel.py:93

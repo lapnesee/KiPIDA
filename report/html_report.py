@@ -377,9 +377,9 @@ _GLOSSARY = (
      N_("100 minus a penalty per finding, weighted by severity and certainty. It summarises; "
         "it is not a margin. The EMC score is the analysis's own uncalibrated risk figure.")),
     (N_("Priority"),
-     N_("Orders the actions: severity, times certainty, times 1.5 for each further analysis "
-        "reporting the problem, divided by the typical effort. It has no unit; only the "
-        "order means something.")),
+     N_("Orders the actions: severity, times certainty, times 1 plus 0.5 for each further "
+        "analysis reporting the problem, divided by the typical effort. It has no unit; only "
+        "the order means something.")),
     (N_("Margin"),
      N_("The distance between a value and its limit, such as 25 K under a 150 °C junction "
         "limit.")),
