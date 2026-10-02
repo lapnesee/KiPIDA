@@ -1,7 +1,9 @@
 """UI-independent orchestration for AC analysis and decoupling optimization."""
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
+import threading
 from types import SimpleNamespace
 from typing import Any, Callable, Optional, Tuple
 
@@ -22,6 +24,17 @@ class ACAnalysisCancelled(RuntimeError):
 # modification time. A campaign prepares its AC profiles one after another on
 # the UI thread, and each parsed P02 Rev E's file again: 0.9 s, three times.
 _SAVED_BOARD = []
+
+# Networks are built one at a time: ACModelBuilder shares a ground-mesh
+# cache (ac_model._GROUND_MESH_CACHE) that is not safe across threads. The
+# sweeps, where the time goes, run side by side.
+_BUILD_LOCK = threading.Lock()
+
+# The profiles of a batch swept at once. SuperLU releases the GIL: P02 Rev
+# E's three profiles, built from the saved board, took 210.3 s one after
+# another and 104.4 s in three threads, to the same impedances, the longest
+# (/VBUS_SYS, 102,048 nodes) setting the pace.
+AC_PARALLEL_PROFILES = 3
 
 
 def _read_saved_board(path):
@@ -109,11 +122,12 @@ def build_ac_network(inputs, settings, emit=lambda _message: None):
     per profile in the P02 Rev E campaign of 2026-09-29 14:19, before the
     run started; the inputs need nothing live, so the engine builds here.
     """
-    network = ACModelBuilder(inputs.board, log_callback=emit).build(
-        inputs.rail, settings, grid_size_mm=float(inputs.grid_mm), all_rails=inputs.all_rails,
-        parsed_board=inputs.parsed_board, layer_mapping=inputs.layer_mapping,
-        stackup=inputs.stackup,
-    )
+    with _BUILD_LOCK:
+        network = ACModelBuilder(inputs.board, log_callback=emit).build(
+            inputs.rail, settings, grid_size_mm=float(inputs.grid_mm), all_rails=inputs.all_rails,
+            parsed_board=inputs.parsed_board, layer_mapping=inputs.layer_mapping,
+            stackup=inputs.stackup,
+        )
     emit(
         f"AC network ({network.mesh_engine} mesh) for {settings.rail_name}: "
         f"{network.node_count:,} nodes, effective grid {network.effective_grid_size_mm:g} mm, "
@@ -143,11 +157,12 @@ def ac_grid_check(request, result, solver, emit=lambda _message: None):
     settings = request.settings
     if not getattr(settings.source, "ref_des", "") and getattr(request.network, "source_ref_des", ""):
         settings = replace(settings, source=replace(settings.source, ref_des=request.network.source_ref_des))
-    fine = ACModelBuilder(inputs.board).build(
-        inputs.rail, settings, grid_size_mm=grid / 2.0, all_rails=inputs.all_rails,
-        parsed_board=inputs.parsed_board, layer_mapping=inputs.layer_mapping,
-        stackup=inputs.stackup,
-    )
+    with _BUILD_LOCK:
+        fine = ACModelBuilder(inputs.board).build(
+            inputs.rail, settings, grid_size_mm=grid / 2.0, all_rails=inputs.all_rails,
+            parsed_board=inputs.parsed_board, layer_mapping=inputs.layer_mapping,
+            stackup=inputs.stackup,
+        )
     if fine.node_count > AC_GRID_CHECK_MAX_NODES:
         return {"not_checked": f"{fine.node_count:,} nodes at {grid / 2.0:g} mm, over "
                                f"{AC_GRID_CHECK_MAX_NODES:,}"}
@@ -212,18 +227,7 @@ class ACSolverEngine:
 
     def solve(self, request, emit, progress, cancelled):
         if isinstance(request, ACBatchRequest):
-            runs, skipped = [], list(request.skipped)
-            for index, item in enumerate(request.requests, start=1):
-                rail = getattr(item.settings, "rail_name", "")
-                emit(f"AC profile {index}/{len(request.requests)}: {rail}.")
-                # One profile failing to build or solve skips itself only.
-                try:
-                    if item.network is None and item._build is not None:
-                        item = replace(item, network=build_ac_network(item._build, item.settings, emit))
-                    runs.append((item, *self.solve(item, emit, progress, cancelled)))
-                except ValueError as exc:
-                    emit(f"AC profile '{rail}' not swept: {exc}")
-                    skipped.append((rail, str(exc)))
+            runs, skipped = self._solve_profiles(request, emit, progress, cancelled)
             if not runs:
                 raise ValueError(
                     "No AC profile could be swept: "
@@ -275,6 +279,59 @@ class ACSolverEngine:
                 result.grid_check = {"not_checked": str(exc)}
                 emit(f"[grid check] {request.settings.rail_name}: not checked -- {exc}")
         return result, None
+
+
+    def _solve_profiles(self, request, emit, progress, cancelled):
+        """(runs, skipped) of a batch's profiles, in the batch's order.
+
+        Up to AC_PARALLEL_PROFILES sweep at once, sequentially when CUDA is
+        forced (one GPU) or multithreading is off. Progress is the sum over
+        the profiles. One profile failing to build or solve skips itself
+        only; a cancellation or any other error stops the batch.
+        """
+        items = list(request.requests)
+        settings = getattr(items[0], "compute_settings", None) if items else None
+        workers = 1
+        if (getattr(settings, "cpu_multithread", True)
+                and str(getattr(settings, "backend", "") or "").upper() != "CUDA"):
+            workers = max(1, min(len(items), AC_PARALLEL_PROFILES))
+        lock = threading.Lock()
+        done = {}
+
+        def summed(index):
+            def report(completed, total, detail):
+                with lock:
+                    done[index] = (completed, total)
+                    completed = sum(value[0] for value in done.values())
+                    total = sum(value[1] for value in done.values())
+                progress(completed, total, detail)
+            return report
+
+        def one(index, item):
+            rail = getattr(item.settings, "rail_name", "")
+            emit(f"AC profile {index}/{len(items)}: {rail}.")
+            try:
+                if item.network is None and item._build is not None:
+                    item = replace(item, network=build_ac_network(item._build, item.settings, emit))
+                return (item, *self.solve(item, emit, summed(index), cancelled)), None
+            except ValueError as exc:
+                emit(f"AC profile '{rail}' not swept: {exc}")
+                return None, (rail, str(exc))
+
+        if workers > 1:
+            emit(f"AC: sweeping {len(items)} profiles, {workers} at a time.")
+        pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="KiPIDA-AC")
+        try:
+            futures = [pool.submit(one, index, item) for index, item in enumerate(items, start=1)]
+            outcomes = [future.result() for future in futures]
+        finally:
+            # On an error the profiles not started yet are dropped; those
+            # already sweeping finish, or stop at their next progress check
+            # when the error is a cancellation.
+            pool.shutdown(wait=True, cancel_futures=True)
+        runs = [run for run, _skip in outcomes if run is not None]
+        skipped = list(request.skipped) + [skip for _run, skip in outcomes if skip is not None]
+        return runs, skipped
 
 
 class ACAnalysisController(BackgroundAnalysisController):

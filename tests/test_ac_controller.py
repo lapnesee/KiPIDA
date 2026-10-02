@@ -170,6 +170,33 @@ class DeferredNetworkTests(unittest.TestCase):
         self.assertEqual(outcome.runs[0][0].network, "network")
         self.assertEqual(outcome.skipped, (("/VBUS_SYS", "AC mesh contains 402,000 nodes"),))
 
+    def test_the_profiles_sweep_side_by_side_in_the_batch_order(self):
+        # P02 Rev E's three profiles took 210.3 s one after another and
+        # 104.4 s in three threads. Each sweep here waits for the other two:
+        # one after another, the barrier would time out.
+        import threading
+        import application.ac_controller as controller
+
+        barrier = threading.Barrier(3, timeout=5.0)
+
+        class TogetherSolver(FakeSolver):
+            def solve_sweep(self, network, settings, progress_callback=None):
+                barrier.wait()
+                progress_callback(2, 2, 1000.0)
+                return f"sweep {settings.rail_name}"
+
+        names = ("/+5V_RAIL", "/+5V_U4", "/VBUS_SYS")
+        requests = tuple(ACRunRequest(settings=SimpleNamespace(rail_name=name), network="network")
+                         for name in names)
+        totals = []
+        outcome = controller.ACSolverEngine(solver_factory=TogetherSolver).solve(
+            controller.ACBatchRequest(requests), lambda _m: None,
+            lambda completed, total, _detail: totals.append((completed, total)), lambda: False,
+        )
+        self.assertEqual([result for _item, result, _opt in outcome.runs],
+                         [f"sweep {name}" for name in names])
+        self.assertEqual(max(totals), (6, 6))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+A batch sweeps its AC profiles side by side, three at a time: P02 Rev E's
+three profiles took 121.9 s through the AC engine instead of 227.4 s, to the
+same impedances. The networks are still built one at a time.
 A reused analysis is no longer published to its tab and history a second
 time: it still feeds the analyses after it, but adds no history entry and
 renders no plots again.
