@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed the report's verdict contradicting its own lists: P02 Rev E's
+  22:29 report read "WARN -- Review before manufacture" above "Fix
+  before manufacture (2)", one of them C88 and R10 cut off from GND.
+  The verdict now fails as soon as one action is to fix, by the same
+  rule that sorts the lists. A finding about the calculation (a solve
+  that did not converge) makes its domain WARN at most, no longer FAIL.
 - Fixed the campaign report leaving out a selected analysis that
   produced no result: one that could not be prepared, failed or was
   cancelled first appeared only in the log, and the verdict could read

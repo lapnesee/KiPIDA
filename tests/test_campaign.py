@@ -166,14 +166,26 @@ class OverallStatusTests(unittest.TestCase):
         ])])
         self.assertEqual(campaign.overall_status, AnalysisStatus.FAIL)
 
-    def test_high_estimated_finding_gives_warn(self):
+    def test_high_estimated_finding_warns_its_domain_and_fails_the_campaign(self):
         # P02 Rev E, 2026-09-22 21:58: DC-001 is HIGH ESTIMATED (U14 isolated,
         # 8.04 mV) and only ever produced a WARN. COH-2's central rule keeps
-        # that: a HIGH resting on an estimate, not a measured/deterministic
-        # fact, warrants a WARN, the same for every domain.
+        # that for the domain: a HIGH resting on an estimate warrants a WARN.
+        # The campaign's verdict follows its lists: that action is to fix
+        # before manufacture, and 2026-10-01 22:29's banner read "WARN --
+        # Review before manufacture" above "Fix before manufacture (2)".
         campaign = CampaignResult.from_results([result("DC", AnalysisStatus.PASS, [
             finding("A", FindingSeverity.HIGH, nets=["N1"], confidence=EvidenceConfidence.ESTIMATED),
         ])])
+        self.assertEqual(campaign.domain_scores[0].status, AnalysisStatus.WARN)
+        self.assertEqual(campaign.overall_status, AnalysisStatus.FAIL)
+
+    def test_a_limit_of_the_calculation_never_fails(self):
+        # A non-converged DC solve (DC-002, HIGH and DETERMINISTIC) failed its
+        # domain and the campaign with no action to take (review 2026-10-02).
+        campaign = CampaignResult.from_results([result("THERMAL", AnalysisStatus.PASS, [
+            finding("TH-004", FindingSeverity.HIGH, nets=["N1"]),
+        ])])
+        self.assertEqual(campaign.domain_scores[0].status, AnalysisStatus.WARN)
         self.assertEqual(campaign.overall_status, AnalysisStatus.WARN)
 
     def test_high_deterministic_finding_forces_fail(self):

@@ -40,10 +40,11 @@ from analysis_contract import (
     RemediationEffort,
 )
 from campaign import (
-    AIR_AGREEMENT_K, GROUPING_MAX_COMPONENTS, CampaignAction, CampaignResult, DomainScore,
+    AIR_AGREEMENT_K, DATA, FIX, GROUPING_MAX_COMPONENTS, PROTOTYPE, REVIEW, CampaignAction,
+    CampaignResult, DomainScore, action_bucket,
 )
 from i18n import N_, _, current_language
-from rule_guide import CONFIRMATIONS, PROTOTYPE_CHECK, FindingNature, finding_nature, guide
+from rule_guide import CONFIRMATIONS, FindingNature, finding_nature, guide
 
 _IMAGE_MEDIA_TYPES = {
     ".png": "image/png",
@@ -369,7 +370,9 @@ _GLOSSARY = (
         "thumb (a threshold this tool sets).")),
     (N_("Status"),
      N_("Per analysis. FAIL on a CRITICAL finding, or a HIGH one resting on a fact, a "
-        "measurement or a datasheet. WARN on any other HIGH, or a MEDIUM. PASS otherwise.")),
+        "measurement or a datasheet. WARN on any other HIGH, or a MEDIUM. PASS otherwise. "
+        "A limit of the calculation gives WARN at most. The verdict at the top fails as soon "
+        "as one item is to fix before manufacture.")),
     (N_("Score"),
      N_("100 minus a penalty per finding, weighted by severity and certainty. It summarises; "
         "it is not a margin. The EMC score is the analysis's own uncalibrated risk figure.")),
@@ -444,29 +447,6 @@ _VERDICT_WORDS = {
     AnalysisStatus.PASS: N_("No defect found by the analyses that ran."),
     AnalysisStatus.NO_DATA: N_("No analysis produced a result."),
 }
-
-FIX, REVIEW, PROTOTYPE, DATA = "fix", "review", "prototype", "data"
-
-
-def action_bucket(action: CampaignAction) -> str:
-    """Which decision list an action belongs to.
-
-    A CRITICAL finding is always to fix. Otherwise an action asking only for
-    data is data to complete; one whose every rule is a layout rule of thumb
-    (rule_guide.PROTOTYPE_CHECK) is for the prototype to settle; a HIGH one
-    is to fix; the rest is to review. On P02 Rev E's 2026-10-01 campaign this
-    puts DC-008 (C88 and R10 cut off from GND) alone under "fix", and SW-003
-    (a 20 mm hot-loop threshold) under "check on the prototype".
-    """
-    if action.severity == FindingSeverity.CRITICAL:
-        return FIX
-    if action.nature == FindingNature.DATA.value:
-        return DATA
-    if action.rule_ids and all(rule in PROTOTYPE_CHECK for rule in action.rule_ids):
-        return PROTOTYPE
-    if action.severity == FindingSeverity.HIGH:
-        return FIX
-    return REVIEW
 
 
 def _where(components: List[str], nets: List[str], more: int = 0) -> str:

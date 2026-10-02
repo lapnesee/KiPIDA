@@ -24,7 +24,7 @@ from analysis_contract import (
     _json_safe,
     _utc_now,
 )
-from rule_guide import FindingNature, finding_nature, typical_effort
+from rule_guide import PROTOTYPE_CHECK, FindingNature, finding_nature, typical_effort
 
 
 CAMPAIGN_SCHEMA_VERSION = "1.0.0"
@@ -113,12 +113,19 @@ def domain_status_from_findings(findings: List[AnalysisFinding]) -> AnalysisStat
     every domain: FAIL on any CRITICAL finding, or a HIGH one whose confidence
     is DETERMINISTIC/MEASURED/DATASHEET_BACKED (a fact, not an estimate); WARN
     on any other HIGH, or a MEDIUM; PASS otherwise.
+
+    A finding about the calculation (rule_guide CALCULATION) says how far to
+    trust the figures, not that the board fails: it can make a domain WARN,
+    never FAIL. A non-converged DC solve (DC-002, HIGH and DETERMINISTIC)
+    used to fail its domain and the campaign with no action to take.
     """
-    if any(finding.severity == FindingSeverity.CRITICAL for finding in findings):
+    board = [finding for finding in findings
+             if finding_nature(finding) != FindingNature.CALCULATION]
+    if any(finding.severity == FindingSeverity.CRITICAL for finding in board):
         return AnalysisStatus.FAIL
     if any(
         finding.severity == FindingSeverity.HIGH and finding.confidence in _HARD_CONFIDENCE
-        for finding in findings
+        for finding in board
     ):
         return AnalysisStatus.FAIL
     if any(
@@ -231,6 +238,33 @@ class CampaignAction:
             Remediation.from_dict(item) for item in payload.get("remediations", [])
         ]
         return cls(**{key: payload[key] for key in cls.__dataclass_fields__ if key in payload})
+
+
+FIX, REVIEW, PROTOTYPE, DATA = "fix", "review", "prototype", "data"
+
+
+def action_bucket(action: CampaignAction) -> str:
+    """Which decision list an action belongs to.
+
+    A CRITICAL finding is always to fix. Otherwise an action asking only for
+    data is data to complete; one whose every rule is a layout rule of thumb
+    (rule_guide.PROTOTYPE_CHECK) is for the prototype to settle; a HIGH one
+    is to fix; the rest is to review. On P02 Rev E's 2026-10-01 campaign this
+    puts DC-008 (C88 and R10 cut off from GND) alone under "fix", and SW-003
+    (a 20 mm hot-loop threshold) under "check on the prototype".
+
+    The campaign's verdict reads these lists too (_compute_overall_status),
+    so the report's banner and its lists cannot disagree.
+    """
+    if action.severity == FindingSeverity.CRITICAL:
+        return FIX
+    if action.nature == FindingNature.DATA.value:
+        return DATA
+    if action.rule_ids and all(rule in PROTOTYPE_CHECK for rule in action.rule_ids):
+        return PROTOTYPE
+    if action.severity == FindingSeverity.HIGH:
+        return FIX
+    return REVIEW
 
 
 def _worst_severity(severities: List[FindingSeverity]) -> FindingSeverity:
@@ -670,10 +704,13 @@ class CampaignResult:
         ]
         if not scored:
             return AnalysisStatus.NO_DATA
-        has_critical = any(
-            action.severity == FindingSeverity.CRITICAL for action in self.actions
-        )
-        if has_critical or any(score.status == AnalysisStatus.FAIL for score in scored):
+        # An action under "fix before manufacture" fails the campaign: P02
+        # Rev E's 2026-10-01 22:29 report read "WARN -- Review before
+        # manufacture" above "Fix before manufacture (2)", one of them C88
+        # and R10 cut off from GND, because the banner followed the domains'
+        # certainty and the lists the severity.
+        to_fix = any(action_bucket(action) == FIX for action in self.actions)
+        if to_fix or any(score.status == AnalysisStatus.FAIL for score in scored):
             return AnalysisStatus.FAIL
         has_high = any(action.severity == FindingSeverity.HIGH for action in self.actions)
         if has_high or any(score.status == AnalysisStatus.WARN for score in scored):

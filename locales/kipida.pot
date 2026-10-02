@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Ki-PIDA\n"
-"POT-Creation-Date: 2026-10-02 14:12+0000\n"
+"POT-Creation-Date: 2026-10-02 14:17+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -35,7 +35,7 @@ msgstr ""
 msgid " — colours clipped"
 msgstr ""
 
-#: report/html_report.py:1082
+#: report/html_report.py:1062
 msgid "(no path recorded)"
 msgstr ""
 
@@ -98,15 +98,15 @@ msgstr ""
 msgid ". Enter the real current to replace it."
 msgstr ""
 
-#: report/html_report.py:709
+#: report/html_report.py:689
 msgid "1. Decision"
 msgstr ""
 
-#: report/html_report.py:374
+#: report/html_report.py:377
 msgid "100 minus a penalty per finding, weighted by severity and certainty. It summarises; it is not a margin. The EMC score is the analysis's own uncalibrated risk figure."
 msgstr ""
 
-#: report/html_report.py:824
+#: report/html_report.py:804
 msgid "2. Actions"
 msgstr ""
 
@@ -114,7 +114,7 @@ msgstr ""
 msgid "240 MHz maximum-toggle fundamental of the 480 Mbit/s USB 2.0 high-speed rate."
 msgstr ""
 
-#: report/html_report.py:890
+#: report/html_report.py:870
 msgid "3. Components"
 msgstr ""
 
@@ -134,11 +134,11 @@ msgstr ""
 msgid "3D Thermal and Airflow Setup"
 msgstr ""
 
-#: report/html_report.py:1119
+#: report/html_report.py:1099
 msgid "4. Per domain"
 msgstr ""
 
-#: report/html_report.py:1213
+#: report/html_report.py:1193
 msgid "5. Appendices"
 msgstr ""
 
@@ -278,7 +278,7 @@ msgstr ""
 msgid "[PHASE 10] Transferring the Palace project directory to {p0} and running Palace with {p1} MPI process(es); timeout {p2} s. Turn off 'auto-run full wave' on the EMI/EMC panel to stop this."
 msgstr ""
 
-#: report/html_report.py:396
+#: report/html_report.py:399
 msgid "A capacitor at a power pin that supplies the pin's fast current locally."
 msgstr ""
 
@@ -290,7 +290,7 @@ msgstr ""
 msgid "A converter's sharp edges spread energy over many harmonics, some inside the band the standard limits."
 msgstr ""
 
-#: report/html_report.py:342
+#: report/html_report.py:343
 msgid "A defect the analyses establish on the board itself, such as a broken connection or a voltage drop beyond its limit."
 msgstr ""
 
@@ -310,11 +310,11 @@ msgstr ""
 msgid "A gap in the reference under the pair breaks the return path at that spot."
 msgstr ""
 
-#: report/html_report.py:348
+#: report/html_report.py:349
 msgid "A layout rule of thumb is not met. Only a measurement on the prototype, such as an emissions scan or an ESD test, settles whether it matters. Improving the layout first is cheaper than a respin."
 msgstr ""
 
-#: report/html_report.py:355
+#: report/html_report.py:356
 msgid "A limit of the calculation, not of the board: a mesh too coarse, a solve that did not settle. It takes nothing off the scores and is not an action; it says how far to trust the figures it names."
 msgstr ""
 
@@ -354,7 +354,7 @@ msgstr ""
 msgid "A rail that was not swept is neither checked nor scored."
 msgstr ""
 
-#: report/html_report.py:345
+#: report/html_report.py:346
 msgid "A smaller defect, or a margin worth a second look; decide whether to change the board."
 msgstr ""
 
@@ -374,7 +374,7 @@ msgstr ""
 msgid "A stackup requires at least two copper layers."
 msgstr ""
 
-#: report/html_report.py:405
+#: report/html_report.py:408
 msgid "A switching edge carries energy at every multiple of the switching frequency. Standards limit what a product radiates in set bands."
 msgstr ""
 
@@ -386,7 +386,7 @@ msgstr ""
 msgid "A TVS clamps only as well as its path to ground is short."
 msgstr ""
 
-#: report/html_report.py:411
+#: report/html_report.py:414
 msgid "A via joining ground planes on different layers, so that they act as one at high frequency."
 msgstr ""
 
@@ -544,7 +544,7 @@ msgstr ""
 msgid "Acceptance tolerance (+/-%):"
 msgstr ""
 
-#: report/html_report.py:762 ui/differential_analysis_panel.py:164
+#: report/html_report.py:742 ui/differential_analysis_panel.py:164
 msgid "Action"
 msgstr ""
 
@@ -641,12 +641,12 @@ msgstr ""
 msgid "All saved results"
 msgstr ""
 
-#: report/html_report.py:996
+#: report/html_report.py:976
 #, python-brace-format
 msgid "All {count} figures"
 msgstr ""
 
-#: report/html_report.py:764
+#: report/html_report.py:744
 msgid "Alternatives"
 msgstr ""
 
@@ -658,11 +658,11 @@ msgstr ""
 msgid "Ambient temperature"
 msgstr ""
 
-#: report/html_report.py:338
+#: report/html_report.py:339
 msgid "An analysis you selected that produced no result: it could not be prepared, it failed, or the batch was cancelled first. The verdict says nothing of what it covers, and is never PASS while it is listed."
 msgstr ""
 
-#: report/html_report.py:408
+#: report/html_report.py:411
 msgid "An electrostatic discharge enters through a connector. A TVS diode clamps it to ground, if its ground path is short."
 msgstr ""
 
@@ -686,7 +686,7 @@ msgstr ""
 msgid "An inlet or fan patch requires a positive velocity."
 msgstr ""
 
-#: report/html_report.py:352
+#: report/html_report.py:353
 msgid "An input the analyses needed and did not have. The verdict sharpens once it is filled in."
 msgstr ""
 
@@ -694,11 +694,11 @@ msgstr ""
 msgid "An unconverged flow field can put the hot air in the wrong place."
 msgstr ""
 
-#: report/html_report.py:1183 report/html_report.py:711
+#: report/html_report.py:1163 report/html_report.py:691
 msgid "Analyses"
 msgstr ""
 
-#: report/html_report.py:1185 report/html_report.py:620 report/html_report.py:815
+#: report/html_report.py:1165 report/html_report.py:600 report/html_report.py:795
 msgid "Analysis"
 msgstr ""
 
@@ -748,7 +748,7 @@ msgstr ""
 msgid "analysis_type must not be empty"
 msgstr ""
 
-#: report/html_report.py:479
+#: report/html_report.py:459
 #, python-brace-format
 msgid "and {count} more"
 msgstr ""
@@ -773,7 +773,7 @@ msgstr ""
 msgid "Apply Selected to KiCad Rules"
 msgstr ""
 
-#: report/html_report.py:1080
+#: report/html_report.py:1060
 msgid "Artifact unavailable:"
 msgstr ""
 
@@ -896,7 +896,7 @@ msgstr ""
 msgid "Beyond the temperature its dielectric is rated to (X5R 85 °C, X7R 125 °C), a ceramic capacitor's capacitance and life are no longer specified."
 msgstr ""
 
-#: report/html_report.py:1185 report/html_report.py:961
+#: report/html_report.py:1165 report/html_report.py:941
 msgid "Board"
 msgstr ""
 
@@ -917,7 +917,7 @@ msgstr ""
 msgid "Board edge"
 msgstr ""
 
-#: report/html_report.py:1181
+#: report/html_report.py:1161
 msgid "Board fingerprint"
 msgstr ""
 
@@ -983,19 +983,19 @@ msgstr ""
 msgid "Cached {p0} electrical-branch to thermal-cell mappings in {p1} s."
 msgstr ""
 
-#: report/html_report.py:166
+#: report/html_report.py:167
 msgid "CALCULATION QUALITY"
 msgstr ""
 
-#: report/html_report.py:354
+#: report/html_report.py:355
 msgid "Calculation reliability"
 msgstr ""
 
-#: report/html_report.py:1181
+#: report/html_report.py:1161
 msgid "Campaign"
 msgstr ""
 
-#: report/html_report.py:1246
+#: report/html_report.py:1226
 #, python-brace-format
 msgid "Campaign schema {version}"
 msgstr ""
@@ -1032,7 +1032,7 @@ msgstr ""
 msgid "Cancellation requested for the analysis batch; the domains that already finished are kept."
 msgstr ""
 
-#: report/html_report.py:628
+#: report/html_report.py:608
 msgid "cancelled"
 msgstr ""
 
@@ -1098,7 +1098,7 @@ msgstr ""
 msgid "Center V (0..1):"
 msgstr ""
 
-#: report/html_report.py:366 report/html_report.py:815
+#: report/html_report.py:367 report/html_report.py:795
 msgid "Certainty"
 msgstr ""
 
@@ -1149,7 +1149,7 @@ msgstr ""
 msgid "CFD progress: {p0}/{p1} ({p2})"
 msgstr ""
 
-#: report/html_report.py:762
+#: report/html_report.py:742
 msgid "Change"
 msgstr ""
 
@@ -1177,7 +1177,7 @@ msgstr ""
 msgid "Check mesh sensitivity (2x grid)"
 msgstr ""
 
-#: report/html_report.py:347
+#: report/html_report.py:348
 msgid "Check on the prototype"
 msgstr ""
 
@@ -1205,7 +1205,7 @@ msgstr ""
 msgid "Check where the cable runs in the enclosure."
 msgstr ""
 
-#: report/html_report.py:359
+#: report/html_report.py:360
 msgid "Checks that passed. Read them as what the analyses covered, not as a guarantee."
 msgstr ""
 
@@ -1325,11 +1325,11 @@ msgstr ""
 msgid "Compare these frequencies with the peaks of a near-field scan."
 msgstr ""
 
-#: report/html_report.py:1185
+#: report/html_report.py:1165
 msgid "Completed"
 msgstr ""
 
-#: report/html_report.py:961
+#: report/html_report.py:941
 msgid "Component"
 msgstr ""
 
@@ -1337,7 +1337,7 @@ msgstr ""
 msgid "Component Heat Sources"
 msgstr ""
 
-#: report/html_report.py:1019
+#: report/html_report.py:999
 msgid "Components"
 msgstr ""
 
@@ -1350,7 +1350,7 @@ msgstr ""
 msgid "Components: {components}"
 msgstr ""
 
-#: report/html_report.py:1185
+#: report/html_report.py:1165
 msgid "Compute"
 msgstr ""
 
@@ -1362,7 +1362,7 @@ msgstr ""
 msgid "Compute electric and magnetic maps"
 msgstr ""
 
-#: report/html_report.py:1210
+#: report/html_report.py:1190
 msgid "Compute metadata"
 msgstr ""
 
@@ -1375,7 +1375,7 @@ msgstr ""
 msgid "Confidence: {confidence}"
 msgstr ""
 
-#: report/html_report.py:1210
+#: report/html_report.py:1190
 msgid "Configuration"
 msgstr ""
 
@@ -1608,7 +1608,7 @@ msgstr ""
 msgid "Create/update KiPIDA_DIFF net classes and predefined differential sizes in this project?\n\n"
 msgstr ""
 
-#: report/html_report.py:1182
+#: report/html_report.py:1162
 msgid "Created"
 msgstr ""
 
@@ -1616,7 +1616,7 @@ msgstr ""
 msgid "Critical / High"
 msgstr ""
 
-#: report/html_report.py:364
+#: report/html_report.py:365
 msgid "CRITICAL: the board cannot work as designed. HIGH: likely to fail a requirement. MEDIUM: a real risk with some margin. LOW: minor. INFO: a note, never an action."
 msgstr ""
 
@@ -1735,11 +1735,11 @@ msgstr ""
 msgid "Data disclosure: the directory containing the selected Palace JSON, mesh, and associated files is transferred to this LAN server. No password is stored."
 msgstr ""
 
-#: report/html_report.py:351
+#: report/html_report.py:352
 msgid "Data to complete"
 msgstr ""
 
-#: report/html_report.py:387
+#: report/html_report.py:390
 msgid "Datasheet figures linking the junction to the board 1 mm from the package (JEDEC JESD51-8 and -12)."
 msgstr ""
 
@@ -1832,7 +1832,7 @@ msgstr ""
 msgid "Decoupling"
 msgstr ""
 
-#: report/html_report.py:395
+#: report/html_report.py:398
 msgid "Decoupling capacitor"
 msgstr ""
 
@@ -1877,11 +1877,11 @@ msgstr ""
 msgid "Depth (mm):"
 msgstr ""
 
-#: report/html_report.py:389
+#: report/html_report.py:392
 msgid "Derating"
 msgstr ""
 
-#: report/html_report.py:1019 report/html_report.py:815
+#: report/html_report.py:795 report/html_report.py:999
 msgid "Description"
 msgstr ""
 
@@ -1890,7 +1890,7 @@ msgstr ""
 msgid "Detached {p0} overlay image(s) from active KiCad group(s)."
 msgstr ""
 
-#: report/html_report.py:1217
+#: report/html_report.py:1197
 msgid "Detail"
 msgstr ""
 
@@ -1927,7 +1927,7 @@ msgstr ""
 msgid "Diagnostics"
 msgstr ""
 
-#: report/html_report.py:337
+#: report/html_report.py:338
 msgid "Did not complete"
 msgstr ""
 
@@ -2072,7 +2072,7 @@ msgstr ""
 msgid "dL / skew"
 msgstr ""
 
-#: report/html_report.py:441
+#: report/html_report.py:444
 msgid "Do not release for manufacture yet: at least one defect must be fixed first."
 msgstr ""
 
@@ -2089,7 +2089,7 @@ msgstr ""
 msgid "Duplicate workspace page index: {p0}"
 msgstr ""
 
-#: report/html_report.py:963
+#: report/html_report.py:943
 msgid "Each part a finding names, and the hottest junctions: the heat it dissipates, the board temperature under it, its junction against its limit, and what each analysis says of it."
 msgstr ""
 
@@ -2153,7 +2153,7 @@ msgstr ""
 msgid "Efficiency must be between 0.0 and 1.0"
 msgstr ""
 
-#: report/html_report.py:763
+#: report/html_report.py:743
 msgid "Effort"
 msgstr ""
 
@@ -2490,7 +2490,7 @@ msgstr ""
 msgid "ESD path missing or long"
 msgstr ""
 
-#: report/html_report.py:407
+#: report/html_report.py:410
 msgid "ESD, TVS"
 msgstr ""
 
@@ -2518,7 +2518,7 @@ msgstr ""
 msgid "ESR/ESL values inferred from package are estimates. Review them before sign-off."
 msgstr ""
 
-#: report/html_report.py:290
+#: report/html_report.py:291
 msgid "Estimate from a model of the board"
 msgstr ""
 
@@ -2526,7 +2526,7 @@ msgstr ""
 msgid "estimate only"
 msgstr ""
 
-#: report/html_report.py:760
+#: report/html_report.py:740
 msgid "ESTIMATE — NOT RE-SIMULATED"
 msgstr ""
 
@@ -2556,11 +2556,11 @@ msgstr ""
 msgid "Every copper layer requires its KiCad layer_id."
 msgstr ""
 
-#: report/html_report.py:715
+#: report/html_report.py:695
 msgid "Every rule of thumb checked is met."
 msgstr ""
 
-#: report/html_report.py:398
+#: report/html_report.py:401
 msgid "Every signal current comes back through the plane under it. A gap or a layer change without a via forces a detour, and the loop radiates."
 msgstr ""
 
@@ -2585,7 +2585,7 @@ msgstr ""
 msgid "Execution:"
 msgstr ""
 
-#: report/html_report.py:1081
+#: report/html_report.py:1061
 msgid "Expected at"
 msgstr ""
 
@@ -2617,11 +2617,11 @@ msgstr ""
 msgid "Face:"
 msgstr ""
 
-#: report/html_report.py:287
+#: report/html_report.py:288
 msgid "Fact: an exact count or the state of the run"
 msgstr ""
 
-#: report/html_report.py:626
+#: report/html_report.py:606
 msgid "failed"
 msgstr ""
 
@@ -2670,11 +2670,11 @@ msgstr ""
 msgid "FCC Part 15 Class B"
 msgstr ""
 
-#: report/html_report.py:997
+#: report/html_report.py:977
 msgid "Figure"
 msgstr ""
 
-#: report/html_report.py:1114
+#: report/html_report.py:1094
 msgid "Figures"
 msgstr ""
 
@@ -2682,11 +2682,11 @@ msgstr ""
 msgid "Filled copper exists on multiple configured grounds: "
 msgstr ""
 
-#: report/html_report.py:815 ui/results_workspace.py:63
+#: report/html_report.py:795 ui/results_workspace.py:63
 msgid "Finding"
 msgstr ""
 
-#: report/html_report.py:1123 report/html_report.py:620
+#: report/html_report.py:1103 report/html_report.py:600
 msgid "Findings"
 msgstr ""
 
@@ -2710,7 +2710,7 @@ msgstr ""
 msgid "Fit width"
 msgstr ""
 
-#: report/html_report.py:341
+#: report/html_report.py:342
 msgid "Fix before manufacture"
 msgstr ""
 
@@ -2825,7 +2825,7 @@ msgstr ""
 msgid "Geometry:"
 msgstr ""
 
-#: report/html_report.py:427
+#: report/html_report.py:430
 msgid "Glossary"
 msgstr ""
 
@@ -2872,11 +2872,11 @@ msgstr ""
 msgid "Ground-via stitching is sparse"
 msgstr ""
 
-#: report/html_report.py:404
+#: report/html_report.py:407
 msgid "Harmonic, emissions band"
 msgstr ""
 
-#: report/html_report.py:961
+#: report/html_report.py:941
 msgid "Heat"
 msgstr ""
 
@@ -2896,7 +2896,7 @@ msgstr ""
 msgid "High temperature may alter EMC components"
 msgstr ""
 
-#: report/html_report.py:297
+#: report/html_report.py:298
 msgid "High: change the stackup or a plane"
 msgstr ""
 
@@ -2912,7 +2912,7 @@ msgstr ""
 msgid "Highlight the ground net in KiCad and look at the fill under fast signals."
 msgstr ""
 
-#: report/html_report.py:1158
+#: report/html_report.py:1138
 msgid "Host"
 msgstr ""
 
@@ -2920,7 +2920,7 @@ msgstr ""
 msgid "Host-key policy:"
 msgstr ""
 
-#: report/html_report.py:400
+#: report/html_report.py:403
 msgid "Hot loop, switching node"
 msgstr ""
 
@@ -2928,19 +2928,19 @@ msgstr ""
 msgid "Hot parts change their EMC behaviour"
 msgstr ""
 
-#: report/html_report.py:390
+#: report/html_report.py:393
 msgid "How much of its rating (current, power, voltage) a part keeps at a higher temperature, read off its datasheet curve."
 msgstr ""
 
-#: report/html_report.py:830
+#: report/html_report.py:810
 msgid "How sure"
 msgstr ""
 
-#: report/html_report.py:830
+#: report/html_report.py:810
 msgid "How to check"
 msgstr ""
 
-#: report/html_report.py:426
+#: report/html_report.py:429
 msgid "How to read this report"
 msgstr ""
 
@@ -2982,7 +2982,7 @@ msgstr ""
 msgid "Imported stackup from {p0} ({p1} layers)."
 msgstr ""
 
-#: report/html_report.py:401
+#: report/html_report.py:404
 msgid "In a switching converter, the loop through the input capacitor and the switches carries the fastest current edges, and the switching node swings at full input voltage. Both radiate in proportion to their area."
 msgstr ""
 
@@ -3123,12 +3123,12 @@ msgstr ""
 msgid "Interface:"
 msgstr ""
 
-#: report/html_report.py:683
+#: report/html_report.py:663
 #, python-brace-format
 msgid "Internal air: thermal {thermal} °C against CFD {cfd} °C, {spread} K apart; check the enclosure inputs both use."
 msgstr ""
 
-#: report/html_report.py:679
+#: report/html_report.py:659
 #, python-brace-format
 msgid "Internal air: thermal {thermal} °C, CFD {cfd} °C, {spread} K apart."
 msgstr ""
@@ -3174,7 +3174,7 @@ msgstr ""
 msgid "JSON files (*.json)|*.json"
 msgstr ""
 
-#: report/html_report.py:961
+#: report/html_report.py:941
 msgid "Junction / limit"
 msgstr ""
 
@@ -3182,7 +3182,7 @@ msgstr ""
 msgid "Junction above its limit"
 msgstr ""
 
-#: report/html_report.py:383
+#: report/html_report.py:386
 msgid "Junction temperature (Tj)"
 msgstr ""
 
@@ -3194,7 +3194,7 @@ msgstr ""
 msgid "Keep the unattenuated geometric estimate as an uncertainty bound and validate locally with an H-field probe."
 msgstr ""
 
-#: report/html_report.py:620
+#: report/html_report.py:600
 msgid "Key figures"
 msgstr ""
 
@@ -3202,15 +3202,15 @@ msgstr ""
 msgid "Ki-PIDA"
 msgstr ""
 
-#: report/html_report.py:1271
+#: report/html_report.py:1251
 msgid "Ki-PIDA campaign report"
 msgstr ""
 
-#: report/html_report.py:1273
+#: report/html_report.py:1253
 msgid "Ki-PIDA consolidated analysis report"
 msgstr ""
 
-#: report/html_report.py:1272
+#: report/html_report.py:1252
 msgid "Ki-PIDA report"
 msgstr ""
 
@@ -3384,7 +3384,7 @@ msgstr ""
 msgid "Length-match the pair while preserving constant spacing and reference."
 msgstr ""
 
-#: report/html_report.py:1209
+#: report/html_report.py:1189
 msgid "Limitations"
 msgstr ""
 
@@ -3457,7 +3457,7 @@ msgstr ""
 msgid "Localized differential return-reference interruptions"
 msgstr ""
 
-#: report/html_report.py:764
+#: report/html_report.py:744
 msgid "Location"
 msgstr ""
 
@@ -3485,7 +3485,7 @@ msgstr ""
 msgid "Low ground-plane coverage"
 msgstr ""
 
-#: report/html_report.py:295
+#: report/html_report.py:296
 msgid "Low: move a part, add a via or fill in a field"
 msgstr ""
 
@@ -3498,7 +3498,7 @@ msgstr ""
 msgid "Mapped {p0} Top / {p1} Bottom footprint placements (F.Cu={p2}, B.Cu={p3})."
 msgstr ""
 
-#: report/html_report.py:380 report/html_report.py:961
+#: report/html_report.py:383 report/html_report.py:941
 msgid "Margin"
 msgstr ""
 
@@ -3559,7 +3559,7 @@ msgstr ""
 msgid "Measure the route's distance to the outline in KiCad and compare it with the fabricator's edge clearance."
 msgstr ""
 
-#: report/html_report.py:288
+#: report/html_report.py:289
 msgid "Measured"
 msgstr ""
 
@@ -3579,7 +3579,7 @@ msgstr ""
 msgid "Measurement port is not connected to the AC network."
 msgstr ""
 
-#: report/html_report.py:296
+#: report/html_report.py:297
 msgid "Medium: reroute or re-place a group of parts"
 msgstr ""
 
@@ -3612,7 +3612,7 @@ msgstr ""
 msgid "Mesh resolution (mm):"
 msgstr ""
 
-#: report/html_report.py:413
+#: report/html_report.py:416
 msgid "Mesh, grid step"
 msgstr ""
 
@@ -3753,7 +3753,7 @@ msgstr ""
 msgid "Net"
 msgstr ""
 
-#: report/html_report.py:484
+#: report/html_report.py:464
 msgid "net"
 msgstr ""
 
@@ -3770,7 +3770,7 @@ msgstr ""
 msgid "Netclasses could not be read for the pair scan ({p0}); names alone were used."
 msgstr ""
 
-#: report/html_report.py:1019
+#: report/html_report.py:999
 msgid "Nets"
 msgstr ""
 
@@ -3791,7 +3791,7 @@ msgstr ""
 msgid "No AC profile could be built: "
 msgstr ""
 
-#: report/html_report.py:826
+#: report/html_report.py:806
 msgid "No actionable findings."
 msgstr ""
 
@@ -3799,19 +3799,19 @@ msgstr ""
 msgid "No analysis has produced a result yet in this session.\n\nRun at least one analysis (DC, AC, Differential, EMI/EMC, Thermal or CFD), then build the consolidated report."
 msgstr ""
 
-#: report/html_report.py:445
+#: report/html_report.py:448
 msgid "No analysis produced a result."
 msgstr ""
 
-#: report/html_report.py:1121
+#: report/html_report.py:1101
 msgid "No analysis results."
 msgstr ""
 
-#: report/html_report.py:834
+#: report/html_report.py:814
 msgid "No change was computed for this action."
 msgstr ""
 
-#: report/html_report.py:718
+#: report/html_report.py:698
 msgid "No check passed."
 msgstr ""
 
@@ -3841,11 +3841,11 @@ msgstr ""
 msgid "No decoupling near a power pin"
 msgstr ""
 
-#: report/html_report.py:444
+#: report/html_report.py:447
 msgid "No defect found by the analyses that ran."
 msgstr ""
 
-#: report/html_report.py:592
+#: report/html_report.py:572
 msgid "No domain produced a result."
 msgstr ""
 
@@ -3861,7 +3861,7 @@ msgstr ""
 msgid "No enabled EMI/EMC source has usable conductor or inductor geometry."
 msgstr ""
 
-#: report/html_report.py:980
+#: report/html_report.py:960
 msgid "No figures recorded."
 msgstr ""
 
@@ -3869,7 +3869,7 @@ msgstr ""
 msgid "No finding matches the current filters."
 msgstr ""
 
-#: report/html_report.py:1018
+#: report/html_report.py:998
 msgid "No findings."
 msgstr ""
 
@@ -3890,15 +3890,15 @@ msgstr ""
 msgid "no inductor on {p0}"
 msgstr ""
 
-#: report/html_report.py:716
+#: report/html_report.py:696
 msgid "No input missing."
 msgstr ""
 
-#: report/html_report.py:717
+#: report/html_report.py:697
 msgid "No limit of the calculation reported."
 msgstr ""
 
-#: report/html_report.py:1212
+#: report/html_report.py:1192
 msgid "No limitations recorded."
 msgstr ""
 
@@ -3926,7 +3926,7 @@ msgstr ""
 msgid "No power rails defined."
 msgstr ""
 
-#: report/html_report.py:1211
+#: report/html_report.py:1191
 msgid "No provenance recorded."
 msgstr ""
 
@@ -3938,7 +3938,7 @@ msgstr ""
 msgid "No remaining candidate improves the target-impedance score."
 msgstr ""
 
-#: report/html_report.py:1213
+#: report/html_report.py:1193
 msgid "No results."
 msgstr ""
 
@@ -3994,11 +3994,11 @@ msgstr ""
 msgid "non-empty finding_id values must be unique within one result"
 msgstr ""
 
-#: report/html_report.py:595
+#: report/html_report.py:575
 msgid "none"
 msgstr ""
 
-#: report/html_report.py:1203
+#: report/html_report.py:1183
 msgid "None recorded."
 msgstr ""
 
@@ -4010,7 +4010,7 @@ msgstr ""
 msgid "not installed"
 msgstr ""
 
-#: report/html_report.py:625
+#: report/html_report.py:605
 msgid "not prepared"
 msgstr ""
 
@@ -4022,7 +4022,7 @@ msgstr ""
 msgid "Not run"
 msgstr ""
 
-#: report/html_report.py:594
+#: report/html_report.py:574
 msgid "not run"
 msgstr ""
 
@@ -4030,12 +4030,12 @@ msgstr ""
 msgid "Not tested — OpenSSH key or agent authentication is required."
 msgstr ""
 
-#: report/html_report.py:1012
+#: report/html_report.py:992
 #, python-brace-format
 msgid "Not to be read as results: {figures}."
 msgstr ""
 
-#: report/html_report.py:713
+#: report/html_report.py:693
 msgid "Nothing found that must change before manufacture."
 msgstr ""
 
@@ -4059,7 +4059,7 @@ msgstr ""
 msgid "Nothing to consolidate"
 msgstr ""
 
-#: report/html_report.py:714
+#: report/html_report.py:694
 msgid "Nothing to review."
 msgstr ""
 
@@ -4120,7 +4120,7 @@ msgstr ""
 msgid "Optimize Decoupling"
 msgstr ""
 
-#: report/html_report.py:377
+#: report/html_report.py:380
 msgid "Orders the actions: severity, times certainty, times 1.5 for each further analysis reporting the problem, divided by the typical effort. It has no unit; only the order means something."
 msgstr ""
 
@@ -4272,16 +4272,16 @@ msgstr ""
 msgid "PDN remains within target"
 msgstr ""
 
-#: report/html_report.py:392
+#: report/html_report.py:395
 msgid "PDN, target impedance"
 msgstr ""
 
-#: report/html_report.py:1214
+#: report/html_report.py:1194
 msgid "Per analysis"
 msgstr ""
 
-#: report/html_report.py:371
-msgid "Per analysis. FAIL on a CRITICAL finding, or a HIGH one resting on a fact, a measurement or a datasheet. WARN on any other HIGH, or a MEDIUM. PASS otherwise."
+#: report/html_report.py:372
+msgid "Per analysis. FAIL on a CRITICAL finding, or a HIGH one resting on a fact, a measurement or a datasheet. WARN on any other HIGH, or a MEDIUM. PASS otherwise. A limit of the calculation gives WARN at most. The verdict at the top fails as soon as one item is to fix before manufacture."
 msgstr ""
 
 #: ui/emc_analysis_panel.py:234
@@ -4422,7 +4422,7 @@ msgstr ""
 msgid "Pre-compliance Target"
 msgstr ""
 
-#: report/html_report.py:763
+#: report/html_report.py:743
 msgid "Predicted gain"
 msgstr ""
 
@@ -4456,11 +4456,11 @@ msgstr ""
 msgid "Prioritise harmonic checks near: "
 msgstr ""
 
-#: report/html_report.py:376
+#: report/html_report.py:379
 msgid "Priority"
 msgstr ""
 
-#: report/html_report.py:818
+#: report/html_report.py:798
 #, python-brace-format
 msgid "Priority {rank} (see \"Priority\" under How to read this report)."
 msgstr ""
@@ -4469,11 +4469,11 @@ msgstr ""
 msgid "Probe height (mm):"
 msgstr ""
 
-#: report/html_report.py:1180 ui/workspace_navigation.py:20
+#: report/html_report.py:1160 ui/workspace_navigation.py:20
 msgid "Project"
 msgstr ""
 
-#: report/html_report.py:1159
+#: report/html_report.py:1139
 msgid "Project mode"
 msgstr ""
 
@@ -4482,7 +4482,7 @@ msgstr ""
 msgid "Project: {p0} at {p1}"
 msgstr ""
 
-#: report/html_report.py:1209
+#: report/html_report.py:1189
 msgid "Provenance"
 msgstr ""
 
@@ -4571,7 +4571,7 @@ msgstr ""
 msgid "Ready — "
 msgstr ""
 
-#: report/html_report.py:1020 ui/differential_analysis_panel.py:143
+#: report/html_report.py:1000 ui/differential_analysis_panel.py:143
 msgid "Recommendation"
 msgstr ""
 
@@ -4592,7 +4592,7 @@ msgstr ""
 msgid "Ref"
 msgstr ""
 
-#: emc_analyzer.py:447 report/html_report.py:1217
+#: emc_analyzer.py:447 report/html_report.py:1197
 msgid "Reference"
 msgstr ""
 
@@ -4846,7 +4846,7 @@ msgstr ""
 msgid "Restrict the FET-to-FET (or FET-to-diode) and FET-to-inductor copper to the shortest path, and keep the input capacitor's return current on the same loop."
 msgstr ""
 
-#: report/html_report.py:289
+#: report/html_report.py:290
 msgid "Rests on datasheet values"
 msgstr ""
 
@@ -4858,7 +4858,7 @@ msgstr ""
 msgid "Result History Error"
 msgstr ""
 
-#: report/html_report.py:1216
+#: report/html_report.py:1196
 #, python-brace-format
 msgid "Result schema {version}"
 msgstr ""
@@ -4875,7 +4875,7 @@ msgstr ""
 msgid "Return net:"
 msgstr ""
 
-#: report/html_report.py:397
+#: report/html_report.py:400
 msgid "Return path, reference plane"
 msgstr ""
 
@@ -4897,11 +4897,11 @@ msgstr ""
 msgid "Reusing this batch's DC copper capture for {p0}."
 msgstr ""
 
-#: report/html_report.py:344
+#: report/html_report.py:345
 msgid "Review before manufacture"
 msgstr ""
 
-#: report/html_report.py:443
+#: report/html_report.py:446
 msgid "Review before manufacture: the items below need a decision."
 msgstr ""
 
@@ -4946,7 +4946,7 @@ msgstr ""
 msgid "Routed copper lies outside the board outline"
 msgstr ""
 
-#: report/html_report.py:1019 report/html_report.py:815 ui/results_workspace.py:62
+#: report/html_report.py:795 report/html_report.py:999 ui/results_workspace.py:62
 msgid "Rule"
 msgstr ""
 
@@ -4958,7 +4958,7 @@ msgstr ""
 msgid "Rule GND"
 msgstr ""
 
-#: report/html_report.py:291
+#: report/html_report.py:292
 msgid "Rule of thumb: a threshold this tool sets"
 msgstr ""
 
@@ -4975,7 +4975,7 @@ msgstr ""
 msgid "Rule: {rule}"
 msgstr ""
 
-#: report/html_report.py:1185
+#: report/html_report.py:1165
 msgid "Run"
 msgstr ""
 
@@ -5115,11 +5115,11 @@ msgstr ""
 msgid "SciPy SuperLU"
 msgstr ""
 
-#: report/html_report.py:1180
+#: report/html_report.py:1160
 msgid "Scope analysed"
 msgstr ""
 
-#: report/html_report.py:373 report/html_report.py:620
+#: report/html_report.py:376 report/html_report.py:600
 msgid "Score"
 msgstr ""
 
@@ -5228,7 +5228,7 @@ msgstr ""
 msgid "Several ground domains"
 msgstr ""
 
-#: report/html_report.py:363 ui/results_workspace.py:61
+#: report/html_report.py:364 ui/results_workspace.py:61
 msgid "Severity"
 msgstr ""
 
@@ -5309,7 +5309,7 @@ msgstr ""
 msgid "Simulation:"
 msgstr ""
 
-#: report/html_report.py:1146
+#: report/html_report.py:1126
 msgid "single-board"
 msgstr ""
 
@@ -5333,7 +5333,7 @@ msgstr ""
 msgid "Size V (0..1):"
 msgstr ""
 
-#: report/html_report.py:627
+#: report/html_report.py:607
 msgid "skipped"
 msgstr ""
 
@@ -5379,7 +5379,7 @@ msgstr ""
 msgid "Solver Exception: {p0}"
 msgstr ""
 
-#: report/html_report.py:1217 ui/thermal_analysis_panel.py:211
+#: report/html_report.py:1197 ui/thermal_analysis_panel.py:211
 msgid "Source"
 msgstr ""
 
@@ -5497,7 +5497,7 @@ msgstr ""
 msgid "Startup Error"
 msgstr ""
 
-#: report/html_report.py:370 report/html_report.py:620 report/html_report.py:997 ui/ac_analysis_panel.py:198 ui/differential_analysis_panel.py:143
+#: report/html_report.py:371 report/html_report.py:600 report/html_report.py:977 ui/ac_analysis_panel.py:198 ui/differential_analysis_panel.py:143
 msgid "Status"
 msgstr ""
 
@@ -5509,7 +5509,7 @@ msgstr ""
 msgid "Steady-state 3D solid conduction with convective boundaries. Estimated powers and package models must be reviewed before sign-off."
 msgstr ""
 
-#: report/html_report.py:410
+#: report/html_report.py:413
 msgid "Stitching via"
 msgstr ""
 
@@ -5609,7 +5609,7 @@ msgstr ""
 msgid "System RAM: {available:.1f}/{total:.1f} GiB available"
 msgstr ""
 
-#: report/html_report.py:762 ui/differential_analysis_panel.py:141
+#: report/html_report.py:742 ui/differential_analysis_panel.py:141
 msgid "Target"
 msgstr ""
 
@@ -5629,7 +5629,7 @@ msgstr ""
 msgid "Target |Z| (mOhm, blank = auto):"
 msgstr ""
 
-#: report/html_report.py:817
+#: report/html_report.py:797
 msgid "Technical detail"
 msgstr ""
 
@@ -5689,7 +5689,7 @@ msgstr ""
 msgid "The AC rail-to-ground mesh is empty."
 msgstr ""
 
-#: report/html_report.py:414
+#: report/html_report.py:417
 msgid "The analyses cut the board into small cells. A result that moves when the cells are halved depends on the mesh, not only on the copper."
 msgstr ""
 
@@ -5705,7 +5705,7 @@ msgstr ""
 msgid "The configured Palace SSH identity file does not exist."
 msgstr ""
 
-#: report/html_report.py:381
+#: report/html_report.py:384
 msgid "The distance between a value and its limit, such as 25 K under a 150 °C junction limit."
 msgstr ""
 
@@ -5778,7 +5778,7 @@ msgstr ""
 msgid "The PCB outline is empty; near-field simulation cannot build a grid."
 msgstr ""
 
-#: report/html_report.py:393
+#: report/html_report.py:396
 msgid "The power distribution network, from regulator to load. Below its target impedance, a rail holds its voltage when the load's current steps."
 msgstr ""
 
@@ -5827,7 +5827,7 @@ msgstr ""
 msgid "The switching node swings at full voltage; each square millimetre of it is antenna area."
 msgstr ""
 
-#: report/html_report.py:384
+#: report/html_report.py:387
 msgid "The temperature of the silicon inside a package, estimated from the board temperature and the part's thermal resistance."
 msgstr ""
 
@@ -6022,7 +6022,7 @@ msgstr ""
 msgid "Thermal · running"
 msgstr ""
 
-#: report/html_report.py:704
+#: report/html_report.py:684
 msgid "these domains do not all describe the same board revision:"
 msgstr ""
 
@@ -6075,7 +6075,7 @@ msgstr ""
 msgid "Timeout per region (s):"
 msgstr ""
 
-#: report/html_report.py:1019
+#: report/html_report.py:999
 msgid "Title"
 msgstr ""
 
@@ -6099,7 +6099,7 @@ msgstr ""
 msgid "Top exposed"
 msgstr ""
 
-#: report/html_report.py:1182
+#: report/html_report.py:1162
 msgid "Total compute"
 msgstr ""
 
@@ -6147,7 +6147,7 @@ msgstr ""
 msgid "Type:"
 msgstr ""
 
-#: report/html_report.py:831
+#: report/html_report.py:811
 msgid "Typical effort"
 msgstr ""
 
@@ -6167,7 +6167,7 @@ msgstr ""
 msgid "Unconnected pin"
 msgstr ""
 
-#: report/html_report.py:997
+#: report/html_report.py:977
 msgid "Unit"
 msgstr ""
 
@@ -6184,7 +6184,7 @@ msgstr ""
 msgid "Unsupported analysis result schema: {p0}"
 msgstr ""
 
-#: campaign.py:719
+#: campaign.py:756
 #, python-brace-format
 msgid "Unsupported campaign schema: {p0}"
 msgstr ""
@@ -6262,7 +6262,7 @@ msgstr ""
 msgid "Validation Error"
 msgstr ""
 
-#: report/html_report.py:997 ui/power_tree_panel.py:135
+#: report/html_report.py:977 ui/power_tree_panel.py:135
 msgid "Value"
 msgstr ""
 
@@ -6290,7 +6290,7 @@ msgstr ""
 msgid "Velocity XY"
 msgstr ""
 
-#: report/html_report.py:757
+#: report/html_report.py:737
 msgid "VERIFIED BY RE-SIMULATION"
 msgstr ""
 
@@ -6350,7 +6350,7 @@ msgstr ""
 msgid "Wall h (W/m2K):"
 msgstr ""
 
-#: report/html_report.py:703
+#: report/html_report.py:683
 msgid "Warning:"
 msgstr ""
 
@@ -6366,23 +6366,23 @@ msgstr ""
 msgid "Warning: Solution contains NaN values."
 msgstr ""
 
-#: report/html_report.py:367
+#: report/html_report.py:368
 msgid "What a finding rests on. A fact (an exact count or the state of the run), a measurement, datasheet values, an estimate from a model of the board, or a rule of thumb (a threshold this tool sets)."
 msgstr ""
 
-#: report/html_report.py:358
+#: report/html_report.py:359
 msgid "What holds"
 msgstr ""
 
-#: report/html_report.py:962
+#: report/html_report.py:942
 msgid "What the analyses say"
 msgstr ""
 
-#: report/html_report.py:334
+#: report/html_report.py:335
 msgid "What this page answers"
 msgstr ""
 
-#: report/html_report.py:829
+#: report/html_report.py:809
 msgid "What to do"
 msgstr ""
 
@@ -6394,16 +6394,16 @@ msgstr ""
 msgid "When one line of a pair is longer, part of the signal turns into common mode, which radiates."
 msgstr ""
 
-#: report/html_report.py:833
+#: report/html_report.py:813
 #, python-brace-format
 msgid "Where: {where} · found by {domains}"
 msgstr ""
 
-#: report/html_report.py:335
+#: report/html_report.py:336
 msgid "Whether the board can go to manufacture. Each item below is one physical problem, even when several analyses report it, and links to its card in section 2."
 msgstr ""
 
-#: report/html_report.py:829
+#: report/html_report.py:809
 msgid "Why it is a risk"
 msgstr ""
 
@@ -6439,7 +6439,7 @@ msgstr ""
 msgid "Without a rating, the dissipation of a resistor cannot be checked."
 msgstr ""
 
-#: report/html_report.py:554
+#: report/html_report.py:534
 #, python-brace-format
 msgid "Worst {figure}"
 msgstr ""
@@ -6464,11 +6464,11 @@ msgstr ""
 msgid "Zdiff"
 msgstr ""
 
-#: report/html_report.py:1147
+#: report/html_report.py:1127
 msgid "Zeo container"
 msgstr ""
 
-#: report/html_report.py:1148
+#: report/html_report.py:1128
 msgid "Zeo member"
 msgstr ""
 
@@ -6481,22 +6481,22 @@ msgstr ""
 msgid "Zoom {p0}%"
 msgstr ""
 
-#: report/html_report.py:688
+#: report/html_report.py:668
 #, python-brace-format
 msgid "{analysis} passes"
 msgstr ""
 
-#: report/html_report.py:689
+#: report/html_report.py:669
 #, python-brace-format
 msgid "{analysis} passes: {figures}"
 msgstr ""
 
-#: report/html_report.py:1021
+#: report/html_report.py:1001
 #, python-brace-format
 msgid "{count} finding(s)"
 msgstr ""
 
-#: report/html_report.py:1106
+#: report/html_report.py:1086
 #, python-brace-format
 msgid "{count} more figures"
 msgstr ""
@@ -6616,17 +6616,17 @@ msgstr ""
 msgid "{p0} unknowns exceeds the {p1} direct-solve limit; solving iteratively, which needs no factorisation memory."
 msgstr ""
 
-#: report/html_report.py:581
+#: report/html_report.py:561
 #, python-brace-format
 msgid "{passed} of {total} pairs within their impedance tolerance"
 msgstr ""
 
-#: report/html_report.py:573
+#: report/html_report.py:553
 #, python-brace-format
 msgid "{passed} of {total} rail drops within the limit"
 msgstr ""
 
-#: report/html_report.py:578
+#: report/html_report.py:558
 #, python-brace-format
 msgid "{passed} of {total} rails within their target impedance"
 msgstr ""
@@ -6655,6 +6655,6 @@ msgstr ""
 msgid "~{nodes:,} nodes / {branches:,} branches — host peak {host:.0f} MiB, GPU {gpu:.0f} MiB — limit {limit:,} nodes{ceiling} — recommended: {backend}"
 msgstr ""
 
-#: report/html_report.py:386
+#: report/html_report.py:389
 msgid "θJB, ψJB"
 msgstr ""

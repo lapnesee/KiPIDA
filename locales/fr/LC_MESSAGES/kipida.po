@@ -3421,8 +3421,8 @@ msgstr "PDN, impédance cible"
 msgid "Per analysis"
 msgstr "Par analyse"
 
-msgid "Per analysis. FAIL on a CRITICAL finding, or a HIGH one resting on a fact, a measurement or a datasheet. WARN on any other HIGH, or a MEDIUM. PASS otherwise."
-msgstr "Par analyse. FAIL sur une observation CRITICAL, ou HIGH reposant sur un fait, une mesure ou une fiche technique. WARN sur tout autre HIGH, ou un MEDIUM. PASS sinon."
+msgid "Per analysis. FAIL on a CRITICAL finding, or a HIGH one resting on a fact, a measurement or a datasheet. WARN on any other HIGH, or a MEDIUM. PASS otherwise. A limit of the calculation gives WARN at most. The verdict at the top fails as soon as one item is to fix before manufacture."
+msgstr "Par analyse. FAIL sur une observation CRITICAL, ou HIGH reposant sur un fait, une mesure ou une fiche technique. WARN sur tout autre HIGH, ou un MEDIUM. PASS sinon. Une limite du calcul donne au plus WARN. Le verdict en tête échoue dès qu’un point est à corriger avant fabrication."
 
 msgid "Pieces of plane joined by narrow necks raise the return-path impedance."
 msgstr "Des morceaux de plan reliés par des étranglements augmentent l’impédance du chemin de retour."
