@@ -194,6 +194,28 @@ class FailureIsolationTests(unittest.TestCase):
         self.assertIsNone(failed.result)
         self.assertIn("boom", failed.error)
 
+    def test_a_selected_domain_without_a_result_is_named_and_bars_a_pass(self):
+        # Review of 2026-10-02: a THERMAL that raised left no trace in the
+        # report, whose verdict read "PASS -- No defect found by the analyses
+        # that ran". A DC without rails is dropped before the run ("No power
+        # rails defined."); an unselected EMC is no gap.
+        engine = build(
+            {"DC": FakeEngine(), "THERMAL": FakeEngine(raises=RuntimeError("boom")),
+             "CFD": FakeEngine(), "EMC": FakeEngine()},
+            ["DC", "THERMAL", "CFD", "EMC"],
+        )
+        request = CampaignRunRequest(
+            domain_requests={"THERMAL": FakeRequest(), "CFD": FakeRequest()},
+            unprepared={"DC": "No power rails defined."},
+        )
+        campaign, _, _ = run(engine, request)
+        self.assertEqual(
+            [(item["domain"], item["state"]) for item in campaign.coverage],
+            [("DC", "NOT_PREPARED"), ("THERMAL", "FAILED")],
+        )
+        self.assertIn("boom", campaign.coverage[1]["reason"])
+        self.assertEqual(campaign.overall_status, AnalysisStatus.WARN)
+
     def test_stop_on_error_halts_after_first_failure(self):
         later = FakeEngine()
         engine = build(

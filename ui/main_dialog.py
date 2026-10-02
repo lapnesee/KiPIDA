@@ -587,6 +587,7 @@ class KiPIDA_MainDialog(wx.Dialog):
             project_context=(
                 self.project_context.to_dict() if getattr(self, "project_context", None) else {}
             ),
+            unprepared=dict(getattr(self, "_batch_unprepared", {}) or {}),
         )
         callbacks = CampaignCallbacks(
             on_log=self._batch_worker_log,
@@ -611,6 +612,8 @@ class KiPIDA_MainDialog(wx.Dialog):
         builders = self._batch_request_builders(selected)
         labels = dict(self.BATCH_ANALYSES)
         requests = {}
+        # Each dropped domain's reason, for the report's coverage.
+        self._batch_unprepared = {}
         self._wait_for_live_board()
         # Every capture happens here, before the first solve, so the window is
         # unresponsive for the sum of them rather than between analyses. Say
@@ -634,6 +637,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                 try:
                     requests[analysis_id] = builders[analysis_id]()
                 except Exception as exc:
+                    self._batch_unprepared[analysis_id] = str(exc)
                     self.log(
                         f"Batch: {labels[analysis_id]} was not prepared and will be "
                         f"skipped -- {exc}"

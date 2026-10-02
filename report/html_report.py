@@ -334,6 +334,10 @@ _HOW_TO_READ = (
     (N_("What this page answers"),
      N_("Whether the board can go to manufacture. Each item below is one physical problem, "
         "even when several analyses report it, and links to its card in section 2.")),
+    (N_("Did not complete"),
+     N_("An analysis you selected that produced no result: it could not be prepared, it "
+        "failed, or the batch was cancelled first. The verdict says nothing of what it "
+        "covers, and is never PASS while it is listed.")),
     (N_("Fix before manufacture"),
      N_("A defect the analyses establish on the board itself, such as a broken connection or "
         "a voltage drop beyond its limit.")),
@@ -617,6 +621,30 @@ def _render_scores(scores: List[DomainScore], results: List[AnalysisResult]) -> 
     return f"<table>{head}<tbody>{''.join(rows)}</tbody></table>"
 
 
+_COVERAGE_STATES = {
+    "NOT_PREPARED": N_("not prepared"),
+    "FAILED": N_("failed"),
+    "SKIPPED": N_("skipped"),
+    "CANCELLED": N_("cancelled"),
+}
+
+
+def _coverage_items(campaign: CampaignResult) -> List[str]:
+    """One line per selected domain that produced no result, with its reason
+    as the domain or the batch wrote it."""
+    items = []
+    for entry in campaign.coverage:
+        state = _COVERAGE_STATES.get(str(entry.get("state", "")), "")
+        reason = str(entry.get("reason", "") or "")
+        items.append(
+            f"<li><strong>{_esc(entry.get('domain', ''))}</strong> "
+            f'<span class="meta">&mdash; {_tr(state)}'
+            + (f": {_t(reason)}" if reason else "")
+            + "</span></li>"
+        )
+    return items
+
+
 def _decision_list(title: str, explanation: str, items: List[str], empty: str) -> str:
     """``title``, ``explanation`` and ``empty`` are English; shown translated."""
     body = (
@@ -701,6 +729,12 @@ def _render_synthesis(campaign: CampaignResult) -> str:
         _decision_list(title, explanation[title], items, nothing)
         for (title, items), nothing in zip(lists_in_order, empty)
     )
+    coverage = _coverage_items(campaign)
+    if coverage:
+        # First, and only when something is missing: it qualifies every
+        # list below it.
+        body = _decision_list("Did not complete", explanation["Did not complete"], coverage,
+                              "") + body
     return (
         f'<section id="synthesis"><h2>{heading}</h2>'
         f'<p><span class="verdict {status_class}">{_esc(campaign.overall_status)}</span> '

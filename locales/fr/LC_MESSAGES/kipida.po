@@ -5301,3 +5301,21 @@ msgstr "Impédance de source du rail laissée par défaut"
 
 msgid "Rerun AC after choosing the source: the finding should not return."
 msgstr "Relancez l’AC après avoir choisi la source : l’observation ne doit plus revenir."
+
+msgid "An analysis you selected that produced no result: it could not be prepared, it failed, or the batch was cancelled first. The verdict says nothing of what it covers, and is never PASS while it is listed."
+msgstr "Une analyse sélectionnée qui n’a produit aucun résultat : elle n’a pas pu être préparée, elle a échoué, ou le lot a été annulé avant. Le verdict ne dit rien de ce qu’elle couvre, et n’est jamais PASS tant qu’elle figure ici."
+
+msgid "cancelled"
+msgstr "annulée"
+
+msgid "Did not complete"
+msgstr "Non abouties"
+
+msgid "failed"
+msgstr "en échec"
+
+msgid "not prepared"
+msgstr "non préparée"
+
+msgid "skipped"
+msgstr "sautée"

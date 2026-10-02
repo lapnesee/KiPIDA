@@ -44,6 +44,10 @@ class CampaignRunRequest:
     stop_on_error: bool = False
     # ProjectContext.to_dict(): the host and the mode, rendered in the report.
     project_context: Dict[str, Any] = field(default_factory=dict)
+    # {analysis_id: reason} for a domain the user selected that could not be
+    # prepared, so it is absent from domain_requests yet still owed a line in
+    # the report's coverage rather than only one in the log.
+    unprepared: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -595,6 +599,7 @@ class CampaignEngine:
             project_name=request.project_name,
             board_fingerprint=request.board_fingerprint,
             project_context=request.project_context,
+            coverage=self._coverage(request, descriptors, outcomes, was_cancelled),
         )
         if was_cancelled:
             # recompute() derives the verdict from the domain scores, so the
@@ -605,9 +610,43 @@ class CampaignEngine:
         emit_progress(done, total, "campaign complete")
         emit_log(
             f"Campaign finished: {len(results)} domain result(s), "
-            f"verdict {campaign.overall_status.value}."
+            + (f"{len(campaign.coverage)} selected that did not complete, "
+               if campaign.coverage else "")
+            + f"verdict {campaign.overall_status.value}."
         )
         return campaign
+
+    @staticmethod
+    def _coverage(request, descriptors, outcomes, was_cancelled) -> List[Dict[str, str]]:
+        """Each selected domain that produced no result, in run order.
+
+        A domain left out of domain_requests on purpose is not one: only
+        those the caller could not prepare (request.unprepared), and those
+        that were requested but failed, were skipped or never ran because
+        the batch was cancelled.
+        """
+        reasons = {
+            outcome.analysis_id: (
+                ("FAILED", outcome.error) if outcome.error
+                else ("SKIPPED", outcome.skipped_reason)
+            )
+            for outcome in outcomes
+            if outcome.result is None and outcome.analysis_id in request.domain_requests
+        }
+        ran = {outcome.analysis_id for outcome in outcomes}
+        coverage = []
+        for descriptor in descriptors:
+            analysis_id = descriptor.analysis_id
+            if analysis_id in request.unprepared:
+                state, reason = "NOT_PREPARED", request.unprepared[analysis_id]
+            elif analysis_id in reasons:
+                state, reason = reasons[analysis_id]
+            elif was_cancelled and analysis_id in request.domain_requests and analysis_id not in ran:
+                state, reason = "CANCELLED", "the batch was cancelled before it ran"
+            else:
+                continue
+            coverage.append({"domain": analysis_id, "state": state, "reason": str(reason or "")})
+        return coverage
 
     # ------------------------------------------------------------------
     # Internals

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fixed the campaign report leaving out a selected analysis that
+  produced no result: one that could not be prepared, failed or was
+  cancelled first appeared only in the log, and the verdict could read
+  "PASS -- No defect found by the analyses that ran". The report now
+  opens on "Did not complete", naming each one with its reason, and the
+  verdict is never PASS while one is listed. An unselected analysis is
+  no gap.
 - Changed TE-002 to say when every capacitor's excess is larger than the
   board under it moved at twice the thermal grid step, with the largest
   move. P02 Rev E's 22:29 report said nothing, which read the same as a

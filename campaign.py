@@ -441,6 +441,11 @@ class CampaignResult:
     domain_scores: List[DomainScore] = field(default_factory=list)
     actions: List[CampaignAction] = field(default_factory=list)
     overall_status: AnalysisStatus = AnalysisStatus.NO_DATA
+    # Each domain the user selected that produced no result: {"domain",
+    # "state" (NOT_PREPARED, FAILED, SKIPPED, CANCELLED), "reason"}. Only
+    # results reached the report, so a THERMAL that raised left no trace in
+    # it and the verdict could read PASS.
+    coverage: List[Dict[str, str]] = field(default_factory=list)
 
     # ------------------------------------------------------------------
     # Aggregation
@@ -673,7 +678,9 @@ class CampaignResult:
         has_high = any(action.severity == FindingSeverity.HIGH for action in self.actions)
         if has_high or any(score.status == AnalysisStatus.WARN for score in scored):
             return AnalysisStatus.WARN
-        return AnalysisStatus.PASS
+        # No defect among the analyses that ran is no PASS when one the user
+        # selected did not complete: what it would have said is unknown.
+        return AnalysisStatus.WARN if self.coverage else AnalysisStatus.PASS
 
     def top_actions(self, limit: int = 10) -> List[CampaignAction]:
         return sorted(self.actions, key=lambda item: (-item.gain_rank, item.title))[:limit]
@@ -698,6 +705,7 @@ class CampaignResult:
             "results": [result.to_dict() for result in self.results],
             "domain_scores": [_json_safe(asdict(score)) for score in self.domain_scores],
             "actions": [_json_safe(asdict(action)) for action in self.actions],
+            "coverage": [dict(item) for item in self.coverage],
         }
 
     def to_json(self, *, indent: int = 2) -> str:
@@ -720,6 +728,7 @@ class CampaignResult:
             domain_scores=[DomainScore.from_dict(item) for item in payload.get("domain_scores", [])],
             actions=[CampaignAction.from_dict(item) for item in payload.get("actions", [])],
             overall_status=AnalysisStatus(str(payload.get("overall_status", "NO_DATA")).upper()),
+            coverage=[dict(item) for item in payload.get("coverage", [])],
         )
 
     @classmethod
@@ -734,6 +743,7 @@ class CampaignResult:
         project_name: str = "",
         board_fingerprint: str = "",
         project_context: Optional[Dict[str, Any]] = None,
+        coverage: Optional[List[Dict[str, str]]] = None,
     ) -> "CampaignResult":
         """Build and immediately aggregate a campaign from analysis results."""
         fingerprint = board_fingerprint or next(
@@ -744,4 +754,5 @@ class CampaignResult:
             board_fingerprint=fingerprint,
             project_context=dict(project_context or {}),
             results=list(results),
+            coverage=[dict(item) for item in coverage or ()],
         ).recompute()

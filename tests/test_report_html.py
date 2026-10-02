@@ -47,6 +47,19 @@ class StructureTests(unittest.TestCase):
         self.assertIn("WARN", document)
         self.assertTrue(document.startswith("<!DOCTYPE html>"))
 
+    def test_a_domain_that_did_not_complete_heads_the_decision(self):
+        # Review of 2026-10-02: a failed THERMAL left the report reading
+        # "PASS -- No defect found by the analyses that ran".
+        campaign = campaign_with([], coverage=[
+            {"domain": "THERMAL", "state": "FAILED", "reason": "RuntimeError: boom"},
+        ])
+        document = render_campaign_html(campaign)
+        self.assertEqual(campaign.overall_status, AnalysisStatus.WARN)
+        self.assertNotIn("No defect found", document)
+        self.assertIn("Did not complete (1)", document)
+        self.assertIn("<strong>THERMAL</strong>", document)
+        self.assertIn("failed: RuntimeError: boom", document)
+
     def test_write_creates_parent_directories(self):
         campaign = campaign_with([])
         with tempfile.TemporaryDirectory() as tmp:
