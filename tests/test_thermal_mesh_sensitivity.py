@@ -181,7 +181,9 @@ class CoupledEngineAlsoSolvesTwice(unittest.TestCase):
 
         engine = ThermalSolverEngine(mesher_factory=Mesher, solver_factory=Solver, coupled_solver_factory=CoupledSolver)
         with patch("application.thermal_controller.enclosure_internal_air_rise_k",
-                   lambda _enclosure, heat_w: per_watt * heat_w):
+                   lambda _enclosure, heat_w: per_watt * heat_w), \
+                patch("application.thermal_controller.enclosure_wall_rise_k",
+                      lambda _enclosure, heat_w: per_watt * heat_w / 2.0):
             outcome = engine.solve(
                 self._request(enclosure=SimpleNamespace(geometry=SimpleNamespace(wall_heat_transfer_w_m2k=5.0))), lambda _m: None, lambda *_: None, lambda: False,
             )

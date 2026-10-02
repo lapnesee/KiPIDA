@@ -363,8 +363,9 @@ class AnalysisAdapterTests(unittest.TestCase):
         result = adapt_cfd_result(mesh, cfd, settings=settings)
 
         metrics = {metric.key: metric for metric in result.metrics}
-        self.assertAlmostEqual(metrics["mean_air_rise"].value, 16.0, places=1)
-        self.assertAlmostEqual(metrics["internal_ambient"].value, 61.0, places=1)
+        # Through the walls, 16.0 K, and from the air to them (2026-10-02).
+        self.assertAlmostEqual(metrics["mean_air_rise"].value, 30.9, places=1)
+        self.assertAlmostEqual(metrics["internal_ambient"].value, 75.9, places=1)
         # The review of 2026-10-02: the cross-check compared that formula
         # with itself; the solved field's own mean is what it now reads.
         self.assertAlmostEqual(metrics["solved_mean_air"].value, 61.0)
@@ -687,19 +688,21 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertIn("loses 0.0133 W, 0.28% of the 4.82 W", found["U6"].description)
 
     def test_an_enclosure_wall_coefficient_left_at_its_default_is_data_to_complete(self):
-        # P02 Rev E, 2026-10-01 22:29: the default 5 W/m2K put the internal air
-        # 16.2 K above 45 C (4.82 W over 0.0595 m2); at 6.5 W/m2K six of
-        # TE-002's thirteen X5R capacitors fall back under 85 C.
+        # P02 Rev E, 2026-10-01 22:29: the default 5 W/m2K put the air 16.2 K
+        # above 45 C through the walls (4.82 W over 0.0595 m2), 31.3 K with
+        # the air's film against them; only the first part follows the wall
+        # coefficient.
         settings = EnclosureCFDSettings(ambient_c=45.0)
         settings.geometry.width_mm, settings.geometry.depth_mm = 165.0, 100.0
         found = adapt_thermal_result(
-            ThermalResult(total_input_power_w=4.82), ambient_c=45.0, enclosure_air_rise_k=16.2,
+            ThermalResult(total_input_power_w=4.82), ambient_c=45.0, enclosure_air_rise_k=31.3,
             enclosure_ambient_applied=True, enclosure=settings,
         ).findings
         (wall,) = [item for item in found if item.rule_id == "TH-009"]
         self.assertEqual(wall.severity, FindingSeverity.LOW)
-        self.assertIn("internal air 16.2 K above the ambient", wall.description)
-        self.assertIn("at 4 or 6 W/m2K the rise would be 20.2 or 13.5 K.", wall.description)
+        self.assertIn("internal air runs 31.3 K above the ambient, 16.2 K of it through the walls",
+                      wall.description)
+        self.assertIn("at 4 or 6 W/m2K the rise would be 35.4 or 28.6 K.", wall.description)
         self.assertNotIn("size is the default", wall.description)
         # What TE-002 counts in the model's uncertainty: 2.7 K cooler at 6 W/m2K.
         from cfd_model import default_wall_air_uncertainty_k

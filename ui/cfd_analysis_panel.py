@@ -88,6 +88,10 @@ class CFDAnalysisPanel(wx.Panel):
         self.offset_y = wx.TextCtrl(parent, value="0")
         self.offset_z = wx.TextCtrl(parent, value="15")
         self.wall_h = wx.TextCtrl(parent, value="5")
+        self.wall_h.SetToolTip(_(
+            "From the enclosure's walls to the room around it: the wall's conduction, its outer "
+            "convection and radiation. The air's film against the walls inside is computed."
+        ))
         rows = [
             ("Width (mm):", self.width, "Depth (mm):", self.depth, "Height (mm):", self.height),
             ("Orientation:", self.orientation, "Offset X (mm):", self.offset_x, "Offset Y (mm):", self.offset_y),

@@ -13,7 +13,7 @@ from analysis_contract import (
 )
 from ac_model import target_mask
 from rule_guide import FindingNature, rule_nature
-from cfd_model import enclosure_air_rise_k, wall_coefficient_is_default
+from cfd_model import enclosure_air_rise_k, enclosure_wall_rise_k, wall_coefficient_is_default
 from models import EnclosureGeometrySettings
 from physical_constants import (
     COPPER_RESISTIVITY_OHM_M, COPPER_RESISTIVITY_REFERENCE_C, DEFAULT_BOARD_THICKNESS_MM,
@@ -1425,7 +1425,8 @@ def _thermal_fallback_stage_limitations(power_stage_reports: Any) -> list:
 ESTIMATED_EFFICIENCY_HEAT_SHARE = 0.05
 
 
-def _enclosure_default_findings(enclosure: Any, air_rise_k: Any, applied: bool) -> list:
+def _enclosure_default_findings(enclosure: Any, air_rise_k: Any, applied: bool,
+                                heat_w: float = 0.0) -> list:
     """TH-009 when the enclosure the thermal analysis balanced its ambient
     against still has the default wall coefficient.
 
@@ -1440,6 +1441,10 @@ def _enclosure_default_findings(enclosure: Any, air_rise_k: Any, applied: bool) 
     defaults = EnclosureGeometrySettings()
     wall = float(geometry.wall_heat_transfer_w_m2k)
     rise = float(air_rise_k)
+    # Only the rise through the walls follows their coefficient; the film
+    # from the air to the walls does not.
+    through = min(rise, enclosure_wall_rise_k(enclosure, heat_w)) if heat_w > 0.0 else rise
+    film = rise - through
     size = ("width_mm", "depth_mm", "height_mm")
     size_default = all(
         math.isclose(float(getattr(geometry, name)), float(getattr(defaults, name))) for name in size
@@ -1448,14 +1453,17 @@ def _enclosure_default_findings(enclosure: Any, air_rise_k: Any, applied: bool) 
         "TH-009", 1, "MODEL_INPUT", FindingSeverity.LOW,
         "Enclosure wall coefficient left at its default",
         f"The enclosure's walls pass its heat outside at the default {wall:g} W/m2K, which nothing "
-        f"sets. It puts the internal air {rise:.1f} K above the ambient, and every temperature on "
-        f"the board with it; at {wall - 1:g} or {wall + 1:g} W/m2K the rise would be "
-        f"{rise * wall / (wall - 1):.1f} or {rise * wall / (wall + 1):.1f} K."
+        f"sets. The internal air runs {rise:.1f} K above the ambient, {through:.1f} K of it through "
+        f"the walls, and every temperature on the board with it; at {wall - 1:g} or {wall + 1:g} "
+        f"W/m2K the rise would be {film + through * wall / (wall - 1):.1f} or "
+        f"{film + through * wall / (wall + 1):.1f} K."
         + (" The enclosure's size is the default "
            f"{geometry.width_mm:g} x {geometry.depth_mm:g} x {geometry.height_mm:g} mm too."
            if size_default else ""),
-        "Enter the enclosure's wall coefficient, from the inside air to the outside, for its "
-        "material, finish and surroundings, as Wall h on the Enclosure CFD page.",
+        "Enter the enclosure's wall coefficient, from its walls to the room around it (the "
+        "wall's conduction, its outer convection and radiation), for its material, finish and "
+        "surroundings, as Wall h on the Enclosure CFD page; the air's film against the walls "
+        "inside is computed.",
         confidence=EvidenceConfidence.DETERMINISTIC,
     )
     return [finding]
@@ -1672,7 +1680,8 @@ def _thermal_enclosure_metrics_evidence_limitations(
         "ENCLOSURE_AMBIENT",
         f"Solved at internal air {internal_air_c:.1f} C (ambient + {rise_k:.1f} K from the "
         "enclosure heat balance), not the bare configured ambient.",
-        reference="enclosure heat balance: rise = Q / (h * A_walls)",
+        reference="enclosure heat balance: Q / (h * A_walls) through the walls, plus the "
+                  "natural-convection film from the air to the walls",
     )]
     return metrics, evidence, []
 
@@ -1823,6 +1832,7 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
     ))
     findings.extend(_enclosure_default_findings(
         enclosure, enclosure_air_rise_k, enclosure_ambient_applied,
+        float(getattr(domain_result, "total_input_power_w", 0.0) or 0.0),
     ))
     hotspot = getattr(domain_result, "hotspot", None)
     # A note (TH-007, an INFO TH-008) leaves the analysis passing.
@@ -2054,7 +2064,8 @@ def adapt_cfd_result(mesh: Any, domain_result: Any, *, copper_loss_source: str =
             ))
     overall_status = AnalysisStatus.WARN if findings else AnalysisStatus.PASS
     # The one number a sealed box's coarse mesh does not need resolving to
-    # defend: Q / (h * A_walls). docs/audit-2026-09-23.md CFD-4 -- P02 Rev E
+    # defend: the lumped balance, through the walls and from the air to
+    # them (cfd_model.enclosure_air_rise_k). docs/audit-2026-09-23.md CFD-4 -- P02 Rev E
     # published solid 573.9 C / air 404.7 C as its metrics and never this,
     # even though it is the figure the thermal analysis's own ambient should
     # use (COH-4). Requires settings (the enclosure geometry); older callers
@@ -2076,8 +2087,8 @@ def adapt_cfd_result(mesh: Any, domain_result: Any, *, copper_loss_source: str =
             headline_metrics = []
     # The solved field's own mean air, which the thermal analysis's enclosure
     # balance can be checked against: the internal ambient above is the same
-    # Q / (h * A) the thermal analysis uses, and comparing the two only
-    # compared their heat (P02 Rev E, 61.2 against 60.65 C).
+    # balance the thermal analysis uses, and comparing the two only compared
+    # their heat (P02 Rev E, 61.2 against 60.65 C).
     air = [float(value) for value in (getattr(domain_result, "air_temperature_c", None) or ())
            if value == value]
     if air:

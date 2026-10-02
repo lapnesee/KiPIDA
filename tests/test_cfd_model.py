@@ -1,6 +1,8 @@
 import unittest
 
-from cfd_model import EnclosureModelBuilder, enclosure_air_rise_k, fit_unset_enclosure
+from cfd_model import (
+    EnclosureModelBuilder, enclosure_air_rise_k, enclosure_wall_rise_k, fit_unset_enclosure,
+)
 from models import EnclosureCFDSettings, ThermalComponentModel
 from thermal_model import CopperLossPoint, ThermalBoardModel, ThermalPlacement
 
@@ -113,7 +115,21 @@ class TestEnclosureAirRise(unittest.TestCase):
         settings.geometry.height_mm = 50.0
         settings.geometry.wall_heat_transfer_w_m2k = 5.0
 
-        self.assertAlmostEqual(enclosure_air_rise_k(settings, 4.755), 16.0, places=1)
+        self.assertAlmostEqual(enclosure_wall_rise_k(settings, 4.755), 16.0, places=1)
+
+    def test_the_air_is_warmer_than_the_walls_it_heats(self):
+        # P02 Rev E, 2026-10-02 22:13: the thermal analysis put its board in
+        # 61.2 C air, the walls' balance alone, where the enclosure CFD solved
+        # a 77.6 C mean; the air-to-wall film brings the balance to 76.3 C,
+        # within the 3 K the report's cross-check allows.
+        settings = EnclosureCFDSettings(ambient_c=45.0)
+        settings.geometry.width_mm = 165.0
+        settings.geometry.depth_mm = 100.0
+        settings.geometry.height_mm = 50.0
+        settings.geometry.wall_heat_transfer_w_m2k = 5.0
+
+        self.assertAlmostEqual(45.0 + enclosure_air_rise_k(settings, 4.82), 76.3, places=1)
+        self.assertLess(abs(45.0 + enclosure_air_rise_k(settings, 4.82) - 77.6), 3.0)
 
 
 if __name__ == "__main__":

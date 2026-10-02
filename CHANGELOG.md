@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+The enclosure's internal air now includes the film from the air to the
+walls, which the enclosure CFD resolves and the thermal balance left out:
+on P02, 76.3 C instead of 61.2 C, against the CFD's 77.6 C. Every thermal
+temperature in an enclosure rises with it, about 15 K on P02.
 In a batch, each analysis's compute time in the report is the time the
 log gives it ("completed in 8.20s"), not a partial sum its own code made.
 The French log no longer leaves English phrases inside its lines:

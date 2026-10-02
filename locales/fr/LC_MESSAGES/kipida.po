@@ -5332,8 +5332,8 @@ msgstr "Coefficient de paroi du boîtier laissé par défaut"
 msgid "Rerun thermal after entering the coefficient: the finding should not return."
 msgstr "Relancez le thermique après avoir saisi le coefficient : l’observation ne doit plus revenir."
 
-msgid "The internal air rises in inverse proportion to the enclosure's wall coefficient, and every temperature on the board with it; the default describes no real box."
-msgstr "L’air intérieur s’élève en proportion inverse du coefficient de paroi du boîtier, et toutes les températures de la carte avec lui ; la valeur par défaut ne décrit aucun boîtier réel."
+msgid "The air's rise through the walls is in inverse proportion to the enclosure's wall coefficient, and every temperature on the board moves with it; the default describes no real box."
+msgstr "La montée de l’air à travers les parois est en proportion inverse du coefficient de paroi du boîtier, et toutes les températures de la carte suivent ; la valeur par défaut ne décrit aucun boîtier réel."
 
 msgid "before the batch"
 msgstr "avant le lot"
@@ -5562,3 +5562,6 @@ msgstr "Échec de la figure de débogage du maillage : {p0}"
 
 msgid "Palace remote stop failed ({p0}); the solve may still run on {p1}."
 msgstr "L’arrêt à distance de Palace a échoué ({p0}) ; le calcul tourne peut-être encore sur {p1}."
+
+msgid "From the enclosure's walls to the room around it: the wall's conduction, its outer convection and radiation. The air's film against the walls inside is computed."
+msgstr "Des parois du boîtier à la pièce qui l’entoure : conduction de la paroi, convection et rayonnement extérieurs. Le film d’air contre les parois, à l’intérieur, est calculé."

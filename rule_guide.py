@@ -472,8 +472,9 @@ GUIDE: Dict[str, RuleGuide] = {
         _D, _LOW),
     "TH-009": RuleGuide(
         "Enclosure wall coefficient left at its default",
-        "The internal air rises in inverse proportion to the enclosure's wall coefficient, and "
-        "every temperature on the board with it; the default describes no real box.",
+        "The air's rise through the walls is in inverse proportion to the enclosure's wall "
+        "coefficient, and every temperature on the board moves with it; the default describes "
+        "no real box.",
         "Rerun thermal after entering the coefficient: the finding should not return.",
         _D, _LOW),
     "VS-001": RuleGuide(

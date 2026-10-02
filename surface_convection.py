@@ -125,6 +125,22 @@ def natural_convection_h(delta_t_k, length_m, facing="up", ambient_c=25.0,
     return max(float(minimum_h), float(h))
 
 
+def vertical_plate_h(delta_t_k, height_m, ambient_c=25.0, minimum_h=0.0):
+    """Natural-convection coefficient of a vertical plate, W/m^2K.
+
+    Nu = 0.59.Ra^(1/4) on the plate's height, the laminar vertical-plate
+    correlation (McAdams, in Incropera), for 1e4 < Ra < 1e9: an enclosure's
+    side walls, which the horizontal-plate correlations above do not cover.
+    """
+    delta_t = max(0.0, float(delta_t_k))
+    film_c = float(ambient_c) + delta_t / 2.0
+    rayleigh = rayleigh_number(delta_t, height_m, film_c)
+    if rayleigh <= 0.0:
+        return float(minimum_h)
+    h = 0.59 * rayleigh ** 0.25 * air_thermal_conductivity(film_c) / max(float(height_m), 1.0e-9)
+    return max(float(minimum_h), float(h))
+
+
 def radiation_h(emissivity, surface_c, ambient_c):
     """Radiative coefficient linearised about the *surface* temperature, W/m^2K.
 

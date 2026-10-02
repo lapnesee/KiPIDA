@@ -127,9 +127,9 @@ class UncoupledCopperLossTests(unittest.TestCase):
 class EnclosureAirRiseTests(unittest.TestCase):
     def test_matches_p02_rev_e_measured_rise(self):
         # P02 Rev E sidecar: sealed 165 x 100 x 50 mm box, walls 5 W/m2K,
-        # 4.9186 W total board heat (THERMAL.md) -> the audit's measured
-        # ~16 K mean internal air rise (CFD-4). A_walls = 2*(0.165*0.100 +
-        # 0.165*0.050 + 0.100*0.050) = 0.0595 m2; rise = 4.9186/(5*0.0595).
+        # 4.9186 W total board heat (THERMAL.md): 16.53 K through the walls,
+        # 4.9186/(5*0.0595), the audit's measured wall-cell rise (CFD-4),
+        # plus the air-to-wall film, 31.67 K in all at the default 25 C.
         from application.thermal_controller import enclosure_internal_air_rise_k
         from models import EnclosureCFDSettings, EnclosureGeometrySettings
 
@@ -138,7 +138,7 @@ class EnclosureAirRiseTests(unittest.TestCase):
             wall_heat_transfer_w_m2k=5.0,
         ))
         self.assertAlmostEqual(
-            enclosure_internal_air_rise_k(enclosure, 4.9186), 16.53, places=1,
+            enclosure_internal_air_rise_k(enclosure, 4.9186), 31.67, places=1,
         )
 
     def test_no_heat_means_no_rise(self):
@@ -205,10 +205,11 @@ class EnclosureAmbientReachesTheSolve(unittest.TestCase):
         outcome = self._engine(seen).solve(
             self._request(self._enclosure()), lambda _m: None, lambda *_: None, lambda: False,
         )
-        # P02 Rev E, 2026-09-22: 45 C ambient + ~16.5 K from 4.9186 W in a
-        # 165x100x50 mm, 5 W/m2K box (CFD-4's ~16 K measurement).
-        self.assertAlmostEqual(seen["ambient_c"], 45.0 + 16.53, places=1)
-        self.assertAlmostEqual(outcome.enclosure_air_rise_k, 16.53, places=1)
+        # P02 Rev E, 2026-09-22: 45 C ambient + 31.7 K from 4.9186 W in a
+        # 165x100x50 mm, 5 W/m2K box: 16.5 K through the walls (CFD-4's ~16 K
+        # measurement) and the film from the air to them.
+        self.assertAlmostEqual(seen["ambient_c"], 45.0 + 31.67, places=1)
+        self.assertAlmostEqual(outcome.enclosure_air_rise_k, 31.67, places=1)
         self.assertTrue(outcome.enclosure_ambient_applied)
 
     def test_disabled_keeps_ambient_but_still_reports_the_rise(self):
@@ -218,7 +219,7 @@ class EnclosureAmbientReachesTheSolve(unittest.TestCase):
             lambda _m: None, lambda *_: None, lambda: False,
         )
         self.assertAlmostEqual(seen["ambient_c"], 45.0)
-        self.assertAlmostEqual(outcome.enclosure_air_rise_k, 16.53, places=1)
+        self.assertAlmostEqual(outcome.enclosure_air_rise_k, 31.67, places=1)
         self.assertFalse(outcome.enclosure_ambient_applied)
 
     def test_no_enclosure_means_no_rise_at_all(self):

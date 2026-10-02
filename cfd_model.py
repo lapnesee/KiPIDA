@@ -9,11 +9,13 @@ try:
     from .physical_constants import (
         COPPER_THERMAL_CONDUCTIVITY_W_MK, DEFAULT_COPPER_THICKNESS_MM,
     )
+    from .surface_convection import natural_convection_h, vertical_plate_h
 except (ImportError, ValueError):
     from models import EnclosureGeometrySettings
     from physical_constants import (
         COPPER_THERMAL_CONDUCTIVITY_W_MK, DEFAULT_COPPER_THICKNESS_MM,
     )
+    from surface_convection import natural_convection_h, vertical_plate_h
 
 # In-plane conductivity of the laminate between copper layers, the 3D thermal
 # mesh's ThermalMesher.FR4_K_XY.
@@ -24,30 +26,78 @@ LAMINATE_IN_PLANE_K_W_MK = 0.8
 UNSET_ENCLOSURE_MARGIN_MM = 20.0
 
 
+def _enclosure_dimensions_m(settings):
+    geometry = settings.geometry
+    return (float(geometry.width_mm) * 1e-3, float(geometry.depth_mm) * 1e-3,
+            float(geometry.height_mm) * 1e-3)
+
+
+def enclosure_wall_rise_k(settings, heat_w: float) -> float:
+    """How much warmer than ambient the air against the walls runs.
+
+    Q = h * A_walls * rise: the wall coefficient carries the heat from the
+    air at the walls to the room, as the enclosure CFD applies it between
+    its wall-side cells and the ambient. On P02 Rev E (2026-09-22, ambient
+    45 C): 4.755 W into a 165 x 100 x 50 mm enclosure (A = 0.0595 m^2) at
+    wall_heat_transfer_w_m2k = 5 -> 16.0 K, the solved wall-cell mean of
+    61.0 C (scratchpad/audit/cfd/p02_inspect.py).
+    """
+    width_m, depth_m, height_m = _enclosure_dimensions_m(settings)
+    area_m2 = 2.0 * (width_m * depth_m + width_m * height_m + depth_m * height_m)
+    wall_h = max(1e-9, float(settings.geometry.wall_heat_transfer_w_m2k))
+    return max(0.0, float(heat_w)) / (wall_h * max(area_m2, 1e-9))
+
+
+def enclosure_film_rise_k(settings, heat_w: float, wall_rise_k=None) -> float:
+    """How much warmer the enclosed air runs than the walls it heats.
+
+    The air gives its heat to the walls by natural convection: the side
+    walls as vertical plates on the box's height, the lid as a cooled plate
+    facing down (the "up" correlation), the floor as one facing up (the
+    "down" one), solved for the film difference that carries *heat_w*. The
+    enclosure CFD resolves this film; the lumped balance used to leave it
+    out and put the air at the walls' temperature. On P02 Rev E, 2026-10-02
+    22:13, that was 61.2 C against the CFD's 77.6 C mean; the film adds
+    15.1 K, 76.3 C.
+    """
+    heat = max(0.0, float(heat_w))
+    if heat <= 0.0:
+        return 0.0
+    width_m, depth_m, height_m = _enclosure_dimensions_m(settings)
+    plan_m2 = width_m * depth_m
+    sides_m2 = 2.0 * (width_m + depth_m) * height_m
+    plan_length_m = plan_m2 / max(2.0 * (width_m + depth_m), 1e-9)
+    if wall_rise_k is None:
+        wall_rise_k = enclosure_wall_rise_k(settings, heat)
+    walls_c = float(getattr(settings, "ambient_c", 25.0) or 25.0) + float(wall_rise_k)
+    rise = 10.0
+    for _ in range(50):
+        conductance = (
+            vertical_plate_h(rise, height_m, walls_c) * sides_m2
+            + natural_convection_h(rise, plan_length_m, "up", walls_c, minimum_h=0.0) * plan_m2
+            + natural_convection_h(rise, plan_length_m, "down", walls_c, minimum_h=0.0) * plan_m2
+        )
+        updated = heat / max(conductance, 1e-9)
+        if abs(updated - rise) < 1e-6:
+            return updated
+        rise = updated
+    return rise
+
+
 def enclosure_air_rise_k(settings, heat_w: float) -> float:
     """Mean internal air temperature rise above ambient, in a sealed box.
 
-    Q = h * A_walls * rise, so rise = Q / (h * A_walls): a lumped balance
-    between the injected power and the whole enclosure's own film, not a
-    local field value. It is the only enclosure-CFD quantity that does not
-    need the flow field resolved to be defensible (docs/audit-2026-09-23.md
-    CFD-4) -- unlike the solid/air maxima, which a millimetre mesh at these
-    cell counts cannot be trusted for (CFD-003).
-
-    On P02 Rev E (2026-09-22, ambient 45 C): 4.755 W into a 165 x 100 x 50 mm
-    enclosure (A = 0.0595 m^2) at wall_heat_transfer_w_m2k = 5 -> 16.0 K,
-    matching the solved wall-cell mean of 61.0 C - 45 C ambient
-    (scratchpad/audit/cfd/p02_inspect.py). Both the CFD report and the 3D
-    thermal analysis's internal ambient use this same function (see the
-    integrator note in docs/audit-2026-09-23.md CFD-4).
+    Through the walls (enclosure_wall_rise_k) and from the air to the walls
+    (enclosure_film_rise_k): a lumped balance between the injected power and
+    the enclosure, not a local field value. It is the enclosure quantity
+    that does not need the flow field resolved to be defensible
+    (docs/audit-2026-09-23.md CFD-4) -- unlike the solid/air maxima, which a
+    millimetre mesh at these cell counts cannot be trusted for (CFD-003).
+    Both the CFD report and the 3D thermal analysis's internal ambient use
+    this same function.
     """
-    geometry = settings.geometry
-    width_m = float(geometry.width_mm) * 1e-3
-    depth_m = float(geometry.depth_mm) * 1e-3
-    height_m = float(geometry.height_mm) * 1e-3
-    area_m2 = 2.0 * (width_m * depth_m + width_m * height_m + depth_m * height_m)
-    wall_h = max(1e-9, float(geometry.wall_heat_transfer_w_m2k))
-    return max(0.0, float(heat_w)) / (wall_h * max(area_m2, 1e-9))
+    wall_rise_k = enclosure_wall_rise_k(settings, heat_w)
+    return wall_rise_k + enclosure_film_rise_k(settings, heat_w, wall_rise_k)
 
 
 def wall_coefficient_is_default(geometry) -> bool:
@@ -62,8 +112,10 @@ def wall_coefficient_is_default(geometry) -> bool:
 
 def default_wall_air_uncertainty_k(enclosure, rise_k) -> float:
     """How much cooler the internal air would be at 1 W/m2K more, when the
-    wall coefficient is the default; 0 when it was entered. P02 Rev E's
-    16.2 K rise at the default 5 W/m2K is 13.5 K at 6: 2.7 K."""
+    wall coefficient is the default; 0 when it was entered. *rise_k* is the
+    rise through the walls (enclosure_wall_rise_k), the part the wall
+    coefficient sets: P02 Rev E's 16.2 K at the default 5 W/m2K is 13.5 K at
+    6, 2.7 K."""
     geometry = getattr(enclosure, "geometry", None)
     if rise_k is None or not wall_coefficient_is_default(geometry):
         return 0.0

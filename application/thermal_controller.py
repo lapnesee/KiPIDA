@@ -7,7 +7,9 @@ import time
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from application.dc_controller import DefaultDCSolverEngine, unsolved_rails_reason
-from cfd_model import default_wall_air_uncertainty_k, enclosure_air_rise_k
+from cfd_model import (
+    default_wall_air_uncertainty_k, enclosure_air_rise_k, enclosure_wall_rise_k,
+)
 from electrothermal import ElectroThermalSolver
 from thermal_mesh import ThermalMesher
 from thermal_model import CopperLossPoint
@@ -177,10 +179,12 @@ def dc_copper_loss_points(system_results, resistance_scale=1.0):
 def enclosure_internal_air_rise_k(enclosure, heat_w):
     """Steady mean rise of a sealed enclosure's internal air above ambient.
 
-    The CFD report's own lumped balance, Q = h * A_walls * rise
-    (cfd_model.enclosure_air_rise_k), so both analyses state one number.
-    On P02 Rev E's sealed 165 x 100 x 50 mm box (walls 5 W/m2K, ~4.9 W of
-    board heat) it is 16.5 K, the audit's measured ~16 K (CFD-4).
+    The CFD report's own lumped balance (cfd_model.enclosure_air_rise_k),
+    so both analyses state one number: the rise through the walls plus the
+    film from the air to the walls. On P02 Rev E's sealed 165 x 100 x 50 mm
+    box (walls 5 W/m2K, 4.82 W) it is 16.2 + 15.1 K, the air at 76.3 C
+    where its enclosure CFD solved a 77.6 C mean; through the walls alone,
+    61.2 C, it left the board's air 16 K too cool.
     """
     return enclosure_air_rise_k(enclosure, heat_w)
 
@@ -297,11 +301,14 @@ class ThermalSolverEngine:
         # cache key, mesh sensitivity -- sees it for free.
         enclosure = getattr(request, "enclosure", None)
         enclosure_air_rise_k = None
+        enclosure_heat_w = None
         outside_ambient_c = float(request.settings.ambient_c)
         ambient_for_heat_w = None
         if enclosure is not None:
             heat_w = _estimate_total_heat_w(model, request.coupled, system_results)
+            enclosure_heat_w = heat_w
             enclosure_air_rise_k = enclosure_internal_air_rise_k(enclosure, heat_w)
+            wall_rise_k = enclosure_wall_rise_k(enclosure, heat_w)
             if getattr(request.settings, "apply_enclosure_ambient", True):
                 elevated_settings = copy.copy(request.settings)
                 elevated_settings.ambient_c = float(request.settings.ambient_c) + enclosure_air_rise_k
@@ -316,7 +323,8 @@ class ThermalSolverEngine:
                     "Enclosure configured (sealed box, wall h="
                     f"{float(enclosure.geometry.wall_heat_transfer_w_m2k):.3g} W/m2K): "
                     f"solving at internal air {elevated_settings.ambient_c:.3g} C (ambient + "
-                    f"{enclosure_air_rise_k:.3g} K from the enclosure heat balance, "
+                    f"{wall_rise_k:.3g} K through the walls + "
+                    f"{enclosure_air_rise_k - wall_rise_k:.3g} K from the air to the walls, "
                     f"{heat_w:.3g} W estimated)."
                 )
             else:
@@ -397,6 +405,7 @@ class ThermalSolverEngine:
                     f"{balanced_rise_k - enclosure_air_rise_k:+.2g} K on the estimate)."
                 )
                 enclosure_air_rise_k = balanced_rise_k
+                enclosure_heat_w = float(coupled_result.total_heat_w)
         else:
             coupled_result = None
             # Natural convection and radiation both depend on the surface
@@ -424,7 +433,7 @@ class ThermalSolverEngine:
             result.mesh_sensitivity = dict(mesh_sensitivity or {})
         if enclosure_air_rise_k is not None and getattr(request.settings, "apply_enclosure_ambient", True):
             result.ambient_uncertainty_k = default_wall_air_uncertainty_k(
-                enclosure, enclosure_air_rise_k,
+                enclosure, enclosure_wall_rise_k(enclosure, enclosure_heat_w),
             )
         return ThermalRunOutcome(
             mesh=mesh,
