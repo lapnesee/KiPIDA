@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Ki-PIDA\n"
-"POT-Creation-Date: 2026-10-02 14:46+0000\n"
+"POT-Creation-Date: 2026-10-02 14:53+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -545,7 +545,7 @@ msgstr ""
 msgid "AC target impedance: {p0}."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:334
+#: ui/emc_analysis_panel.py:362
 msgid "Accept new host key"
 msgstr ""
 
@@ -589,7 +589,7 @@ msgstr ""
 msgid "Add Manual Pair"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:395
+#: ui/emc_analysis_panel.py:423
 msgid "Add Manual Source"
 msgstr ""
 
@@ -921,7 +921,7 @@ msgstr ""
 msgid "Board cavity resonances estimated"
 msgstr ""
 
-#: analysis_adapters.py:936
+#: analysis_adapters.py:937
 #, python-brace-format
 msgid "Board could not be read for remediation sizing: {p0}"
 msgstr ""
@@ -987,7 +987,7 @@ msgstr ""
 msgid "Cable length (m):"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:388
+#: ui/emc_analysis_panel.py:416
 msgid "Cable m"
 msgstr ""
 
@@ -1013,7 +1013,7 @@ msgstr ""
 msgid "Campaign schema {version}"
 msgstr ""
 
-#: ui/component_selector.py:93
+#: ui/component_selector.py:108
 msgid "Cancel"
 msgstr ""
 
@@ -1226,7 +1226,7 @@ msgstr ""
 msgid "Checks that passed. Read them as what the analyses covered, not as a guarantee."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:296
+#: ui/emc_analysis_panel.py:324
 msgid "Circuit source:"
 msgstr ""
 
@@ -1375,7 +1375,7 @@ msgstr ""
 msgid "Compute Backend"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:239
+#: ui/emc_analysis_panel.py:267
 msgid "Compute electric and magnetic maps"
 msgstr ""
 
@@ -1383,7 +1383,7 @@ msgstr ""
 msgid "Compute metadata"
 msgstr ""
 
-#: ui/differential_analysis_panel.py:141 ui/differential_analysis_panel.py:166 ui/emc_analysis_panel.py:389 ui/emc_analysis_panel.py:409 ui/results_workspace.py:64
+#: ui/differential_analysis_panel.py:141 ui/differential_analysis_panel.py:166 ui/emc_analysis_panel.py:417 ui/emc_analysis_panel.py:437 ui/results_workspace.py:64
 msgid "Confidence"
 msgstr ""
 
@@ -1441,11 +1441,11 @@ msgstr ""
 msgid "Connected to an external cable"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:505
+#: ui/emc_analysis_panel.py:533
 msgid "Connecting..."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:350
+#: ui/emc_analysis_panel.py:378
 msgid "Connection timeout (s):"
 msgstr ""
 
@@ -1454,7 +1454,7 @@ msgstr ""
 msgid "Connectivity diagnostic failed: {p0}"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:228
+#: ui/emc_analysis_panel.py:256
 msgid "Connector prefixes:"
 msgstr ""
 
@@ -1723,16 +1723,21 @@ msgstr ""
 msgid "CuPy: {version}"
 msgstr ""
 
-#: ui/component_selector.py:29
+#: ui/component_selector.py:43
 msgid "Current (A):"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:389
+#: ui/emc_analysis_panel.py:417
 msgid "Current A"
 msgstr ""
 
 #: plotter.py:278
 msgid "Current density (A/mm²)"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:165
+#, python-brace-format
+msgid "current {} A"
 msgstr ""
 
 #: ui/regulator_dialog.py:198
@@ -1767,7 +1772,7 @@ msgstr ""
 msgid "Custom thermal colour minimum must be above absolute zero."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:367
+#: ui/emc_analysis_panel.py:395
 msgid "Data disclosure: the directory containing the selected Palace JSON, mesh, and associated files is transferred to this LAN server. No password is stored."
 msgstr ""
 
@@ -1888,6 +1893,10 @@ msgstr ""
 msgid "Dedicated non-electrical layers: X.Thermal.Top / X.Thermal.Bottom."
 msgstr ""
 
+#: ui/emc_analysis_panel.py:177
+msgid "Defaults kept: "
+msgstr ""
+
 #: ui/results_workspace.py:479
 msgid "Delete every saved Ki-PIDA result for this PCB?"
 msgstr ""
@@ -1938,7 +1947,7 @@ msgstr ""
 msgid "Detailed"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:382
+#: ui/emc_analysis_panel.py:410
 msgid "Detected and Manual Emission Sources"
 msgstr ""
 
@@ -2009,7 +2018,7 @@ msgstr ""
 msgid "Differential analysis · running"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:305
+#: ui/emc_analysis_panel.py:333
 msgid "Differential excitation:"
 msgstr ""
 
@@ -2169,11 +2178,11 @@ msgstr ""
 msgid "Edit Regulator"
 msgstr ""
 
-#: ui/differential_analysis_panel.py:150 ui/emc_analysis_panel.py:396
+#: ui/differential_analysis_panel.py:150 ui/emc_analysis_panel.py:424
 msgid "Edit Selected"
 msgstr ""
 
-#: ui/ac_analysis_panel.py:206 ui/emc_analysis_panel.py:414 ui/thermal_analysis_panel.py:218
+#: ui/ac_analysis_panel.py:206 ui/emc_analysis_panel.py:442 ui/thermal_analysis_panel.py:218
 msgid "Edit Selected Model"
 msgstr ""
 
@@ -2279,26 +2288,26 @@ msgstr ""
 msgid "EMI/EMC Setup Error: {p0}"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:683 ui/emc_analysis_panel.py:695
+#: ui/emc_analysis_panel.py:711 ui/emc_analysis_panel.py:723
 msgid "EMI/EMC source"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:661
+#: ui/emc_analysis_panel.py:689
 #, python-brace-format
 msgid "EMI/EMC source scan complete: {p0} candidate(s)."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:623
+#: ui/emc_analysis_panel.py:651
 #, python-brace-format
 msgid "EMI/EMC sources keep the default swing: the board's parts could not be read ({p0})."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:643
+#: ui/emc_analysis_panel.py:671
 #, python-brace-format
 msgid "EMI/EMC sources take no frequency from the project's parts: its saved files could not be read ({p0})."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:724
+#: ui/emc_analysis_panel.py:752
 msgid "EMI/EMC stop frequency must be greater than the positive start frequency."
 msgstr ""
 
@@ -2318,7 +2327,7 @@ msgstr ""
 msgid "EMI/EMC · running"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:641
+#: ui/emc_analysis_panel.py:669
 #, python-brace-format
 msgid "EMI/EMC: ground nets declared by ground symbols added: {p0}."
 msgstr ""
@@ -2332,7 +2341,7 @@ msgstr ""
 msgid "Emission estimates"
 msgstr ""
 
-#: ui/differential_analysis_panel.py:152 ui/emc_analysis_panel.py:397
+#: ui/differential_analysis_panel.py:152 ui/emc_analysis_panel.py:425
 msgid "Enable / Disable"
 msgstr ""
 
@@ -2352,11 +2361,11 @@ msgstr ""
 msgid "Enable Debug Log"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:272
+#: ui/emc_analysis_panel.py:300
 msgid "Enable full-wave backend"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:268
+#: ui/emc_analysis_panel.py:296
 msgid "Enable Phase 10 pipeline"
 msgstr ""
 
@@ -2456,7 +2465,7 @@ msgstr ""
 msgid "Engineering workspace"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:159
+#: ui/emc_analysis_panel.py:186
 msgid "Enter a source net name."
 msgstr ""
 
@@ -2468,7 +2477,7 @@ msgstr ""
 msgid "Enter at least one ground reference net."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:793
+#: ui/emc_analysis_panel.py:821
 msgid "Enter at least one ground-net alias."
 msgstr ""
 
@@ -2478,6 +2487,10 @@ msgstr ""
 
 #: emc_analyzer.py:2402
 msgid "Enter the inputs the uncertainty rests on and rerun the thermal analysis at a finer grid; if the excess holds, use a dielectric rated higher (X7R, 125 C)."
+msgstr ""
+
+#: ui/component_selector.py:11 ui/component_selector.py:13
+msgid "Enter the load's current in A."
 msgstr ""
 
 #: emc_analyzer.py:2277
@@ -2629,7 +2642,7 @@ msgstr ""
 msgid "Evidence: {evidence}"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:297
+#: ui/emc_analysis_panel.py:325
 msgid "Execution:"
 msgstr ""
 
@@ -2641,7 +2654,7 @@ msgstr ""
 msgid "Expert / custom"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:388
+#: ui/emc_analysis_panel.py:416
 msgid "External"
 msgstr ""
 
@@ -2653,7 +2666,7 @@ msgstr ""
 msgid "External interface:"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:375
+#: ui/emc_analysis_panel.py:403
 msgid "External solvers run in isolated processes. Relative spectra are never compared with regulatory limits until calibrated far-field data are available."
 msgstr ""
 
@@ -2801,7 +2814,7 @@ msgstr ""
 msgid "Frequency (Hz)"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:250
+#: ui/emc_analysis_panel.py:278
 msgid "Frequency (MHz, 0=first in-band harmonics):"
 msgstr ""
 
@@ -2821,20 +2834,25 @@ msgstr ""
 msgid "Frequency unknown: nothing in the project states it, so no harmonic or field estimate uses this source until it is entered."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:166 ui/emc_analysis_panel.py:167
+#: ui/emc_analysis_panel.py:193 ui/emc_analysis_panel.py:194
 msgid "Frequency, cable length, voltage and current must be non-negative; rise time must be positive."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:298
+#: ui/emc_analysis_panel.py:326
 msgid "Full-wave backend:"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:297
+#: ui/emc_analysis_panel.py:325
 msgid "Full-wave:"
 msgstr ""
 
 #: ui/emc_analysis_panel.py:133
 msgid "Fundamental (MHz):"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:162
+#, python-brace-format
+msgid "fundamental {} MHz"
 msgstr ""
 
 #: rule_guide.py:196
@@ -2845,7 +2863,7 @@ msgstr ""
 msgid "Gauge pressure (Pa):"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:270
+#: ui/emc_analysis_panel.py:298
 msgid "Generate ngspice excitations"
 msgstr ""
 
@@ -2887,7 +2905,7 @@ msgstr ""
 msgid "Glossary"
 msgstr ""
 
-#: ui/differential_analysis_panel.py:197 ui/emc_analysis_panel.py:221
+#: ui/differential_analysis_panel.py:197 ui/emc_analysis_panel.py:249
 msgid "GND, AGND, DGND, PGND"
 msgstr ""
 
@@ -2906,7 +2924,7 @@ msgstr ""
 msgid "Grid setup: {p0}x{p1} points, bounds ({p2},{p3}) to ({p4},{p5})"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:248 ui/thermal_analysis_panel.py:140
+#: ui/emc_analysis_panel.py:276 ui/thermal_analysis_panel.py:140
 msgid "Grid size (mm):"
 msgstr ""
 
@@ -2922,7 +2940,7 @@ msgstr ""
 msgid "Ground reference nets:"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:227
+#: ui/emc_analysis_panel.py:255
 msgid "Ground-net aliases:"
 msgstr ""
 
@@ -2974,7 +2992,7 @@ msgstr ""
 msgid "Host"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:349
+#: ui/emc_analysis_panel.py:377
 msgid "Host-key policy:"
 msgstr ""
 
@@ -3088,7 +3106,7 @@ msgstr ""
 msgid "Inductor magnetic models"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:707
+#: ui/emc_analysis_panel.py:735
 msgid "Inductor model"
 msgstr ""
 
@@ -3227,7 +3245,7 @@ msgstr ""
 msgid "Invalid Thermal Model"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:410
+#: ui/emc_analysis_panel.py:438
 msgid "Iout A"
 msgstr ""
 
@@ -3244,7 +3262,7 @@ msgstr ""
 msgid "Iterations:"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:222
+#: ui/emc_analysis_panel.py:250
 msgid "J, P, CN"
 msgstr ""
 
@@ -3264,7 +3282,7 @@ msgstr ""
 msgid "Junction temperature (Tj)"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:339
+#: ui/emc_analysis_panel.py:367
 msgid "Keep remote job files for reproducibility"
 msgstr ""
 
@@ -3276,7 +3294,7 @@ msgstr ""
 msgid "Key figures"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:410
+#: ui/emc_analysis_panel.py:438
 msgid "kHz"
 msgstr ""
 
@@ -3391,7 +3409,7 @@ msgstr ""
 msgid "KiPIDA"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:408
+#: ui/emc_analysis_panel.py:436
 msgid "L (uH)"
 msgstr ""
 
@@ -3520,6 +3538,10 @@ msgstr ""
 msgid "Live PCB refresh warning: {p0}"
 msgstr ""
 
+#: ui/component_selector.py:134
+msgid "Load"
+msgstr ""
+
 #: ui/power_tree_panel.py:121
 msgid "Load Config"
 msgstr ""
@@ -3599,7 +3621,7 @@ msgstr ""
 msgid "Margin"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:224
+#: ui/emc_analysis_panel.py:252
 msgid "Market:"
 msgstr ""
 
@@ -3623,15 +3645,15 @@ msgstr ""
 msgid "Max junction (C):"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:302
+#: ui/emc_analysis_panel.py:330
 msgid "Maximum cells:"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:301
+#: ui/emc_analysis_panel.py:329
 msgid "Maximum regions:"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:303
+#: ui/emc_analysis_panel.py:331
 msgid "Maximum time steps:"
 msgstr ""
 
@@ -3705,7 +3727,7 @@ msgstr ""
 msgid "Mesh Resolution (mm):"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:301
+#: ui/emc_analysis_panel.py:329
 msgid "Mesh resolution (mm):"
 msgstr ""
 
@@ -3717,7 +3739,7 @@ msgstr ""
 msgid "metric keys must be unique within one result"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:388
+#: ui/emc_analysis_panel.py:416
 msgid "MHz"
 msgstr ""
 
@@ -3781,7 +3803,7 @@ msgstr ""
 msgid "Move the route inward or add a grounded edge guard with stitching vias."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:348
+#: ui/emc_analysis_panel.py:376
 msgid "MPI processes:"
 msgstr ""
 
@@ -3789,7 +3811,7 @@ msgstr ""
 msgid "Multiple ground domains"
 msgstr ""
 
-#: ui/cfd_analysis_panel.py:146 ui/emc_analysis_panel.py:387
+#: ui/cfd_analysis_panel.py:146 ui/emc_analysis_panel.py:415
 msgid "Name"
 msgstr ""
 
@@ -3813,7 +3835,7 @@ msgstr ""
 msgid "Near saturation, inductance collapses and the current peak rises quickly."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:235
+#: ui/emc_analysis_panel.py:263
 msgid "Near-field E/H Simulation"
 msgstr ""
 
@@ -3826,7 +3848,7 @@ msgstr ""
 msgid "Near-field grid size must be positive."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:736 ui/emc_analysis_panel.py:737
+#: ui/emc_analysis_panel.py:764 ui/emc_analysis_panel.py:765
 msgid "Near-field height/grid size must be positive and its frequency must be non-negative."
 msgstr ""
 
@@ -3846,7 +3868,7 @@ msgstr ""
 msgid "Negative net:"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:387
+#: ui/emc_analysis_panel.py:415
 msgid "Net"
 msgstr ""
 
@@ -3876,11 +3898,11 @@ msgstr ""
 msgid "Nets: {nets}"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:299
+#: ui/emc_analysis_panel.py:327
 msgid "ngspice executable:"
 msgstr ""
 
-#: ui/ac_analysis_panel.py:471 ui/differential_analysis_panel.py:237 ui/emc_analysis_panel.py:539 ui/emc_analysis_panel.py:545 ui/runtime_settings_panel.py:208 ui/thermal_analysis_panel.py:348
+#: ui/ac_analysis_panel.py:471 ui/differential_analysis_panel.py:237 ui/emc_analysis_panel.py:567 ui/emc_analysis_panel.py:573 ui/runtime_settings_panel.py:208 ui/thermal_analysis_panel.py:348
 msgid "No"
 msgstr ""
 
@@ -3946,7 +3968,7 @@ msgstr ""
 msgid "No domain produced a result."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:436
+#: ui/emc_analysis_panel.py:464
 msgid "No EMI/EMC analysis has been run in this session."
 msgstr ""
 
@@ -4111,7 +4133,7 @@ msgstr ""
 msgid "not prepared"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:560
+#: ui/emc_analysis_panel.py:588
 msgid "Not quantified"
 msgstr ""
 
@@ -4123,7 +4145,7 @@ msgstr ""
 msgid "not run"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:359
+#: ui/emc_analysis_panel.py:387
 msgid "Not tested — OpenSSH key or agent authentication is required."
 msgstr ""
 
@@ -4201,11 +4223,11 @@ msgstr ""
 msgid "One resistance scale is required for every mesh branch."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:299
+#: ui/emc_analysis_panel.py:327
 msgid "openEMS root:"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:276
+#: ui/emc_analysis_panel.py:304
 msgid "openEMS — local"
 msgstr ""
 
@@ -4233,7 +4255,7 @@ msgstr ""
 msgid "Orientation:"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:388
+#: ui/emc_analysis_panel.py:416
 msgid "Origin"
 msgstr ""
 
@@ -4281,11 +4303,11 @@ msgstr ""
 msgid "Pair"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:347
+#: ui/emc_analysis_panel.py:375
 msgid "Palace config JSON:"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:326
+#: ui/emc_analysis_panel.py:354
 msgid "Palace configuration (*.json)|*.json|All files (*.*)|*.*"
 msgstr ""
 
@@ -4293,11 +4315,11 @@ msgstr ""
 msgid "Palace connection and run timeouts must be positive."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:502
+#: ui/emc_analysis_panel.py:530
 msgid "Palace connection settings"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:346
+#: ui/emc_analysis_panel.py:374
 msgid "Palace executable:"
 msgstr ""
 
@@ -4322,7 +4344,7 @@ msgstr ""
 msgid "Palace server host must be a DNS name or numeric LAN address."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:311
+#: ui/emc_analysis_panel.py:339
 msgid "Palace server on local network"
 msgstr ""
 
@@ -4344,7 +4366,7 @@ msgstr ""
 msgid "Palace {p0} contains unsupported characters."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:276
+#: ui/emc_analysis_panel.py:304
 msgid "Palace — LAN server"
 msgstr ""
 
@@ -4397,7 +4419,7 @@ msgstr ""
 msgid "Per analysis. FAIL on a CRITICAL finding, or a HIGH one resting on a fact, a measurement or a datasheet. WARN on any other HIGH, or a MEDIUM. PASS otherwise. A limit of the calculation gives WARN at most. The verdict at the top fails as soon as one item is to fix before manufacture."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:306
+#: ui/emc_analysis_panel.py:334
 msgid "Per-leg impedance (ohm):"
 msgstr ""
 
@@ -4409,11 +4431,11 @@ msgstr ""
 msgid "Phase (deg)"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:783 ui/emc_analysis_panel.py:784
+#: ui/emc_analysis_panel.py:811 ui/emc_analysis_panel.py:812
 msgid "Phase 10 requires positive mesh/timeout values, at least 1,000 cells and at least 100 time steps."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:263
+#: ui/emc_analysis_panel.py:291
 msgid "Phase 10 — Multi-fidelity EMC"
 msgstr ""
 
@@ -4433,7 +4455,7 @@ msgstr ""
 msgid "Pillow is required to create a KiCad heat overlay."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:296
+#: ui/emc_analysis_panel.py:324
 msgid "Pipeline:"
 msgstr ""
 
@@ -4531,7 +4553,7 @@ msgstr ""
 msgid "Pre-compliance"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:211
+#: ui/emc_analysis_panel.py:239
 msgid "Pre-compliance Target"
 msgstr ""
 
@@ -4578,7 +4600,7 @@ msgstr ""
 msgid "Priority {rank} (see \"Priority\" under How to read this report)."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:246
+#: ui/emc_analysis_panel.py:274
 msgid "Probe height (mm):"
 msgstr ""
 
@@ -4612,7 +4634,7 @@ msgstr ""
 msgid "Quantified parallel trace coupling"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:256
+#: ui/emc_analysis_panel.py:284
 msgid "Quasi-static engineering estimate. Source voltage/current are edited in the source list; continuous adjacent GND is approximated by an image return. With frequency set to 0, each source is evaluated at its first harmonic inside the selected compliance band."
 msgstr ""
 
@@ -4680,7 +4702,7 @@ msgstr ""
 msgid "Read those parts' ratings at the temperature found."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:519
+#: ui/emc_analysis_panel.py:547
 msgid "Ready — "
 msgstr ""
 
@@ -4701,7 +4723,7 @@ msgstr ""
 msgid "Reduce signal-to-reference spacing in the fabrication stackup."
 msgstr ""
 
-#: ui/ac_analysis_panel.py:197 ui/emc_analysis_panel.py:408 ui/power_tree_panel.py:147 ui/thermal_analysis_panel.py:210
+#: ui/ac_analysis_panel.py:197 ui/emc_analysis_panel.py:436 ui/power_tree_panel.py:147 ui/thermal_analysis_panel.py:210
 msgid "Ref"
 msgstr ""
 
@@ -4775,7 +4797,7 @@ msgstr ""
 msgid "Relaxation:"
 msgstr ""
 
-#: analysis_adapters.py:1001 analysis_adapters.py:1076
+#: analysis_adapters.py:1002 analysis_adapters.py:1077
 #, python-brace-format
 msgid "Remediation sizing failed for {p0}: {p1}"
 msgstr ""
@@ -4784,11 +4806,11 @@ msgstr ""
 msgid "Remediation.action must not be empty"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:345
+#: ui/emc_analysis_panel.py:373
 msgid "Remote job root:"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:351
+#: ui/emc_analysis_panel.py:379
 msgid "Remote retention:"
 msgstr ""
 
@@ -5043,12 +5065,17 @@ msgstr ""
 msgid "Ripple current p-p (A):"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:388
+#: ui/emc_analysis_panel.py:416
 msgid "Rise ns"
 msgstr ""
 
 #: ui/emc_analysis_panel.py:133
 msgid "Rise time (ns):"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:163
+#, python-brace-format
+msgid "rise time {} ns"
 msgstr ""
 
 #: crosstalk_2d.py:112 crosstalk_2d.py:128 crosstalk_2d.py:99
@@ -5063,7 +5090,7 @@ msgstr ""
 msgid "Risk Map"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:861 ui/emc_analysis_panel.py:862
+#: ui/emc_analysis_panel.py:889 ui/emc_analysis_panel.py:890
 #, python-brace-format
 msgid "Risk score {score}/100 — {total} findings: {critical} critical, {high} high, {medium} medium."
 msgstr ""
@@ -5080,7 +5107,7 @@ msgstr ""
 msgid "Rule"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:425
+#: ui/emc_analysis_panel.py:453
 msgid "Rule Families"
 msgstr ""
 
@@ -5161,7 +5188,7 @@ msgstr ""
 msgid "Run KiCad's ERC: the pin should be connected or marked no-connect."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:274
+#: ui/emc_analysis_panel.py:302
 msgid "Run selected backend"
 msgstr ""
 
@@ -5225,7 +5252,7 @@ msgstr ""
 msgid "Scan complete. Discovered {p0} power rail candidates."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:394
+#: ui/emc_analysis_panel.py:422
 msgid "Scan Live PCB"
 msgstr ""
 
@@ -5281,15 +5308,15 @@ msgstr ""
 msgid "Select Component"
 msgstr ""
 
-#: ui/component_selector.py:28
+#: ui/component_selector.py:42
 msgid "Select Component to use as Load:"
 msgstr ""
 
-#: ui/component_selector.py:21
+#: ui/component_selector.py:35
 msgid "Select Component to use as Voltage Source:"
 msgstr ""
 
-#: ui/component_selector.py:40
+#: ui/component_selector.py:55
 msgid "Select Component:"
 msgstr ""
 
@@ -5313,7 +5340,7 @@ msgstr ""
 msgid "Select Pads (Disabled = Already Used):"
 msgstr ""
 
-#: ui/component_selector.py:80
+#: ui/component_selector.py:95
 msgid "Select Pads:"
 msgstr ""
 
@@ -5325,15 +5352,15 @@ msgstr ""
 msgid "Select the component that dissipates the regulator loss."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:325
+#: ui/emc_analysis_panel.py:353
 msgid "Select the Palace JSON configuration"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:791
+#: ui/emc_analysis_panel.py:819
 msgid "Select the Palace JSON configuration to run remotely."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:319
+#: ui/emc_analysis_panel.py:347
 msgid "Select the SSH private key used for Palace"
 msgstr ""
 
@@ -5354,7 +5381,7 @@ msgstr ""
 msgid "Separate grounds are a choice; a signal crossing between them loses its return path."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:343
+#: ui/emc_analysis_panel.py:371
 msgid "Server host / IP:"
 msgstr ""
 
@@ -5375,11 +5402,11 @@ msgstr ""
 msgid "Severity: {severity}"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:408
+#: ui/emc_analysis_panel.py:436
 msgid "Shield"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:409
+#: ui/emc_analysis_panel.py:437
 msgid "Shield attenuation"
 msgstr ""
 
@@ -5387,7 +5414,7 @@ msgstr ""
 msgid "Shield attenuation (dB, empty if unknown):"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:419
+#: ui/emc_analysis_panel.py:447
 msgid "Shield presence is reported independently from numerical attenuation. No dB reduction is applied without a manufacturer curve or measured value."
 msgstr ""
 
@@ -5443,7 +5470,7 @@ msgstr ""
 msgid "Simulation failed"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:244
+#: ui/emc_analysis_panel.py:272
 msgid "Simulation:"
 msgstr ""
 
@@ -5459,7 +5486,7 @@ msgstr ""
 msgid "Size (mm)"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:409
+#: ui/emc_analysis_panel.py:437
 msgid "Size mm"
 msgstr ""
 
@@ -5562,7 +5589,7 @@ msgstr ""
 msgid "Sparse ground stitching"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:300
+#: ui/emc_analysis_panel.py:328
 msgid "SPICE model library:"
 msgstr ""
 
@@ -5574,15 +5601,15 @@ msgstr ""
 msgid "SSH connected, but the configured command did not identify Palace."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:343
+#: ui/emc_analysis_panel.py:371
 msgid "SSH port:"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:344
+#: ui/emc_analysis_panel.py:372
 msgid "SSH private key:"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:344
+#: ui/emc_analysis_panel.py:372
 msgid "SSH username:"
 msgstr ""
 
@@ -5615,7 +5642,7 @@ msgstr ""
 msgid "Stackup-aware differential impedance"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:224
+#: ui/emc_analysis_panel.py:252
 msgid "Standard:"
 msgstr ""
 
@@ -5623,7 +5650,7 @@ msgstr ""
 msgid "Start frequency (Hz):"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:225
+#: ui/emc_analysis_panel.py:253
 msgid "Start frequency (MHz):"
 msgstr ""
 
@@ -5655,7 +5682,7 @@ msgstr ""
 msgid "Stop frequency (Hz):"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:226
+#: ui/emc_analysis_panel.py:254
 msgid "Stop frequency (MHz):"
 msgstr ""
 
@@ -5663,7 +5690,7 @@ msgstr ""
 msgid "Stop frequency must be greater than start frequency."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:334
+#: ui/emc_analysis_panel.py:362
 msgid "Strict (known host only)"
 msgstr ""
 
@@ -5702,8 +5729,13 @@ msgstr ""
 msgid "Swept {p0} port(s); worst is '{p1}' at {p2} ohm."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:389
+#: ui/emc_analysis_panel.py:417
 msgid "Swing V"
+msgstr ""
+
+#: ui/emc_analysis_panel.py:164
+#, python-brace-format
+msgid "swing {} V"
 msgstr ""
 
 #: ui/emc_analysis_panel.py:34
@@ -5734,7 +5766,7 @@ msgstr ""
 msgid "Switching hot loop is spread out"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:403
+#: ui/emc_analysis_panel.py:431
 msgid "Switching Inductor Models"
 msgstr ""
 
@@ -5803,7 +5835,7 @@ msgstr ""
 msgid "Test CUDA"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:357
+#: ui/emc_analysis_panel.py:385
 msgid "Test Palace connection"
 msgstr ""
 
@@ -6075,7 +6107,7 @@ msgstr ""
 msgid "Thermal interaction"
 msgstr ""
 
-#: ui/component_selector.py:68
+#: ui/component_selector.py:83
 msgid "Thermal load:"
 msgstr ""
 
@@ -6217,7 +6249,7 @@ msgstr ""
 msgid "Thresholds 5 mm (MEDIUM) and 8 mm (HIGH) are this tool's heuristic for the 'at the supply pin' placement that capacitor and IC makers recommend; not a standard value."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:304
+#: ui/emc_analysis_panel.py:332
 msgid "Timeout per region (s):"
 msgstr ""
 
@@ -6285,7 +6317,7 @@ msgstr ""
 msgid "Two signal layers side by side"
 msgstr ""
 
-#: ui/cfd_analysis_panel.py:146 ui/emc_analysis_panel.py:387
+#: ui/cfd_analysis_panel.py:146 ui/emc_analysis_panel.py:415
 msgid "Type"
 msgstr ""
 
@@ -6305,7 +6337,7 @@ msgstr ""
 msgid "Unable to determine project path. Cannot save config."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:519
+#: ui/emc_analysis_panel.py:547
 msgid "Unavailable — "
 msgstr ""
 
@@ -6317,7 +6349,7 @@ msgstr ""
 msgid "Unit"
 msgstr ""
 
-#: ui/emc_analysis_panel.py:563
+#: ui/emc_analysis_panel.py:591
 msgid "Unknown"
 msgstr ""
 
@@ -6359,7 +6391,7 @@ msgstr ""
 msgid "Uploading the explicit Palace project directory to {p0}..."
 msgstr ""
 
-#: ui/ac_analysis_panel.py:197 ui/differential_analysis_panel.py:140 ui/emc_analysis_panel.py:387 ui/thermal_analysis_panel.py:210
+#: ui/ac_analysis_panel.py:197 ui/differential_analysis_panel.py:140 ui/emc_analysis_panel.py:415 ui/thermal_analysis_panel.py:210
 msgid "Use"
 msgstr ""
 
@@ -6371,7 +6403,7 @@ msgstr ""
 msgid "Use a short, wide discharge path and at least two nearby ground/chassis vias."
 msgstr ""
 
-#: ui/component_selector.py:82
+#: ui/component_selector.py:97
 msgid "Use all connected pads"
 msgstr ""
 
@@ -6387,7 +6419,7 @@ msgstr ""
 msgid "Use these frequencies to prioritise near-field and chamber measurements."
 msgstr ""
 
-#: ui/emc_analysis_panel.py:184
+#: ui/emc_analysis_panel.py:178 ui/emc_analysis_panel.py:181
 msgid "User-configured source parameters."
 msgstr ""
 
@@ -6420,7 +6452,7 @@ msgstr ""
 msgid "Value cannot be zero."
 msgstr ""
 
-#: ui/component_selector.py:61
+#: ui/component_selector.py:76
 msgid "Value:"
 msgstr ""
 
@@ -6598,7 +6630,7 @@ msgstr ""
 msgid "Y (mm)"
 msgstr ""
 
-#: ui/ac_analysis_panel.py:471 ui/differential_analysis_panel.py:237 ui/emc_analysis_panel.py:539 ui/emc_analysis_panel.py:545 ui/runtime_settings_panel.py:208 ui/thermal_analysis_panel.py:348
+#: ui/ac_analysis_panel.py:471 ui/differential_analysis_panel.py:237 ui/emc_analysis_panel.py:567 ui/emc_analysis_panel.py:573 ui/runtime_settings_panel.py:208 ui/thermal_analysis_panel.py:348
 msgid "Yes"
 msgstr ""
 
@@ -6682,7 +6714,7 @@ msgstr ""
 msgid "{p0} Analysis Error: {p1}"
 msgstr ""
 
-#: analysis_adapters.py:1016
+#: analysis_adapters.py:1017
 #, python-brace-format
 msgid "{p0} could not be meshed for sizing: {p1}"
 msgstr ""
@@ -6697,12 +6729,12 @@ msgstr ""
 msgid "{p0} frequency point(s) solved with {p1} LU factorisation(s) and {p2} GMRES iteration(s) in {p3} s."
 msgstr ""
 
-#: analysis_adapters.py:1019
+#: analysis_adapters.py:1020
 #, python-brace-format
 msgid "{p0} has no meshable copper; skipped."
 msgstr ""
 
-#: analysis_adapters.py:961
+#: analysis_adapters.py:962
 #, python-brace-format
 msgid "{p0} has no nominal voltage, so there is no drop target to size against; skipped."
 msgstr ""
@@ -6727,37 +6759,37 @@ msgstr ""
 msgid "{p0} is on no pin of {p1}"
 msgstr ""
 
-#: analysis_adapters.py:990
+#: analysis_adapters.py:991
 #, python-brace-format
 msgid "{p0} sized on the DC result's own mesh ({p1} mm): {p2} source node(s), {p3} load node(s)."
 msgstr ""
 
-#: analysis_adapters.py:1043
+#: analysis_adapters.py:1044
 #, python-brace-format
 msgid "{p0} skipped: no load current could be placed on the mesh, so there is no drop to size against."
 msgstr ""
 
-#: analysis_adapters.py:980
+#: analysis_adapters.py:981
 #, python-brace-format
 msgid "{p0} skipped: the DC result holds no source or no load to size against."
 msgstr ""
 
-#: analysis_adapters.py:983
+#: analysis_adapters.py:984
 #, python-brace-format
 msgid "{p0} skipped: {p1} load node(s) are not connected to a source in the solved copper, so any drop computed would be fictitious."
 msgstr ""
 
-#: analysis_adapters.py:1056
+#: analysis_adapters.py:1057
 #, python-brace-format
 msgid "{p0} skipped: {p1} of {p2} load node(s) are not connected to source {p3} in the meshed copper, so any drop computed would be fictitious."
 msgstr ""
 
-#: analysis_adapters.py:1010
+#: analysis_adapters.py:1011
 #, python-brace-format
 msgid "{p0} skipped: {p1}."
 msgstr ""
 
-#: analysis_adapters.py:1034
+#: analysis_adapters.py:1035
 #, python-brace-format
 msgid "{p0} source resolved to {p1} via {p2} ({p3} node(s))."
 msgstr ""

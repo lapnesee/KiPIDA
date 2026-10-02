@@ -5424,3 +5424,24 @@ msgstr "Condensateurs au-delà de la température nominale de leur diélectrique
 
 msgid "Enter the inputs the uncertainty rests on and rerun the thermal analysis at a finer grid; if the excess holds, use a dielectric rated higher (X7R, 125 C)."
 msgstr "Saisissez les données dont dépend l’incertitude et relancez le thermique sur une grille plus fine ; si le dépassement tient, utilisez un diélectrique de température nominale plus haute (X7R, 125 C)."
+
+msgid "current {} A"
+msgstr "courant {} A"
+
+msgid "Defaults kept: "
+msgstr "Valeurs par défaut conservées : "
+
+msgid "Enter the load's current in A."
+msgstr "Saisissez le courant de la charge en A."
+
+msgid "fundamental {} MHz"
+msgstr "fondamentale {} MHz"
+
+msgid "Load"
+msgstr "Charge"
+
+msgid "rise time {} ns"
+msgstr "temps de montée {} ns"
+
+msgid "swing {} V"
+msgstr "excursion {} V"

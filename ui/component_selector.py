@@ -1,5 +1,19 @@
 ﻿import wx
 
+
+def parse_current(text):
+    """A load current in A, a decimal comma read as a point; ValueError
+    unless it is a positive number. The dialog turned anything else,
+    "0,5" included, into 0 A without a word."""
+    try:
+        value = float(str(text or "").strip().replace(",", "."))
+    except ValueError:
+        raise ValueError("Enter the load's current in A.") from None
+    if value <= 0.0:
+        raise ValueError("Enter the load's current in A.")
+    return value
+
+
 class ComponentSelectorDialog(wx.Dialog):
     def __init__(self, parent, title, net_name, components):
         super().__init__(parent, title=title, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
@@ -27,7 +41,8 @@ class ComponentSelectorDialog(wx.Dialog):
         else:
             self.lbl_instruction.SetLabel("Select Component to use as Load:")
             self.lbl_val.SetLabel("Current (A):")
-            self.txt_val.SetValue("1.0")
+            # No current of its own: 1.0 A used to stand in, untold.
+            self.txt_val.SetValue("")
             self.lbl_val.Show()
             self.txt_val.Show()
             self.lbl_thermal_mode.Show()
@@ -109,6 +124,16 @@ class ComponentSelectorDialog(wx.Dialog):
         
         self.lst_comps.Bind(wx.EVT_LISTBOX, self.on_select)
         self.chk_all_pads.Bind(wx.EVT_CHECKBOX, self.on_all_pads_toggle)
+        self.btn_ok.Bind(wx.EVT_BUTTON, self.on_ok)
+
+    def on_ok(self, event):
+        if self.mode == "LOAD":
+            try:
+                parse_current(self.txt_val.GetValue())
+            except ValueError as exc:
+                wx.MessageBox(str(exc), "Load", wx.OK | wx.ICON_ERROR)
+                return
+        event.Skip()
         
     def on_all_pads_toggle(self, event):
         """Enable/disable pad list based on checkbox"""
@@ -141,10 +166,7 @@ class ComponentSelectorDialog(wx.Dialog):
         sel_idx = self.lst_comps.GetSelection()
         if sel_idx != wx.NOT_FOUND:
             ref = self.lst_comps.GetString(sel_idx)
-            try:
-                val = float(self.txt_val.GetValue()) if self.txt_val.IsShown() else 0.0
-            except:
-                val = 0.0
+            val = parse_current(self.txt_val.GetValue()) if self.mode == "LOAD" else 0.0
                 
             pads = []
             

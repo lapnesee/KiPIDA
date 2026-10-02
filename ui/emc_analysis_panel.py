@@ -152,6 +152,33 @@ class EMCSourceDialog(wx.Dialog):
             self.voltage.SetValue(f"{source.voltage_swing_v:g}")
             self.current.SetValue(f"{source.current_a:g}")
             self.negative_net.SetValue(source.negative_net_name)
+        self._source = source
+        # What the user found in the electrical fields, to tell a value
+        # entered from one left as it was.
+        self._initial = {key: control.GetValue() for key, control, _label in self._electrical()}
+
+    def _electrical(self):
+        return (
+            ("frequency", self.frequency, "fundamental {} MHz"),
+            ("rise", self.rise, "rise time {} ns"),
+            ("voltage", self.voltage, "swing {} V"),
+            ("current", self.current, "current {} A"),
+        )
+
+    def _confidence(self):
+        """(confidence, notes): HIGH only for values the user set. Every
+        manual source read HIGH, even one left at the dialog's 25 MHz, 2 ns,
+        3.3 V and 0.1 A, and the AC target quoted its edge as such."""
+        kept = [label.format(control.GetValue().strip())
+                for key, control, label in self._electrical()
+                if control.GetValue() == self._initial[key]]
+        if self._source is None:
+            if kept:
+                return "LOW", "Defaults kept: " + ", ".join(kept) + "."
+            return "HIGH", "User-configured source parameters."
+        if len(kept) == len(self._electrical()):
+            return self._source.parameter_confidence, self._source.parameter_notes
+        return "HIGH", "User-configured source parameters."
 
     def get_source(self):
         net_name = self.net.GetValue().strip()
@@ -167,6 +194,7 @@ class EMCSourceDialog(wx.Dialog):
                 "Frequency, cable length, voltage and current must be non-negative; "
                 "rise time must be positive."
             )
+        confidence, notes = self._confidence()
         return EMCSignalSource(
             name=self.name.GetValue().strip() or net_name,
             net_name=net_name,
@@ -180,8 +208,8 @@ class EMCSourceDialog(wx.Dialog):
             voltage_swing_v=voltage,
             current_a=current,
             negative_net_name=self.negative_net.GetValue().strip(),
-            parameter_confidence="HIGH",
-            parameter_notes="User-configured source parameters.",
+            parameter_confidence=confidence,
+            parameter_notes=notes,
         )
 
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed two dialogs passing their defaults off as entered values: a
+  manual EMI/EMC source read HIGH confidence even when left at 25 MHz,
+  2 ns, 3.3 V and 0.1 A (it now reads LOW and names the values kept),
+  and a new load took 1.0 A unless changed, while "0,5" or any other
+  unreadable current became 0 A without a word. A load's current is now
+  required, and a decimal comma is accepted.
 - Changed TE-002 to grade each capacitor by its excess against the
   model's uncertainty under it: the board's move between the two
   thermal grids, plus 2.7 K when the enclosure's wall coefficient is
