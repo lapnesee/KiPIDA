@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+The README describes the analysis batch, the files it writes, how the
+report's verdict and lists are decided and where to complete each kind of
+missing data; docs/premier-rapport.md walks through a first report in
+French.
 The CSV files name their campaign, and finding rows the run, the domain's
 status and the build; each action says which list of the report it is in
 (fix, review, prototype, data); a new domains-<stamp>.csv gives one row

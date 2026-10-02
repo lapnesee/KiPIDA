@@ -263,6 +263,64 @@ Each new history entry contains a `manifest.json` index, a structured and
 schema-versioned `result.json`, a human-readable `report.txt`, and its plot
 artifacts. Older report-only entries remain readable.
 
+`KiPIDA-results` gets its own `.gitignore` when Ki-PIDA creates it, so a
+`git add -A` in the project does not take hundreds of megabytes of plots.
+**Clean up...** in the Results workspace deletes older entries after showing
+what it frees: the latest 5 runs of each analysis, the latest 5 campaigns and
+the runs those campaigns name are kept. The log of each session is kept in
+English in `KiPIDA-results/ki-pida.log`, whatever the interface language.
+
+## 🧾 Analysis Batch and Campaign Report
+
+**Run Analysis Batch...** is offered on every page. It lists the analyses
+with what each will run on (rails, AC profiles, EMI sources), any input still
+at its default, and how long it took last time; tick the ones to run. When
+the batch ends, Ki-PIDA writes beside the board, in `KiPIDA-results`:
+
+| File | Contents |
+|---|---|
+| `campaign-<stamp>.html` | The report, self-contained: opens offline and prints with every folded block open |
+| `campaign-<stamp>.json` | The whole campaign, which the next report compares with |
+| `actions-<stamp>.csv` | One row per deduplicated action, ranked, with its decision list |
+| `findings-<stamp>.csv` | One row per finding (per remediation), with its run and build |
+| `domains-<stamp>.csv` | One row per analysis: status, score, run, compute time; those that did not complete too |
+
+**Build Consolidated Report** writes the same files from the analyses already
+run in the session, without running them again.
+
+The report opens on its **decision**. The verdict is **FAIL** as soon as one
+action is to fix before manufacture, **WARN** when something is to review, to
+check on the prototype, or when a selected analysis did not complete, and
+**PASS** only otherwise. The actions are sorted into four lists:
+
+- **Fix before manufacture** — a defect the analyses are sure enough of.
+- **Review before manufacture** — likely, but resting on an estimate.
+- **Check on the prototype** — layout rules of thumb only a measurement settles.
+- **Data to complete** — a result that rests on a default value; see below.
+
+Then come what changed since the previous campaign of the board (resolved,
+new, regraded, still present), one card per action (why it is a risk, what to
+do, how to check it, how sure the tool is), the component view, the details
+per domain with their figures, and the appendices: provenance, limitations,
+configuration, and the Ki-PIDA build each analysis ran on.
+
+### Data to complete
+
+An action under **Data to complete** names the input a result rests on.
+The common ones and where to fill them:
+
+| Finding | Where |
+|---|---|
+| Enclosure wall coefficient left at its default (TH-009) | **Thermal → Enclosure CFD**, *Wall h (W/m2K)* |
+| A rail's source impedance left at its default (AC-006) | **Power Integrity → AC Impedance**, *Source model*, *Source R (mOhm)*, *Source L (nH)* |
+| Converter loss resting on an estimated efficiency (TH-008) | The regulator's dialog in **Project → Power Tree & DC**, *Efficiency curve*: one point per line, `Iout efficiency` (`0.5 88`) or `Vin Vout Iout efficiency` |
+| A switching source or inductor model entered at another current than the power tree gives its converter (SW-004) | **EMI / EMC → Pre-compliance**, **Edit Selected** (sources) or **Edit Selected Model** (inductors) |
+
+Numeric fields accept a decimal comma as well as a point.
+
+A French walk-through of a first report is in
+[docs/premier-rapport.md](docs/premier-rapport.md).
+
 ## 🧭 Workspace organization
 
 The left sidebar groups tools by engineering purpose instead of presenting
