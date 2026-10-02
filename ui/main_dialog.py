@@ -980,6 +980,11 @@ class KiPIDA_MainDialog(wx.Dialog):
             board_path=board_path,
             board_snapshot=capture_dc_board(self.board),
             project_context=context,
+            rail_voltages={
+                rail.net_name: float(rail.nominal_voltage)
+                for rail in (self.power_tree.rails or ())
+                if float(getattr(rail, "nominal_voltage", 0.0) or 0.0) > 0.0
+            },
         )
 
     def _build_dc_request(self):

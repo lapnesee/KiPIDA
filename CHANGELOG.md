@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed the schematic rules reading a rail's voltage from its net name
+  only: 11 of P02 Rev E's 17 rails name none, every 20 V one among
+  them, so six resistors on them (R62 on /VBUS_SYS, R92 and R3 on
+  /J1_PD_OUT, R44, R39, R59) were never checked. The power tree's
+  nominal voltages now come first; on P02 the dissipation check covers
+  35 resistors, R62 the most loaded at 8.5 mW.
 - Added TH-009, data to complete, when the thermal analysis balances its
   ambient against an enclosure whose wall coefficient is the default
   5 W/m2K: on P02 Rev E it put the internal air 16.2 K above 45 C, and

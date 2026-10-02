@@ -13,7 +13,7 @@ ingest layer was built for.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 try:
     from ..analysis_contract import (
@@ -39,6 +39,10 @@ class SchematicRunRequest:
     # ingest.project_context.ProjectContext: which files are the project's,
     # and whether the Zeo multi-board layer applies (SCH-004 needs it).
     project_context: Any = None
+    # {net name: nominal V} from the power tree. A net's name is only a
+    # guess at its voltage: P02 Rev E's /VBUS_SYS, /J1_PD_OUT and nine
+    # other rails carry none, so six resistors on them were never checked.
+    rail_voltages: Dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -134,6 +138,10 @@ class SchematicRuleEngine:
         netlist = build_netlist(board, schematic, board_uuid=board_uuid)
         for issue in netlist.link_issues:
             result.limitations.append(issue.detail)
+        for net in netlist.nets:
+            voltage = float(request.rail_voltages.get(net.name, 0.0) or 0.0)
+            if voltage > 0.0:
+                net.voltage_hint = voltage
 
         emit_progress(4, 4, "rules")
         findings = DEFAULT_REGISTRY.evaluate_domain(

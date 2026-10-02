@@ -88,6 +88,20 @@ class SavedFootprintDifferenceTests(unittest.TestCase):
         result = SchematicRuleEngine().solve(request, lambda _m: None, lambda *_a: None, lambda: False)
         self.assertTrue(any(text.startswith("Unsaved changes") and "(C1)" in text for text in result.limitations))
 
+    def test_the_power_tree_gives_the_rules_a_rail_voltage(self):
+        # Review of 2026-10-02: P02 Rev E's /VBUS_SYS (20 V) names no voltage,
+        # so the resistor rules never looked at R62 (47k) on it.
+        from application.schematic_controller import SchematicRuleEngine, SchematicRunRequest
+
+        def resistor_rules(rail_voltages):
+            request = SchematicRunRequest(board_path=str(self.path), rail_voltages=rail_voltages)
+            result = SchematicRuleEngine().solve(request, lambda _m: None, lambda *_a: None, lambda: False)
+            return [(f.rule_id, f.components) for f in result.findings
+                    if f.rule_id in ("SCH-003", "SCH-007")]
+
+        self.assertEqual(resistor_rules({}), [])
+        self.assertEqual(resistor_rules({"A": 20.0}), [("SCH-003", ["R1"])])
+
 
 if __name__ == "__main__":
     unittest.main()
