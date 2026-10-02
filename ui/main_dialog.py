@@ -23,7 +23,7 @@ from ac_model import (
     ACModelBuilder, converter_band_floor, resolve_target_impedance, transient_bandwidth,
 )
 from application.ac_controller import AC_MAX_NETWORK_NODES, saved_board_for_ac
-from cfd_model import fit_unset_enclosure
+from cfd_model import fit_unset_enclosure, wall_coefficient_is_default
 from differential_impedance import DifferentialGeometrySnapshot
 from emc_analyzer import EMCGeometrySnapshot
 from thermal_model import ThermalModelBuilder
@@ -76,6 +76,16 @@ from application.dc_plot_presenter import flatten_dc_plot_groups, render_dc_plot
 
 # "THERMAL: " and the like, put before each line of a batch's domain.
 _DOMAIN_PREFIX = re.compile(r"^([A-Z][A-Z0-9_]+: )(.*)$", re.DOTALL)
+
+
+def _last_duration(seconds):
+    """"about 6 min last time", or "" for a run that recorded none."""
+    seconds = float(seconds or 0.0)
+    if seconds <= 0.0:
+        return ""
+    if seconds < 90.0:
+        return _("about {seconds} s last time").format(seconds=max(1, round(seconds)))
+    return _("about {minutes} min last time").format(minutes=round(seconds / 60.0))
 
 
 class KiPIDA_MainDialog(wx.Dialog):
@@ -234,14 +244,18 @@ class KiPIDA_MainDialog(wx.Dialog):
         self.workspace_panel.SetSizer(workspace_sizer)
         main_sizer.Add(self.workspace_panel, 1, wx.EXPAND)
         
+        # The batch on every page, the log included: it was on Results alone,
+        # and a running batch shows the log, where its Cancel then was not.
         actions_by_page = {
-            self.PAGE_CONFIG: ("dc",),
-            self.PAGE_AC: ("ac", "optimize"),
-            self.PAGE_DIFFERENTIAL: ("differential",),
-            self.PAGE_EMC: ("emc", "cancel_emc"),
-            self.PAGE_THERMAL: ("thermal", "coupled"),
-            self.PAGE_CFD: ("cfd",),
+            self.PAGE_CONFIG: ("dc", "batch"),
+            self.PAGE_AC: ("ac", "optimize", "batch"),
+            self.PAGE_DIFFERENTIAL: ("differential", "batch"),
+            self.PAGE_EMC: ("emc", "cancel_emc", "batch"),
+            self.PAGE_THERMAL: ("thermal", "coupled", "batch"),
+            self.PAGE_CFD: ("cfd", "batch"),
+            self.PAGE_RUNTIME: ("batch",),
             self.PAGE_RESULTS: ("batch", "campaign"),
+            self.PAGE_LOG: ("batch",),
         }
         handlers = {
             "dc": self.on_run, "ac": self.on_run_ac,
@@ -475,7 +489,10 @@ class KiPIDA_MainDialog(wx.Dialog):
         page = self.results_workspace.publish(
             analysis_id, report, plots, result=structured_result,
         )
-        self._select_workspace(self.PAGE_RESULTS)
+        # A batch stays on the log it opened: each domain's end used to pull
+        # the window to Results while the batch went on.
+        if not self.campaign_controller.is_running:
+            self._select_workspace(self.PAGE_RESULTS)
         return page
 
 
@@ -519,6 +536,40 @@ class KiPIDA_MainDialog(wx.Dialog):
         ("CFD", "Enclosure CFD"),
     )
 
+    def _batch_preflight(self):
+        """{analysis_id: note} for the batch dialog: what each analysis will
+        run on, an input left at its default, and how long it took last time.
+
+        The dialog offered seven ticked boxes and no more: P02 Rev E's AC swept
+        3 profiles of 17 rails and the report said "3 rails out of 3", and
+        nothing said the batch would take ten minutes, six of them AC.
+        """
+        notes = {}
+
+        def add(key, compute):
+            try:
+                text = compute()
+            except Exception:
+                text = ""
+            if text:
+                notes[key] = f"{notes[key]}; {text}" if key in notes else text
+
+        rails = list(getattr(self.power_tree, "rails", None) or ())
+        add("DC", lambda: (_("{count} rail(s)").format(count=len(rails)) if rails
+                           else _("no power rail, will not run")))
+        add("AC", lambda: _("{profiles} AC profile(s) of {rails} rail(s)").format(
+            profiles=len(self.ac_panel.get_profiles()), rails=len(rails)))
+        add("EMC", lambda: _("{count} source(s)").format(
+            count=sum(1 for source in self.emc_panel.settings.sources if source.enabled)))
+        add("CFD", lambda: (_("enclosure wall coefficient at its default")
+                            if wall_coefficient_is_default(self.cfd_panel.get_settings().geometry)
+                            else ""))
+        history = getattr(self.results_workspace, "_history", None)
+        for entry in (history.entries(latest_per_analysis=True) if history is not None else ()):
+            key = str(entry.get("analysis_id", "")).upper()
+            add(key, lambda entry=entry: _last_duration(history.load_result(entry).elapsed_seconds))
+        return notes
+
     def _batch_request_builders(self, selected):
         """One request builder per selected analysis, keyed by analysis id."""
         return {
@@ -554,8 +605,13 @@ class KiPIDA_MainDialog(wx.Dialog):
             return
         if not self._ensure_analysis_slot():
             return
-        # A MultiChoiceDialog is outside the wx translation hooks.
-        labels = [_(label) for _key, label in self.BATCH_ANALYSES]
+        # A MultiChoiceDialog is outside the wx translation hooks. Each
+        # analysis says what it will run on and how long it took last time.
+        notes = self._batch_preflight()
+        labels = [
+            _(label) + (f" — {notes[key]}" if notes.get(key) else "")
+            for key, label in self.BATCH_ANALYSES
+        ]
         dialog = wx.MultiChoiceDialog(
             self, _("Select the analyses to run:"), _("Run Analysis Batch"),
             labels,

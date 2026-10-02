@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Put the batch button on every page, the log included, where a running
+  batch's Cancel now shows; a batch no longer pulls the window to
+  Results at each domain's end. Its dialog says what each analysis runs
+  on and how long it took last time: on P02 Rev E, "3 AC profile(s) of
+  17 rail(s); about 6 min last time", and the CFD's default wall
+  coefficient.
 - Changed the log: it now shows its lines in the interface's language,
   a batch's "THERMAL: " prefix kept, and copies them in English to
   KiPIDA-results/ki-pida.log, one older copy kept past 5 MB. It follows

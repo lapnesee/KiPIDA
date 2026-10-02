@@ -5493,3 +5493,24 @@ msgstr "{p0} exécution(s) et fichier(s) de campagne supprimés, {p1} Mo."
 
 msgid "Nothing to clean up."
 msgstr "Rien à nettoyer."
+
+msgid "about {minutes} min last time"
+msgstr "environ {minutes} min la dernière fois"
+
+msgid "about {seconds} s last time"
+msgstr "environ {seconds} s la dernière fois"
+
+msgid "enclosure wall coefficient at its default"
+msgstr "coefficient de paroi du boîtier par défaut"
+
+msgid "no power rail, will not run"
+msgstr "aucun rail d’alimentation, ne tournera pas"
+
+msgid "{count} rail(s)"
+msgstr "{count} rail(s)"
+
+msgid "{count} source(s)"
+msgstr "{count} source(s)"
+
+msgid "{profiles} AC profile(s) of {rails} rail(s)"
+msgstr "{profiles} profil(s) AC sur {rails} rail(s)"
