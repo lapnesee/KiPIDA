@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field, replace
 from typing import List, Tuple
+import math
 
 try:
     from .models import EnclosureGeometrySettings
@@ -47,6 +48,27 @@ def enclosure_air_rise_k(settings, heat_w: float) -> float:
     area_m2 = 2.0 * (width_m * depth_m + width_m * height_m + depth_m * height_m)
     wall_h = max(1e-9, float(geometry.wall_heat_transfer_w_m2k))
     return max(0.0, float(heat_w)) / (wall_h * max(area_m2, 1e-9))
+
+
+def wall_coefficient_is_default(geometry) -> bool:
+    """True when the enclosure's wall coefficient is still its dataclass
+    default, which describes no real box (TH-009)."""
+    if geometry is None:
+        return False
+    wall = float(getattr(geometry, "wall_heat_transfer_w_m2k", 0.0) or 0.0)
+    default = float(EnclosureGeometrySettings().wall_heat_transfer_w_m2k)
+    return wall > 1.0 and math.isclose(wall, default)
+
+
+def default_wall_air_uncertainty_k(enclosure, rise_k) -> float:
+    """How much cooler the internal air would be at 1 W/m2K more, when the
+    wall coefficient is the default; 0 when it was entered. P02 Rev E's
+    16.2 K rise at the default 5 W/m2K is 13.5 K at 6: 2.7 K."""
+    geometry = getattr(enclosure, "geometry", None)
+    if rise_k is None or not wall_coefficient_is_default(geometry):
+        return 0.0
+    wall = float(geometry.wall_heat_transfer_w_m2k)
+    return float(rise_k) / (wall + 1.0)
 
 
 def fit_unset_enclosure(settings, board_model, margin_mm=UNSET_ENCLOSURE_MARGIN_MM):

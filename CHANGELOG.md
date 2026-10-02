@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Changed TE-002 to grade each capacitor by its excess against the
+  model's uncertainty under it: the board's move between the two
+  thermal grids, plus 2.7 K when the enclosure's wall coefficient is
+  the default (TH-009). Above it the capacitor stays to fix (HIGH);
+  within it, it is to review (MEDIUM), with its excess and uncertainty.
+  P02 Rev E's 13 X5R capacitors were all to fix, C49's 0.7 K as much as
+  C37's 21.8 K.
 - Added an AC source preset for a rail fed through an eFuse, load switch
   or shunt from a regulated one (~20 mOhm + 5 nH): P02 Rev E's
   /+5V_RAIL sits behind U15 (12.2 mOhm) and R49 (7.5 mOhm), and the

@@ -701,7 +701,11 @@ class AnalysisAdapterTests(unittest.TestCase):
         self.assertIn("internal air 16.2 K above the ambient", wall.description)
         self.assertIn("at 4 or 6 W/m2K the rise would be 20.2 or 13.5 K.", wall.description)
         self.assertNotIn("size is the default", wall.description)
+        # What TE-002 counts in the model's uncertainty: 2.7 K cooler at 6 W/m2K.
+        from cfd_model import default_wall_air_uncertainty_k
+        self.assertAlmostEqual(default_wall_air_uncertainty_k(settings, 16.2), 2.7)
         settings.geometry.wall_heat_transfer_w_m2k = 6.5
+        self.assertEqual(default_wall_air_uncertainty_k(settings, 12.5), 0.0)
         self.assertFalse(any(item.rule_id == "TH-009" for item in adapt_thermal_result(
             ThermalResult(), enclosure_air_rise_k=12.5, enclosure_ambient_applied=True,
             enclosure=settings,

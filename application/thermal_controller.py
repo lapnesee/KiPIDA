@@ -7,7 +7,7 @@ import time
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from application.dc_controller import DefaultDCSolverEngine, unsolved_rails_reason
-from cfd_model import enclosure_air_rise_k
+from cfd_model import default_wall_air_uncertainty_k, enclosure_air_rise_k
 from electrothermal import ElectroThermalSolver
 from thermal_mesh import ThermalMesher
 from thermal_model import CopperLossPoint
@@ -419,6 +419,10 @@ class ThermalSolverEngine:
                 mesh_sensitivity = self._mesh_sensitivity(model, request, result, emit, cancelled)
             # EMC reads the result, not this outcome (TE-002).
             result.mesh_sensitivity = dict(mesh_sensitivity or {})
+        if enclosure_air_rise_k is not None and getattr(request.settings, "apply_enclosure_ambient", True):
+            result.ambient_uncertainty_k = default_wall_air_uncertainty_k(
+                enclosure, enclosure_air_rise_k,
+            )
         return ThermalRunOutcome(
             mesh=mesh,
             result=result,

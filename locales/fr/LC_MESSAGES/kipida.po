@@ -5415,3 +5415,12 @@ msgstr "Atténuation du blindage (dB, vide si inconnue) :"
 
 msgid "Switching frequency (kHz):"
 msgstr "Fréquence de découpage (kHz) :"
+
+msgid ". Whether they exceed their rating rests on the model as much as on the board."
+msgstr ". Qu’ils dépassent leur valeur nominale dépend du modèle autant que de la carte."
+
+msgid "Capacitors over their dielectric's rated temperature by less than the model's uncertainty"
+msgstr "Condensateurs au-delà de la température nominale de leur diélectrique de moins que l’incertitude du modèle"
+
+msgid "Enter the inputs the uncertainty rests on and rerun the thermal analysis at a finer grid; if the excess holds, use a dielectric rated higher (X7R, 125 C)."
+msgstr "Saisissez les données dont dépend l’incertitude et relancez le thermique sur une grille plus fine ; si le dépassement tient, utilisez un diélectrique de température nominale plus haute (X7R, 125 C)."

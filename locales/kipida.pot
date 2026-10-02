@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Ki-PIDA\n"
-"POT-Creation-Date: 2026-10-02 14:41+0000\n"
+"POT-Creation-Date: 2026-10-02 14:46+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -23,7 +23,7 @@ msgstr ""
 msgid "  Layer {p0} vectorized mesh: {p1} nodes."
 msgstr ""
 
-#: emc_analyzer.py:2425
+#: emc_analyzer.py:2452
 msgid " MHz."
 msgstr ""
 
@@ -99,8 +99,12 @@ msgstr ""
 msgid "--- Starting {p0} ---"
 msgstr ""
 
-#: emc_analyzer.py:2466
+#: emc_analyzer.py:2493
 msgid ". Enter the real current to replace it."
+msgstr ""
+
+#: emc_analyzer.py:2400
+msgid ". Whether they exceed their rating rests on the model as much as on the board."
 msgstr ""
 
 #: report/html_report.py:705
@@ -403,7 +407,7 @@ msgstr ""
 msgid "Above its target impedance, a rail lets the load's current steps move its voltage more than the load tolerates."
 msgstr ""
 
-#: emc_analyzer.py:2433
+#: emc_analyzer.py:2460
 msgid "Absolute emissions, immunity, enclosure seams and cable routing require physical tests."
 msgstr ""
 
@@ -930,7 +934,7 @@ msgstr ""
 msgid "Board fingerprint"
 msgstr ""
 
-#: cfd_model.py:192
+#: cfd_model.py:214
 #, python-brace-format
 msgid "Board in-plane conductivity {p0} W/mK from its copper coverage."
 msgstr ""
@@ -940,7 +944,7 @@ msgstr ""
 msgid "Board object connected: {p0}"
 msgstr ""
 
-#: cfd_model.py:173
+#: cfd_model.py:195
 msgid "Board orientation must be XY, XZ, or YZ."
 msgstr ""
 
@@ -974,7 +978,7 @@ msgstr ""
 msgid "Built {p0} branches and {p1} boundaries in {p2} s using vectorized arrays."
 msgstr ""
 
-#: cfd_model.py:243
+#: cfd_model.py:265
 #, python-brace-format
 msgid "Built {p0} x {p1} x {p2} mm enclosure with {p3} solid obstacles."
 msgstr ""
@@ -1078,8 +1082,12 @@ msgstr ""
 msgid "Capacitor Model: {reference}"
 msgstr ""
 
-#: emc_analyzer.py:2371
+#: emc_analyzer.py:2378
 msgid "Capacitors above their dielectric's rated temperature"
+msgstr ""
+
+#: emc_analyzer.py:2396
+msgid "Capacitors over their dielectric's rated temperature by less than the model's uncertainty"
 msgstr ""
 
 #: ui/main_dialog.py:711
@@ -1350,7 +1358,7 @@ msgstr ""
 msgid "Components"
 msgstr ""
 
-#: emc_analyzer.py:2500
+#: emc_analyzer.py:2527
 msgid "Components and I/O"
 msgstr ""
 
@@ -1648,7 +1656,7 @@ msgstr ""
 msgid "Cross-board link out of date"
 msgstr ""
 
-#: emc_analyzer.py:2505 ui/emc_analysis_panel.py:38
+#: emc_analyzer.py:2532 ui/emc_analysis_panel.py:38
 msgid "Crosstalk"
 msgstr ""
 
@@ -1872,7 +1880,7 @@ msgstr ""
 msgid "Decoupling Optimization"
 msgstr ""
 
-#: emc_analyzer.py:2451
+#: emc_analyzer.py:2478
 msgid "Decoupling, protection and connector roles come from the schematic's symbols."
 msgstr ""
 
@@ -2042,7 +2050,7 @@ msgstr ""
 msgid "Differential Pairs"
 msgstr ""
 
-#: emc_analyzer.py:2504 ui/emc_analysis_panel.py:36 ui/main_dialog.py:509
+#: emc_analyzer.py:2531 ui/emc_analysis_panel.py:36 ui/main_dialog.py:509
 msgid "Differential pairs"
 msgstr ""
 
@@ -2219,7 +2227,7 @@ msgstr ""
 msgid "EMI/EMC analysis cancelled."
 msgstr ""
 
-#: emc_analyzer.py:2469
+#: emc_analyzer.py:2496
 #, python-brace-format
 msgid "EMI/EMC analysis completed: {p0} findings, score {p1}/100."
 msgstr ""
@@ -2320,7 +2328,7 @@ msgstr ""
 msgid "EMI/EMC: parts are classified by reference prefix only; the project's saved files could not be read ({p0})."
 msgstr ""
 
-#: emc_analyzer.py:2507 ui/emc_analysis_panel.py:40
+#: emc_analyzer.py:2534 ui/emc_analysis_panel.py:40
 msgid "Emission estimates"
 msgstr ""
 
@@ -2436,7 +2444,7 @@ msgstr ""
 msgid "Enclosure dimensions and CFD cell size must be greater than zero."
 msgstr ""
 
-#: cfd_model.py:165
+#: cfd_model.py:187
 msgid "Enclosure dimensions must be greater than zero."
 msgstr ""
 
@@ -2466,6 +2474,10 @@ msgstr ""
 
 #: emc_analyzer.py:2215
 msgid "Enter each source's frequency, or state it on the board: a crystal or oscillator value, or a Frequency/Fsw field on the part."
+msgstr ""
+
+#: emc_analyzer.py:2402
+msgid "Enter the inputs the uncertainty rests on and rerun the thermal analysis at a finer grid; if the excess holds, use a dielectric rated higher (X7R, 125 C)."
 msgstr ""
 
 #: emc_analyzer.py:2277
@@ -2902,7 +2914,7 @@ msgstr ""
 msgid "Ground plane in pieces"
 msgstr ""
 
-#: emc_analyzer.py:2495 ui/emc_analysis_panel.py:33
+#: emc_analyzer.py:2522 ui/emc_analysis_panel.py:33
 msgid "Ground planes"
 msgstr ""
 
@@ -3072,7 +3084,7 @@ msgstr ""
 msgid "Inductance and frequency must be positive, voltages and currents not negative."
 msgstr ""
 
-#: emc_analyzer.py:2502
+#: emc_analyzer.py:2529
 msgid "Inductor magnetic models"
 msgstr ""
 
@@ -3325,7 +3337,7 @@ msgstr ""
 msgid "KiCad IPC returned copper but no footprint, a capture taken while the PCB Editor was still synchronising; the component rules would read a board without parts. Wait for synchronisation and retry."
 msgstr ""
 
-#: emc_analyzer.py:2488 emc_analyzer.py:2489
+#: emc_analyzer.py:2515 emc_analyzer.py:2516
 msgid "KiCad IPC returned no copper geometry on any layer (no tracks, vias, filled zones or net-connected pads), so every EMI/EMC check would read an empty board rather than the real one. Wait for PCB Editor synchronisation and retry."
 msgstr ""
 
@@ -3818,7 +3830,7 @@ msgstr ""
 msgid "Near-field height/grid size must be positive and its frequency must be non-negative."
 msgstr ""
 
-#: emc_analyzer.py:2460
+#: emc_analyzer.py:2487
 msgid "Near-field maps are an uncalibrated quasi-static ranking of where fields concentrate; their V/m and A/m are not comparable to an emission limit."
 msgstr ""
 
@@ -4037,7 +4049,7 @@ msgstr ""
 msgid "No return-net copper was found beneath the measurement port pads on '{p0}'."
 msgstr ""
 
-#: emc_analyzer.py:2453
+#: emc_analyzer.py:2480
 msgid "No schematic data was available: decoupling, protection and connector roles are inferred from footprint names and values, with low confidence."
 msgstr ""
 
@@ -4352,7 +4364,7 @@ msgstr ""
 msgid "Patch center and size values must be between 0 and 1."
 msgstr ""
 
-#: emc_analyzer.py:2432
+#: emc_analyzer.py:2459
 msgid "PCB geometry, return paths, PDN reuse and relative source harmonics are covered."
 msgstr ""
 
@@ -4389,7 +4401,7 @@ msgstr ""
 msgid "Per-leg impedance (ohm):"
 msgstr ""
 
-#: emc_analyzer.py:2427
+#: emc_analyzer.py:2454
 msgid "Perform a baseline conducted and radiated pre-scan across the configured band."
 msgstr ""
 
@@ -4503,7 +4515,7 @@ msgstr ""
 msgid "Power rail:"
 msgstr ""
 
-#: emc_analyzer.py:2503
+#: emc_analyzer.py:2530
 msgid "Power tree"
 msgstr ""
 
@@ -4553,7 +4565,7 @@ msgstr ""
 msgid "Pressure XY"
 msgstr ""
 
-#: emc_analyzer.py:2425
+#: emc_analyzer.py:2452
 msgid "Prioritise harmonic checks near: "
 msgstr ""
 
@@ -4739,7 +4751,7 @@ msgstr ""
 msgid "Relative EMI source spectrum — not an absolute compliance level"
 msgstr ""
 
-#: emc_analyzer.py:2446
+#: emc_analyzer.py:2473
 msgid "Relative emission estimates typically carry at least +/-10 to 20 dB uncertainty."
 msgstr ""
 
@@ -4993,7 +5005,7 @@ msgstr ""
 msgid "Return path, reference plane"
 msgstr ""
 
-#: emc_analyzer.py:2498 ui/emc_analysis_panel.py:37
+#: emc_analyzer.py:2525 ui/emc_analysis_panel.py:37
 msgid "Return paths"
 msgstr ""
 
@@ -5043,7 +5055,7 @@ msgstr ""
 msgid "rise_time_s must be positive."
 msgstr ""
 
-#: emc_analyzer.py:2445
+#: emc_analyzer.py:2472
 msgid "Risk analyzer only; it cannot certify FCC/CISPR/MIL compliance."
 msgstr ""
 
@@ -5423,7 +5435,7 @@ msgstr ""
 msgid "Signal routed near board edge"
 msgstr ""
 
-#: emc_analyzer.py:2497
+#: emc_analyzer.py:2524
 msgid "Signals and edges"
 msgstr ""
 
@@ -5542,7 +5554,7 @@ msgstr ""
 msgid "Source: {source} ({trust})"
 msgstr ""
 
-#: emc_analyzer.py:2456
+#: emc_analyzer.py:2483
 msgid "Sources without a known frequency are excluded from harmonic and near-field estimates (EE-003) rather than given a default."
 msgstr ""
 
@@ -5574,7 +5586,7 @@ msgstr ""
 msgid "SSH username:"
 msgstr ""
 
-#: emc_analyzer.py:2496 ui/emc_analysis_panel.py:35 ui/main_dialog.py:1509
+#: emc_analyzer.py:2523 ui/emc_analysis_panel.py:35 ui/main_dialog.py:1509
 msgid "Stackup"
 msgstr ""
 
@@ -5726,7 +5738,7 @@ msgstr ""
 msgid "Switching Inductor Models"
 msgstr ""
 
-#: emc_analyzer.py:2501
+#: emc_analyzer.py:2528
 msgid "Switching sources"
 msgstr ""
 
@@ -5933,7 +5945,7 @@ msgstr ""
 msgid "The schematic rules read the saved board, and its file is not known."
 msgstr ""
 
-#: emc_analyzer.py:2458
+#: emc_analyzer.py:2485
 msgid "The score out of 100 is a relative, uncalibrated risk ranking weighted by confidence; it is not a compliance margin."
 msgstr ""
 
@@ -6059,7 +6071,7 @@ msgstr ""
 msgid "Thermal heat vector does not match thermal mesh nodes."
 msgstr ""
 
-#: emc_analyzer.py:2508 ui/emc_analysis_panel.py:40
+#: emc_analyzer.py:2535 ui/emc_analysis_panel.py:40
 msgid "Thermal interaction"
 msgstr ""
 
@@ -6351,7 +6363,7 @@ msgstr ""
 msgid "Use"
 msgstr ""
 
-#: emc_analyzer.py:2375
+#: emc_analyzer.py:2382
 msgid "Use a dielectric rated higher (X7R, 125 C) in the same value and voltage, or move the capacitors away from the heat; check their capacitance at temperature and DC bias."
 msgstr ""
 
@@ -6456,7 +6468,7 @@ msgstr ""
 msgid "Via and plated-hole current density"
 msgstr ""
 
-#: emc_analyzer.py:2499 ui/emc_analysis_panel.py:39
+#: emc_analyzer.py:2526 ui/emc_analysis_panel.py:39
 msgid "Via stitching"
 msgstr ""
 
@@ -6655,7 +6667,7 @@ msgstr ""
 msgid "{p0} '{p1}' has no {p2} pad; using the {p3} return-plane node(s) under its rail pads as the AC return."
 msgstr ""
 
-#: cfd_model.py:239
+#: cfd_model.py:261
 #, python-brace-format
 msgid "{p0} ({p1} x {p2} x {p3} mm) does not fit inside the configured {p4} x {p5} x {p6} mm enclosure."
 msgstr ""

@@ -2341,42 +2341,69 @@ class EMCAnalyzer:
             str(reference): abs(float(fine) - float(coarse))
             for reference, (fine, coarse) in (sensitivity.get("placement_c") or {}).items()
         }
+        # And how much cooler the whole board could be because the ambient
+        # rests on a default: P02 Rev E's air, 16.2 K over 45 C on the
+        # default 5 W/m2K wall coefficient, is 2.7 K cooler at 6 (TH-009).
+        ambient_k = float(getattr(self.thermal_result, "ambient_uncertainty_k", 0.0) or 0.0)
+        grids = (f"{float(sensitivity.get('fine_grid_mm', 0.0)):g} and "
+                 f"{float(sensitivity.get('coarse_grid_mm', 0.0)):g} mm thermal grids")
+        parts_of_it = (
+            ([f"the move of the board under each between the {grids}"] if moves else [])
+            + ([f"the {ambient_k:.1f} K the internal air would drop at 1 W/m2K more on the "
+                "enclosure's default wall coefficient (TH-009)"] if ambient_k > 0.0 else [])
+        )
         for (code, rated_c), items in sorted(over.items()):
             items.sort(key=lambda item: (-item[0], item[1]))
-            named = "; ".join(
-                f"{reference} ({part.value}) {temperature:.1f} C, +{excess:.1f} K"
-                for excess, reference, part, temperature in items
-            )
-            unsettled = ", ".join(
-                f"{reference} (+{excess:.1f} K, moved {moves[reference]:.1f} K)"
-                for excess, reference, _part, _temperature in items
-                if reference in moves and excess <= moves[reference]
-            )
-            grids = (f"{float(sensitivity.get('fine_grid_mm', 0.0)):g} and "
-                     f"{float(sensitivity.get('coarse_grid_mm', 0.0)):g} mm thermal grids")
-            checked = [(moves[reference], reference) for _excess, reference, _part, _t in items
-                       if reference in moves]
-            if unsettled:
-                mesh_note = (f" Within the mesh's uncertainty, over by less than the board under "
-                             f"them moved between the {grids}: {unsettled}.")
-            elif checked and len(checked) == len(items):
-                # Said, not left silent: P02 Rev E's 22:29 report could not
-                # tell a firm excess from a check that never reached EMC.
-                move, moved_most = max(checked)
-                mesh_note = (f" Each excess is larger than the board under the capacitor moved "
-                             f"between the {grids}, {move:.1f} K at most ({moved_most}).")
-            else:
-                mesh_note = ""
-            hottest = items[0][2]
-            self._add("TE-002", "THERMAL", "HIGH", "Capacitors above their dielectric's rated temperature",
-                      f"{len(items)} {code} capacitor(s), rated to {rated_c:g} C, exceed it on the latest "
-                      f"thermal result: {named}. Beyond it the datasheet no longer specifies their "
-                      f"capacitance or their life.{mesh_note}",
-                      "Use a dielectric rated higher (X7R, 125 C) in the same value and voltage, or "
-                      "move the capacitors away from the heat; check their capacitance at temperature "
-                      "and DC bias.",
-                      "MEDIUM", components=[reference for _excess, reference, _part, _t in items],
-                      location=(*hottest.position, None))
+            known = bool(parts_of_it) and (not moves or all(item[1] in moves for item in items))
+            uncertainty = {
+                reference: moves.get(reference, 0.0) + ambient_k
+                for _excess, reference, _part, _t in items
+            }
+            firm = [item for item in items if not known or item[0] > uncertainty[item[1]]]
+            within = [item for item in items if known and item[0] <= uncertainty[item[1]]]
+            if firm:
+                named = "; ".join(
+                    f"{reference} ({part.value}) {temperature:.1f} C, +{excess:.1f} K"
+                    for excess, reference, part, temperature in firm
+                )
+                note = ""
+                if known:
+                    # Said, not left silent: P02 Rev E's 22:29 report could
+                    # not tell a firm excess from a check never made.
+                    largest, where = max((uncertainty[item[1]], item[1]) for item in firm)
+                    note = (f" Each excess is larger than the model's uncertainty under the "
+                            f"capacitor, {largest:.1f} K at most ({where}): "
+                            + " plus ".join(parts_of_it) + ".")
+                self._add("TE-002", "THERMAL", "HIGH",
+                          "Capacitors above their dielectric's rated temperature",
+                          f"{len(firm)} {code} capacitor(s), rated to {rated_c:g} C, exceed it on the "
+                          f"latest thermal result: {named}. Beyond it the datasheet no longer "
+                          f"specifies their capacitance or their life.{note}",
+                          "Use a dielectric rated higher (X7R, 125 C) in the same value and voltage, "
+                          "or move the capacitors away from the heat; check their capacitance at "
+                          "temperature and DC bias.",
+                          "MEDIUM", components=[item[1] for item in firm],
+                          location=(*firm[0][2].position, None))
+            if within:
+                # P02 Rev E's 13 X5R capacitors were all "fix before
+                # manufacture", C49's 0.7 K as much as C37's 21.8 K.
+                named = "; ".join(
+                    f"{reference} ({part.value}) {temperature:.1f} C, +{excess:.1f} K against "
+                    f"{uncertainty[reference]:.1f} K"
+                    for excess, reference, part, temperature in within
+                )
+                self._add("TE-002", "THERMAL", "MEDIUM",
+                          "Capacitors over their dielectric's rated temperature by less than the "
+                          "model's uncertainty",
+                          f"{len(within)} {code} capacitor(s), rated to {rated_c:g} C, exceed it by "
+                          f"no more than the model's uncertainty under them: {named}. It adds "
+                          + " and ".join(parts_of_it) + ". Whether they exceed their rating rests "
+                          "on the model as much as on the board.",
+                          "Enter the inputs the uncertainty rests on and rerun the thermal analysis "
+                          "at a finer grid; if the excess holds, use a dielectric rated higher (X7R, "
+                          "125 C).",
+                          "MEDIUM", components=[item[1] for item in within],
+                          location=(*within[0][2].position, None))
 
     def _finalize(self, started):
         order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}

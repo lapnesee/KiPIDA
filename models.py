@@ -1070,6 +1070,10 @@ class ThermalResult:
     # (ThermalAnalysisController._mesh_sensitivity), so a domain reading
     # these temperatures can tell how far the mesh moves them.
     mesh_sensitivity: Dict[str, Any] = field(default_factory=dict)
+    # How much cooler the ambient it was solved at could be because an input
+    # is a default: the enclosure air at 1 W/m2K more on a default wall
+    # coefficient (cfd_model.default_wall_air_uncertainty_k), 2.7 K on P02.
+    ambient_uncertainty_k: float = 0.0
     total_input_power_w: float = 0.0
     total_boundary_power_w: float = 0.0
     energy_balance_error_pct: float = 0.0

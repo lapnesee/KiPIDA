@@ -13,7 +13,8 @@ from analysis_contract import (
 )
 from ac_model import target_mask
 from rule_guide import FindingNature, rule_nature
-from cfd_model import enclosure_air_rise_k
+from cfd_model import enclosure_air_rise_k, wall_coefficient_is_default
+from models import EnclosureGeometrySettings
 from physical_constants import (
     COPPER_RESISTIVITY_OHM_M, COPPER_RESISTIVITY_REFERENCE_C, DEFAULT_BOARD_THICKNESS_MM,
     PLATING_THICKNESS_FALLBACK_MM,
@@ -1434,12 +1435,10 @@ def _enclosure_default_findings(enclosure: Any, air_rise_k: Any, applied: bool) 
     nobody's.
     """
     geometry = getattr(enclosure, "geometry", None)
-    if geometry is None or not applied or air_rise_k is None:
+    if not applied or air_rise_k is None or not wall_coefficient_is_default(geometry):
         return []
-    defaults = type(geometry)()
-    wall = float(getattr(geometry, "wall_heat_transfer_w_m2k", 0.0) or 0.0)
-    if wall <= 1.0 or not math.isclose(wall, float(defaults.wall_heat_transfer_w_m2k)):
-        return []
+    defaults = EnclosureGeometrySettings()
+    wall = float(geometry.wall_heat_transfer_w_m2k)
     rise = float(air_rise_k)
     size = ("width_mm", "depth_mm", "height_mm")
     size_default = all(
