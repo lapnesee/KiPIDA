@@ -1992,6 +1992,14 @@ class EMCPhase10Pipeline:
         result.tools = Phase10Toolchain(phase).detect()
         status_by_name = {item.name: item for item in result.tools}
         if phase.spice_enabled:
+            library = Path(phase.spice_library_path) if phase.spice_library_path else None
+            if library is None or not (library / "MODEL_CATALOG.csv").is_file():
+                # Said rather than left to read as "no model" for each part.
+                self.log(
+                    "[PHASE 10] SPICE library "
+                    + (f"{library} holds no MODEL_CATALOG.csv" if library else "not set")
+                    + ": no part gets a SPICE model. Set it on the EMI/EMC page (Phase 10)."
+                )
             ngspice = status_by_name["NGSPICE"].path if status_by_name["NGSPICE"].available else ""
             pspice = status_by_name["PSPICE"].path if status_by_name["PSPICE"].available else ""
             result.spice_model_audit = SpiceModelInventory(

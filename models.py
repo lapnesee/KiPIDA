@@ -468,7 +468,8 @@ class EMCPhase10Settings:
     ngspice_path: str = r"C:\Spice64\bin\ngspice_con.exe"
     # PSpice for TI runs the encrypted TI libraries ngspice cannot.
     pspice_path: str = r"C:\Cadence\PSpiceTI\tools\bin\pspice.exe"
-    spice_library_path: str = r"C:\Users\jbc66\Documents\DAW CONTROLEUR\Lib\SPICE"
+    # Empty until set: it was one user's own folder, given to every project.
+    spice_library_path: str = ""
     openems_root: str = r"C:\openEMS"
     openems_python_path: str = ""
     gmsh_path: str = ""

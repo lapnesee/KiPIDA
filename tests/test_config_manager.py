@@ -635,6 +635,12 @@ class TestConfigManager(unittest.TestCase):
             if Path(filepath).exists():
                 os.unlink(filepath)
 
+    def test_a_new_project_gets_no_one_elses_folder(self):
+        # Review of 2026-10-02: every new project's SPICE library was
+        # C:\Users\jbc66\Documents\DAW CONTROLEUR\Lib\SPICE.
+        self.assertEqual(EMCPhase10Settings().spice_library_path, "")
+        self.assertNotIn("Users", repr(EMCPhase10Settings()))
+
     def test_a_save_replaces_the_file_whole_and_keeps_the_old_one(self):
         # Review of 2026-10-02: the sidecar was rewritten in place, so a save
         # cut short left it truncated. P02 Rev E keeps its own

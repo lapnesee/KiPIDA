@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed every new project's SPICE library defaulting to one user's
+  folder (C:\Users\jbc66\Documents\DAW CONTROLEUR\Lib\SPICE): it is now
+  empty until set, and Phase 10 logs when the library is unset or holds
+  no MODEL_CATALOG.csv rather than reporting each part as having no
+  model. A project that saved its path keeps it.
 - Put the batch button on every page, the log included, where a running
   batch's Cancel now shows; a batch no longer pulls the window to
   Results at each domain's end. Its dialog says what each analysis runs

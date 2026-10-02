@@ -306,10 +306,8 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
         )
         self.phase10_backend.SetSelection(0)
         self.phase10_ngspice = wx.TextCtrl(phase10_parent, value=r"C:\Spice64\bin\ngspice_con.exe")
-        self.phase10_spice_library = wx.TextCtrl(
-            phase10_parent,
-            value=r"C:\Users\jbc66\Documents\DAW CONTROLEUR\Lib\SPICE",
-        )
+        self.phase10_spice_library = wx.TextCtrl(phase10_parent, value="")
+        self.phase10_spice_library.SetHint("Folder holding MODEL_CATALOG.csv")
         self.phase10_openems = wx.TextCtrl(phase10_parent, value=r"C:\openEMS")
         self.phase10_regions = wx.TextCtrl(phase10_parent, value="3")
         self.phase10_mesh = wx.TextCtrl(phase10_parent, value="0.25")
