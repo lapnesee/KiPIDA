@@ -269,4 +269,13 @@ def install_wx_translation_hooks(wx):
             return super().SetPageText(index, _(text))
 
     wx.Notebook = LocalizedNotebook
+
+    # The catalog held the tooltips' French -- the grid check's, the
+    # efficiency curve's -- and the window showed their English.
+    original_set_tooltip = wx.Window.SetToolTip
+
+    def localized_set_tooltip(self, tip):
+        return original_set_tooltip(self, _(tip) if isinstance(tip, str) else tip)
+
+    wx.Window.SetToolTip = localized_set_tooltip
     _wx_hooks_installed = True

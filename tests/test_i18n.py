@@ -87,6 +87,8 @@ class I18NTests(unittest.TestCase):
             "t=wx.StaticText(p,label='Results'); b=wx.Button(p,label='Close'); e=wx.StaticText(p,label=''); "
             "assert t.GetLabel() != 'Results'; assert b.GetLabel() != 'Close'; "
             "assert e.GetLabel() == ''; "
+            "b.SetToolTip('Solve again at twice the grid step and report how far the hotspot moves.'); "
+            "assert b.GetToolTipText().startswith('R'), b.GetToolTipText(); "
             "d.Destroy()"
         )
         completed = subprocess.run(

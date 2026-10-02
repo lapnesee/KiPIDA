@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+Tooltips show in the interface's language: the catalog already held their
+French, and the window showed their English.
 The enclosure's internal air now includes the film from the air to the
 walls, which the enclosure CFD resolves and the thermal balance left out:
 on P02, 76.3 C instead of 61.2 C, against the CFD's 77.6 C. Every thermal
