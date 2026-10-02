@@ -991,10 +991,12 @@ class DCSolverEngine:
                 f"{fine_drop * 1e3:.3f} mV at {float(mesh.grid_step):g} mm ({delta_pct:.1f} % apart)."
             )
         if below_budget:
+            named = ", ".join(below_budget[:8])
+            if len(below_budget) > 8:
+                named += f" and {len(below_budget) - 8} more"
             emit(
                 f"[grid check] {len(below_budget)} rail(s) not refined, their drop under "
-                f"{GRID_CHECK_BUDGET_SHARE:.0%} of the budget: "
-                + ", ".join(below_budget[:8]) + (", ..." if len(below_budget) > 8 else "") + "."
+                f"{GRID_CHECK_BUDGET_SHARE:.0%} of the budget: {named}."
             )
 
 

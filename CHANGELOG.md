@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+The DC grid check names the rails it did not refine as "... and 9 more."
+instead of ending on "....".
 The AC batch's log no longer reads "AC: AC: sweeping ..." and "AC: AC
 profile 1/3": the campaign already prefixes each line with the analysis.
 The differential analysis can be reused by a batch too: its captured
