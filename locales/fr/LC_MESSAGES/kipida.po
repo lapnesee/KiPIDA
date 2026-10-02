@@ -5325,3 +5325,12 @@ msgstr "repose sur {count} donnée(s) encore à compléter"
 
 msgid "{count} rail(s) without a load, not judged"
 msgstr "{count} rail(s) sans charge, non jugé(s)"
+
+msgid "Enclosure wall coefficient left at its default"
+msgstr "Coefficient de paroi du boîtier laissé par défaut"
+
+msgid "Rerun thermal after entering the coefficient: the finding should not return."
+msgstr "Relancez le thermique après avoir saisi le coefficient : l’observation ne doit plus revenir."
+
+msgid "The internal air rises in inverse proportion to the enclosure's wall coefficient, and every temperature on the board with it; the default describes no real box."
+msgstr "L’air intérieur s’élève en proportion inverse du coefficient de paroi du boîtier, et toutes les températures de la carte avec lui ; la valeur par défaut ne décrit aucun boîtier réel."

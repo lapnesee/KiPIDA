@@ -191,6 +191,7 @@ def _adapt_thermal(domain_result, request) -> AnalysisResult:
         ambient_c=getattr(getattr(request, "settings", None), "ambient_c", None),
         enclosure_air_rise_k=getattr(domain_result, "enclosure_air_rise_k", None),
         enclosure_ambient_applied=getattr(domain_result, "enclosure_ambient_applied", False),
+        enclosure=getattr(request, "enclosure", None),
     )
 
 

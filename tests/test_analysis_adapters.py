@@ -686,6 +686,27 @@ class AnalysisAdapterTests(unittest.TestCase):
         # The 21:42 report gave U6's share as "0%".
         self.assertIn("loses 0.0133 W, 0.28% of the 4.82 W", found["U6"].description)
 
+    def test_an_enclosure_wall_coefficient_left_at_its_default_is_data_to_complete(self):
+        # P02 Rev E, 2026-10-01 22:29: the default 5 W/m2K put the internal air
+        # 16.2 K above 45 C (4.82 W over 0.0595 m2); at 6.5 W/m2K six of
+        # TE-002's thirteen X5R capacitors fall back under 85 C.
+        settings = EnclosureCFDSettings(ambient_c=45.0)
+        settings.geometry.width_mm, settings.geometry.depth_mm = 165.0, 100.0
+        found = adapt_thermal_result(
+            ThermalResult(total_input_power_w=4.82), ambient_c=45.0, enclosure_air_rise_k=16.2,
+            enclosure_ambient_applied=True, enclosure=settings,
+        ).findings
+        (wall,) = [item for item in found if item.rule_id == "TH-009"]
+        self.assertEqual(wall.severity, FindingSeverity.LOW)
+        self.assertIn("internal air 16.2 K above the ambient", wall.description)
+        self.assertIn("at 4 or 6 W/m2K the rise would be 20.2 or 13.5 K.", wall.description)
+        self.assertNotIn("size is the default", wall.description)
+        settings.geometry.wall_heat_transfer_w_m2k = 6.5
+        self.assertFalse(any(item.rule_id == "TH-009" for item in adapt_thermal_result(
+            ThermalResult(), enclosure_air_rise_k=12.5, enclosure_ambient_applied=True,
+            enclosure=settings,
+        ).findings))
+
     def test_the_least_junction_margin_is_named_when_not_the_hottest_parts(self):
         # P02 Rev E, 2026-10-01 19:12: U14 is the hottest junction (124.3 C of
         # 150, 25.7 K) but U4 keeps 22.4 K under 125 C. F1, judged by its

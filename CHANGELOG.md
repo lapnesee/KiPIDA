@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added TH-009, data to complete, when the thermal analysis balances its
+  ambient against an enclosure whose wall coefficient is the default
+  5 W/m2K: on P02 Rev E it put the internal air 16.2 K above 45 C, and
+  six of TE-002's thirteen X5R capacitors fall back under 85 C at
+  6.5 W/m2K. The finding gives the rise at 1 W/m2K either side.
 - Fixed "What holds" claiming more than was checked, on P02 Rev E's
   22:29 report:
   - AC passed "3 of 3 rails" with two on the default source;

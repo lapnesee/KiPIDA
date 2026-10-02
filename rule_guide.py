@@ -470,6 +470,12 @@ GUIDE: Dict[str, RuleGuide] = {
         "curve or measured; the temperatures of its parts move with it.",
         "Rerun thermal after entering the efficiency: the finding should not return.",
         _D, _LOW),
+    "TH-009": RuleGuide(
+        "Enclosure wall coefficient left at its default",
+        "The internal air rises in inverse proportion to the enclosure's wall coefficient, and "
+        "every temperature on the board with it; the default describes no real box.",
+        "Rerun thermal after entering the coefficient: the finding should not return.",
+        _D, _LOW),
     "VS-001": RuleGuide(
         "Sparse ground stitching",
         "Planes stitched far apart resonate at frequencies inside the band.",

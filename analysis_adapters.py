@@ -1424,6 +1424,44 @@ def _thermal_fallback_stage_limitations(power_stage_reports: Any) -> list:
 ESTIMATED_EFFICIENCY_HEAT_SHARE = 0.05
 
 
+def _enclosure_default_findings(enclosure: Any, air_rise_k: Any, applied: bool) -> list:
+    """TH-009 when the enclosure the thermal analysis balanced its ambient
+    against still has the default wall coefficient.
+
+    On P02 Rev E (2026-10-01 22:29) the default 5 W/m2K put the internal air
+    16.2 K above 45 C, and six of TE-002's thirteen X5R capacitors would fall
+    back under their 85 C rating at 6.5 W/m2K; nothing said that number was
+    nobody's.
+    """
+    geometry = getattr(enclosure, "geometry", None)
+    if geometry is None or not applied or air_rise_k is None:
+        return []
+    defaults = type(geometry)()
+    wall = float(getattr(geometry, "wall_heat_transfer_w_m2k", 0.0) or 0.0)
+    if wall <= 1.0 or not math.isclose(wall, float(defaults.wall_heat_transfer_w_m2k)):
+        return []
+    rise = float(air_rise_k)
+    size = ("width_mm", "depth_mm", "height_mm")
+    size_default = all(
+        math.isclose(float(getattr(geometry, name)), float(getattr(defaults, name))) for name in size
+    )
+    finding = _finding(
+        "TH-009", 1, "MODEL_INPUT", FindingSeverity.LOW,
+        "Enclosure wall coefficient left at its default",
+        f"The enclosure's walls pass its heat outside at the default {wall:g} W/m2K, which nothing "
+        f"sets. It puts the internal air {rise:.1f} K above the ambient, and every temperature on "
+        f"the board with it; at {wall - 1:g} or {wall + 1:g} W/m2K the rise would be "
+        f"{rise * wall / (wall - 1):.1f} or {rise * wall / (wall + 1):.1f} K."
+        + (" The enclosure's size is the default "
+           f"{geometry.width_mm:g} x {geometry.depth_mm:g} x {geometry.height_mm:g} mm too."
+           if size_default else ""),
+        "Enter the enclosure's wall coefficient, from the inside air to the outside, for its "
+        "material, finish and surroundings, as Wall h on the Enclosure CFD page.",
+        confidence=EvidenceConfidence.DETERMINISTIC,
+    )
+    return [finding]
+
+
 def _estimated_efficiency_findings(power_stage_reports: Any, board_heat_w: float) -> list:
     """TH-008: a stage whose whole loss is set by the configured efficiency
     fallback, an estimate, ranked by the heat it puts on the board (audit
@@ -1688,7 +1726,8 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
                          *, copper_loss_source: str = "", mesh_sensitivity: Any = None,
                          mesh: Any = None, power_stage_reports: Any = None,
                          ambient_c: Any = None, enclosure_air_rise_k: Any = None,
-                         enclosure_ambient_applied: bool = False) -> AnalysisResult:
+                         enclosure_ambient_applied: bool = False,
+                         enclosure: Any = None) -> AnalysisResult:
     components = list(getattr(domain_result, "component_results", ()) or ())
     sensitivity_metrics, sensitivity_findings, sensitivity_limitations = (
         _thermal_mesh_sensitivity(mesh_sensitivity, components)
@@ -1781,6 +1820,9 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
         ))
     findings.extend(_estimated_efficiency_findings(
         power_stage_reports, float(getattr(domain_result, "total_input_power_w", 0.0) or 0.0),
+    ))
+    findings.extend(_enclosure_default_findings(
+        enclosure, enclosure_air_rise_k, enclosure_ambient_applied,
     ))
     hotspot = getattr(domain_result, "hotspot", None)
     # A note (TH-007, an INFO TH-008) leaves the analysis passing.

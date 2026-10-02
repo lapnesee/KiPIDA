@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Ki-PIDA\n"
-"POT-Creation-Date: 2026-10-02 14:21+0000\n"
+"POT-Creation-Date: 2026-10-02 14:24+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -1628,7 +1628,7 @@ msgstr ""
 msgid "Crosstalk"
 msgstr ""
 
-#: rule_guide.py:479
+#: rule_guide.py:485
 msgid "Crosstalk between parallel traces"
 msgstr ""
 
@@ -2406,6 +2406,10 @@ msgstr ""
 
 #: cfd_model.py:165
 msgid "Enclosure dimensions must be greater than zero."
+msgstr ""
+
+#: rule_guide.py:474
+msgid "Enclosure wall coefficient left at its default"
 msgstr ""
 
 #: ui/workspace_navigation.py:57
@@ -4084,7 +4088,7 @@ msgstr ""
 msgid "On the prototype, look at the power pin's ripple with a short ground spring."
 msgstr ""
 
-#: rule_guide.py:481
+#: rule_guide.py:487
 msgid "On the prototype, look at the victim line with an oscilloscope while the aggressor switches."
 msgstr ""
 
@@ -4336,7 +4340,7 @@ msgstr ""
 msgid "Place the TVS at the connector and route the discharge path directly to chassis/ground."
 msgstr ""
 
-#: rule_guide.py:475
+#: rule_guide.py:481
 msgid "Planes stitched far apart resonate at frequencies inside the band."
 msgstr ""
 
@@ -4798,6 +4802,10 @@ msgstr ""
 msgid "Rerun the differential analysis after the import."
 msgstr ""
 
+#: rule_guide.py:477
+msgid "Rerun thermal after entering the coefficient: the finding should not return."
+msgstr ""
+
 #: rule_guide.py:471
 msgid "Rerun thermal after entering the efficiency: the finding should not return."
 msgstr ""
@@ -5100,7 +5108,7 @@ msgstr ""
 msgid "Scan Live PCB"
 msgstr ""
 
-#: rule_guide.py:476
+#: rule_guide.py:482
 msgid "Scan the board edges with a near-field probe on the prototype."
 msgstr ""
 
@@ -5425,7 +5433,7 @@ msgstr ""
 msgid "Sources without a known frequency are excluded from harmonic and near-field estimates (EE-003) rather than given a default."
 msgstr ""
 
-#: rule_guide.py:474
+#: rule_guide.py:480
 msgid "Sparse ground stitching"
 msgstr ""
 
@@ -5744,6 +5752,10 @@ msgstr ""
 
 #: rule_guide.py:441
 msgid "The heat leaving the model does not match the heat put in."
+msgstr ""
+
+#: rule_guide.py:475
+msgid "The internal air rises in inverse proportion to the enclosure's wall coefficient, and every temperature on the board with it; the default describes no real box."
 msgstr ""
 
 #: ui/runtime_settings_panel.py:163 ui/runtime_settings_panel.py:179
@@ -6120,7 +6132,7 @@ msgstr ""
 msgid "Trace is too wide for the stripline approximation."
 msgstr ""
 
-#: rule_guide.py:480
+#: rule_guide.py:486
 msgid "Traces running side by side couple part of one signal into the other."
 msgstr ""
 
