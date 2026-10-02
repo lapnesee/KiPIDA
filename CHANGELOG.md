@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Made the switching inductor models editable on the EMI/EMC page (Edit
+  Selected Model, or a double-click): inductance, input and output
+  voltage, frequency, output current, ripple and shield attenuation.
+  SW-004 named L1's model at 4.36 A against U4's 4.726 A on P02 Rev E,
+  in a table that could not change it, and its recommendation now says
+  where to enter the value. The table shows each model's current and
+  frequency.
 - Added an efficiency curve to the regulator dialog, one point per line
   ("Iout efficiency" at the regulator's own input and output, or "Vin
   Vout Iout efficiency"), with its source and reference. TH-008 asked

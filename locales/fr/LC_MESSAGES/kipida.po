@@ -4537,8 +4537,8 @@ msgstr "Espace de travail d’ingénierie"
 msgid "Enter each source's frequency, or state it on the board: a crystal or oscillator value, or a Frequency/Fsw field on the part."
 msgstr "Saisissez la fréquence de chaque source, ou indiquez-la sur la carte : valeur d’un quartz ou d’un oscillateur, ou champ Frequency/Fsw sur le composant."
 
-msgid "Enter the power tree's values, or correct the tree's loads if the entered ones are right."
-msgstr "Saisissez les valeurs de l’arbre d’alimentation, ou corrigez les charges de l’arbre si les valeurs saisies sont les bonnes."
+msgid "Enter the power tree's values on the EMI/EMC page (Edit Selected for a source, Edit Selected Model for an inductor), or correct the tree's loads if the entered ones are right."
+msgstr "Saisissez les valeurs de l’arbre d’alimentation sur la page CEM (« Modifier la sélection » pour une source, « Modifier le modèle sélectionné » pour une inductance), ou corrigez les charges de l’arbre si les valeurs saisies sont les bonnes."
 
 msgid "Enter valid frequency points and mesh resolution to estimate solve load."
 msgstr "Saisissez un nombre de points de fréquence et une résolution de maillage valides pour estimer la charge de calcul."
@@ -5379,3 +5379,39 @@ msgstr "Un point par ligne : « Iout(A) rendement(%) » à l’entrée et à la 
 
 msgid "Reference, e.g. datasheet figure"
 msgstr "Référence, par exemple figure de la fiche technique"
+
+msgid "'{p0}' is not a number."
+msgstr "« {p0} » n’est pas un nombre."
+
+msgid "Inductance (uH):"
+msgstr "Inductance (µH) :"
+
+msgid "Inductance and frequency must be positive, voltages and currents not negative."
+msgstr "L’inductance et la fréquence doivent être positives, les tensions et courants non négatifs."
+
+msgid "Inductor model"
+msgstr "Modèle d’inductance"
+
+msgid "Input voltage (V):"
+msgstr "Tension d’entrée (V) :"
+
+msgid "Iout A"
+msgstr "Isortie A"
+
+msgid "kHz"
+msgstr "kHz"
+
+msgid "Output current (A):"
+msgstr "Courant de sortie (A) :"
+
+msgid "Output voltage (V):"
+msgstr "Tension de sortie (V) :"
+
+msgid "Ripple current p-p (A):"
+msgstr "Ondulation de courant c-c (A) :"
+
+msgid "Shield attenuation (dB, empty if unknown):"
+msgstr "Atténuation du blindage (dB, vide si inconnue) :"
+
+msgid "Switching frequency (kHz):"
+msgstr "Fréquence de découpage (kHz) :"

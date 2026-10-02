@@ -39,6 +39,78 @@ CATEGORIES = [
     (_("Shielding"), "SHIELDING"), (_("Via stitching"), "STITCHING"),
     (_("Thermal interaction"), "THERMAL"), (_("Emission estimates"), "EMISSIONS"),
 ]
+def edited_inductor_model(model, values):
+    """*model* with the operating point the dialog holds, as text fields:
+    inductance_uh, vin_v, vout_v, frequency_khz, current_a, ripple_a and
+    attenuation_db (empty: not quantified). A decimal comma reads as a
+    point. SW-004 named L1's current, 4.36 A against U4's 4.73 A, and the
+    table that shows it could not change it (P02 Rev E, 2026-10-01).
+    """
+    from dataclasses import replace
+
+    def number(key):
+        text = str(values.get(key, "") or "").strip().replace(",", ".")
+        try:
+            return float(text)
+        except ValueError:
+            raise ValueError(f"'{text}' is not a number.") from None
+
+    inductance_uh, frequency_khz = number("inductance_uh"), number("frequency_khz")
+    others = {key: number(key) for key in ("vin_v", "vout_v", "current_a", "ripple_a")}
+    if inductance_uh <= 0.0 or frequency_khz <= 0.0 or any(value < 0.0 for value in others.values()):
+        raise ValueError("Inductance and frequency must be positive, voltages and currents "
+                         "not negative.")
+    attenuation = str(values.get("attenuation_db", "") or "").strip()
+    return replace(
+        model,
+        inductance_h=inductance_uh * 1e-6,
+        vin_v=others["vin_v"], vout_v=others["vout_v"],
+        switching_frequency_hz=frequency_khz * 1e3,
+        output_current_a=others["current_a"], ripple_current_pp_a=others["ripple_a"],
+        shielding_attenuation_db=number("attenuation_db") if attenuation else None,
+    )
+
+
+class EMCInductorDialog(wx.Dialog):
+    """The operating point of one switching inductor's field model."""
+
+    FIELDS = (
+        ("inductance_uh", "Inductance (uH):"), ("vin_v", "Input voltage (V):"),
+        ("vout_v", "Output voltage (V):"), ("frequency_khz", "Switching frequency (kHz):"),
+        ("current_a", "Output current (A):"), ("ripple_a", "Ripple current p-p (A):"),
+        ("attenuation_db", "Shield attenuation (dB, empty if unknown):"),
+    )
+
+    def __init__(self, parent, model):
+        super().__init__(parent, title=f"Edit Inductor Model {model.ref_des}")
+        self.model = model
+        current = {
+            "inductance_uh": f"{model.inductance_h * 1e6:g}", "vin_v": f"{model.vin_v:g}",
+            "vout_v": f"{model.vout_v:g}", "frequency_khz": f"{model.switching_frequency_hz / 1e3:g}",
+            "current_a": f"{model.output_current_a:g}", "ripple_a": f"{model.ripple_current_pp_a:g}",
+            "attenuation_db": (f"{model.shielding_attenuation_db:g}"
+                               if model.shielding_attenuation_db is not None else ""),
+        }
+        grid = wx.FlexGridSizer(cols=2, hgap=8, vgap=8)
+        grid.AddGrowableCol(1, 1)
+        self.controls = {}
+        for key, label in self.FIELDS:
+            control = wx.TextCtrl(self, value=current[key])
+            grid.Add(wx.StaticText(self, label=label), 0, wx.ALIGN_CENTER_VERTICAL)
+            grid.Add(control, 1, wx.EXPAND)
+            self.controls[key] = control
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(wx.StaticText(self, label=f"{model.ref_des} {model.mpn}".strip()), 0, wx.ALL, 10)
+        sizer.Add(grid, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+        sizer.Add(self.CreateButtonSizer(wx.OK | wx.CANCEL), 0, wx.EXPAND | wx.ALL, 10)
+        self.SetSizerAndFit(sizer)
+
+    def get_model(self):
+        return edited_inductor_model(
+            self.model, {key: control.GetValue() for key, control in self.controls.items()},
+        )
+
+
 class EMCSourceDialog(wx.Dialog):
     def __init__(self, parent, source=None):
         super().__init__(parent, title="Edit EMI/EMC Source" if source else "Add EMI/EMC Source")
@@ -330,14 +402,17 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
 
         inductor_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Switching Inductor Models")
         inductor_parent = inductor_box.GetStaticBox()
-        self.inductor_list = wx.ListCtrl(inductor_parent, style=wx.LC_REPORT)
+        self.inductor_list = wx.ListCtrl(inductor_parent, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
         self.inductor_list.SetMinSize((-1, 125))
         for index, (title, width) in enumerate((
             ("Ref", 55), ("MPN", 165), ("Shield", 85), ("L (uH)", 75),
             ("Size mm", 120), ("Shield attenuation", 135), ("Confidence", 90),
+            ("Iout A", 70), ("kHz", 70),
         )):
             self.inductor_list.InsertColumn(index, title, width=width)
         inductor_box.Add(self.inductor_list, 1, wx.EXPAND | wx.ALL, 5)
+        self.btn_edit_inductor = wx.Button(inductor_parent, label="Edit Selected Model")
+        inductor_box.Add(self.btn_edit_inductor, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
         inductor_box.Add(wx.StaticText(
             inductor_parent,
             label=(
@@ -371,6 +446,8 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
         self.btn_edit.Bind(wx.EVT_BUTTON, self._on_edit)
         self.btn_toggle.Bind(wx.EVT_BUTTON, self._on_toggle)
         self.source_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit)
+        self.btn_edit_inductor.Bind(wx.EVT_BUTTON, self._on_edit_inductor)
+        self.inductor_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit_inductor)
         self._update_backend_controls()
 
     def _on_phase10_changed(self, event):
@@ -487,6 +564,7 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
                 f"{model.inductance_h * 1e6:g}" if model.inductance_h else "-",
                 f"{model.width_mm:g} x {model.depth_mm:g} x {model.height_mm:g}",
                 attenuation, model.parameter_confidence,
+                f"{model.output_current_a:g}", f"{model.switching_frequency_hz / 1e3:g}",
             )
             for column, value in enumerate(values, start=1):
                 self.inductor_list.SetItem(row, column, str(value))
@@ -615,6 +693,23 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
                 self._update_sources()
         except ValueError as exc:
             wx.MessageBox(str(exc), "EMI/EMC source", wx.OK | wx.ICON_ERROR)
+
+    def _on_edit_inductor(self, _event):
+        index = self.inductor_list.GetFirstSelected()
+        if not 0 <= index < len(self.settings.inductor_models):
+            return
+        dialog = EMCInductorDialog(self, self.settings.inductor_models[index])
+        try:
+            while dialog.ShowModal() == wx.ID_OK:
+                try:
+                    self.settings.inductor_models[index] = dialog.get_model()
+                except ValueError as exc:
+                    wx.MessageBox(str(exc), "Inductor model", wx.OK | wx.ICON_ERROR)
+                    continue
+                self._update_inductors()
+                break
+        finally:
+            dialog.Destroy()
 
     def _on_toggle(self, _event):
         index = self._selected_index()

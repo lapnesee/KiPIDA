@@ -2274,8 +2274,9 @@ class EMCAnalyzer:
                       f"{'; '.join(strays)} entered; the power tree gives {output.name} {tree} of "
                       f"output on {output.output_rail}. The spectrum and the inductor fields use the "
                       "entered values; Phase 10's board circuit draws the tree's current.",
-                      "Enter the power tree's values, or correct the tree's loads if the entered ones "
-                      "are right.",
+                      "Enter the power tree's values on the EMI/EMC page (Edit Selected for a "
+                      "source, Edit Selected Model for an inductor), or correct the tree's loads if "
+                      "the entered ones are right.",
                       "HIGH",
                       nets=sorted({net for *_rest, net, _ref in stray_items if net}),
                       components=[reference] + sorted({ref for *_rest, ref in stray_items if ref}))
