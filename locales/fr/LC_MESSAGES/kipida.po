@@ -5517,3 +5517,6 @@ msgstr "{profiles} profil(s) AC sur {rails} rail(s)"
 
 msgid "Folder holding MODEL_CATALOG.csv"
 msgstr "Dossier contenant MODEL_CATALOG.csv"
+
+msgid "Live PCB geometry captured for this session."
+msgstr "Géométrie du PCB ouvert capturée pour cette session."

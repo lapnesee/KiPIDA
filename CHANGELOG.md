@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed each run's log opening on "Live PCB geometry changed;
+  invalidated thermal mesh/CSR cache." though nothing had changed: a
+  launch starts with no geometry, so the first capture now reads "Live
+  PCB geometry captured for this session.".
 - Fixed every new project's SPICE library defaulting to one user's
   folder (C:\Users\jbc66\Documents\DAW CONTROLEUR\Lib\SPICE): it is now
   empty until set, and Phase 10 logs when the library is unset or holds

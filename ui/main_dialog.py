@@ -383,12 +383,18 @@ class KiPIDA_MainDialog(wx.Dialog):
         try:
             self._thermal_geometry_context = None
             signature = ThermalModelBuilder.board_geometry_signature(self.board)
+            first = self._thermal_board_signature is None
             board_changed = signature != self._thermal_board_signature
             if board_changed:
                 ThermalModelBuilder.invalidate_board_cache(self.board)
                 self._thermal_session_cache.clear()
                 self._thermal_board_signature = signature
-                self.log("Live PCB geometry changed; invalidated thermal mesh/CSR cache.")
+                # Each launch starts with no signature: "changed" opened
+                # every P02 Rev E run log though nothing had.
+                self.log(
+                    "Live PCB geometry captured for this session." if first else
+                    "Live PCB geometry changed; invalidated thermal mesh/CSR cache."
+                )
             else:
                 self.log("Live PCB geometry unchanged; thermal mesh/CSR cache remains eligible.")
             self.ac_panel.refresh(force_discovery=True)
