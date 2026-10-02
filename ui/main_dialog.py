@@ -869,29 +869,27 @@ class KiPIDA_MainDialog(wx.Dialog):
         self._write_campaign_report(campaign, open_browser=True)
 
     def _write_campaign_report(self, campaign, open_browser=False):
-        """Write one campaign's HTML report and CSV exports beside the board.
+        """Write one campaign, its HTML report and CSV exports beside the board.
 
         Shared by the batch, which produces its CampaignResult by running the
         analyses, and by the consolidate button, which builds one from results
-        already published. Both end in the same three files.
+        already published. Both end in the same four files.
         """
-        from report.html_report import write_campaign_html
-        from report.csv_export import write_actions_csv, write_findings_csv
+        from report.campaign_files import write_campaign_files
         from result_history import ProjectResultsHistory
 
         try:
             directory = self._campaign_output_directory()
             directory.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            html_path = directory / f"campaign-{stamp}.html"
             # The plots are saved after each result, so the results in memory
             # do not list them; the history entry of each run does.
             attached = ProjectResultsHistory(directory).attach_artifacts(campaign.results)
             if attached:
                 self.log(f"Consolidated report: plots attached from {attached} saved result(s).")
-            write_campaign_html(campaign, html_path, artifact_roots=(directory,))
-            write_findings_csv(campaign, directory / f"findings-{stamp}.csv")
-            write_actions_csv(campaign, directory / f"actions-{stamp}.csv")
+            html_path = write_campaign_files(
+                campaign, directory, stamp, artifact_roots=(directory,),
+            )["html"]
 
             domains = ", ".join(score.domain for score in campaign.domain_scores)
             self.log(

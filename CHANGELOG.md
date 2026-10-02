@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added campaign-<stamp>.json beside each campaign report: the campaign
+  itself, with every domain's result, its actions and its coverage.
+  P02 Rev E's results folder held 22 reports and their CSV files, and
+  no campaign a later run could be compared with (340 kB for the 22:29
+  one).
 - Added the Ki-PIDA build to every result and campaign, and to the
   report's appendix: the version, the hash of its sources and, in a copy
   made with git archive, the commit and its date. P02 Rev E's EMC score
