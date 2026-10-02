@@ -5334,3 +5334,27 @@ msgstr "Relancez le thermique après avoir saisi le coefficient : l’observatio
 
 msgid "The internal air rises in inverse proportion to the enclosure's wall coefficient, and every temperature on the board with it; the default describes no real box."
 msgstr "L’air intérieur s’élève en proportion inverse du coefficient de paroi du boîtier, et toutes les températures de la carte avec lui ; la valeur par défaut ne décrit aucun boîtier réel."
+
+msgid "before the batch"
+msgstr "avant le lot"
+
+msgid "Configuration not saved {p0}: {p1} changed on disk since Ki-PIDA loaded it. Save Config overwrites it."
+msgstr "Configuration non enregistrée {p0} : {p1} a changé sur le disque depuis son chargement par Ki-PIDA. « Save Config » l’écrase."
+
+msgid "Configuration saved to {p0} on close."
+msgstr "Configuration enregistrée dans {p0} à la fermeture."
+
+msgid "Configuration saved to {p0} {p1}."
+msgstr "Configuration enregistrée dans {p0} {p1}."
+
+msgid "Failed to save config on close: {p0}"
+msgstr "Échec de l’enregistrement de la configuration à la fermeture : {p0}"
+
+msgid "Failed to save config {p0}: {p1}"
+msgstr "Échec de l’enregistrement de la configuration {p0} : {p1}"
+
+msgid "on close"
+msgstr "à la fermeture"
+
+msgid "Save configuration"
+msgstr "Enregistrer la configuration"

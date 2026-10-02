@@ -635,5 +635,51 @@ class TestConfigManager(unittest.TestCase):
             if Path(filepath).exists():
                 os.unlink(filepath)
 
+    def test_a_save_replaces_the_file_whole_and_keeps_the_old_one(self):
+        # Review of 2026-10-02: the sidecar was rewritten in place, so a save
+        # cut short left it truncated. P02 Rev E keeps its own
+        # p02_revision_e.kipida.json.bak, which a save must not touch.
+        from unittest import mock
+        import config_manager
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "p02.kipida.json"
+            own = Path(directory) / "p02.kipida.json.bak"
+            own.write_text("mine", encoding="utf-8")
+            self.assertTrue(config_manager.write_config_text(path, '{"version": "1"}'))
+            self.assertFalse(config_manager.write_config_text(path, '{"version": "1"}'))
+            stamps = iter(f"20261002-1000{second:02d}" for second in range(10))
+            with mock.patch("config_manager.time.strftime", side_effect=lambda _f: next(stamps)):
+                for revision in range(2, 9):
+                    config_manager.write_config_text(path, f'{{"version": "{revision}"}}')
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {"version": "8"})
+            backups = sorted(item.name for item in Path(directory).glob("p02.kipida.json.*.bak"))
+            self.assertEqual(len(backups), config_manager.CONFIG_BACKUPS_KEPT)
+            self.assertEqual(backups[-1], "p02.kipida.json.20261002-100006.bak")
+            self.assertEqual(own.read_text(encoding="utf-8"), "mine")
+            self.assertFalse(Path(directory, "p02.kipida.json.tmp").exists())
+
+    def test_an_automatic_save_leaves_a_file_changed_elsewhere_alone(self):
+        # The L1 current of P02 Rev E was corrected in the sidecar while
+        # Ki-PIDA was open (2026-10-01); a save on close would have put back
+        # the 4.36 A it held in memory.
+        from types import SimpleNamespace
+        from ui.power_tree_panel import PowerTreePanel, _file_signature
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "p02.kipida.json"
+            path.write_text("{}", encoding="utf-8")
+            saved, logged = [], []
+            panel = SimpleNamespace(
+                _get_config_path=lambda: path, _config_signature=_file_signature(path),
+                save_configuration=saved.append, log=logged.append,
+            )
+            panel.config_changed_on_disk = lambda: PowerTreePanel.config_changed_on_disk(panel)
+            self.assertTrue(PowerTreePanel.auto_save(panel, "on close"))
+            path.write_text('{"edited": true}', encoding="utf-8")
+            self.assertFalse(PowerTreePanel.auto_save(panel, "on close"))
+            self.assertEqual(saved, [path])
+            self.assertIn("changed on disk since Ki-PIDA loaded it", logged[-1])
+
 if __name__ == '__main__':
     unittest.main()

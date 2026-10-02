@@ -567,6 +567,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             return
 
         selected = [self.BATCH_ANALYSES[index][0] for index in chosen]
+        # The settings a batch runs on are worth keeping whatever happens next.
+        self.power_tree.auto_save("before the batch", create=True)
         self._select_workspace(self.PAGE_LOG)
         self.log(
             f"--- Starting analysis batch: {len(selected)} analysis(es) --- "
@@ -2334,6 +2336,32 @@ class KiPIDA_MainDialog(wx.Dialog):
             return
         self.log(f"DC plot rendering error: {exc}")
 
+    def _save_configuration_on_close(self):
+        """Save the project's configuration before the window closes; False
+        to keep it open. A file edited elsewhere since it was loaded is only
+        overwritten if the user says so."""
+        tree = self.power_tree
+        config_path = tree._get_config_path()
+        if not config_path or not config_path.exists():
+            return True
+        if not tree.config_changed_on_disk():
+            tree.auto_save("on close")
+            return True
+        answer = wx.MessageBox(
+            f"{config_path.name} changed on disk since Ki-PIDA loaded it.\n\n"
+            "Overwrite it with the settings on screen?",
+            "Save configuration", wx.YES_NO | wx.CANCEL | wx.ICON_QUESTION, self,
+        )
+        if answer == wx.CANCEL:
+            return False
+        if answer == wx.YES:
+            try:
+                tree.save_configuration(config_path)
+                self.log(f"Configuration saved to {config_path.name} on close.")
+            except Exception as exc:
+                self.log(f"Failed to save config on close: {exc}")
+        return True
+
     def on_close(self, event):
         if self.campaign_controller.is_running:
             self._cancel_batch()
@@ -2370,6 +2398,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             self.btn_run_cfd.Disable()
             self.btn_run_cfd.SetLabel("Cancelling CFD...")
             self.log("Close requested; cancelling enclosure CFD first.")
+            return
+        if not self._save_configuration_on_close():
             return
         self._closing = True
         self._result_generation += 1

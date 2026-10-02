@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed settings being lost on close and the configuration file being
+  rewritten in place. Closing Ki-PIDA and starting a batch now save the
+  project's configuration. A file edited elsewhere since it was loaded
+  is never overwritten silently: on close Ki-PIDA asks, before a batch
+  it logs why it did not save. Each save writes a temporary file, then
+  swaps it in, and keeps the five previous versions as timestamped
+  copies; P02 Rev E's own p02_revision_e.kipida.json.bak is not
+  touched.
 - Fixed the schematic rules reading a rail's voltage from its net name
   only: 11 of P02 Rev E's 17 rails name none, every 20 V one among
   them, so six resistors on them (R62 on /VBUS_SYS, R92 and R3 on

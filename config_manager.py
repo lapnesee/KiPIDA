@@ -1,4 +1,8 @@
+import glob
 import json
+import os
+import shutil
+import time
 from typing import List, Optional, Union
 from pathlib import Path
 
@@ -80,16 +84,47 @@ def save_config(
         ),
         "emc_profile": _emc_settings_to_dict(emc_profile) if emc_profile is not None else None,
     }
-    
-    with open(filepath, 'w') as f:
-        json.dump(config, f, indent=2)
+    write_config_text(Path(filepath), json.dumps(config, indent=2))
+
+
+# Timestamped copies of the configuration a save replaced, kept beside it.
+CONFIG_BACKUPS_KEPT = 5
+
+
+def write_config_text(path: Path, text: str) -> bool:
+    """Replace *path* with *text* atomically, keeping the old file as a
+    timestamped backup. False when the file already holds *text*.
+
+    The file used to be rewritten in place: a save cut short left a
+    truncated sidecar, which the next launch set aside as unreadable and
+    the next save overwrote. P02 Rev E's held 83 kB of power tree and
+    profiles. A user's own ``.bak`` is never touched.
+    """
+    path = Path(path)
+    # The platform's line ending, as the text-mode write used to produce.
+    data = text.replace("\n", os.linesep).encode("utf-8")
+    if path.exists() and path.read_bytes() == data:
+        return False
+    temporary = path.with_name(path.name + ".tmp")
+    with open(temporary, "wb") as handle:
+        handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
+    if path.exists():
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        shutil.copy2(path, path.with_name(f"{path.name}.{stamp}.bak"))
+        backups = sorted(path.parent.glob(f"{glob.escape(path.name)}.????????-??????.bak"))
+        for old in backups[:-CONFIG_BACKUPS_KEPT]:
+            old.unlink()
+    os.replace(temporary, path)
+    return True
 
 def load_project_config(filepath: str) -> ProjectConfig:
     """Load the complete project configuration, including legacy v1.0 files."""
     if not Path(filepath).exists():
         raise FileNotFoundError(f"Config file not found: {filepath}")
     
-    with open(filepath, 'r') as f:
+    with open(filepath, 'r', encoding="utf-8") as f:
         config = json.load(f)
     
     # Validate version

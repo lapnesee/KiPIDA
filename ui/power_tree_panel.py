@@ -15,6 +15,15 @@ except (ImportError, ValueError):
     from discovery import NetDiscoverer, rail_label
     from config_manager import get_project_config_path, load_project_config, save_config
 
+def _file_signature(path):
+    """(mtime_ns, size) of *path*, or None when it does not exist."""
+    try:
+        stat = path.stat()
+    except (OSError, AttributeError):
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
+
+
 def _declared_rails_provider(project_context):
     """The rails the project's saved files declare, read when the scan asks; None without a project."""
     project = getattr(project_context, "project", None)
@@ -71,7 +80,11 @@ class PowerTreePanel(wx.Panel):
         self.differential_profile_consumer = None
         self.emc_profile_provider = None
         self.emc_profile_consumer = None
-        
+        # The configuration file as this session last loaded or saved it, so
+        # a save that is not asked for never overwrites changes made to it
+        # elsewhere meanwhile.
+        self._config_signature = None
+
         self._init_ui()
 
     def log(self, msg):
@@ -189,6 +202,7 @@ class PowerTreePanel(wx.Panel):
                     self.differential_profile_consumer(project_config.differential_profile)
                 if self.emc_profile_consumer:
                     self.emc_profile_consumer(project_config.emc_profile)
+                self._config_signature = _file_signature(config_path)
                 self.log(f"Loaded configuration from {config_path.name} ({len(self.rails)} rails)")
             except Exception as e:
                 self.log(f"Failed to load config: {e}. Running auto-scan instead.")
@@ -666,33 +680,70 @@ class PowerTreePanel(wx.Panel):
             self.log(f"Error getting config path: {e}")
             return None
     
+    def save_configuration(self, config_path):
+        """Write the power tree and every analysis profile to *config_path*."""
+        ac_profiles = self.ac_profiles_provider() if self.ac_profiles_provider else {}
+        thermal_profile = (
+            self.thermal_profile_provider() if self.thermal_profile_provider else None
+        )
+        cfd_profile = self.cfd_profile_provider() if self.cfd_profile_provider else None
+        differential_profile = (
+            self.differential_profile_provider()
+            if self.differential_profile_provider else None
+        )
+        emc_profile = self.emc_profile_provider() if self.emc_profile_provider else None
+        save_config(
+            self.rails,
+            str(config_path),
+            ac_profiles=ac_profiles,
+            thermal_profile=thermal_profile,
+            cfd_profile=cfd_profile,
+            differential_profile=differential_profile,
+            emc_profile=emc_profile,
+        )
+        self._config_signature = _file_signature(config_path)
+
+    def config_changed_on_disk(self):
+        """True when the configuration file is not the one this session
+        loaded or saved: edited elsewhere, or unreadable at launch."""
+        config_path = self._get_config_path()
+        return bool(config_path and config_path.exists()
+                    and _file_signature(config_path) != self._config_signature)
+
+    def auto_save(self, reason, create=False):
+        """Save without being asked, unless the file changed on disk.
+
+        Closing the window used to lose every setting not saved by hand, and
+        only the Save Config button on this page wrote them. A file edited
+        elsewhere since it was loaded is left alone, and the log says so.
+        Without *create*, a project with no configuration file gets none.
+        """
+        config_path = self._get_config_path()
+        if not config_path or (not create and not config_path.exists()):
+            return False
+        if self.config_changed_on_disk():
+            self.log(
+                f"Configuration not saved {reason}: {config_path.name} changed on disk since "
+                "Ki-PIDA loaded it. Save Config overwrites it."
+            )
+            return False
+        try:
+            self.save_configuration(config_path)
+        except Exception as e:
+            self.log(f"Failed to save config {reason}: {e}")
+            return False
+        self.log(f"Configuration saved to {config_path.name} {reason}.")
+        return True
+
     def on_save_config(self, event):
         """Save current configuration to JSON file."""
         config_path = self._get_config_path()
         if not config_path:
             wx.MessageBox("Unable to determine project path. Cannot save config.", "Error", wx.OK | wx.ICON_ERROR)
             return
-        
+
         try:
-            ac_profiles = self.ac_profiles_provider() if self.ac_profiles_provider else {}
-            thermal_profile = (
-                self.thermal_profile_provider() if self.thermal_profile_provider else None
-            )
-            cfd_profile = self.cfd_profile_provider() if self.cfd_profile_provider else None
-            differential_profile = (
-                self.differential_profile_provider()
-                if self.differential_profile_provider else None
-            )
-            emc_profile = self.emc_profile_provider() if self.emc_profile_provider else None
-            save_config(
-                self.rails,
-                str(config_path),
-                ac_profiles=ac_profiles,
-                thermal_profile=thermal_profile,
-                cfd_profile=cfd_profile,
-                differential_profile=differential_profile,
-                emc_profile=emc_profile,
-            )
+            self.save_configuration(config_path)
             self.log(f"Configuration saved to {config_path.name}")
             wx.MessageBox(f"Configuration saved successfully to:\n{config_path}", "Success", wx.OK | wx.ICON_INFORMATION)
         except Exception as e:
@@ -723,8 +774,9 @@ class PowerTreePanel(wx.Panel):
                 self.differential_profile_consumer(project_config.differential_profile)
             if self.emc_profile_consumer:
                 self.emc_profile_consumer(project_config.emc_profile)
+            self._config_signature = _file_signature(config_path)
             self.log(f"Loaded configuration from {config_path.name} ({len(self.rails)} rails)")
-            
+
             # Refresh UI
             self.rail_list.Clear()
             for r in self.rails:
