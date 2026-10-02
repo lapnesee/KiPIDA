@@ -1,6 +1,7 @@
 import wx
 from ui.number_input import parse_number
 import wx.dataview
+from i18n import _
 
 try:
     from models import PowerRail, UnifiedSource, UnifiedLoad, ComponentRef, VoltageRegulator
@@ -23,6 +24,17 @@ def _file_signature(path):
     except (OSError, AttributeError):
         return None
     return (stat.st_mtime_ns, stat.st_size)
+
+
+def voltage_entry(text, current):
+    """(value, problem) for a rail's voltage field: the value to keep and,
+    when *text* is not a number, why it was not taken. The field dropped
+    such text without a word, the rail staying on its previous voltage."""
+    try:
+        return parse_number(text), ""
+    except ValueError:
+        return current, _("Not a number: the rail stays at {voltage} V.").format(
+            voltage=f"{float(current or 0):g}")
 
 
 def _declared_rails_provider(project_context):
@@ -139,6 +151,9 @@ class PowerTreePanel(wx.Panel):
         h_volt.Add(self.txt_voltage, 1, wx.EXPAND)
         
         prop_sizer.Add(h_volt, 0, wx.EXPAND | wx.ALL, 5)
+        self.lbl_voltage_state = wx.StaticText(prop_sizer.GetStaticBox(), label="")
+        self.lbl_voltage_state.SetForegroundColour(wx.Colour(160, 30, 30))
+        prop_sizer.Add(self.lbl_voltage_state, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
         self.detail_sizer.Add(prop_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         # Components List (Sources/Loads)
@@ -256,6 +271,7 @@ class PowerTreePanel(wx.Panel):
         
         # Populate Details
         self.txt_voltage.ChangeValue(str(self.active_rail.nominal_voltage) if self.active_rail.nominal_voltage else "0.0")
+        self.lbl_voltage_state.SetLabel("")
         
         self.refresh_comp_list()
         
@@ -296,10 +312,10 @@ class PowerTreePanel(wx.Panel):
 
     def on_voltage_change(self, event):
         if not self.active_rail: return
-        try:
-            val = parse_number(self.txt_voltage.GetValue())
-            self.active_rail.nominal_voltage = val
-        except: pass
+        value, problem = voltage_entry(self.txt_voltage.GetValue(), self.active_rail.nominal_voltage)
+        self.active_rail.nominal_voltage = value
+        self.lbl_voltage_state.SetLabel(problem)
+        self.detail_panel.Layout()
 
     def on_add_component(self, mode):
         if not self.active_rail: return

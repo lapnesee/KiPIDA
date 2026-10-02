@@ -25,5 +25,18 @@ class ParseNumberTests(unittest.TestCase):
                 parse_number(text)
 
 
+class RailVoltageEntryTests(unittest.TestCase):
+    def test_a_voltage_that_is_not_a_number_is_said_and_not_taken(self):
+        # The power tree's voltage field dropped such text without a word:
+        # "5V" typed on P02 Rev E's /+5V_RAIL left it at 5 V, silently.
+        try:
+            from ui.power_tree_panel import voltage_entry
+        except Exception:
+            self.skipTest("the power tree panel cannot be imported here")
+
+        self.assertEqual(voltage_entry("5,1", 5.0), (5.1, ""))
+        self.assertEqual(voltage_entry("5V", 5.0), (5.0, "Not a number: the rail stays at 5 V."))
+
+
 if __name__ == "__main__":
     unittest.main()
