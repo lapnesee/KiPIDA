@@ -9,6 +9,7 @@ import time
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -72,6 +73,10 @@ from application.report_presenters import (
 )
 from application.thermal_plot_presenter import render_thermal_plots
 from application.dc_plot_presenter import flatten_dc_plot_groups, render_dc_plots
+
+# "THERMAL: " and the like, put before each line of a batch's domain.
+_DOMAIN_PREFIX = re.compile(r"^([A-Z][A-Z0-9_]+: )(.*)$", re.DOTALL)
+
 
 class KiPIDA_MainDialog(wx.Dialog):
     PAGE_CONFIG = 0
@@ -930,8 +935,40 @@ class KiPIDA_MainDialog(wx.Dialog):
                 wx.CallAfter(self.log, msg)
             return
         timestamp = datetime.now().strftime("%H:%M:%S")
-        self.log_ctrl.AppendText(f"[{timestamp}] {msg}\n")
-        self.log_ctrl.ShowPosition(self.log_ctrl.GetLastPosition())
+        self._write_log_file(f"[{timestamp}] {msg}")
+        # Shown in the interface's language; the file keeps English for
+        # support. Following the end only when the reader is there: a forced
+        # scroll on every line made a running batch impossible to read back.
+        at_end = self.log_ctrl.GetInsertionPoint() >= self.log_ctrl.GetLastPosition()
+        # A batch prefixes each domain's lines ("THERMAL: ..."), which no
+        # catalog template carries: the prefix stays, the rest is translated.
+        prefixed = _DOMAIN_PREFIX.match(str(msg))
+        shown = prefixed.group(1) + _(prefixed.group(2)) if prefixed else _(msg)
+        self.log_ctrl.AppendText(f"[{timestamp}] {shown}\n")
+        if at_end:
+            self.log_ctrl.ShowPosition(self.log_ctrl.GetLastPosition())
+
+    LOG_FILE_LIMIT_BYTES = 5_000_000
+
+    def _write_log_file(self, line):
+        """Append *line* to ki-pida.log beside the board's results, the one
+        record of a session that outlives the window; one older copy is kept
+        once it passes LOG_FILE_LIMIT_BYTES."""
+        try:
+            path = getattr(self, "_log_file_path", None)
+            if path is None:
+                directory = self._results_history_directory()
+                if directory is None:
+                    return
+                directory.mkdir(parents=True, exist_ok=True)
+                path = self._log_file_path = directory / "ki-pida.log"
+            if path.exists() and path.stat().st_size > self.LOG_FILE_LIMIT_BYTES:
+                os.replace(path, path.with_name("ki-pida.1.log"))
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(f"{datetime.now():%Y-%m-%d} {line}\n")
+        except Exception:
+            # The log must never fail the action it records.
+            pass
         
     def _thermal_mesh_context(self):
         try:

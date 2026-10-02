@@ -142,13 +142,13 @@ def main():
 
                 _root = _os.path.dirname(_os.path.abspath(__file__))
                 early_log(
-                    f"[INIT] Ki-PIDA {plugin_version(_root)} "
+                    f"Ki-PIDA {plugin_version(_root)} "
                     f"(build {source_fingerprint(_root) or 'unknown'}"
                     + (f", commit {build_commit(_root)}" if build_commit(_root) else "")
                     + f") loaded from {_root}"
                 )
             except Exception as exc:  # pragma: no cover - never block startup
-                early_log(f"[INIT] Could not determine the plugin build: {exc}")
+                early_log(f"Could not determine the plugin build: {exc}")
             early_log("Ki-PIDA connected successfully.")
         else:
             early_log("ERROR: client.get_board() returned None.")

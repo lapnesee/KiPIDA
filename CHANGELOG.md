@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Changed the log: it now shows its lines in the interface's language,
+  a batch's "THERMAL: " prefix kept, and copies them in English to
+  KiPIDA-results/ki-pida.log, one older copy kept past 5 MB. It follows
+  the end only while the reader is there, and the start no longer reads
+  "[INIT] [INIT]".
 - Fixed parts of the French interface staying in English: the sidebar
   navigation, the batch dialog, and the results page's filters and
   views, which sit outside the wx hooks that translate buttons and

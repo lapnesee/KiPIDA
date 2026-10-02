@@ -55,7 +55,7 @@ def human_literal(value, force=False):
     literal_text = re.sub(r"^\s*\[[^\]]*\]", "", re.sub(r"\{[A-Za-z_][^}]*\}", "", text))
     if "{" in text and sum(char.isalpha() for char in literal_text) < 4:
         return False
-    if re.fullmatch(r"[A-Za-z0-9_.-]+\.(py|json|png|toml|txt|kicad_[a-z]+)", text):
+    if re.fullmatch(r"[A-Za-z0-9_.-]+\.(py|json|png|toml|txt|log|kicad_[a-z]+)", text):
         return False
     return True
 
