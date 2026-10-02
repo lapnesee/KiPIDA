@@ -1,7 +1,7 @@
 """UI-independent orchestration for thermal and coupled DC/thermal analyses."""
 
 import copy
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import math
 import time
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -30,7 +30,9 @@ class ThermalRunRequest:
     coupled: bool = False
     dc_request: Any = None
     board_signature: Any = None
-    cached_entries: Optional[Dict[Any, Any]] = None
+    # The session's meshes and solvers, keyed by what built them: work to
+    # reuse, not an input, so the campaign cache does not compare it.
+    cached_entries: Optional[Dict[Any, Any]] = field(default=None, metadata={"digest": False})
     # Free-stream speed resolved by a preceding enclosure CFD run, in m/s.
     # None keeps the configured airflow; a value overrides it for the surface
     # coefficients. It is part of thermal_cache_key, because two runs that
@@ -45,10 +47,11 @@ class ThermalRunRequest:
     # A DC result to take copper losses from instead of solving the DC again,
     # and what it is -- a campaign hands over the one its DC domain produced
     # on the same capture. A coupled run takes it as the ambient pass its
-    # iterations start from. Private: dc_request already determines it, so the
-    # campaign cache digest leaves it out rather than hashing meshes.
-    _dc_results: Optional[Dict[str, Any]] = None
-    _dc_results_source: str = ""
+    # iterations start from. Only the campaign sets it, from its own DC run,
+    # whose run_id the cache digest already folds in: the digest leaves it
+    # out rather than read meshes.
+    _dc_results: Optional[Dict[str, Any]] = field(default=None, metadata={"digest": False})
+    _dc_results_source: str = field(default="", metadata={"digest": False})
 
 
 @dataclass(frozen=True)

@@ -1,6 +1,6 @@
 """Background orchestration for enclosure CFD analysis."""
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Tuple
 
 from application.dc_controller import DefaultDCSolverEngine
@@ -22,9 +22,9 @@ class CFDRunRequest:
     dc_request: Any = None
     plot_lock: Any = None
     # As on ThermalRunRequest: a DC result to take copper losses from, and
-    # what it is. Private, so the campaign cache digest does not hash meshes.
-    _dc_results: Any = None
-    _dc_results_source: str = ""
+    # what it is, which the campaign cache digest leaves to the DC's run_id.
+    _dc_results: Any = field(default=None, metadata={"digest": False})
+    _dc_results_source: str = field(default="", metadata={"digest": False})
 
 
 @dataclass(frozen=True)

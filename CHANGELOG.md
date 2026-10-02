@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+A batch run again in the same session reuses each analysis whose inputs did
+not change, and says so in the log ("reused the result completed at ...").
+The comparison reads the inputs' content, private fields, arrays, geometries
+and named files included; anything it cannot read makes the analysis run
+again.
 No exception is dropped without a word any more: a board collection the
 IPC refuses, a failed live-board capture before a batch, a Palace remote
 stop that did not go through, a Gmsh probe and the debug plots are logged;

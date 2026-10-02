@@ -62,6 +62,7 @@ from application.cfd_controller import (
     CFDAnalysisCancelled, CFDAnalysisController, CFDControllerCallbacks,
     CFDRunRequest,
 )
+from application.campaign_cache import CampaignCache
 from application.campaign_controller import (
     CampaignCallbacks, CampaignController, CampaignEngine, CampaignRunRequest,
     reuse_dc_capture,
@@ -151,7 +152,10 @@ class KiPIDA_MainDialog(wx.Dialog):
         # six results the user then has to consolidate by hand.
         self.campaign_controller = CampaignController(
             dispatch=lambda callback, *args: wx.CallAfter(callback, *args),
-            engine=CampaignEngine(default_domain_engines()),
+            # A batch run again with one input changed reuses the domains
+            # whose inputs it did not touch; see campaign_cache for what the
+            # comparison reads and why a doubt means solving again.
+            engine=CampaignEngine(default_domain_engines(), cache=CampaignCache()),
         )
         self._thermal_plot_thread = None
         self._dc_plot_thread = None

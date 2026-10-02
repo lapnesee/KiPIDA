@@ -12,6 +12,7 @@ must cost them the thermal section, not the five domains that worked.
 """
 
 from dataclasses import dataclass, field, replace
+import copy
 import time
 import uuid
 from typing import Any, Callable, Dict, List, Optional
@@ -271,6 +272,9 @@ class CampaignEngine:
         # {analysis_id: run_id} of each domain's latest run, set before its
         # raw outcome is handed over (run_id_for).
         self._run_ids: Dict[str, str] = {}
+        # The same, for this campaign only: what a cached domain's inputs
+        # came from (campaign_cache.configuration_digest's context).
+        self._campaign_run_ids: Dict[str, str] = {}
 
     def set_domain_listener(self, listener: Optional[Callable[[DomainOutcome], None]]) -> None:
         """Receive each DomainOutcome as it completes.
@@ -559,6 +563,7 @@ class CampaignEngine:
         produced: Dict[str, Any] = {}
         was_cancelled = False
         done = 0
+        self._campaign_run_ids = {}
 
         for descriptor in descriptors:
             if cancelled():
@@ -763,13 +768,27 @@ class CampaignEngine:
 
         digest = ""
         if self._cache is not None:
-            from application.campaign_cache import configuration_digest
+            from application.campaign_cache import UncomparableRequest, configuration_digest
+            from build_info import tool_identity
 
-            digest = configuration_digest(domain_request)
-            cached = self._cache.get(request.board_fingerprint, analysis_id, digest)
+            # Digested as the domain starts, after the earlier domains handed
+            # it their results, with the runs those came from and the build.
+            try:
+                digest = configuration_digest(domain_request, context=(
+                    tool_identity(), sorted(self._campaign_run_ids.items()),
+                ))
+            except UncomparableRequest as exc:
+                emit_log(f"{analysis_id}: solved again, its inputs cannot be compared ({exc}).")
+            cached = self._cache.get(request.board_fingerprint, analysis_id, digest) if digest else None
             if cached is not None:
-                emit_log(f"{analysis_id}: reused cached result (inputs unchanged).")
+                # A copy: the campaign annotates the results it aggregates.
+                cached = copy.deepcopy(cached)
+                emit_log(
+                    f"{analysis_id}: reused the result completed at {cached.completed_at}, "
+                    "its inputs unchanged."
+                )
                 self._run_ids[analysis_id] = cached.run_id
+                self._campaign_run_ids[analysis_id] = cached.run_id
                 if on_domain_result is not None:
                     # A cached domain still has to hand its raw outcome to
                     # the domains that couple to it -- DC's rails feed
@@ -787,6 +806,7 @@ class CampaignEngine:
         started = time.perf_counter()
         run_id = uuid.uuid4().hex
         self._run_ids[analysis_id] = run_id
+        self._campaign_run_ids[analysis_id] = run_id
         try:
             domain_result = engine.solve(
                 domain_request,
@@ -811,7 +831,7 @@ class CampaignEngine:
 
         elapsed = time.perf_counter() - started
         self._stamp(result, request, elapsed)
-        if self._cache is not None:
+        if self._cache is not None and digest:
             self._cache.put(
                 request.board_fingerprint, analysis_id, digest, result, domain_result,
             )

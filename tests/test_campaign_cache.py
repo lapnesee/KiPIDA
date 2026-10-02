@@ -34,6 +34,12 @@ class _ThermalLikeRequest:
 
 
 @dataclass
+class _ACLikeRequest:
+    settings: Any = None
+    _build: Any = None
+
+
+@dataclass
 class DigestRequest:
     grid_size_mm: float = 0.1
     debug: bool = False
@@ -52,6 +58,46 @@ class DigestTests(unittest.TestCase):
         self.assertNotEqual(
             configuration_digest(base), configuration_digest(DigestRequest(0.2)),
         )
+
+    def test_what_a_request_holds_is_read_by_content(self):
+        # Review of 2026-10-02: two NumPy arrays of more than 1,000 values
+        # digested alike (their repr elides the middle), and the AC request's
+        # board, in its private _build, was left out -- the AC took 329 s of
+        # P02 Rev E's 557 s batch at 17:26, the most a reuse would save.
+        import numpy as np
+
+        first, second = np.zeros(2000), np.zeros(2000)
+        second[1000] = 1.0
+        self.assertNotEqual(configuration_digest(_ACLikeRequest(_build=first)),
+                            configuration_digest(_ACLikeRequest(_build=second)))
+        self.assertNotEqual(configuration_digest(DigestRequest(), context=("run-a",)),
+                            configuration_digest(DigestRequest(), context=("run-b",)))
+
+    def test_the_thermal_session_meshes_are_not_an_input(self):
+        # The first batch fills the session's mesh cache with a mesh and its
+        # solver; reading them would make the second batch's thermal differ
+        # from the first, and the solver cannot be read at all.
+        from application.thermal_controller import ThermalRunRequest
+
+        before = ThermalRunRequest(settings=None, board_model=None, cached_entries={})
+        after = ThermalRunRequest(settings=None, board_model=None,
+                                  cached_entries={("sig", "key"): ("mesh", object())})
+        self.assertEqual(configuration_digest(before), configuration_digest(after))
+
+    def test_a_value_it_cannot_read_makes_the_domain_run_again(self):
+        from application.campaign_cache import UncomparableRequest
+
+        with self.assertRaises(UncomparableRequest):
+            configuration_digest(_ACLikeRequest(_build=object()))
+        cache, fake, logged = CampaignCache(), FakeEngine(), []
+        engine = build({"DC": fake}, ["DC"], cache=cache)
+        request = CampaignRunRequest(board_fingerprint="fp-1",
+                                     domain_requests={"DC": _ACLikeRequest(_build=object())})
+        for _ in range(2):
+            engine.solve(request, logged.append, lambda *a: None, lambda: False)
+        self.assertEqual(fake.calls, 2)
+        self.assertEqual(len(cache), 0)
+        self.assertIn("DC: solved again, its inputs cannot be compared (holds a object).", logged)
 
 
 class CacheReuseTests(unittest.TestCase):
@@ -122,20 +168,24 @@ class CacheReuseTests(unittest.TestCase):
 
 
 class InvalidateTests(unittest.TestCase):
-    def _fill(self):
+    def test_invalidate_by_analysis_id_leaves_other_domains(self):
         cache = CampaignCache()
         result = _stub_result()
         cache.put("fp-1", "DC", "d1", result)
         cache.put("fp-1", "EMC", "d2", result)
-        cache.put("fp-2", "DC", "d3", result)
-        return cache
-
-    def test_invalidate_by_analysis_id_leaves_other_domains(self):
-        cache = self._fill()
         dropped = cache.invalidate(analysis_id="DC")
-        self.assertEqual(dropped, 2)
+        self.assertEqual(dropped, 1)
         self.assertIsNone(cache.get("fp-1", "DC", "d1"))
         self.assertIsNotNone(cache.get("fp-1", "EMC", "d2"))
+
+    def test_only_the_latest_entry_of_an_analysis_is_kept(self):
+        # Each entry holds the raw outcome -- a DC solution, a thermal mesh
+        # -- for as long as the dialog lives.
+        cache = CampaignCache()
+        cache.put("fp-1", "DC", "d1", _stub_result(), domain_result={"mesh": 1})
+        cache.put("fp-2", "DC", "d3", _stub_result(), domain_result={"mesh": 2})
+        self.assertEqual(len(cache), 1)
+        self.assertIsNone(cache.get_domain_result("fp-1", "DC", "d1"))
 
 
 def _stub_result():
