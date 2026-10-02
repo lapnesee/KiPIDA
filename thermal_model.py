@@ -325,6 +325,8 @@ class ThermalModelBuilder:
                     if value is not None:
                         return value
                 except Exception:
+                    # A getter this kipy version lacks or refuses: the next
+                    # spelling is tried, then the default.
                     pass
         return default
 

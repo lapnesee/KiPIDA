@@ -62,5 +62,19 @@ class RailDiscoveryTests(unittest.TestCase):
         self.assertTrue(any("guessed from their names: VCC." in text for text in result.limitations))
 
 
+class UnreadableBoardTests(unittest.TestCase):
+    def test_a_board_collection_that_cannot_be_read_is_said(self):
+        # The review of 2026-10-02 counted ten "except Exception: pass" and
+        # 13 one-line "except: pass": a net list the IPC refused read as a
+        # board with no nets.
+        def refuse():
+            raise RuntimeError("IPC timeout")
+
+        logged = []
+        names = NetDiscoverer(NS(get_nets=refuse), log_callback=logged.append).get_all_net_names()
+        self.assertEqual(set(names), set())
+        self.assertIn("Board nets could not be read (IPC timeout); none are counted.", logged)
+
+
 if __name__ == "__main__":
     unittest.main()

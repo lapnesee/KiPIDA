@@ -123,6 +123,7 @@ class DifferentialPairDiscoverer:
                 if value is not None:
                     return value
             except Exception:
+                # A getter this kipy version lacks or refuses: the default.
                 pass
         return default
 

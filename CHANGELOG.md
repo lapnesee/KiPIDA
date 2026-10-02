@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+No exception is dropped without a word any more: a board collection the
+IPC refuses, a failed live-board capture before a batch, a Palace remote
+stop that did not go through, a Gmsh probe and the debug plots are logged;
+the remaining accessor fallbacks say why they fall back.
 Rescan Board... in the power tree offers the rail candidates the board
 gained since the configuration was made, to tick, and names configured
 rails the board no longer has; configured rails are left as they are.

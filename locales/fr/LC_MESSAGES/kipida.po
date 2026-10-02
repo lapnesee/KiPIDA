@@ -5547,3 +5547,18 @@ msgstr "Rescan : {p0} rail(s) configuré(s) absent(s) de la carte, conservé(s) 
 
 msgid "Rescan: {p0} of {p1} new rail candidate(s) added: {p2}."
 msgstr "Rescan : {p0} rail(s) candidat(s) nouveau(x) ajouté(s) sur {p1} : {p2}."
+
+msgid "Batch: live board capture failed ({p0}); each analysis reads the board itself."
+msgstr "Lot : la capture de la carte ouverte a échoué ({p0}) ; chaque analyse lit la carte elle-même."
+
+msgid "Board {p0} could not be read ({p1}); none are counted."
+msgstr "Lecture impossible de {p0} sur la carte ({p1}) ; aucun n’est compté."
+
+msgid "Geometry debug plot failed: {p0}"
+msgstr "Échec de la figure de débogage de la géométrie : {p0}"
+
+msgid "Mesh debug plot failed: {p0}"
+msgstr "Échec de la figure de débogage du maillage : {p0}"
+
+msgid "Palace remote stop failed ({p0}); the solve may still run on {p1}."
+msgstr "L’arrêt à distance de Palace a échoué ({p0}) ; le calcul tourne peut-être encore sur {p1}."

@@ -140,7 +140,10 @@ class GeometryExtractor:
                 try:
                     val = getattr(obj, method_name)()
                     if val is not None: return val
-                except: pass
+                except Exception:
+                    # A getter this kipy version lacks or refuses: the next
+                    # spelling is tried, then the default.
+                    pass
         return default
 
     def _get_board_items(self, attr_name):
@@ -151,7 +154,9 @@ class GeometryExtractor:
                 result = getattr(self.board, method_name)()
                 if result is not None:
                     return result
-            except: pass
+            except Exception:
+                # The attribute spelling below is tried next.
+                pass
         if hasattr(self.board, attr_name):
             result = getattr(self.board, attr_name)
             # kipy 0.3 exposes board.footprints / board.zones as operation
@@ -161,8 +166,9 @@ class GeometryExtractor:
             if callable(get_all):
                 try:
                     return get_all()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    if self.log_callback:
+                        self.log_callback(f"Board {attr_name} could not be read ({exc}).")
             try:
                 iter(result)
                 return result

@@ -88,7 +88,10 @@ class NetDiscoverer:
                 try:
                     val = getattr(obj, method_name)()
                     if val is not None: return val
-                except: pass
+                except Exception:
+                    # A getter this kipy version lacks or refuses: the next
+                    # spelling is tried, then the default.
+                    pass
         return default
 
     def discover_power_nets(self):
@@ -270,21 +273,22 @@ class NetDiscoverer:
                 minor = int(m.group(2))
                 # infer decimal place. 'V' usually separates integer and decimal
                 return float(f"{major}.{minor}")
-            except: pass
+            except ValueError:
+                pass
             
         # Pattern 2: +12V or 5.0V
         m = re.search(r'plus(\d+\.?\d*)V', name, re.IGNORECASE) or \
             re.search(r'\+(\d+\.?\d*)V', name, re.IGNORECASE) 
         if m:
              try: return float(m.group(1))
-             except: pass
+             except ValueError: pass
              
         # Pattern 3: Simple "5V" suffix or prefix
         # Be careful not to match "V1" (version 1)
         m = re.search(r'\b(\d+\.?\d*)V\b', name, re.IGNORECASE)
         if m:
             try: return float(m.group(1))
-            except: pass
+            except ValueError: pass
             
         return None
 
@@ -301,7 +305,8 @@ class NetDiscoverer:
             method_name = f"get_{attr_name}"
             if hasattr(self.board, method_name):
                 try: return getattr(self.board, method_name)()
-                except: pass
+                except Exception as exc:
+                    self.log(f"Board {attr_name} could not be read ({exc}); none are counted.")
             return []
 
         # Iterate all footprints, then pads
@@ -350,7 +355,8 @@ class NetDiscoverer:
             method_name = f"get_{attr_name}"
             if hasattr(self.board, method_name):
                 try: return getattr(self.board, method_name)()
-                except: pass
+                except Exception as exc:
+                    self.log(f"Board {attr_name} could not be read ({exc}); none are counted.")
             return []
 
         # 1. Check if board has nets collection directly (efficient)

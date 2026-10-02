@@ -701,8 +701,8 @@ class KiPIDA_MainDialog(wx.Dialog):
         try:
             self._refresh_live_board_state()
             self._live_board_fresh = True
-        except Exception:
-            pass
+        except Exception as exc:
+            self.log(f"Batch: live board capture failed ({exc}); each analysis reads the board itself.")
         try:
             for analysis_id in selected:
                 self.log(f"Batch: preparing {labels[analysis_id]}.")
@@ -2391,7 +2391,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             if buf:
                 img = wx.Image(buf, wx.BITMAP_TYPE_PNG)
                 self._publish_results("DEBUG", "Geometry debug plot", [("Geometry Debug", wx.Bitmap(img))])
-        except: pass
+        except Exception as exc:
+            self.log(f"Geometry debug plot failed: {exc}")
 
     def _debug_plot_mesh(self, mesher, mesh, stackup):
         try:
@@ -2399,7 +2400,8 @@ class KiPIDA_MainDialog(wx.Dialog):
             bmp = plotter.plot_3d_mesh(mesh, stackup)
             if bmp:
                 self._publish_results("DEBUG", "Mesh debug plot", [("Mesh Debug", bmp)])
-        except: pass
+        except Exception as exc:
+            self.log(f"Mesh debug plot failed: {exc}")
 
     def _update_results_ui(self):
         self._result_generation += 1

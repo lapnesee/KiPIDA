@@ -239,8 +239,8 @@ class PalaceRemoteClient:
         )
         try:
             self._capture(self._ssh_command("sh", "-lc", remote), self.connection.connect_timeout_s + 5)
-        except Exception:
-            pass
+        except Exception as exc:
+            self._log(f"Palace remote stop failed ({exc}); the solve may still run on {self.target}.")
 
     def run_project(self, config_path, local_output_directory):
         started = time.perf_counter()

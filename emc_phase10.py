@@ -319,8 +319,9 @@ class Phase10Toolchain:
                     target.path = target.path or str(python)
                     target.version = probe.stdout.strip()
                     target.detail = "Gmsh Python API ready"
-            except Exception:
-                pass
+            except Exception as exc:
+                target = next(item for item in statuses if item.name == "GMSH")
+                target.detail = f"Gmsh Python API probe failed: {exc}"
         return statuses
 
 

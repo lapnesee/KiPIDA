@@ -126,6 +126,7 @@ def _value(obj, name, default=None):
         if value is not None:
             return value
     except Exception:
+        # A property this kipy version refuses: its getter is tried next.
         pass
     method = getattr(obj, f"get_{name}", None)
     if callable(method):
@@ -134,6 +135,7 @@ def _value(obj, name, default=None):
             if value is not None:
                 return value
         except Exception:
+            # Neither spelling answers: the default.
             pass
     return default
 
@@ -146,6 +148,7 @@ def _items(board, name):
             if result is not None:
                 return list(result)
         except Exception:
+            # The attribute spelling below is tried next.
             pass
     result = getattr(board, name, ())
     get_all = getattr(result, "get_all", None)

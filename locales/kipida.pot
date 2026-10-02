@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Ki-PIDA\n"
-"POT-Creation-Date: 2026-10-02 19:28+0000\n"
+"POT-Creation-Date: 2026-10-02 19:32+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -13,12 +13,12 @@ msgstr ""
 msgid "\nTesting {backend} backend...\n"
 msgstr ""
 
-#: mesh.py:1095
+#: mesh.py:1099
 #, python-brace-format
 msgid "      [VIA] Failed to connect layers @ ({p0}, {p1}): found nodes on layers {p2}"
 msgstr ""
 
-#: mesh.py:596
+#: mesh.py:600
 #, python-brace-format
 msgid "  Layer {p0} vectorized mesh: {p1} nodes."
 msgstr ""
@@ -159,17 +159,17 @@ msgstr ""
 msgid "[ALREADY USED] "
 msgstr ""
 
-#: discovery.py:124
+#: discovery.py:127
 #, python-brace-format
 msgid "[DEBUG] Error calling {p0}: {p1}"
 msgstr ""
 
-#: discovery.py:386
+#: discovery.py:392
 #, python-brace-format
 msgid "[DEBUG] Found {p0} nets by scanning items"
 msgstr ""
 
-#: discovery.py:366
+#: discovery.py:372
 #, python-brace-format
 msgid "[DEBUG] Found {p0} nets via board.nets collection"
 msgstr ""
@@ -229,31 +229,31 @@ msgstr ""
 msgid "[INIT] WARNING: {p0} -- this module is NOT from the plugin directory. Its results come from a different copy."
 msgstr ""
 
-#: emc_phase10.py:2095
+#: emc_phase10.py:2096
 #, python-brace-format
 msgid "[PALACE REMOTE] Failed: {p0}"
 msgstr ""
 
-#: emc_phase10.py:1945
+#: emc_phase10.py:1946
 #, python-brace-format
 msgid "[PHASE 10] Board circuit {p0} draws {p1} A, {p2}'s output in the power tree; the source is entered at {p3} A."
 msgstr ""
 
-#: emc_phase10.py:1930
+#: emc_phase10.py:1931
 #, python-brace-format
 msgid "[PHASE 10] Board circuit: {p0} ({p1}, {p2})"
 msgstr ""
 
-#: emc_phase10.py:1917
+#: emc_phase10.py:1918
 msgid "[PHASE 10] Board circuits skipped: the board has not been saved to a file."
 msgstr ""
 
-#: emc_phase10.py:1922
+#: emc_phase10.py:1923
 #, python-brace-format
 msgid "[PHASE 10] Board circuits skipped: {p0}"
 msgstr ""
 
-#: emc_phase10.py:2163
+#: emc_phase10.py:2164
 #, python-brace-format
 msgid "[PHASE 10] Cancelled: {p0}"
 msgstr ""
@@ -262,22 +262,22 @@ msgstr ""
 msgid "[PHASE 10] Full-wave execution declined; exporting regions only."
 msgstr ""
 
-#: emc_phase10.py:2142
+#: emc_phase10.py:2143
 #, python-brace-format
 msgid "[PHASE 10] openEMS {p0}: {p1}"
 msgstr ""
 
-#: emc_phase10.py:2047
+#: emc_phase10.py:2048
 #, python-brace-format
 msgid "[PHASE 10] SPICE excitation: {p0}"
 msgstr ""
 
-#: emc_phase10.py:2010
+#: emc_phase10.py:2011
 #, python-brace-format
 msgid "[PHASE 10] SPICE model {p0}: {p1}"
 msgstr ""
 
-#: emc_phase10.py:2171
+#: emc_phase10.py:2172
 #, python-brace-format
 msgid "[PHASE 10] Timeout: {p0}"
 msgstr ""
@@ -442,7 +442,7 @@ msgstr ""
 msgid "AC analysis · cancelled"
 msgstr ""
 
-#: ui/main_dialog.py:1325 ui/main_dialog.py:2513
+#: ui/main_dialog.py:1325 ui/main_dialog.py:2515
 msgid "AC analysis · cancelling"
 msgstr ""
 
@@ -530,7 +530,7 @@ msgstr ""
 msgid "AC source is not connected to the network."
 msgstr ""
 
-#: ac_model.py:1432
+#: ac_model.py:1434
 #, python-brace-format
 msgid "AC source resolved to '{p0}' via {p1}."
 msgstr ""
@@ -623,7 +623,7 @@ msgstr ""
 msgid "Adjacent signal layers"
 msgstr ""
 
-#: thermal_model.py:452
+#: thermal_model.py:454
 #, python-brace-format
 msgid "Aggregated copper for {p0}/{p1} nets."
 msgstr ""
@@ -883,6 +883,11 @@ msgstr ""
 msgid "Batch: KiCad IPC still returns an empty board; analyses that read the live board will refuse to run. Retry once the PCB Editor has synchronised."
 msgstr ""
 
+#: ui/main_dialog.py:705
+#, python-brace-format
+msgid "Batch: live board capture failed ({p0}); each analysis reads the board itself."
+msgstr ""
+
 #: ui/main_dialog.py:749
 #, python-brace-format
 msgid "Batch: live board probe failed -- {p0}"
@@ -972,6 +977,11 @@ msgstr ""
 msgid "Board Z (mm):"
 msgstr ""
 
+#: discovery.py:309 discovery.py:359
+#, python-brace-format
+msgid "Board {p0} could not be read ({p1}); none are counted."
+msgstr ""
+
 #: ui/thermal_analysis_panel.py:176
 msgid "Bottom exposed"
 msgstr ""
@@ -988,7 +998,7 @@ msgstr ""
 msgid "Building thermal branch/boundary arrays with vectorized grid connectivity."
 msgstr ""
 
-#: thermal_model.py:467
+#: thermal_model.py:469
 #, python-brace-format
 msgid "Built merged thermal copper for {p0} layer(s) in {p1} s."
 msgstr ""
@@ -1078,11 +1088,11 @@ msgstr ""
 msgid "Cancelling AC Analysis..."
 msgstr ""
 
-#: ui/main_dialog.py:2296 ui/main_dialog.py:2535
+#: ui/main_dialog.py:2296 ui/main_dialog.py:2537
 msgid "Cancelling CFD..."
 msgstr ""
 
-#: ui/main_dialog.py:1799 ui/main_dialog.py:2529
+#: ui/main_dialog.py:1799 ui/main_dialog.py:2531
 msgid "Cancelling EMI/EMC..."
 msgstr ""
 
@@ -1323,31 +1333,31 @@ msgstr ""
 msgid "Close"
 msgstr ""
 
-#: ui/main_dialog.py:2514
+#: ui/main_dialog.py:2516
 msgid "Close requested; cancelling AC analysis first."
 msgstr ""
 
-#: ui/main_dialog.py:2509
+#: ui/main_dialog.py:2511
 msgid "Close requested; cancelling DC analysis first."
 msgstr ""
 
-#: ui/main_dialog.py:2519
+#: ui/main_dialog.py:2521
 msgid "Close requested; cancelling differential analysis first."
 msgstr ""
 
-#: ui/main_dialog.py:2530
+#: ui/main_dialog.py:2532
 msgid "Close requested; cancelling EMI/EMC first."
 msgstr ""
 
-#: ui/main_dialog.py:2536
+#: ui/main_dialog.py:2538
 msgid "Close requested; cancelling enclosure CFD first."
 msgstr ""
 
-#: ui/main_dialog.py:2504
+#: ui/main_dialog.py:2506
 msgid "Close requested; cancelling the analysis batch first."
 msgstr ""
 
-#: ui/main_dialog.py:2524
+#: ui/main_dialog.py:2526
 msgid "Close requested; cancelling thermal analysis first."
 msgstr ""
 
@@ -1444,7 +1454,7 @@ msgstr ""
 msgid "Configuration saved to {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:2496
+#: ui/main_dialog.py:2498
 #, python-brace-format
 msgid "Configuration saved to {p0} on close."
 msgstr ""
@@ -1843,7 +1853,7 @@ msgstr ""
 msgid "DC analysis · cancelled"
 msgstr ""
 
-#: ui/main_dialog.py:2508
+#: ui/main_dialog.py:2510
 msgid "DC analysis · cancelling"
 msgstr ""
 
@@ -1863,12 +1873,12 @@ msgstr ""
 msgid "DC copper-loss heat sources require at least one configured power rail."
 msgstr ""
 
-#: ui/main_dialog.py:2426
+#: ui/main_dialog.py:2428
 #, python-brace-format
 msgid "DC plot geometry warning: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:2473
+#: ui/main_dialog.py:2475
 #, python-brace-format
 msgid "DC plot rendering error: {p0}"
 msgstr ""
@@ -1891,7 +1901,7 @@ msgstr ""
 msgid "DC progress: {p0}/{p1} ({p2})"
 msgstr ""
 
-#: ui/main_dialog.py:2467
+#: ui/main_dialog.py:2469
 msgid "DC rail maps ready."
 msgstr ""
 
@@ -2045,7 +2055,7 @@ msgstr ""
 msgid "Differential analysis · cancelled"
 msgstr ""
 
-#: ui/main_dialog.py:2518
+#: ui/main_dialog.py:2520
 msgid "Differential analysis · cancelling"
 msgstr ""
 
@@ -2111,7 +2121,7 @@ msgstr ""
 msgid "Differential progress: {p0}/{p1} ({p2})"
 msgstr ""
 
-#: differential_discovery.py:454
+#: differential_discovery.py:455
 #, python-brace-format
 msgid "Differential scan complete. Discovered {p0} pair candidates."
 msgstr ""
@@ -2253,7 +2263,7 @@ msgstr ""
 msgid "Electric Field"
 msgstr ""
 
-#: mesh.py:496
+#: mesh.py:500
 #, python-brace-format
 msgid "Electrical mesh for {p0} still contains about {p1} nodes at {p2} mm. Increase the DC grid size."
 msgstr ""
@@ -2748,7 +2758,7 @@ msgstr ""
 msgid "Failed to load config: {p0}. Running auto-scan instead."
 msgstr ""
 
-#: ui/main_dialog.py:2498
+#: ui/main_dialog.py:2500
 #, python-brace-format
 msgid "Failed to save config on close: {p0}"
 msgstr ""
@@ -2940,6 +2950,11 @@ msgstr ""
 msgid "Geometry debug plot"
 msgstr ""
 
+#: ui/main_dialog.py:2395
+#, python-brace-format
+msgid "Geometry debug plot failed: {p0}"
+msgstr ""
+
 #: rule_guide.py:228
 msgid "Geometry off the outline was left out of the analysis."
 msgstr ""
@@ -2970,7 +2985,7 @@ msgstr ""
 msgid "GPU {index}: {name} — {free:.1f}/{total:.1f} GiB free"
 msgstr ""
 
-#: mesh.py:453
+#: mesh.py:457
 #, python-brace-format
 msgid "Grid setup: {p0}x{p1} points, bounds ({p2},{p3}) to ({p4},{p5})"
 msgstr ""
@@ -3217,7 +3232,7 @@ msgstr ""
 msgid "Input voltage (V):"
 msgstr ""
 
-#: emc_phase10.py:939
+#: emc_phase10.py:940
 #, python-brace-format
 msgid "input {p0} {p1} V, output {p2} {p3} V and load {p4} A must all be known"
 msgstr ""
@@ -3419,7 +3434,7 @@ msgstr ""
 msgid "KiCad IPC returned no copper geometry on any layer (no tracks, vias, filled zones or net-connected pads), so every EMI/EMC check would read an empty board rather than the real one. Wait for PCB Editor synchronisation and retry."
 msgstr ""
 
-#: thermal_model.py:572
+#: thermal_model.py:574
 msgid "KiCad IPC returned no copper geometry on any layer, so the board would be solved as bare laminate. Wait for PCB Editor synchronization and retry."
 msgstr ""
 
@@ -3676,7 +3691,7 @@ msgstr ""
 msgid "Magnetic Field"
 msgstr ""
 
-#: thermal_model.py:558
+#: thermal_model.py:560
 #, python-brace-format
 msgid "Mapped {p0} Top / {p1} Bottom footprint placements (F.Cu={p2}, B.Cu={p3})."
 msgstr ""
@@ -3766,17 +3781,22 @@ msgstr ""
 msgid "Medium: reroute or re-place a group of parts"
 msgstr ""
 
-#: thermal_model.py:459
+#: thermal_model.py:461
 #, python-brace-format
 msgid "Merged {p0} copper shapes on layer {p1} in {p2} s."
 msgstr ""
 
-#: ui/main_dialog.py:2401
+#: ui/main_dialog.py:2402
 msgid "Mesh Debug"
 msgstr ""
 
-#: ui/main_dialog.py:2401
+#: ui/main_dialog.py:2402
 msgid "Mesh debug plot"
+msgstr ""
+
+#: ui/main_dialog.py:2404
+#, python-brace-format
+msgid "Mesh debug plot failed: {p0}"
 msgstr ""
 
 #: solver.py:98
@@ -3948,7 +3968,7 @@ msgstr ""
 msgid "Net - (differential, optional):"
 msgstr ""
 
-#: differential_discovery.py:315
+#: differential_discovery.py:316
 #, python-brace-format
 msgid "Netclasses could not be read for the pair scan ({p0}); names alone were used."
 msgstr ""
@@ -4010,12 +4030,12 @@ msgstr ""
 msgid "No continuous reference plane is available."
 msgstr ""
 
-#: ac_model.py:1386
+#: ac_model.py:1388
 #, python-brace-format
 msgid "No copper geometry found for rail '{p0}'."
 msgstr ""
 
-#: ac_model.py:1388
+#: ac_model.py:1390
 #, python-brace-format
 msgid "No copper geometry found for return net '{p0}'."
 msgstr ""
@@ -4072,7 +4092,7 @@ msgstr ""
 msgid "No ground plane detected"
 msgstr ""
 
-#: emc_phase10.py:898
+#: emc_phase10.py:899
 #, python-brace-format
 msgid "no inductor on {p0}"
 msgstr ""
@@ -4133,12 +4153,12 @@ msgstr ""
 msgid "No results."
 msgstr ""
 
-#: ac_model.py:1454
+#: ac_model.py:1456
 #, python-brace-format
 msgid "No return-net copper was found beneath the AC source pads on '{p0}'."
 msgstr ""
 
-#: ac_model.py:1461
+#: ac_model.py:1463
 #, python-brace-format
 msgid "No return-net copper was found beneath the measurement port pads on '{p0}'."
 msgstr ""
@@ -4163,7 +4183,7 @@ msgstr ""
 msgid "No unused KiCad User layer is available for X.Thermal. Free two User.n layers or remove a previous custom layer assignment."
 msgstr ""
 
-#: emc_phase10.py:934
+#: emc_phase10.py:935
 #, python-brace-format
 msgid "no VIN pin of {p0} is on the board"
 msgstr ""
@@ -4285,7 +4305,7 @@ msgstr ""
 msgid "Offset Y (mm):"
 msgstr ""
 
-#: ui/main_dialog.py:2484
+#: ui/main_dialog.py:2486
 msgid "on close"
 msgstr ""
 
@@ -4424,6 +4444,11 @@ msgstr ""
 #: palace_remote.py:223
 #, python-brace-format
 msgid "Palace remote solve running: {p0} s / {p1} s"
+msgstr ""
+
+#: palace_remote.py:243
+#, python-brace-format
+msgid "Palace remote stop failed ({p0}); the solve may still run on {p1}."
 msgstr ""
 
 #: palace_remote.py:81
@@ -4921,7 +4946,7 @@ msgstr ""
 msgid "Rendering"
 msgstr ""
 
-#: ui/main_dialog.py:2430
+#: ui/main_dialog.py:2432
 msgid "Rendering DC rail maps in background..."
 msgstr ""
 
@@ -5148,7 +5173,7 @@ msgstr ""
 msgid "Return paths"
 msgstr ""
 
-#: thermal_model.py:431
+#: thermal_model.py:433
 msgid "Reusing cached merged copper geometry for the live board."
 msgstr ""
 
@@ -5343,7 +5368,7 @@ msgstr ""
 msgid "Save Config"
 msgstr ""
 
-#: ui/main_dialog.py:2489
+#: ui/main_dialog.py:2491
 msgid "Save configuration"
 msgstr ""
 
@@ -5636,12 +5661,12 @@ msgstr ""
 msgid "Skipping degenerate segment on {p0}: L={p1} W={p2} T={p3}"
 msgstr ""
 
-#: ac_model.py:1497
+#: ac_model.py:1499
 #, python-brace-format
 msgid "Skipping port '{p0}': pads could not be mapped to both meshes."
 msgstr ""
 
-#: ac_model.py:1477
+#: ac_model.py:1479
 #, python-brace-format
 msgid "Skipping {p0}: pads could not be mapped to both meshes."
 msgstr ""
@@ -5993,7 +6018,7 @@ msgstr ""
 msgid "The AC network contains an invalid node reference."
 msgstr ""
 
-#: ac_model.py:1406
+#: ac_model.py:1408
 msgid "The AC rail-to-ground mesh is empty."
 msgstr ""
 
@@ -6102,7 +6127,7 @@ msgstr ""
 msgid "The project file was updated, but this KiCad IPC API could not refresh net classes live; reopen the project to load them."
 msgstr ""
 
-#: discovery.py:211
+#: discovery.py:214
 #, python-brace-format
 msgid "The project's saved files could not be read for declared rails ({p0}: {p1}); rails are guessed from net names."
 msgstr ""
@@ -6205,7 +6230,7 @@ msgstr ""
 msgid "Thermal Analysis Error: {p0}"
 msgstr ""
 
-#: ui/main_dialog.py:2523
+#: ui/main_dialog.py:2525
 msgid "Thermal analysis · cancelling"
 msgstr ""
 
@@ -6842,7 +6867,7 @@ msgstr ""
 msgid "{layer} — planar current density"
 msgstr ""
 
-#: ac_model.py:1254
+#: ac_model.py:1256
 #, python-brace-format
 msgid "{p0} '{p1}' has no {p2} pad; using the {p3} return-plane node(s) under its rail pads as the AC return."
 msgstr ""
@@ -6887,7 +6912,7 @@ msgstr ""
 msgid "{p0} has no nominal voltage, so there is no drop target to size against; skipped."
 msgstr ""
 
-#: emc_phase10.py:907
+#: emc_phase10.py:908
 #, python-brace-format
 msgid "{p0} has no VOUT pin and its inductor no free end"
 msgstr ""
@@ -6897,12 +6922,12 @@ msgstr ""
 msgid "{p0} is not a covered candidate."
 msgstr ""
 
-#: emc_phase10.py:882
+#: emc_phase10.py:883
 #, python-brace-format
 msgid "{p0} is not on the saved board"
 msgstr ""
 
-#: emc_phase10.py:894
+#: emc_phase10.py:895
 #, python-brace-format
 msgid "{p0} is on no pin of {p1}"
 msgstr ""

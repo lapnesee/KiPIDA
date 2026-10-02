@@ -153,7 +153,10 @@ class Mesher:
                 try:
                     val = getattr(obj, method_name)()
                     if val is not None: return val
-                except: pass
+                except Exception:
+                    # A getter this kipy version lacks or refuses: the next
+                    # spelling is tried, then the default.
+                    pass
         return default
 
     def _get_board_items(self, attr_name):
@@ -163,7 +166,8 @@ class Mesher:
         method_name = f"get_{attr_name}"
         if hasattr(self.board, method_name):
             try: return getattr(self.board, method_name)()
-            except: pass
+            except Exception as exc:
+                self._status(f"Board {attr_name} could not be read ({exc}); none are meshed.")
         return []
 
     def _log(self, msg):
