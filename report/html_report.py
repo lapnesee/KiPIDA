@@ -551,6 +551,12 @@ def key_metrics(result: AnalysisResult) -> List[str]:
     if kind == "DC":
         lines.append(_verdict_count(usable, r"rail_\d+_drop",
                                     _("{passed} of {total} rail drops within the limit")))
+        # P02 Rev E's "14 of 14" left out three of its 17 rails, without a load.
+        unjudged = [m for m in usable if re.fullmatch(r"rail_\d+_drop", m.key)
+                    and m.status == "NO_DATA"]
+        if unjudged:
+            lines.append(_esc(_("{count} rail(s) without a load, not judged")).format(
+                count=len(unjudged)))
         lines.append(_worst_line(_worst(usable, r"rail_\d+_drop")))
         lines.append(_worst_line(_worst(usable, r"rail_\d+_maximum_via_current")))
     elif kind == "AC":
@@ -657,16 +663,22 @@ def _render_synthesis(campaign: CampaignResult) -> str:
                   "spread": f"{abs(thermal_c - cfd_c):.2g}"}
         if abs(thermal_c - cfd_c) <= AIR_AGREEMENT_K:
             holds.append("<li>" + _esc(_(
-                "Internal air: thermal {thermal} °C, CFD {cfd} °C, {spread} K apart."
+                "Internal air: {thermal} °C by the thermal analysis's enclosure balance, "
+                "{cfd} °C as the mean of the CFD's solved air, {spread} K apart."
             ).format(**values)) + "</li>")
         else:
             calculation.append("<li>" + _esc(_(
-                "Internal air: thermal {thermal} °C against CFD {cfd} °C, {spread} K apart; "
-                "check the enclosure inputs both use."
+                "Internal air: {thermal} °C by the thermal analysis's enclosure balance against "
+                "{cfd} °C as the mean of the CFD's solved air, {spread} K apart; check the "
+                "enclosure inputs and the CFD mesh."
             ).format(**values)) + "</li>")
     by_domain = {result.analysis_type: result for result in campaign.results}
     passes = _esc(_("{analysis} passes"))
     passes_with = _esc(_("{analysis} passes: {figures}"))
+    # A pass that rests on a missing input says so: P02 Rev E's AC passed
+    # "3 of 3 rails" with two on the default source (AC-006), and THERMAL on
+    # U4's estimated efficiency (TH-008).
+    resting = _esc(_("rests on {count} input(s) still to complete"))
     for score in campaign.domain_scores:
         if score.status != AnalysisStatus.PASS:
             continue
@@ -675,6 +687,10 @@ def _render_synthesis(campaign: CampaignResult) -> str:
         analysis = f"<strong>{_esc(score.domain)}</strong>"
         line = (passes_with.format(analysis=analysis, figures=figures) if figures
                 else passes.format(analysis=analysis))
+        missing = sum(1 for finding in (result.findings if result else ())
+                      if finding_nature(finding) == FindingNature.DATA)
+        if missing:
+            line += " &mdash; " + resting.format(count=missing)
         holds.append(f"<li>{line}</li>")
     warnings = campaign.provenance_warnings()
     warning_block = ""

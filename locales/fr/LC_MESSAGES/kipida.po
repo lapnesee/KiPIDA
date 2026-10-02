@@ -3901,11 +3901,11 @@ msgstr "Relancez le thermique après avoir saisi le rendement : l’observation 
 msgid "The heat a converter puts on the board rests on an efficiency nobody read off a curve or measured; the temperatures of its parts move with it."
 msgstr "La chaleur qu’un convertisseur dépose sur la carte repose sur un rendement que personne n’a lu sur une courbe ni mesuré ; les températures de ses composants en dépendent."
 
-msgid "Internal air: thermal {thermal} °C against CFD {cfd} °C, {spread} K apart; check the enclosure inputs both use."
-msgstr "Air intérieur : thermique {thermal} °C contre CFD {cfd} °C, écart de {spread} K ; vérifiez les données de boîtier que les deux utilisent."
+msgid "Internal air: {thermal} °C by the thermal analysis's enclosure balance against {cfd} °C as the mean of the CFD's solved air, {spread} K apart; check the enclosure inputs and the CFD mesh."
+msgstr "Air intérieur : {thermal} °C selon le bilan de boîtier du thermique, contre {cfd} °C en moyenne de l’air résolu par la CFD, écart de {spread} K ; vérifiez les données de boîtier et le maillage CFD."
 
-msgid "Internal air: thermal {thermal} °C, CFD {cfd} °C, {spread} K apart."
-msgstr "Air intérieur : thermique {thermal} °C, CFD {cfd} °C, écart de {spread} K."
+msgid "Internal air: {thermal} °C by the thermal analysis's enclosure balance, {cfd} °C as the mean of the CFD's solved air, {spread} K apart."
+msgstr "Air intérieur : {thermal} °C selon le bilan de boîtier du thermique, {cfd} °C en moyenne de l’air résolu par la CFD, écart de {spread} K."
 
 msgid "Not to be read as results: {figures}."
 msgstr "À ne pas lire comme des résultats : {figures}."
@@ -5319,3 +5319,9 @@ msgstr "non préparée"
 
 msgid "skipped"
 msgstr "sautée"
+
+msgid "rests on {count} input(s) still to complete"
+msgstr "repose sur {count} donnée(s) encore à compléter"
+
+msgid "{count} rail(s) without a load, not judged"
+msgstr "{count} rail(s) sans charge, non jugé(s)"

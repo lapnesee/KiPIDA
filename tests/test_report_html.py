@@ -310,22 +310,46 @@ class DecisionListTests(unittest.TestCase):
 class CrossCheckTests(unittest.TestCase):
     def test_thermal_and_cfd_air_are_set_side_by_side(self):
         # P02 Rev E, 2026-10-01 (audit CO-5, LE-7): thermal solved at 61.2 C
-        # internal air, the CFD found 60.65 C; the CFD table also read a
-        # 170.9 C solid maximum marked NOT_USABLE, explained in the appendix.
+        # internal air; the CFD table also read a 170.9 C solid maximum marked
+        # NOT_USABLE, explained in the appendix. The CFD's 60.65 C "internal
+        # ambient" is the thermal's own formula (review 2026-10-02); the
+        # solved field's mean is what checks it.
         thermal = AnalysisResult("THERMAL", "3D Thermal", status=AnalysisStatus.WARN, metrics=[
             AnalysisMetric("internal_air_c", "Internal air (enclosure)", 61.2, "°C", "INFO"),
         ])
         cfd = AnalysisResult("CFD", "Enclosure CFD", status=AnalysisStatus.PASS, metrics=[
             AnalysisMetric("internal_ambient", "Internal ambient", 60.65, "°C", "PASS"),
+            AnalysisMetric("solved_mean_air", "Mean air of the solved field", 62.1, "°C", "INFO"),
             AnalysisMetric("maximum_solid_temperature", "Maximum solid temperature", 170.9, "°C",
                            "NOT_USABLE"),
         ], limitations=["Solid and air maxima are not usable at this mesh size."])
         document = render_campaign_html(CampaignResult.from_results([thermal, cfd]))
         holds = document.split("<h3>What holds")[1].split("<h3>")[0]
-        self.assertIn("Internal air: thermal 61.2 °C, CFD 60.65 °C, 0.55 K apart.", holds)
+        self.assertIn("Internal air: 61.2 °C by the thermal analysis&#x27;s enclosure balance, "
+                      "62.1 °C as the mean of the CFD&#x27;s solved air, 0.9 K apart.", holds)
         domains = document.split('id="domains"')[1]
         self.assertIn("Not to be read as results: Maximum solid temperature. Solid and air maxima "
                       "are not usable at this mesh size.", domains)
+
+    def test_a_pass_resting_on_missing_inputs_says_so(self):
+        # P02 Rev E, 2026-10-01 22:29: "AC passes: 3 of 3 rails within their
+        # target impedance", two of them on the default source (AC-006); DC's
+        # "14 of 14 rail drops" left out three rails without a load.
+        ac = AnalysisResult("AC", "AC Impedance", status=AnalysisStatus.PASS, findings=[
+            AnalysisFinding(rule_id="AC-006", category="MODEL_INPUT", severity=FindingSeverity.INFO,
+                            title=f"{rail} source impedance left at its default", description="d")
+            for rail in ("/+5V_RAIL", "/+5V_U4")
+        ])
+        dc = AnalysisResult("DC", "DC Power", status=AnalysisStatus.PASS, metrics=[
+            AnalysisMetric("rail_1_drop", "/+5V_RAIL drop", 0.315, "%", "PASS"),
+            AnalysisMetric("rail_9_drop", "/J2_PP5V drop", 0.0, "%", "NO_DATA"),
+        ])
+        document = render_campaign_html(CampaignResult.from_results([ac, dc]))
+        holds = document.split("<h3>What holds")[1].split("<h3>")[0]
+        self.assertIn("<strong>AC</strong> passes &mdash; rests on 2 input(s) still to complete",
+                      holds)
+        self.assertIn("1 of 1 rail drops within the limit &middot; 1 rail(s) without a load, "
+                      "not judged", holds)
 
 
 class ComponentViewTests(unittest.TestCase):

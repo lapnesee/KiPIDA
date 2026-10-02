@@ -2032,6 +2032,17 @@ def adapt_cfd_result(mesh: Any, domain_result: Any, *, copper_loss_source: str =
             ]
         except (AttributeError, TypeError, ZeroDivisionError):
             headline_metrics = []
+    # The solved field's own mean air, which the thermal analysis's enclosure
+    # balance can be checked against: the internal ambient above is the same
+    # Q / (h * A) the thermal analysis uses, and comparing the two only
+    # compared their heat (P02 Rev E, 61.2 against 60.65 C).
+    air = [float(value) for value in (getattr(domain_result, "air_temperature_c", None) or ())
+           if value == value]
+    if air:
+        headline_metrics.append(AnalysisMetric(
+            "solved_mean_air", "Mean air temperature of the solved field",
+            sum(air) / len(air), "°C", "INFO",
+        ))
     # Hide/qualify, never silently trust: at this mesh size the maxima below
     # are the numbers the mesh-quality limitation above says not to use.
     # Fourteen cells across validates the flow profile, not these maxima:

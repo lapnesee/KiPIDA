@@ -539,12 +539,14 @@ class CampaignResult:
         return scores
 
     def air_cross_check(self) -> Optional[tuple]:
-        """``(thermal C, CFD C)``: the internal air each analysis found, or
-        None unless both did. On P02 Rev E's 2026-10-01 campaign, 61.2 and
-        60.65 C, shown in two tables and never set side by side (audit
-        CO-5)."""
+        """``(thermal C, CFD C)``: the internal air of the thermal analysis's
+        enclosure balance and the mean of the CFD's solved air, or None
+        unless both exist. The CFD's "internal ambient" is the same
+        Q / (h * A) as the thermal one, so setting those two side by side
+        (P02 Rev E, 61.2 and 60.65 C) checked only that both put the same
+        heat in the box."""
         found = {}
-        for domain, key in (("THERMAL", "internal_air_c"), ("CFD", "internal_ambient")):
+        for domain, key in (("THERMAL", "internal_air_c"), ("CFD", "solved_mean_air")):
             for result in self.results:
                 if result.analysis_type != domain:
                     continue

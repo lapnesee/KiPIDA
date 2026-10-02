@@ -351,6 +351,8 @@ class AnalysisAdapterTests(unittest.TestCase):
             energy_balance_error_pct=0.0, maximum_velocity_m_s=0.1,
             maximum_air_temperature_c=73.2, maximum_solid_temperature_c=90.0,
             total_heat_w=4.755, compute_backend="CPU", compute_device="CPU",
+            # Solid cells are NaN in the air field.
+            air_temperature_c=[60.0, float("nan"), 62.0, 61.0],
         )
         settings = EnclosureCFDSettings(ambient_c=45.0)
         settings.geometry.width_mm = 165.0
@@ -363,6 +365,9 @@ class AnalysisAdapterTests(unittest.TestCase):
         metrics = {metric.key: metric for metric in result.metrics}
         self.assertAlmostEqual(metrics["mean_air_rise"].value, 16.0, places=1)
         self.assertAlmostEqual(metrics["internal_ambient"].value, 61.0, places=1)
+        # The review of 2026-10-02: the cross-check compared that formula
+        # with itself; the solved field's own mean is what it now reads.
+        self.assertAlmostEqual(metrics["solved_mean_air"].value, 61.0)
 
     def test_cfd_adapter_flags_boussinesq_out_of_range_as_a_limitation(self):
         # docs/audit-2026-09-23.md CFD-7: beta * dT is usually cited as valid

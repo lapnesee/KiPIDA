@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Fixed "What holds" claiming more than was checked, on P02 Rev E's
+  22:29 report:
+  - AC passed "3 of 3 rails" with two on the default source;
+  - DC's "14 of 14" left out three rails without a load;
+  - the thermal/CFD air check compared one formula with itself.
+  A pass resting on inputs still to complete now says how many, the DC
+  counts its unjudged rails, and the CFD publishes the mean of its
+  solved air, which the check now reads.
 - Fixed the report's verdict contradicting its own lists: P02 Rev E's
   22:29 report read "WARN -- Review before manufacture" above "Fix
   before manufacture (2)", one of them C88 and R10 cut off from GND.
