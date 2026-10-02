@@ -60,6 +60,19 @@ class StructureTests(unittest.TestCase):
         self.assertIn("<strong>THERMAL</strong>", document)
         self.assertIn("failed: RuntimeError: boom", document)
 
+    def test_header_shows_local_time_and_contents_link_each_section(self):
+        # P02 Rev E's report file 20261001-223902 opened on "20:39:01+00:00".
+        from datetime import datetime
+        campaign = campaign_with([])
+        campaign.created_at = "2026-10-01T20:39:01+00:00"
+        document = render_campaign_html(campaign)
+        local = datetime.fromisoformat(campaign.created_at).astimezone()
+        self.assertIn(f"{local:%Y-%m-%d %H:%M:%S} (UTC", document)
+        self.assertNotIn("20:39:01+00:00", document)
+        toc = re.search(r'<nav class="toc">(.*?)</nav>', document).group(1)
+        self.assertEqual(re.findall(r'href="#(\w+)"', toc),
+                         ["synthesis", "actions", "domains", "appendices"])
+
     def test_write_creates_parent_directories(self):
         campaign = campaign_with([])
         with tempfile.TemporaryDirectory() as tmp:

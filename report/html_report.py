@@ -23,6 +23,7 @@ labels -- stays as they wrote it. A label is translated with ``_()`` outside
 any f-string: the catalog extractor does not read inside f-strings.
 """
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import base64
@@ -137,7 +138,34 @@ dl.glossary dt { font-weight: 600; margin-top: 0.5rem; }
 dl.glossary dd { margin: 0 0 0 1rem; }
 details.guide { border: 1px solid #d8dee4; border-radius: 4px; padding: 0.3rem 0.8rem;
                 margin: 1rem 0; background: #f8fafc; }
+nav.toc { font-size: 0.9rem; margin: 0.5rem 0 1rem; }
+nav.toc a { margin-right: 1rem; }
+@media print {
+  body { max-width: none; padding: 0; }
+  nav.toc { display: none; }
+  details::details-content { content-visibility: visible; display: block; }
+  .action, figure, tr { break-inside: avoid; }
+  h2, h3, h4 { break-after: avoid; }
+}
 """
+
+
+def _local_time(stamp: str) -> str:
+    """An ISO UTC stamp as the reader's local time, with its offset.
+
+    The report and its files are named after local time; a header reading
+    20:39 UTC over a file named 223902 looks like two different runs.
+    Anything that does not parse is shown as recorded.
+    """
+    try:
+        moment = datetime.fromisoformat(stamp)
+    except (TypeError, ValueError):
+        return stamp
+    if moment.tzinfo is None:
+        return stamp
+    local = moment.astimezone()
+    offset = local.strftime("%z")
+    return f"{local:%Y-%m-%d %H:%M:%S} (UTC{offset[:3]}:{offset[3:]})"
 
 
 def _esc(value: Any) -> str:
@@ -1166,7 +1194,7 @@ def _render_scope(campaign: CampaignResult) -> str:
     the decision: shown at the top before, where "host unknown ... host
     detection inconclusive" read like a result (audit CO-9)."""
     rows = "".join(
-        f"<tr><td>{_esc(score.domain)}</td><td>{_esc(score.completed_at) or '&mdash;'}</td>"
+        f"<tr><td>{_esc(score.domain)}</td><td>{_esc(_local_time(score.completed_at)) or '&mdash;'}</td>"
         f"<td><code>{_esc(score.board_fingerprint) or '&mdash;'}</code></td>"
         f"<td><code>{_esc(result.run_id)}</code></td>"
         f"<td>{result.elapsed_seconds:.2f} s</td>"
@@ -1188,7 +1216,7 @@ def _render_scope(campaign: CampaignResult) -> str:
         f"<tr><th>{label['fingerprint']}</th>"
         f"<td><code>{_esc(campaign.board_fingerprint) or '&mdash;'}</code></td></tr>"
         f"<tr><th>{label['campaign']}</th><td><code>{_esc(campaign.campaign_id)}</code></td></tr>"
-        f"<tr><th>{label['created']}</th><td>{_esc(campaign.created_at)}</td></tr>"
+        f"<tr><th>{label['created']}</th><td>{_esc(_local_time(campaign.created_at))}</td></tr>"
         f"<tr><th>{label['tool']}</th><td><code>{_esc(campaign.tool_version) or '&mdash;'}</code>"
         "</td></tr>"
         f"<tr><th>{label['compute']}</th><td>{campaign.total_elapsed_seconds:.2f} s</td></tr>"
@@ -1278,7 +1306,7 @@ def _render_since(campaign: CampaignResult, previous: Optional[CampaignResult]) 
     delta = compare_campaigns(previous, campaign)
     heading = _esc(_("Since the previous campaign"))
     intro = _esc(_("Compared with the campaign of {date}, on the analyses both ran.")).format(
-        date=_esc(previous.created_at))
+        date=_esc(_local_time(previous.created_at)))
     notes = []
     if delta.board_changed:
         notes.append(_esc(_("The board changed in between.")))
@@ -1337,6 +1365,20 @@ def render_campaign_html(
     title = _esc(campaign.project_name or _("Ki-PIDA campaign report"))
     suffix = _esc(_("Ki-PIDA report"))
     subtitle = _esc(_("Ki-PIDA consolidated analysis report"))
+    body = "".join((
+        _render_synthesis(campaign),
+        _render_since(campaign, previous),
+        _render_actions(campaign),
+        _render_components(campaign),
+        _render_domains(campaign, embed_images, artifact_roots),
+        _render_appendices(campaign),
+    ))
+    # The contents follow the sections actually rendered: the comparison
+    # only exists when there was an earlier campaign.
+    toc = " ".join(
+        f'<a href="#{anchor}">{heading}</a>'
+        for anchor, heading in re.findall(r'<section id="([\w-]+)"><h2>(.*?)</h2>', body)
+    )
     return (
         "<!DOCTYPE html>\n"
         f'<html lang="{_esc(current_language())}"><head><meta charset="utf-8">'
@@ -1344,13 +1386,9 @@ def render_campaign_html(
         f"<title>{title} &mdash; {suffix}</title>"
         f"<style>{_CSS}</style></head><body>"
         f"<h1>{title}</h1>"
-        f'<p class="meta">{subtitle} &middot; {_esc(campaign.created_at)}</p>'
-        f"{_render_synthesis(campaign)}"
-        f"{_render_since(campaign, previous)}"
-        f"{_render_actions(campaign)}"
-        f"{_render_components(campaign)}"
-        f"{_render_domains(campaign, embed_images, artifact_roots)}"
-        f"{_render_appendices(campaign)}"
+        f'<p class="meta">{subtitle} &middot; {_esc(_local_time(campaign.created_at))}</p>'
+        f'<nav class="toc">{toc}</nav>'
+        f"{body}"
         "</body></html>\n"
     )
 

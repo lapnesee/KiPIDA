@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+The campaign report shows its times in local time with the UTC offset, has
+a contents line linking each section it rendered, and prints with every
+collapsed block open.
 - Fixed the report's glossary giving the priority as "times 1.5 for
   each further analysis", which compounds, while the ranking adds 0.5
   per analysis: three analyses weigh 2.0, not 2.25.
