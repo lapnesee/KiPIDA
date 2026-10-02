@@ -581,8 +581,8 @@ class CampaignEngine:
             outcome = self._run_domain(
                 analysis_id, request, emit_log, emit_progress, cancelled,
                 on_domain_result=(
-                    lambda domain_result, analysis_id=analysis_id: self._handover(
-                        analysis_id, request, domain_result, produced, emit_log,
+                    lambda domain_result, reused=False, analysis_id=analysis_id: self._handover(
+                        analysis_id, request, domain_result, produced, emit_log, notify=not reused,
                     )
                 ),
             )
@@ -724,15 +724,23 @@ class CampaignEngine:
                 "result rather than solving the DC again."
             )
 
-    def _handover(self, analysis_id, request, domain_result, produced, emit_log) -> None:
-        """Everything that has to happen with a raw outcome before it is dropped."""
+    def _handover(self, analysis_id, request, domain_result, produced, emit_log,
+                  notify=True) -> None:
+        """Everything that has to happen with a raw outcome before it is dropped.
+
+        A reused outcome still feeds the domains after it, but is not handed
+        to the UI again: its tab and history entry already hold it, and a UI
+        publishing it would save a second entry under the same run_id -- 227
+        DC plots, P02 Rev E's count, rendered and written once more.
+        """
         if analysis_id == "DC":
             self._share_dc_results(request, domain_result, emit_log)
         if analysis_id == "CFD":
             self._couple_cfd_into_thermal(request, domain_result, emit_log)
         if analysis_id in self._EMC_INPUT_DOMAINS and "EMC" in request.domain_requests:
             produced[analysis_id] = domain_result
-        self._notify_raw(analysis_id, domain_result)
+        if notify:
+            self._notify_raw(analysis_id, domain_result)
 
     def _notify(self, outcome: DomainOutcome) -> None:
         if self._domain_listener is None:
@@ -800,7 +808,7 @@ class CampaignEngine:
                         request.board_fingerprint, analysis_id, digest,
                     )
                     if cached_raw is not None:
-                        on_domain_result(cached_raw)
+                        on_domain_result(cached_raw, reused=True)
                 return DomainOutcome(analysis_id, cached, from_cache=True)
 
         started = time.perf_counter()

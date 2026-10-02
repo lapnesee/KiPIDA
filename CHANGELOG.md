@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+A reused analysis is no longer published to its tab and history a second
+time: it still feeds the analyses after it, but adds no history entry and
+renders no plots again.
 A batch run again in the same session reuses each analysis whose inputs did
 not change, and says so in the log ("reused the result completed at ...").
 The comparison reads the inputs' content, private fields, arrays, geometries

@@ -158,6 +158,8 @@ class CacheReuseTests(unittest.TestCase):
         )
 
         request.domain_requests["THERMAL"] = _ThermalLikeRequest()
+        shown = []
+        engine.set_raw_result_listener(lambda analysis_id, _raw: shown.append(analysis_id))
         engine.solve(request, lambda m: None, lambda *a: None, lambda: False)
 
         self.assertEqual(fake.calls, 1, "second run must be served from cache")
@@ -165,6 +167,9 @@ class CacheReuseTests(unittest.TestCase):
             request.domain_requests["THERMAL"]._dc_results,
             "a cached DC result must still hand over to THERMAL",
         )
+        # Its tab and history entry already hold it: handed to the UI again,
+        # it was saved a second time under the same run_id.
+        self.assertEqual(shown, [])
 
 
 class InvalidateTests(unittest.TestCase):
