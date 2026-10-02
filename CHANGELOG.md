@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+A batch that ends on DC or THERMAL now writes its report once their plots
+are drawn (five minutes at most), instead of a report without them.
 The campaign report shows its times in local time with the UTC offset, has
 a contents line linking each section it rendered, and prints with every
 collapsed block open.

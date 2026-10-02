@@ -891,6 +891,38 @@ class KiPIDA_MainDialog(wx.Dialog):
             return
         # The reason to run a batch is the consolidated verdict, so build it
         # rather than leaving the user to press a second button for it.
+        self._write_batch_report(campaign)
+
+    # How long the batch report waits for DC or THERMAL plots still being
+    # drawn after their solve; past it the report goes out without them.
+    PLOT_WAIT_SECONDS = 300
+
+    def _plots_rendering(self):
+        """Domains whose plots are still being drawn in the background; each
+        finish or fail handler clears its thread on the main thread, after
+        saving the plots to the history the report reads."""
+        return [domain for domain, thread in (
+            ("DC", self._dc_plot_thread), ("THERMAL", self._thermal_plot_thread),
+        ) if thread is not None]
+
+    def _write_batch_report(self, campaign, waited=0):
+        """Write the batch's report once the DC and THERMAL plots exist.
+
+        Both are drawn after their solve, off the batch: a batch ending on
+        either wrote its report before the plots reached the history, and
+        the report showed none of them.
+        """
+        if self._closing:
+            return
+        pending = self._plots_rendering()
+        if pending and waited < self.PLOT_WAIT_SECONDS:
+            if not waited:
+                self.log(f"Batch report waits for the {', '.join(pending)} plots.")
+            wx.CallLater(1000, self._write_batch_report, campaign, waited + 1)
+            return
+        if pending:
+            self.log(f"Batch report written without the {', '.join(pending)} plots, "
+                     f"still drawing after {waited} s.")
         self._write_campaign_report(campaign, open_browser=True)
 
     def _fail_batch(self, exc):

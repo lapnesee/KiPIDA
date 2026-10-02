@@ -5521,3 +5521,8 @@ msgstr "Dossier contenant MODEL_CATALOG.csv"
 msgid "Live PCB geometry captured for this session."
 msgstr "Géométrie du PCB ouvert capturée pour cette session."
 
+msgid "Batch report waits for the {p0} plots."
+msgstr "Le rapport du lot attend les figures {p0}."
+
+msgid "Batch report written without the {p0} plots, still drawing after {p1} s."
+msgstr "Rapport du lot écrit sans les figures {p0}, encore en cours de rendu après {p1} s."
