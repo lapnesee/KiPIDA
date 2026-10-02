@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added an AC source preset for a rail fed through an eFuse, load switch
+  or shunt from a regulated one (~20 mOhm + 5 nH): P02 Rev E's
+  /+5V_RAIL sits behind U15 (12.2 mOhm) and R49 (7.5 mOhm), and the
+  "regulator output" preset alone, 50 mOhm, exceeds its 43 mOhm target.
+  AC-006 now names the AC Impedance page and its Source model, R and L
+  fields rather than "the rail's AC profile".
 - Made the switching inductor models editable on the EMI/EMC page (Edit
   Selected Model, or a double-click): inductance, input and output
   voltage, frequency, output current, ripple and shield attenuation.

@@ -82,6 +82,9 @@ class ConfidenceCalibrationTests(unittest.TestCase):
         (finding,) = [f for f in result.findings if f.rule_id == "AC-006"]
         self.assertEqual((finding.severity.value, finding.components, finding.nets),
                          ("INFO", ["U15"], ["/+5V_RAIL"]))
+        # It names the page and the fields, not "the rail's AC profile".
+        self.assertTrue(finding.recommendation.startswith(
+            "On the AC Impedance page, pick the Source model"))
 
     def test_dc_001_names_the_mesh_as_a_possible_cause(self):
         result = adapt_dc_result({"+3V3": {

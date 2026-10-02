@@ -665,6 +665,10 @@ class SourcePresetTests(unittest.TestCase):
         self.assertEqual(by_key["default"], (0.01, 1.0e-9))
         self.assertEqual(by_key["usb_c_cable"], (0.1, 0.5e-6))
         self.assertEqual(by_key["regulator_output"], (0.05, 1.0e-6))
+        # Review of 2026-10-02: P02 Rev E's /+5V_RAIL sits behind U15
+        # (12.2 mOhm) and R49 (7.5 mOhm); "regulator output" alone exceeds
+        # its 43 mOhm target.
+        self.assertEqual(by_key["series_element"], (0.02, 5.0e-9))
 
     def test_matching_values_resolve_to_their_preset_index(self):
         try:

@@ -598,9 +598,9 @@ def adapt_ac_result(
             "impedance below a few MHz, where a USB-C cable or a regulator's output can move the "
             "source/bulk anti-resonance to within 92% of a typical target: the rail's verdict "
             "rests on it.",
-            "Pick the source preset that matches what feeds this rail (USB-C cable or "
-            "connector, regulator output), or enter a measured source impedance, in the rail's "
-            "AC profile.",
+            "On the AC Impedance page, pick the Source model that matches what feeds this rail "
+            "(USB-C cable, regulator output, pass element after a regulator), or enter Source R "
+            "and L: for an eFuse or a shunt, its R_on plus the regulator's output resistance.",
             confidence=EvidenceConfidence.DETERMINISTIC,
         )
         finding.nets = [rail_name] if rail_name else []

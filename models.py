@@ -181,10 +181,17 @@ class ACSourceModel:
 # R_out + L with an explicit bandwidth roll-off -- that needs a
 # frequency-shaped source the solver's single complex R + jwL stamp does not
 # support yet, so it is published here as a limitation rather than modelled.
+# "series_element" is a rail fed through an eFuse, load switch or shunt from
+# a regulated one: its R_on in series with a regulator whose loop holds its
+# output in milliohms. P02 Rev E's /+5V_RAIL sits behind U15 (12.2 mOhm) and
+# R49 (7.5 mOhm) from U4; "regulator_output" alone, 50 mOhm, exceeds that
+# rail's 43 mOhm target and would fail it for a loop the R + jwL stamp
+# cannot represent.
 AC_SOURCE_PRESETS = (
     ("default", "Default (10 mOhm + 1 nH, no board evidence)", 0.01, 1.0e-9),
     ("usb_c_cable", "USB-C cable/connector (~0.1 ohm + 0.5 uH)", 0.1, 0.5e-6),
     ("regulator_output", "Regulator output, unspecified bandwidth (~0.05 ohm + 1 uH)", 0.05, 1.0e-6),
+    ("series_element", "Pass element after a regulator (~20 mOhm + 5 nH)", 0.02, 5.0e-9),
 )
 
 
