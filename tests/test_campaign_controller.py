@@ -266,6 +266,23 @@ class CancellationTests(unittest.TestCase):
 
 
 class AggregationTests(unittest.TestCase):
+    def test_a_result_carries_the_time_the_campaign_logged(self):
+        # P02 Rev E, 2026-10-02 22:13: EMC logged "completed in 8.20s" and
+        # the report gave it the 6.2 s its adapter had summed.
+        engine = build({"EMC": FakeEngine()}, ["EMC"])
+        adapt = engine._adapters["EMC"]
+
+        def adapter(domain_result, request):
+            result = adapt(domain_result, request)
+            result.elapsed_seconds = 6.2
+            return result
+
+        engine._adapters["EMC"] = adapter
+        campaign, logs, _ = run(engine, CampaignRunRequest(domain_requests={"EMC": FakeRequest()}))
+        logged = next(line for line in logs if "completed in" in line)
+        self.assertIn(f"completed in {campaign.results[0].elapsed_seconds:.2f}s", logged)
+        self.assertNotEqual(campaign.results[0].elapsed_seconds, 6.2)
+
     def test_two_domains_on_same_component_merge_into_one_action(self):
         shared = [{"rule_id": "R-1", "title": "Problem on U3",
                    "severity": FindingSeverity.HIGH, "components": ["U3"]}]

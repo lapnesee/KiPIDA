@@ -857,8 +857,11 @@ class CampaignEngine:
             result.status = domain_status_from_findings(result.findings)
         if not result.board_fingerprint and request.board_fingerprint:
             result.board_fingerprint = request.board_fingerprint
-        if not result.elapsed_seconds:
-            result.elapsed_seconds = elapsed
+        # The time the campaign measured, which its log states: P02 Rev E's
+        # EMC of 2026-10-02 22:13 logged "completed in 8.20s" while its
+        # adapter's sum of the analyser, field and Phase 10 timings, 6.2 s,
+        # left out the openEMS exports and the plots, and reached the report.
+        result.elapsed_seconds = elapsed
         if not result.completed_at:
             result.finish()
 

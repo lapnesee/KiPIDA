@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+In a batch, each analysis's compute time in the report is the time the
+log gives it ("completed in 8.20s"), not a partial sum its own code made.
 The French log no longer leaves English phrases inside its lines:
 "Configuration enregistrée dans ... avant le lot.", "... pour la chaîne
 thermique.", "... à la fermeture.".
