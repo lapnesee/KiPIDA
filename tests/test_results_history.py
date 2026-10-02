@@ -117,6 +117,39 @@ class ProjectResultsHistoryTests(unittest.TestCase):
             self.assertEqual(history.entries()[0]["status"], "PASS")
             self.assertFalse(history.replace_result("no-such-run", campaign))
 
+    def test_a_clean_up_keeps_the_latest_runs_and_what_campaigns_name(self):
+        # P02 Rev E's results folder reached 685 MB and 330 entries in 11
+        # days, untracked in the project's git repository.
+        with tempfile.TemporaryDirectory() as directory:
+            history = ProjectResultsHistory(directory)
+            runs = [history.save("DC", "DC Power", "report",
+                                 result=AnalysisResult("DC", "DC Power").finish())
+                    for _ in range(7)]
+            root = Path(directory)
+            self.assertEqual((root / ".gitignore").read_text(encoding="utf-8").splitlines()[-1], "*")
+            for day in range(1, 8):
+                stamp = f"2026100{day}-120000"
+                # The newest campaign names the oldest DC run.
+                results = [{"run_id": runs[0]["run_id"]}] if day == 7 else []
+                (root / f"campaign-{stamp}.json").write_text(json.dumps({"results": results}),
+                                                            encoding="utf-8")
+                (root / f"campaign-{stamp}.html").write_text("<html></html>", encoding="utf-8")
+                (root / f"20261001-12000{day}-EMC-PHASE10").mkdir()
+            doomed, size = history.cleanup_plan(keep_runs=5, keep_campaigns=5)
+            names = sorted(path.name for path in doomed)
+            self.assertEqual([name for name in names if name.startswith("campaign-")], [
+                "campaign-20261001-120000.html", "campaign-20261001-120000.json",
+                "campaign-20261002-120000.html", "campaign-20261002-120000.json",
+            ])
+            self.assertEqual([name for name in names if "PHASE10" in name],
+                             ["20261001-120001-EMC-PHASE10", "20261001-120002-EMC-PHASE10"])
+            dc_doomed = [path for path in doomed if (path / "manifest.json").exists()]
+            self.assertEqual(dc_doomed, [Path(runs[1]["directory"])])
+            self.assertGreater(size, 0)
+            self.assertEqual(history.cleanup(keep_runs=5, keep_campaigns=5)[0], len(doomed))
+            self.assertEqual(len(history.entries()), 6)
+            self.assertTrue(Path(runs[0]["directory"]).exists())
+
     def test_entries_can_filter_type_and_keep_latest_per_analysis(self):
         with tempfile.TemporaryDirectory() as directory:
             history = ProjectResultsHistory(directory)

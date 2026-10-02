@@ -355,8 +355,10 @@ class ResultsWorkspace(wx.Panel):
         self.history_choice = wx.Choice(self)
         history_bar.Add(self.history_choice, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         self.btn_delete = wx.Button(self, label="Delete selected")
+        self.btn_cleanup = wx.Button(self, label="Clean up...")
         self.btn_clear = wx.Button(self, label="Clear history")
         history_bar.Add(self.btn_delete, 0, wx.RIGHT, 4)
+        history_bar.Add(self.btn_cleanup, 0, wx.RIGHT, 4)
         history_bar.Add(self.btn_clear, 0)
 
         self.notebook = wx.Simplebook(self)
@@ -369,6 +371,7 @@ class ResultsWorkspace(wx.Panel):
         self.history_choice.Bind(wx.EVT_CHOICE, self._on_history_selected)
         self.btn_delete.Bind(wx.EVT_BUTTON, self._on_delete_selected)
         self.btn_clear.Bind(wx.EVT_BUTTON, self._on_clear_history)
+        self.btn_cleanup.Bind(wx.EVT_BUTTON, self._on_cleanup_history)
         self.refresh_history()
 
     def _log(self, message):
@@ -472,6 +475,24 @@ class ResultsWorkspace(wx.Panel):
         )
         if answer == wx.YES and self._history.delete(entry):
             self._log("Deleted saved Ki-PIDA result.")
+            self.refresh_history()
+
+    def _on_cleanup_history(self, _event):
+        from result_history import KEEP_CAMPAIGNS, KEEP_RUNS
+
+        doomed, size = self._history.cleanup_plan()
+        if not doomed:
+            wx.MessageBox("Nothing to clean up.", "Clean up result history", wx.OK | wx.ICON_INFORMATION)
+            return
+        answer = wx.MessageBox(
+            f"Delete {len(doomed)} saved runs and campaign files ({size / 1e6:.0f} MB)? "
+            f"The latest {KEEP_RUNS} runs of each analysis, the latest {KEEP_CAMPAIGNS} campaigns "
+            "and the runs those campaigns name are kept.",
+            "Clean up result history", wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
+        )
+        if answer == wx.YES:
+            deleted, freed = self._history.cleanup()
+            self._log(f"Deleted {deleted} saved run(s) and campaign file(s), {freed / 1e6:.0f} MB.")
             self.refresh_history()
 
     def _on_clear_history(self, _event):

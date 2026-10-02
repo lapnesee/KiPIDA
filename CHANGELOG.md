@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added a "Clean up..." button to the result history, which keeps the
+  latest five runs of each analysis, the latest five campaigns and the
+  runs those campaigns name, after saying how much goes: on P02 Rev E,
+  280 paths and 574 MB of the folder's 685 MB. The results folder now
+  gets a .gitignore when it is created, so a project's git repository
+  no longer offers its runs for commit.
 - Fixed a batch archiving each domain's result as its tab adapted it,
   not as the campaign reported it: P02 Rev E's 22:29 THERMAL was saved
   WARN with 9 figures while the report gave it PASS with 10, and its CFD

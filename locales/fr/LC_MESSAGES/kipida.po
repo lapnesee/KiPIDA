@@ -5481,3 +5481,15 @@ msgstr "Toujours présents ({count})"
 
 msgid "The board changed in between."
 msgstr "La carte a changé entre-temps."
+
+msgid "Clean up result history"
+msgstr "Nettoyer l’historique des résultats"
+
+msgid "Clean up..."
+msgstr "Nettoyer…"
+
+msgid "Deleted {p0} saved run(s) and campaign file(s), {p1} MB."
+msgstr "{p0} exécution(s) et fichier(s) de campagne supprimés, {p1} Mo."
+
+msgid "Nothing to clean up."
+msgstr "Rien à nettoyer."
