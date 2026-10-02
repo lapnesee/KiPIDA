@@ -5358,3 +5358,24 @@ msgstr "à la fermeture"
 
 msgid "Save configuration"
 msgstr "Enregistrer la configuration"
+
+msgid "Curve from:"
+msgstr "Courbe issue de :"
+
+msgid "Efficiency curve:"
+msgstr "Courbe de rendement :"
+
+msgid "Line {p0}: '{p1}' is not a list of numbers."
+msgstr "Ligne {p0} : « {p1} » n’est pas une liste de nombres."
+
+msgid "Line {p0}: give 'Iout efficiency' or 'Vin Vout Iout efficiency'."
+msgstr "Ligne {p0} : indiquez « Iout rendement » ou « Vin Vout Iout rendement »."
+
+msgid "Line {p0}: the efficiency must lie in (0, 100] % and the current must not be negative."
+msgstr "Ligne {p0} : le rendement doit être compris dans ]0, 100] % et le courant ne doit pas être négatif."
+
+msgid "One point per line: 'Iout(A) efficiency(%)' at this regulator's input and output, or 'Vin Vout Iout efficiency' for several curves. Leave empty to use the single efficiency above."
+msgstr "Un point par ligne : « Iout(A) rendement(%) » à l’entrée et à la sortie de ce régulateur, ou « Vin Vout Iout rendement » pour plusieurs courbes. Laissez vide pour utiliser le rendement unique ci-dessus."
+
+msgid "Reference, e.g. datasheet figure"
+msgstr "Référence, par exemple figure de la fiche technique"

@@ -3,7 +3,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: Ki-PIDA\n"
-"POT-Creation-Date: 2026-10-02 14:33+0000\n"
+"POT-Creation-Date: 2026-10-02 14:37+0000\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -588,7 +588,7 @@ msgstr ""
 msgid "Add Patch"
 msgstr ""
 
-#: ui/power_tree_panel.py:592
+#: ui/power_tree_panel.py:594
 msgid "Add Regulator"
 msgstr ""
 
@@ -1383,12 +1383,12 @@ msgstr ""
 msgid "Configuration"
 msgstr ""
 
-#: ui/power_tree_panel.py:725
+#: ui/power_tree_panel.py:728
 #, python-brace-format
 msgid "Configuration not saved {p0}: {p1} changed on disk since Ki-PIDA loaded it. Save Config overwrites it."
 msgstr ""
 
-#: ui/power_tree_panel.py:747
+#: ui/power_tree_panel.py:750
 #, python-brace-format
 msgid "Configuration saved to {p0}"
 msgstr ""
@@ -1398,7 +1398,7 @@ msgstr ""
 msgid "Configuration saved to {p0} on close."
 msgstr ""
 
-#: ui/power_tree_panel.py:735
+#: ui/power_tree_panel.py:738
 #, python-brace-format
 msgid "Configuration saved to {p0} {p1}."
 msgstr ""
@@ -1549,7 +1549,7 @@ msgstr ""
 msgid "Copper outside the board ignored"
 msgstr ""
 
-#: ui/power_tree_panel.py:544
+#: ui/power_tree_panel.py:545
 msgid "Could not locate regulator."
 msgstr ""
 
@@ -1720,6 +1720,10 @@ msgstr ""
 
 #: plotter.py:278
 msgid "Current density (A/mm²)"
+msgstr ""
+
+#: ui/regulator_dialog.py:198
+msgid "Curve from:"
 msgstr ""
 
 #: ui/ac_analysis_panel.py:118 ui/ac_analysis_panel.py:169
@@ -2148,7 +2152,7 @@ msgstr ""
 msgid "Edit Patch"
 msgstr ""
 
-#: ui/power_tree_panel.py:486 ui/power_tree_panel.py:551
+#: ui/power_tree_panel.py:486 ui/power_tree_panel.py:552
 msgid "Edit Regulator"
 msgstr ""
 
@@ -2164,11 +2168,15 @@ msgstr ""
 msgid "Edit Source"
 msgstr ""
 
-#: ui/regulator_dialog.py:99
+#: ui/regulator_dialog.py:172
 msgid "Efficiency (0.0-1.0):"
 msgstr ""
 
-#: ui/regulator_dialog.py:282
+#: ui/regulator_dialog.py:189
+msgid "Efficiency curve:"
+msgstr ""
+
+#: ui/regulator_dialog.py:384
 msgid "Efficiency must be between 0.0 and 1.0"
 msgstr ""
 
@@ -2479,20 +2487,20 @@ msgstr ""
 msgid "Er"
 msgstr ""
 
-#: ui/power_tree_panel.py:742 ui/power_tree_panel.py:751 ui/power_tree_panel.py:757 ui/power_tree_panel.py:761 ui/power_tree_panel.py:792 ui/regulator_dialog.py:252 ui/regulator_dialog.py:259 ui/regulator_dialog.py:262 ui/regulator_dialog.py:266 ui/regulator_dialog.py:270 ui/regulator_dialog.py:274 ui/regulator_dialog.py:282
+#: ui/power_tree_panel.py:745 ui/power_tree_panel.py:754 ui/power_tree_panel.py:760 ui/power_tree_panel.py:764 ui/power_tree_panel.py:795 ui/regulator_dialog.py:354 ui/regulator_dialog.py:361 ui/regulator_dialog.py:364 ui/regulator_dialog.py:368 ui/regulator_dialog.py:372 ui/regulator_dialog.py:376 ui/regulator_dialog.py:384 ui/regulator_dialog.py:389
 msgid "Error"
 msgstr ""
 
-#: ui/power_tree_panel.py:680
+#: ui/power_tree_panel.py:683
 #, python-brace-format
 msgid "Error getting config path: {p0}"
 msgstr ""
 
-#: ui/power_tree_panel.py:629
+#: ui/power_tree_panel.py:632
 msgid "Error locating input rail."
 msgstr ""
 
-#: ui/power_tree_panel.py:668
+#: ui/power_tree_panel.py:671
 msgid "ERROR: Cannot determine project path - no project object and board has no filename attribute."
 msgstr ""
 
@@ -2653,7 +2661,7 @@ msgstr ""
 msgid "Failed to apply KiCad differential rules: {p0}"
 msgstr ""
 
-#: ui/power_tree_panel.py:791
+#: ui/power_tree_panel.py:794
 #, python-brace-format
 msgid "Failed to load config: {p0}"
 msgstr ""
@@ -2668,12 +2676,12 @@ msgstr ""
 msgid "Failed to save config on close: {p0}"
 msgstr ""
 
-#: ui/power_tree_panel.py:733
+#: ui/power_tree_panel.py:736
 #, python-brace-format
 msgid "Failed to save config {p0}: {p1}"
 msgstr ""
 
-#: ui/power_tree_panel.py:750
+#: ui/power_tree_panel.py:753
 #, python-brace-format
 msgid "Failed to save config: {p0}"
 msgstr ""
@@ -3087,23 +3095,23 @@ msgstr ""
 msgid "Inlets, Outlets, Fans, and Vents"
 msgstr ""
 
-#: ui/regulator_dialog.py:262
+#: ui/regulator_dialog.py:364
 msgid "Input and Output rails cannot be the same."
 msgstr ""
 
-#: ui/regulator_dialog.py:49
+#: ui/regulator_dialog.py:120
 msgid "Input Component:"
 msgstr ""
 
-#: ui/regulator_dialog.py:55
+#: ui/regulator_dialog.py:126
 msgid "Input Pads:"
 msgstr ""
 
-#: ui/regulator_dialog.py:42
+#: ui/regulator_dialog.py:113
 msgid "Input Rail:"
 msgstr ""
 
-#: ui/regulator_dialog.py:38
+#: ui/regulator_dialog.py:109
 msgid "Input Side"
 msgstr ""
 
@@ -3421,6 +3429,21 @@ msgstr ""
 msgid "Limitations"
 msgstr ""
 
+#: ui/regulator_dialog.py:29
+#, python-brace-format
+msgid "Line {p0}: '{p1}' is not a list of numbers."
+msgstr ""
+
+#: ui/regulator_dialog.py:31
+#, python-brace-format
+msgid "Line {p0}: give 'Iout efficiency' or 'Vin Vout Iout efficiency'."
+msgstr ""
+
+#: ui/regulator_dialog.py:36
+#, python-brace-format
+msgid "Line {p0}: the efficiency must lie in (0, 100] % and the current must not be negative."
+msgstr ""
+
 #: rule_guide.py:357
 msgid "List the footprints with no symbol and check that each is mechanical."
 msgstr ""
@@ -3464,7 +3487,7 @@ msgstr ""
 msgid "Load not found on the board"
 msgstr ""
 
-#: ui/power_tree_panel.py:206 ui/power_tree_panel.py:778
+#: ui/power_tree_panel.py:206 ui/power_tree_panel.py:781
 #, python-brace-format
 msgid "Loaded configuration from {p0} ({p1} rails)"
 msgstr ""
@@ -3729,7 +3752,7 @@ msgstr ""
 msgid "Name"
 msgstr ""
 
-#: ui/regulator_dialog.py:252
+#: ui/regulator_dialog.py:354
 msgid "Name is required."
 msgstr ""
 
@@ -4129,6 +4152,10 @@ msgstr ""
 msgid "On the prototype, measure the voltage on both sides of each pass element under load."
 msgstr ""
 
+#: ui/regulator_dialog.py:193
+msgid "One point per line: 'Iout(A) efficiency(%)' at this regulator's input and output, or 'Vin Vout Iout efficiency' for several curves. Leave empty to use the single efficiency above."
+msgstr ""
+
 #: solver.py:110 solver.py:393
 msgid "One resistance scale is required for every mesh branch."
 msgstr ""
@@ -4173,19 +4200,19 @@ msgstr ""
 msgid "Outlet"
 msgstr ""
 
-#: ui/regulator_dialog.py:75
+#: ui/regulator_dialog.py:146
 msgid "Output Component:"
 msgstr ""
 
-#: ui/regulator_dialog.py:81
+#: ui/regulator_dialog.py:152
 msgid "Output Pads:"
 msgstr ""
 
-#: ui/regulator_dialog.py:68
+#: ui/regulator_dialog.py:139
 msgid "Output Rail:"
 msgstr ""
 
-#: ui/regulator_dialog.py:64
+#: ui/regulator_dialog.py:135
 msgid "Output Side"
 msgstr ""
 
@@ -4272,7 +4299,7 @@ msgstr ""
 msgid "Palace — LAN server"
 msgstr ""
 
-#: ui/regulator_dialog.py:90
+#: ui/regulator_dialog.py:161
 msgid "Parameters"
 msgstr ""
 
@@ -4633,6 +4660,10 @@ msgstr ""
 msgid "Reference"
 msgstr ""
 
+#: ui/regulator_dialog.py:205
+msgid "Reference, e.g. datasheet figure"
+msgstr ""
+
 #: ui/ac_analysis_panel.py:204
 msgid "Refresh Detection"
 msgstr ""
@@ -4653,17 +4684,17 @@ msgstr ""
 msgid "Refreshed live PCB geometry and component discovery."
 msgstr ""
 
-#: ui/power_tree_panel.py:627
+#: ui/power_tree_panel.py:630
 #, python-brace-format
 msgid "Regulator added to {p0}"
 msgstr ""
 
-#: ui/power_tree_panel.py:517 ui/power_tree_panel.py:581
+#: ui/power_tree_panel.py:518 ui/power_tree_panel.py:583
 #, python-brace-format
 msgid "Regulator moved to {p0}"
 msgstr ""
 
-#: ui/regulator_dialog.py:32
+#: ui/regulator_dialog.py:103
 msgid "Regulator Name:"
 msgstr ""
 
@@ -5189,7 +5220,7 @@ msgstr ""
 msgid "Select at least one recommendation with a feasible width and gap."
 msgstr ""
 
-#: ui/regulator_dialog.py:259
+#: ui/regulator_dialog.py:361
 msgid "Select both Input and Output rails."
 msgstr ""
 
@@ -5209,7 +5240,7 @@ msgstr ""
 msgid "Select Component:"
 msgstr ""
 
-#: ui/regulator_dialog.py:266
+#: ui/regulator_dialog.py:368
 msgid "Select Input Component and at least one Pad."
 msgstr ""
 
@@ -5221,7 +5252,7 @@ msgstr ""
 msgid "Select one or more geometry recommendations first."
 msgstr ""
 
-#: ui/regulator_dialog.py:270
+#: ui/regulator_dialog.py:372
 msgid "Select Output Component and at least one Pad."
 msgstr ""
 
@@ -5237,7 +5268,7 @@ msgstr ""
 msgid "Select the analyses to run:"
 msgstr ""
 
-#: ui/regulator_dialog.py:274
+#: ui/regulator_dialog.py:376
 msgid "Select the component that dissipates the regulator loss."
 msgstr ""
 
@@ -5587,7 +5618,7 @@ msgstr ""
 msgid "structured metrics unavailable"
 msgstr ""
 
-#: ui/power_tree_panel.py:748 ui/power_tree_panel.py:789
+#: ui/power_tree_panel.py:751 ui/power_tree_panel.py:792
 msgid "Success"
 msgstr ""
 
@@ -5987,7 +6018,7 @@ msgstr ""
 msgid "Thermal load:"
 msgstr ""
 
-#: ui/regulator_dialog.py:106
+#: ui/regulator_dialog.py:179
 msgid "Thermal loss component:"
 msgstr ""
 
@@ -6197,7 +6228,7 @@ msgstr ""
 msgid "Type"
 msgstr ""
 
-#: ui/cfd_analysis_panel.py:34 ui/emc_analysis_panel.py:60 ui/regulator_dialog.py:93
+#: ui/cfd_analysis_panel.py:34 ui/emc_analysis_panel.py:60 ui/regulator_dialog.py:166
 msgid "Type:"
 msgstr ""
 
@@ -6205,11 +6236,11 @@ msgstr ""
 msgid "Typical effort"
 msgstr ""
 
-#: ui/power_tree_panel.py:757
+#: ui/power_tree_panel.py:760
 msgid "Unable to determine project path. Cannot load config."
 msgstr ""
 
-#: ui/power_tree_panel.py:742
+#: ui/power_tree_panel.py:745
 msgid "Unable to determine project path. Cannot save config."
 msgstr ""
 

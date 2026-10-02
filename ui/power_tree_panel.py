@@ -4,14 +4,14 @@ import wx.dataview
 try:
     from models import PowerRail, UnifiedSource, UnifiedLoad, ComponentRef, VoltageRegulator
     from ui.component_selector import ComponentSelectorDialog
-    from ui.regulator_dialog import RegulatorDialog
+    from ui.regulator_dialog import RegulatorDialog, apply_efficiency_curve
     from discovery import NetDiscoverer, rail_label
     from config_manager import get_project_config_path, load_project_config, save_config
 except (ImportError, ValueError):
     # Fallback or just re-raise if absolute fails (shouldn't happen with sys.path set)
     from models import PowerRail, UnifiedSource, UnifiedLoad, ComponentRef, VoltageRegulator
     from ui.component_selector import ComponentSelectorDialog
-    from ui.regulator_dialog import RegulatorDialog
+    from ui.regulator_dialog import RegulatorDialog, apply_efficiency_curve
     from discovery import NetDiscoverer, rail_label
     from config_manager import get_project_config_path, load_project_config, save_config
 
@@ -507,6 +507,7 @@ class PowerTreePanel(wx.Panel):
             reg.reg_type = data['type']
             reg.efficiency = data['efficiency']
             reg.thermal_ref_des = data['thermal_ref_des']
+            apply_efficiency_curve(reg, data)
             
             # If input rail changed, move regulator to new rail
             if data['input_rail'] != self.active_rail.net_name:
@@ -571,6 +572,7 @@ class PowerTreePanel(wx.Panel):
             reg.reg_type = data['type']
             reg.efficiency = data['efficiency']
             reg.thermal_ref_des = data['thermal_ref_des']
+            apply_efficiency_curve(reg, data)
             
             # If input rail changed, move regulator
             if data['input_rail'] != source_rail.net_name:
@@ -607,6 +609,7 @@ class PowerTreePanel(wx.Panel):
                 efficiency=data['efficiency'],
                 thermal_ref_des=data['thermal_ref_des'],
             )
+            apply_efficiency_curve(reg, data)
             
             # Add to the INPUT rail (which is self.active_rail)
             # Actually, the user might have changed input_rail in the dialog!

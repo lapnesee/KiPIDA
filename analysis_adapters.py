@@ -1486,7 +1486,8 @@ def _estimated_efficiency_findings(power_stage_reports: Any, board_heat_w: float
             f"the board dissipates, set by a configured efficiency of {efficiency * 100.0:.0f}%: "
             f"{provenance}. The temperatures of the parts it heats move with that estimate.",
             "Enter the converter's efficiency curve from its datasheet at this input, output "
-            "and switching frequency, or a measured efficiency, in the power tree.",
+            "and switching frequency, or a measured one: edit the regulator in the power tree "
+            "and fill in its Efficiency curve.",
             confidence=EvidenceConfidence.DETERMINISTIC,
         )
         finding.components = [name.split(" ", 1)[0]]

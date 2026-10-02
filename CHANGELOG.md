@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added an efficiency curve to the regulator dialog, one point per line
+  ("Iout efficiency" at the regulator's own input and output, or "Vin
+  Vout Iout efficiency"), with its source and reference. TH-008 asked
+  for this curve while the dialog took a single efficiency, which the
+  loss model always treats as a fallback, so the finding could not be
+  cleared without editing the sidecar. The dialog's parameter grid,
+  declared 2 x 2 with three rows, no longer trips a wx assertion.
 - Fixed settings being lost on close and the configuration file being
   rewritten in place. Closing Ki-PIDA and starting a batch now save the
   project's configuration. A file edited elsewhere since it was loaded
