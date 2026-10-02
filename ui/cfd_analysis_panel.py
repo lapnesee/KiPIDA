@@ -3,6 +3,7 @@
 import math
 
 import wx
+from ui.number_input import parse_number
 
 from i18n import _
 
@@ -49,11 +50,11 @@ class CFDBoundaryDialog(wx.Dialog):
             name=self.name.GetValue().strip() or "Patch",
             kind=self.kind.GetStringSelection() or "VENT",
             face=self.face.GetStringSelection() or "XMIN",
-            center_u=float(self.center_u.GetValue()), center_v=float(self.center_v.GetValue()),
-            size_u=float(self.size_u.GetValue()), size_v=float(self.size_v.GetValue()),
-            velocity_m_s=float(self.velocity.GetValue()),
-            temperature_c=float(self.temperature.GetValue()),
-            pressure_pa=float(self.pressure.GetValue()),
+            center_u=parse_number(self.center_u.GetValue()), center_v=parse_number(self.center_v.GetValue()),
+            size_u=parse_number(self.size_u.GetValue()), size_v=parse_number(self.size_v.GetValue()),
+            velocity_m_s=parse_number(self.velocity.GetValue()),
+            temperature_c=parse_number(self.temperature.GetValue()),
+            pressure_pa=parse_number(self.pressure.GetValue()),
         )
         if any(value < 0 or value > 1 for value in (
             patch.center_u, patch.center_v, patch.size_u, patch.size_v
@@ -174,8 +175,8 @@ class CFDAnalysisPanel(wx.Panel):
 
     def _update_estimate(self, event=None):
         try:
-            width, depth, height = float(self.width.GetValue()), float(self.depth.GetValue()), float(self.height.GetValue())
-            cell = max(0.001, float(self.cell.GetValue()))
+            width, depth, height = parse_number(self.width.GetValue()), parse_number(self.depth.GetValue()), parse_number(self.height.GetValue())
+            cell = max(0.001, parse_number(self.cell.GetValue()))
             count = (max(3, math.ceil(width / cell)) *
                      max(3, math.ceil(depth / cell)) *
                      max(3, math.ceil(height / cell)))
@@ -220,7 +221,7 @@ class CFDAnalysisPanel(wx.Panel):
             self._refresh_patches()
 
     def _on_default_pair(self, event):
-        ambient = float(self.ambient.GetValue())
+        ambient = parse_number(self.ambient.GetValue())
         self.settings.patches.extend([
             CFDBoundaryPatch("Fan Inlet", "FAN", "XMIN", 0.5, 0.5, 0.35, 0.35, 1.0, ambient),
             CFDBoundaryPatch("Outlet", "OUTLET", "XMAX", 0.5, 0.5, 0.35, 0.35, 0.0, ambient),
@@ -240,22 +241,22 @@ class CFDAnalysisPanel(wx.Panel):
 
     def get_settings(self):
         result = self.settings
-        result.ambient_c = float(self.ambient.GetValue())
+        result.ambient_c = parse_number(self.ambient.GetValue())
         geometry = result.geometry
         geometry.width_mm, geometry.depth_mm, geometry.height_mm = (
-            float(self.width.GetValue()), float(self.depth.GetValue()), float(self.height.GetValue())
+            parse_number(self.width.GetValue()), parse_number(self.depth.GetValue()), parse_number(self.height.GetValue())
         )
         geometry.board_orientation = self.orientation.GetStringSelection() or "XY"
-        geometry.board_offset_x_mm = float(self.offset_x.GetValue())
-        geometry.board_offset_y_mm = float(self.offset_y.GetValue())
-        geometry.board_offset_z_mm = float(self.offset_z.GetValue())
-        geometry.wall_heat_transfer_w_m2k = float(self.wall_h.GetValue())
+        geometry.board_offset_x_mm = parse_number(self.offset_x.GetValue())
+        geometry.board_offset_y_mm = parse_number(self.offset_y.GetValue())
+        geometry.board_offset_z_mm = parse_number(self.offset_z.GetValue())
+        geometry.wall_heat_transfer_w_m2k = parse_number(self.wall_h.GetValue())
         solver = result.solver
-        solver.cell_size_mm = float(self.cell.GetValue())
+        solver.cell_size_mm = parse_number(self.cell.GetValue())
         solver.max_iterations = int(self.iterations.GetValue())
-        solver.tolerance = float(self.tolerance.GetValue())
-        solver.relaxation = float(self.relaxation.GetValue())
-        solver.pseudo_time_step_s = float(self.time_step.GetValue())
+        solver.tolerance = parse_number(self.tolerance.GetValue())
+        solver.relaxation = parse_number(self.relaxation.GetValue())
+        solver.pseudo_time_step_s = parse_number(self.time_step.GetValue())
         solver.include_buoyancy = self.buoyancy.GetValue()
         result.use_phase3_heat_sources = self.phase3_heat.GetValue()
         result.include_dc_copper_losses = self.dc_losses.GetValue()

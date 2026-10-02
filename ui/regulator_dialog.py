@@ -1,4 +1,5 @@
 import wx
+from ui.number_input import parse_number
 try:
     from models import generate_regulator_name
 except ImportError:
@@ -378,7 +379,7 @@ class RegulatorDialog(wx.Dialog):
 
         if self.cmb_type.GetValue() == "SWITCHING":
             try:
-                eff = float(self.txt_eff.GetValue())
+                eff = parse_number(self.txt_eff.GetValue())
                 if not (0.0 < eff <= 1.0): raise ValueError()
             except ValueError:
                 wx.MessageBox("Efficiency must be between 0.0 and 1.0", "Error", wx.OK | wx.ICON_ERROR)
@@ -405,7 +406,7 @@ class RegulatorDialog(wx.Dialog):
             'output_ref_des': self.cmb_output_comp.GetValue(),
             'output_pads': out_pads,
             'type': self.cmb_type.GetValue(),
-            'efficiency': float(self.txt_eff.GetValue()) if self.cmb_type.GetValue() == "SWITCHING" else 1.0,
+            'efficiency': parse_number(self.txt_eff.GetValue()) if self.cmb_type.GetValue() == "SWITCHING" else 1.0,
             'thermal_ref_des': self.cmb_thermal_comp.GetValue(),
             'efficiency_table': (
                 parse_efficiency_points(self.txt_curve.GetValue())

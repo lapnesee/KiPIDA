@@ -1,4 +1,5 @@
 import wx
+from ui.number_input import parse_number
 # import pcbnew # Removed to avoid SWIG dependency crash
 class SourceLoadDialog(wx.Dialog):
     def __init__(self, parent, title, net_name, board, used_pads=None, initial_value=0.0, initial_pads=None):
@@ -134,7 +135,7 @@ class SourceLoadDialog(wx.Dialog):
         
     def GetValue(self):
         try:
-            return float(self.txt_val.GetValue())
+            return parse_number(self.txt_val.GetValue())
         except ValueError:
             return 0.0
             

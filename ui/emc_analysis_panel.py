@@ -2,6 +2,7 @@
 
 import threading
 import wx
+from ui.number_input import parse_number
 
 from i18n import _
 
@@ -184,11 +185,11 @@ class EMCSourceDialog(wx.Dialog):
         net_name = self.net.GetValue().strip()
         if not net_name:
             raise ValueError("Enter a source net name.")
-        frequency = float(self.frequency.GetValue()) * 1e6
-        rise_time = float(self.rise.GetValue())
-        cable = float(self.cable.GetValue())
-        voltage = float(self.voltage.GetValue())
-        current = float(self.current.GetValue())
+        frequency = parse_number(self.frequency.GetValue()) * 1e6
+        rise_time = parse_number(self.rise.GetValue())
+        cable = parse_number(self.cable.GetValue())
+        voltage = parse_number(self.voltage.GetValue())
+        current = parse_number(self.current.GetValue())
         if frequency < 0 or rise_time <= 0 or cable < 0 or voltage < 0 or current < 0:
             raise ValueError(
                 "Frequency, cable length, voltage and current must be non-negative; "
@@ -518,8 +519,8 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
             host_key_policy=(
                 "ACCEPT_NEW" if self.palace_host_key_policy.GetSelection() == 1 else "STRICT"
             ),
-            connect_timeout_s=float(self.palace_connect_timeout.GetValue()),
-            run_timeout_s=float(self.phase10_timeout.GetValue()),
+            connect_timeout_s=parse_number(self.palace_connect_timeout.GetValue()),
+            run_timeout_s=parse_number(self.phase10_timeout.GetValue()),
             keep_remote_files=self.palace_keep_remote.GetValue(),
         ).validate()
 
@@ -746,8 +747,8 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
             self._update_sources()
 
     def get_settings(self):
-        start = float(self.frequency_start.GetValue()) * 1e6
-        stop = float(self.frequency_stop.GetValue()) * 1e6
+        start = parse_number(self.frequency_start.GetValue()) * 1e6
+        stop = parse_number(self.frequency_stop.GetValue()) * 1e6
         if start <= 0 or stop <= start:
             raise ValueError("EMI/EMC stop frequency must be greater than the positive start frequency.")
         self.settings.frequency_start_hz = start
@@ -757,9 +758,9 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
         self.settings.reference_net_names = [item.strip() for item in self.ground_nets.GetValue().split(",") if item.strip()]
         self.settings.external_connector_prefixes = [item.strip() for item in self.connector_prefixes.GetValue().split(",") if item.strip()]
         self.settings.enabled_categories = [key for key, check in self._category_checks.items() if check.GetValue()]
-        height = float(self.field_height.GetValue())
-        grid_size = float(self.field_grid_size.GetValue())
-        frequency = float(self.field_frequency.GetValue()) * 1e6
+        height = parse_number(self.field_height.GetValue())
+        grid_size = parse_number(self.field_grid_size.GetValue())
+        frequency = parse_number(self.field_frequency.GetValue()) * 1e6
         if height <= 0 or grid_size <= 0 or frequency < 0:
             raise ValueError(
                 "Near-field height/grid size must be positive and its frequency must be non-negative."
@@ -795,10 +796,10 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
         )
         phase10.palace_remote_keep_files = self.palace_keep_remote.GetValue()
         phase10.maximum_regions = max(0, int(self.phase10_regions.GetValue()))
-        phase10.mesh_resolution_mm = float(self.phase10_mesh.GetValue())
+        phase10.mesh_resolution_mm = parse_number(self.phase10_mesh.GetValue())
         phase10.maximum_cells = int(self.phase10_cells.GetValue())
         phase10.openems_max_timesteps = int(self.phase10_timesteps.GetValue())
-        phase10.solver_timeout_s = float(self.phase10_timeout.GetValue())
+        phase10.solver_timeout_s = parse_number(self.phase10_timeout.GetValue())
         phase10.differential_excitation_mode = (
             self.phase10_diff_mode.GetStringSelection() or "DIFFERENTIAL"
         )

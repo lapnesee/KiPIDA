@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed the numeric fields refusing a decimal comma: 77 of them in the
+  AC, CFD, differential, EMI/EMC, thermal, power tree, regulator and
+  setup dialogs read their text with float(), so "0,1" was an error
+  while labels such as "Rendement (0,0-1,0)" invited it. They now share
+  one reader that takes a decimal comma and ignores the spaces between
+  thousands.
 - Added a "Clean up..." button to the result history, which keeps the
   latest five runs of each analysis, the latest five campaigns and the
   runs those campaigns name, after saying how much goes: on P02 Rev E,

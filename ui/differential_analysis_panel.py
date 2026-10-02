@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import wx
+from ui.number_input import parse_number
 
 from i18n import _
 
@@ -61,7 +62,7 @@ class DifferentialPairDialog(wx.Dialog):
         negative = self.negative.GetValue().strip()
         if not positive or not negative or positive == negative:
             raise ValueError("Enter two different, non-empty net names.")
-        target = float(self.target.GetValue())
+        target = parse_number(self.target.GetValue())
         if target <= 0:
             raise ValueError("Target impedance must be positive.")
         interface = self.interface.GetStringSelection() or "GENERIC"
@@ -428,19 +429,19 @@ class DifferentialAnalysisPanel(wx.Panel):
             dialog.Destroy()
 
     def get_settings(self):
-        tolerance = float(self.txt_tolerance.GetValue())
+        tolerance = parse_number(self.txt_tolerance.GetValue())
         if tolerance <= 0:
             raise ValueError("Target tolerance must be positive.")
         self.settings.target_tolerance_pct = tolerance
         self.settings.geometry_mode = self._geometry_values[self.choice_geometry.GetSelection()]
         try:
-            self.settings.coplanar_ground_gap_mm = float(self.txt_coplanar_gap.GetValue())
+            self.settings.coplanar_ground_gap_mm = parse_number(self.txt_coplanar_gap.GetValue())
             if self.settings.coplanar_ground_gap_mm <= 0:
                 raise ValueError
         except ValueError:
             raise ValueError("Coplanar GND gap must be a positive mm value.")
         try:
-            minimums = [float(value.strip()) for value in self.txt_min_geometry.GetValue().split("/")]
+            minimums = [parse_number(value) for value in self.txt_min_geometry.GetValue().split("/")]
             if len(minimums) != 3 or min(minimums) <= 0:
                 raise ValueError
         except ValueError:

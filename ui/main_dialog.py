@@ -1,4 +1,5 @@
 import wx
+from ui.number_input import parse_number
 import wx.dataview
 import sys
 import os
@@ -966,7 +967,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         can disagree once the user edits the field mid-solve.
         """
         try:
-            return min(100.0, max(0.0, float(self.txt_drop_pct.GetValue())))
+            return min(100.0, max(0.0, parse_number(self.txt_drop_pct.GetValue())))
         except (TypeError, ValueError):
             return 5.0
 
@@ -997,7 +998,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         system_rails = self.power_tree.rails
         if not system_rails:
             raise ValueError("No power rails defined.")
-        grid_size = max(0.01, float(self.txt_grid_size.GetValue()))
+        grid_size = max(0.01, parse_number(self.txt_grid_size.GetValue()))
         return prepare_dc_request(
             self.board,
             system_rails,
@@ -1854,7 +1855,7 @@ class KiPIDA_MainDialog(wx.Dialog):
         settings = self.thermal_panel.get_settings()
         compute_settings = self.runtime_panel.get_settings(persist=True)
         try:
-            dc_grid_size = max(0.01, float(self.txt_grid_size.GetValue()))
+            dc_grid_size = max(0.01, parse_number(self.txt_grid_size.GetValue()))
         except ValueError:
             dc_grid_size = 0.1
         debug_mode = self.chk_debug.GetValue()
@@ -2108,7 +2109,7 @@ class KiPIDA_MainDialog(wx.Dialog):
                     "DC copper-loss heat sources require at least one configured power rail."
                 )
             try:
-                grid_size = max(0.01, float(self.txt_grid_size.GetValue()))
+                grid_size = max(0.01, parse_number(self.txt_grid_size.GetValue()))
             except ValueError:
                 grid_size = 0.1
             dc_request = self._copper_loss_dc_request(

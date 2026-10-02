@@ -1,6 +1,7 @@
 import math
 
 import wx
+from ui.number_input import parse_number
 
 from i18n import _
 
@@ -98,8 +99,8 @@ class CapacitorModelDialog(wx.Dialog):
         capacitance = parse_capacitance(self.txt_capacitance.GetValue())
         if capacitance is None:
             raise ValueError("Enter a valid capacitance such as 100n, 4u7, or 10uF.")
-        esr = float(self.txt_esr.GetValue()) / 1e3
-        esl = float(self.txt_esl.GetValue()) * 1e-9
+        esr = parse_number(self.txt_esr.GetValue()) / 1e3
+        esl = parse_number(self.txt_esl.GetValue()) * 1e-9
         if esr < 0 or esl < 0:
             raise ValueError("ESR and ESL must be zero or greater.")
         capacitor.capacitance_f = capacitance
@@ -242,7 +243,7 @@ class ACAnalysisPanel(wx.Panel):
     def _update_cost_hint(self):
         try:
             points = max(1, int(self.txt_points.GetValue()))
-            mesh = max(0.1, float(self.txt_mesh_resolution.GetValue()))
+            mesh = max(0.1, parse_number(self.txt_mesh_resolution.GetValue()))
             relative = (points / 121.0) * (0.5 / mesh) ** 2
             if relative <= 0.6:
                 level = "low"
@@ -285,7 +286,7 @@ class ACAnalysisPanel(wx.Panel):
             return
         try:
             index = self._preset_index_for_values(
-                int(self.txt_points.GetValue()), float(self.txt_mesh_resolution.GetValue()),
+                int(self.txt_points.GetValue()), parse_number(self.txt_mesh_resolution.GetValue()),
             )
             self.choice_preset.SetSelection(index)
         except ValueError:
@@ -311,8 +312,8 @@ class ACAnalysisPanel(wx.Panel):
             return
         try:
             index = self._source_preset_index_for_values(
-                float(self.txt_source_r_mohm.GetValue()) / 1e3,
-                float(self.txt_source_l_nh.GetValue()) * 1e-9,
+                parse_number(self.txt_source_r_mohm.GetValue()) / 1e3,
+                parse_number(self.txt_source_l_nh.GetValue()) * 1e-9,
             )
         except ValueError:
             index = len(AC_SOURCE_PRESETS)
@@ -517,10 +518,10 @@ class ACAnalysisPanel(wx.Panel):
         profile = self.profiles.get(rail.net_name, ACAnalysisSettings(rail_name=rail.net_name))
         profile.rail_name = rail.net_name
         profile.ground_net_name = self._selected_text(self.choice_ground) or "GND"
-        profile.frequency_start_hz = float(self.txt_f_start.GetValue())
-        profile.frequency_stop_hz = float(self.txt_f_stop.GetValue())
+        profile.frequency_start_hz = parse_number(self.txt_f_start.GetValue())
+        profile.frequency_stop_hz = parse_number(self.txt_f_stop.GetValue())
         profile.frequency_points = int(self.txt_points.GetValue())
-        profile.mesh_resolution_mm = float(self.txt_mesh_resolution.GetValue())
+        profile.mesh_resolution_mm = parse_number(self.txt_mesh_resolution.GetValue())
         if profile.frequency_start_hz <= 0:
             raise ValueError("Start frequency must be greater than zero.")
         if profile.frequency_stop_hz <= profile.frequency_start_hz:
@@ -542,8 +543,8 @@ class ACAnalysisPanel(wx.Panel):
             ref_des=source_ref,
             rail_pad_names=source_pad_names,
             ground_pad_names=self.builder.pad_names_for_net(source_ref, profile.ground_net_name),
-            resistance_ohm=float(self.txt_source_r_mohm.GetValue()) / 1e3,
-            inductance_h=float(self.txt_source_l_nh.GetValue()) * 1e-9,
+            resistance_ohm=parse_number(self.txt_source_r_mohm.GetValue()) / 1e3,
+            inductance_h=parse_number(self.txt_source_l_nh.GetValue()) * 1e-9,
         )
 
         port_ref = self._selected_text(self.choice_port)

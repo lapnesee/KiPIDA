@@ -1,4 +1,5 @@
 import wx
+from ui.number_input import parse_number
 import wx.dataview
 
 try:
@@ -296,7 +297,7 @@ class PowerTreePanel(wx.Panel):
     def on_voltage_change(self, event):
         if not self.active_rail: return
         try:
-            val = float(self.txt_voltage.GetValue())
+            val = parse_number(self.txt_voltage.GetValue())
             self.active_rail.nominal_voltage = val
         except: pass
 

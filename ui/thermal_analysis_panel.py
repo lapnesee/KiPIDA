@@ -1,6 +1,7 @@
 import math
 
 import wx
+from ui.number_input import parse_number
 
 from i18n import _
 
@@ -66,12 +67,12 @@ class ThermalComponentDialog(wx.Dialog):
 
     def apply_to(self, component):
         values = [
-            float(self.txt_power.GetValue()),
-            float(self.txt_width.GetValue()),
-            float(self.txt_depth.GetValue()),
-            float(self.txt_height.GetValue()),
-            float(self.txt_theta.GetValue()),
-            float(self.txt_tjmax.GetValue()),
+            parse_number(self.txt_power.GetValue()),
+            parse_number(self.txt_width.GetValue()),
+            parse_number(self.txt_depth.GetValue()),
+            parse_number(self.txt_height.GetValue()),
+            parse_number(self.txt_theta.GetValue()),
+            parse_number(self.txt_tjmax.GetValue()),
         ]
         if any(value < 0 for value in values[:-1]) or values[-1] <= -273.15:
             raise ValueError("Thermal model values must be non-negative and physically valid.")
@@ -286,7 +287,7 @@ class ThermalAnalysisPanel(wx.Panel):
 
     def _on_expert_grid_changed(self, event):
         try:
-            value = float(self.txt_expert_grid.GetValue().replace(",", "."))
+            value = parse_number(self.txt_expert_grid.GetValue())
             if 0.01 <= value <= 5.0:
                 self.txt_grid.SetValue(value)
         except ValueError:
@@ -300,7 +301,7 @@ class ThermalAnalysisPanel(wx.Panel):
 
     def _update_mesh_cost(self):
         try:
-            size = max(0.01, float(self.txt_grid.GetValue()))
+            size = max(0.01, parse_number(self.txt_grid.GetValue()))
             context = self.mesh_context_provider() if self.mesh_context_provider else {}
             estimate = estimate_thermal_mesh_cost(context, size)
             mib = 1024 ** 2
@@ -385,13 +386,13 @@ class ThermalAnalysisPanel(wx.Panel):
 
     def get_settings(self):
         mode = self.choice_airflow.GetStringSelection() or "NATURAL"
-        self.settings.ambient_c = float(self.txt_ambient.GetValue())
-        self.settings.grid_size_mm = float(self.txt_grid.GetValue())
+        self.settings.ambient_c = parse_number(self.txt_ambient.GetValue())
+        self.settings.grid_size_mm = parse_number(self.txt_grid.GetValue())
         self.settings.airflow = AirflowSettings(
             mode=mode,
-            velocity_m_s=float(self.txt_velocity.GetValue()),
-            direction_deg=float(self.txt_direction.GetValue()),
-            custom_h_w_m2k=float(self.txt_custom_h.GetValue()),
+            velocity_m_s=parse_number(self.txt_velocity.GetValue()),
+            direction_deg=parse_number(self.txt_direction.GetValue()),
+            custom_h_w_m2k=parse_number(self.txt_custom_h.GetValue()),
             expose_top=self.chk_top.GetValue(),
             expose_bottom=self.chk_bottom.GetValue(),
             expose_edges=self.chk_edges.GetValue(),
@@ -409,7 +410,7 @@ class ThermalAnalysisPanel(wx.Panel):
         self.settings.color_scale_minimum_mode = minimum_mode
         self.settings.color_scale_minimum_c = None
         if minimum_mode == "CUSTOM":
-            minimum = float(self.txt_color_minimum.GetValue())
+            minimum = parse_number(self.txt_color_minimum.GetValue())
             if not math.isfinite(minimum) or minimum <= -273.15:
                 raise ValueError("Custom thermal colour minimum must be above absolute zero.")
             self.settings.color_scale_minimum_c = minimum
@@ -420,7 +421,7 @@ class ThermalAnalysisPanel(wx.Panel):
         self.settings.color_scale_maximum_mode = maximum_mode
         self.settings.color_scale_maximum_c = None
         if maximum_mode == "CUSTOM":
-            maximum = float(self.txt_color_maximum.GetValue())
+            maximum = parse_number(self.txt_color_maximum.GetValue())
             if not math.isfinite(maximum) or maximum <= -273.15:
                 raise ValueError("Custom thermal colour maximum must be above absolute zero.")
             self.settings.color_scale_maximum_c = maximum
@@ -431,7 +432,7 @@ class ThermalAnalysisPanel(wx.Panel):
         self.settings.show_internal_copper_layers = self.chk_internal_layers.GetValue()
         self.settings.mesh_sensitivity_check = self.chk_mesh_sensitivity.GetValue()
         self.settings.coupled_iterations = int(self.txt_iterations.GetValue())
-        self.settings.convergence_c = float(self.txt_convergence.GetValue())
+        self.settings.convergence_c = parse_number(self.txt_convergence.GetValue())
         if not 0.01 <= self.settings.grid_size_mm <= 5.0 or self.settings.coupled_iterations < 1:
             raise ValueError("Thermal grid size must be between 0.01 and 5 mm; coupled iterations must be positive.")
         return self.settings
