@@ -89,6 +89,22 @@ class DigestTests(unittest.TestCase):
         self.assertEqual([call.args[0] for call in state.call_args_list].count("/VBUS_SYS"), 1)
         self.assertEqual(len(state.call_args_list), len({call.args[0] for call in state.call_args_list}))
 
+    def test_the_differential_request_can_be_compared(self):
+        # 22:11:06 on P02 Rev E: "DIFFERENTIAL: solved again, its inputs
+        # cannot be compared (holds a DifferentialGeometrySnapshot)".
+        from application.differential_controller import DifferentialRunRequest
+        from differential_impedance import DifferentialGeometrySnapshot
+        from models import DifferentialAnalysisSettings
+
+        def request(width):
+            return DifferentialRunRequest(
+                settings=DifferentialAnalysisSettings(), pairs=(), stackup={"copper": [3, 34]},
+                snapshot=DifferentialGeometrySnapshot(
+                    {"/USB_HOST_D_P": [{"start": (0.0, 0.0), "end": (5.0, 0.0), "width_mm": width}]}),
+            )
+
+        self.assertNotEqual(configuration_digest(request(0.15)), configuration_digest(request(0.2)))
+
     def test_the_thermal_session_meshes_are_not_an_input(self):
         # The first batch fills the session's mesh cache with a mesh and its
         # solver; reading them would make the second batch's thermal differ

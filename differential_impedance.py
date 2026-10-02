@@ -1,6 +1,8 @@
 """Stackup-aware quasi-static differential transmission-line analysis."""
 
+from dataclasses import dataclass
 import math
+from typing import Any, Dict, Optional
 
 try:
     from shapely.geometry import LineString, Point
@@ -30,12 +32,21 @@ except (ImportError, ValueError):
     from reference_plane_analyzer import ReferencePlaneAnalyzer
 
 
+@dataclass
 class DifferentialGeometrySnapshot:
-    """Immutable board geometry captured before entering a worker thread."""
+    """Immutable board geometry captured before entering a worker thread.
 
-    def __init__(self, tracks_by_net=None, zones_by_net=None):
-        self.tracks_by_net = dict(tracks_by_net or {})
-        self.zones_by_net = dict(zones_by_net or {})
+    A dataclass, so the campaign cache can read it: as a plain class it
+    made P02 Rev E's differential request uncomparable ("holds a
+    DifferentialGeometrySnapshot", 22:11:06), solved again every batch.
+    """
+
+    tracks_by_net: Optional[Dict[str, Any]] = None
+    zones_by_net: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self):
+        self.tracks_by_net = dict(self.tracks_by_net or {})
+        self.zones_by_net = dict(self.zones_by_net or {})
 
     @classmethod
     def capture(cls, extractor, pairs, reference_net_names):

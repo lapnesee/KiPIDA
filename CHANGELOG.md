@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+The differential analysis can be reused by a batch too: its captured
+geometry is now something the comparison can read.
 Comparing an analysis's inputs for reuse reads each shared object and each
 path once: the AC batch's comparison went from 9.70 s to 0.81 s on P02.
 A batch sweeps its AC profiles side by side, three at a time: P02 Rev E's
