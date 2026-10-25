@@ -148,6 +148,26 @@ class CopperLandTests(unittest.TestCase):
         end = next(n for n, c in mesh.node_coords.items() if c[:2] == (9.0, 5.0) and c[2] == 2)
         self.assertTrue(self._connected(mesh, start, end))
 
+    def test_a_track_ending_on_the_middle_of_another_is_joined_to_it(self):
+        # A T: a branch ends on the middle of a 16 mm track of its net, once
+        # on its axis and once off it but on its copper. KiCad connects both;
+        # meshed between its own ends only, the long track left each branch a
+        # floating island. A branch ending beside the copper stays apart.
+        from ingest.board_reader import Segment
+        from mesh_hybrid import HybridMesher
+
+        board = _junction_board(segments=[
+            Segment("VCC", 0.5, "F.Cu", (1.0, 5.0), (17.0, 5.0)),
+            Segment("VCC", 0.25, "F.Cu", (5.6, 1.0), (5.6, 5.0)),
+            Segment("VCC", 0.25, "F.Cu", (9.0, 9.0), (9.0, 5.2)),
+            Segment("VCC", 0.25, "F.Cu", (13.0, 1.0), (13.0, 4.7)),
+        ])
+        mesh = HybridMesher(board, grid_step_mm=0.1).build_mesh("VCC")
+        node = lambda x, y: next(n for n, c in mesh.node_coords.items() if math.hypot(c[0] - x, c[1] - y) < 1e-6)
+        self.assertTrue(self._connected(mesh, node(1.0, 5.0), node(5.6, 1.0)))
+        self.assertTrue(self._connected(mesh, node(1.0, 5.0), node(9.0, 9.0)))
+        self.assertFalse(self._connected(mesh, node(1.0, 5.0), node(13.0, 1.0)))
+
     def test_a_via_beside_the_axis_of_a_wide_track_is_joined_to_it(self):
         # P02 Rev E: eight vias sewn along the edge of the 1 mm J2_SRC_VBUS
         # track, 0.52 mm off its axis, reached it only through the pad at its

@@ -56,6 +56,43 @@ class KiCadConventionTests(unittest.TestCase):
         # Evidence labels are read by the interface classifier; one containing "D-" made this USB.
         self.assertEqual(lane.interface, "GENERIC")
 
+    def test_a_power_netclass_does_not_declare_its_two_conductors_a_pair(self):
+        # A supply's two conductors share a power netclass and KiCad's suffix
+        # rule pairs VIN_P with VIN_N. The class kept the Default class's
+        # pair geometry, so it groups nets by current, not as a pair; a class
+        # that sets its own pair width and gap still declares one.
+        import json
+        import os
+        import tempfile
+        from differential_discovery import netclass_membership, pair_netclasses
+
+        board = Obj(nets=[Obj(name=n) for n in ("/VIN_P", "/VIN_N", "/LINK_P", "/LINK_N")],
+                    tracks=[], zones=[], vias=[], footprints=[])
+        with tempfile.TemporaryDirectory() as tmp:
+            project = os.path.join(tmp, "board.kicad_pro")
+            with open(project, "w", encoding="utf-8") as handle:
+                json.dump({"net_settings": {
+                    "classes": [
+                        {"name": "Default", "track_width": 0.2, "diff_pair_width": 0.2, "diff_pair_gap": 0.25},
+                        {"name": "SUPPLY", "track_width": 1.5, "diff_pair_width": 0.2, "diff_pair_gap": 0.25},
+                        {"name": "LINK", "track_width": 0.12, "diff_pair_width": 0.12, "diff_pair_gap": 0.15},
+                    ],
+                    "netclass_patterns": [
+                        {"netclass": "SUPPLY", "pattern": "*VIN_*"},
+                        {"netclass": "LINK", "pattern": "*LINK_*"},
+                    ],
+                }}, handle)
+            pairs = DifferentialPairDiscoverer(
+                board, netclasses=lambda nets: netclass_membership(project, nets),
+                pair_classes=lambda: pair_netclasses(project),
+            ).discover()
+        by_positive = {pair.positive_net: pair for pair in pairs}
+        supply = by_positive["/VIN_P"]
+        self.assertEqual((supply.confidence, supply.enabled), ("SUSPECTED", False))
+        self.assertIn("netclass-group:SUPPLY", supply.evidence)
+        link = by_positive["/LINK_P"]
+        self.assertEqual((link.confidence, link.enabled), ("LIKELY", True))
+
     def test_power_and_led_pins_are_not_analysed_as_differential_pairs(self):
         # audit-2026-09-23.md SI-7: BAT+/BAT- matched KiCad's suffix rule and
         # took a GENERIC 100-ohm target, and LED_DP/LED_DM became USB because

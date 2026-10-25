@@ -201,6 +201,40 @@ class FootprintSizeTests(unittest.TestCase):
         self.assertEqual(builder._footprint_size(footprint, 3.0, 3.0, user_sized=True), (3.0, 3.0))
 
 
+class HeatPadTests(unittest.TestCase):
+    def test_a_mounting_hole_is_no_heat_pad(self):
+        # A module with 2.8 x 2.0 mm pins and 3.2 mm unplated fixing holes:
+        # KiCad writes each hole as a pad of its drill's size on every copper
+        # layer, the holes outsized the pins, and heat_pads() put the module's
+        # whole loss into them -- a 200 C+ hotspot on bare laminate.
+        from types import SimpleNamespace
+        from extractor import GeometryExtractor
+        from thermal_model import heat_pads
+
+        def pad(x_mm, size_mm, shape, pad_type):
+            nm = lambda value: value * 1e6
+            return SimpleNamespace(
+                position=SimpleNamespace(x=nm(x_mm), y=0.0),
+                size=SimpleNamespace(x=nm(size_mm[0]), y=nm(size_mm[1])),
+                shape=shape, layers=[3, 34], pad_type=pad_type,
+            )
+
+        # kipy's PadType: 1 a plated pin, 4 an unplated hole.
+        pins = [pad(x, (2.8, 2.0), 1, 1) for x in (0.0, 5.0)]
+        holes = [pad(x, (3.2, 3.2), 0, 4) for x in (-5.0, 10.0)]
+        footprint = SimpleNamespace(pads=pins + holes)
+
+        builder = ThermalModelBuilder(board=None)
+        outlines = builder._joint_outlines(footprint, GeometryExtractor.__new__(GeometryExtractor), {3, 34})
+        chosen = heat_pads(outlines)
+
+        self.assertEqual(len(chosen), 2)
+        self.assertTrue(all(abs(item.area - 5.6) < 1e-6 for item in chosen))
+        # The file's spelling of the same hole, as ingest.board_reader reads it.
+        self.assertTrue(builder._is_unplated_hole("np_thru_hole"))
+        self.assertFalse(builder._is_unplated_hole("thru_hole"))
+
+
 class GeometrySignatureTests(unittest.TestCase):
     def test_the_cache_key_follows_the_copper(self):
         # The dialog keeps a thermal mesh while this signature is unchanged,

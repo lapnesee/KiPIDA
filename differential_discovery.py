@@ -93,16 +93,49 @@ def netclass_membership(project_path, net_names):
     return membership
 
 
+def pair_netclasses(project_path):
+    """The netclasses of a .kicad_pro that declare differential pairs, or None.
+
+    Every netclass carries a differential-pair width and gap, copied from the
+    Default class when it is made. A class whose designer set its own declares
+    pairs; one that kept the Default class's groups nets for another reason:
+    a power class holds both conductors of a supply, VIN_P beside VIN_N, and
+    its millimetre-wide tracks are no 100-ohm pair. A class named for an
+    impedance declares pairs whatever its dimensions. None when the file
+    defines no Default class to compare with.
+    """
+    try:
+        with open(project_path, encoding="utf-8") as handle:
+            classes = ((json.load(handle) or {}).get("net_settings") or {}).get("classes") or []
+    except (OSError, ValueError):
+        return None
+    classes = [item for item in classes if isinstance(item, dict)]
+    default = next((item for item in classes if item.get("name") == "Default"), None)
+    if default is None:
+        return None
+    inherited = (default.get("diff_pair_width"), default.get("diff_pair_gap"))
+    return {
+        str(item.get("name")) for item in classes
+        if item.get("name") and item.get("name") != "Default" and (
+            (item.get("diff_pair_width"), item.get("diff_pair_gap")) != inherited
+            or _IMPEDANCE_IN_NAME_RE.search(str(item.get("name")))
+        )
+    }
+
+
 class DifferentialPairDiscoverer:
     """Find likely differential pairs without mixing them with power rails."""
 
     _passive_prefixes = ("R", "C", "L", "FB")
 
-    def __init__(self, board, log_callback=None, netclasses=None):
+    def __init__(self, board, log_callback=None, netclasses=None, pair_classes=None):
         self.board = board
         self.log_callback = log_callback
         # A callable ``(net_names) -> {net: netclass}``, from the project file.
         self.netclasses = netclasses
+        # A callable ``() -> set of netclass names`` declaring pairs
+        # (pair_netclasses), or None to take every shared netclass as one.
+        self.pair_classes = pair_classes
 
     def log(self, message):
         if self.log_callback:
@@ -315,9 +348,19 @@ class DifferentialPairDiscoverer:
         except Exception as exc:
             self.log(f"Netclasses could not be read for the pair scan ({exc}); names alone were used.")
             return
+        declaring = None
+        if self.pair_classes is not None:
+            try:
+                declaring = self.pair_classes()
+            except Exception as exc:
+                self.log(f"Netclass pair settings could not be read ({exc}); every shared netclass counts.")
         for candidate in candidates:
             netclass = membership.get(candidate.positive_net)
             if not netclass or membership.get(candidate.negative_net) != netclass:
+                continue
+            if declaring is not None and netclass not in declaring:
+                # Shared, but a class that sets no pair geometry: a grouping.
+                candidate.evidence.append(f"netclass-group:{netclass}")
                 continue
             candidate.evidence.append(f"netclass:{netclass}")
             if candidate.confidence == "SUSPECTED":

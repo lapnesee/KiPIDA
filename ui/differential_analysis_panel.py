@@ -9,7 +9,9 @@ from i18n import _
 
 try:
     from differential_geometry import GEOMETRY_CHOICES, normalize_geometry
-    from differential_discovery import DifferentialPairDiscoverer, INTERFACE_DEFAULTS, netclass_membership
+    from differential_discovery import (
+        DifferentialPairDiscoverer, INTERFACE_DEFAULTS, netclass_membership, pair_netclasses,
+    )
     from differential_recommender import DifferentialRecommendationEngine
     from design_rule_injector import DifferentialRuleInjector
     from extractor import GeometryExtractor
@@ -17,7 +19,9 @@ try:
     from stackup_io import load_stackup_profile
 except (ImportError, ValueError):
     from ..differential_geometry import GEOMETRY_CHOICES, normalize_geometry
-    from ..differential_discovery import DifferentialPairDiscoverer, INTERFACE_DEFAULTS, netclass_membership
+    from ..differential_discovery import (
+        DifferentialPairDiscoverer, INTERFACE_DEFAULTS, netclass_membership, pair_netclasses,
+    )
     from ..differential_recommender import DifferentialRecommendationEngine
     from ..design_rule_injector import DifferentialRuleInjector
     from ..extractor import GeometryExtractor
@@ -93,6 +97,7 @@ class DifferentialAnalysisPanel(wx.Panel):
         self.discoverer = DifferentialPairDiscoverer(
             board, log_callback=log_callback,
             netclasses=(lambda nets: netclass_membership(project_path, nets)) if project_path else None,
+            pair_classes=(lambda: pair_netclasses(project_path)) if project_path else None,
         )
         # The saved board is the fallback for what IPC omits: its dielectric
         # er. Without it P02 Rev E's pairs were solved at a default 4.4 and

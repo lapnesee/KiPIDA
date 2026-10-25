@@ -50,6 +50,9 @@ class ThermalPlacement:
 # 0.05 mm2 against its 0.25 mm2 power pads.
 HEAT_PAD_AREA_FRACTION = 0.25
 
+# kiapi.board.types.PadType.PT_NPTH: kipy's Pad.pad_type for an unplated hole.
+PAD_TYPE_NPTH = 4
+
 
 def heat_pads(polygons):
     """The pad outlines, of *polygons*, a package's heat enters the board through."""
@@ -375,6 +378,35 @@ class ThermalModelBuilder:
             pads = self._get_val(self._get_val(footprint, "definition"), "pads", [])
         return pads or []
 
+    @staticmethod
+    def _is_unplated_hole(kind):
+        """Whether a pad type, kipy's or the file's, is a hole drilled without plating."""
+        return kind == PAD_TYPE_NPTH or str(kind).lower() in {"np_thru_hole", "pt_npth"}
+
+    def _joint_outlines(self, footprint, extractor, copper_ids):
+        """The copper outlines of the pads a footprint is soldered by.
+
+        A mounting hole is no joint: KiCad writes an unplated hole as a pad
+        the size of its drill on ``*.Cu``, so the layers alone keep it, and on
+        a module whose 3.2 mm fixing holes outsize its 2.8 x 2.0 mm pins the
+        holes alone passed heat_pads()' area cut and every watt of the module
+        went into a hole, a 200 C+ hotspot over bare laminate. A pad on no
+        copper layer (a paste or mask aperture) is no joint either.
+        """
+        outlines = []
+        for pad in self._pads(footprint):
+            if self._is_unplated_hole(self._get_val(pad, "pad_type")):
+                continue
+            declared = list(extractor.pad_layers(pad))
+            # A paste-only aperture is no joint; a pad stating no layer is kept.
+            if declared and copper_ids and not any(lid in copper_ids for lid in declared):
+                continue
+            try:
+                outlines.append(extractor.pad_polygon(pad))
+            except Exception:
+                continue
+        return outlines
+
     def _footprint_size(self, footprint, default_width, default_depth, user_sized=False):
         """Body size a component's heat is spread over, in mm.
 
@@ -532,16 +564,7 @@ class ThermalModelBuilder:
             )
             layer = self._get_val(footprint, "layer", 0)
             copper_ids = set((stackup.get("copper") or {}).keys())
-            outlines = []
-            for pad in self._pads(footprint):
-                declared = list(extractor.pad_layers(pad))
-                # A paste-only aperture is no joint; a pad stating no layer is kept.
-                if declared and copper_ids and not any(lid in copper_ids for lid in declared):
-                    continue
-                try:
-                    outlines.append(extractor.pad_polygon(pad))
-                except Exception:
-                    continue
+            outlines = self._joint_outlines(footprint, extractor, copper_ids)
             placements[ref_des] = ThermalPlacement(
                 ref_des=ref_des,
                 x_mm=position[0],

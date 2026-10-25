@@ -15,8 +15,9 @@ import time
 try:
     from shapely.geometry import LineString, Point, box
     from shapely.ops import unary_union
+    from shapely.strtree import STRtree
 except ImportError:  # pragma: no cover - Ki-PIDA normally ships Shapely
-    LineString = Point = box = None
+    LineString = Point = box = STRtree = None
     unary_union = None
 
 try:
@@ -312,6 +313,10 @@ def switch_node_evidence(footprints, rail_nets=()):
     return evidence
 
 
+# kiapi.board.types.PadType.PT_PTH: kipy's Pad.pad_type for a plated hole.
+PAD_TYPE_PTH = 1
+
+
 @dataclass(frozen=True)
 class EMCTrack:
     net_name: str
@@ -327,6 +332,8 @@ class EMCVia:
     net_name: str
     position: tuple
     layer_ids: tuple = ()
+    # Half the land's larger side, 0.0 when not captured (vias).
+    land_radius_mm: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -355,6 +362,9 @@ class EMCGeometrySnapshot:
     ignored_offboard_nets: tuple = ()
     ignored_offboard_counts: dict = field(default_factory=dict)
     inductors: list = field(default_factory=list)
+    # Plated through-hole pads, as vias spanning every copper layer: a pin's
+    # barrel joins the pour pieces it passes as a via's does (GP-003).
+    through_pads: list = field(default_factory=list)
     # {reference: power_tree.ConverterOutput}: each switching converter's
     # output current and frequency in the power tree, under every reference
     # it goes by (SW-004, Phase 10's board-circuit load).
@@ -392,6 +402,13 @@ class EMCGeometrySnapshot:
 
         def net_name(obj):
             return str(value(value(obj, "net"), "name", "") or "")
+
+        def pad_land_radius(pad):
+            try:
+                xmin, ymin, xmax, ymax = extractor.pad_polygon(pad).bounds
+            except Exception:
+                return 0.0
+            return max(xmax - xmin, ymax - ymin) / 2.0
 
         def field_text(obj, direct_name, field_name=None):
             """Read both scalar and kipy protobuf text-field representations."""
@@ -512,7 +529,7 @@ class EMCGeometrySnapshot:
                     continue
                 vias.append(EMCVia(name, position, layers))
 
-        footprints = []
+        footprints, through_pads = [], []
         saved_footprint_values = board_footprint_values(board_file_path)
         all_nets = {track.net_name for track in tracks} | {via.net_name for via in vias}
         for item in items("footprints"):
@@ -538,6 +555,8 @@ class EMCGeometrySnapshot:
                     all_nets.add(name)
                     if pad_position is not None:
                         pad_net_positions.append((name, pad_position[0], pad_position[1]))
+                        if value(pad, "pad_type") in (PAD_TYPE_PTH, "thru_hole"):
+                            through_pads.append(EMCVia(name, pad_position, (), pad_land_radius(pad)))
             if footprint_position is None and pad_points:
                 footprint_position = (
                     sum(item[0] for item in pad_points) / len(pad_points),
@@ -592,6 +611,7 @@ class EMCGeometrySnapshot:
             tracks=tracks,
             vias=vias,
             footprints=footprints,
+            through_pads=through_pads,
             zones_by_net=zones,
             power_nets=power_nets,
             rail_voltages={
@@ -1014,6 +1034,90 @@ class EMCAnalyzer:
             return {layer: shapes[0] for layer, shapes in by_layer.items() if shapes}
         return {layer: unary_union(shapes) for layer, shapes in by_layer.items() if shapes}
 
+    # How far from a via's centre a pour piece is taken to touch it: the
+    # via's land, with a thermal relief's spokes, is no wider than this.
+    GROUND_VIA_REACH_MM = 0.5
+
+    def _ground_islands(self):
+        """``{layer: [piece]}``: ground pour pieces joined to the board's main ground by nothing.
+
+        A pour splits into pieces wherever tracks and pads cut it, and the
+        small ring a fill leaves around a via is a piece of its own. A ground
+        via or plated through-hole pad joins what it lands on, on every layer
+        it passes; a ground track joins the pieces, tracks and holes it runs
+        over. Counted bare, a plane's via rings and a two-layer board's pour
+        pieces tied by their pins and back-side tracks read as fragmented.
+        The main ground is the joined group of greatest pour area; every
+        piece outside it is an island.
+        """
+        grounds = set(self.settings.reference_net_names)
+        pieces = []
+        for layer, geometry in self._ground_zones.items():
+            for part in getattr(geometry, "geoms", [geometry]):
+                if not part.is_empty:
+                    pieces.append((layer, part))
+        tracks = [
+            (track.layer_id, LineString([track.start, track.end]).buffer(max(track.width_mm, 0.0) / 2.0))
+            for net in grounds for track in self._tracks.get(net, ())
+        ]
+        order = [int(layer.layer_id) for layer in self._copper_layers if layer.layer_id is not None]
+        holes = []
+        for joint in [*self.snapshot.vias, *self.snapshot.through_pads]:
+            if joint.net_name not in grounds:
+                continue
+            ends = [order.index(layer) for layer in joint.layer_ids if layer in order]
+            spanned = order[min(ends):max(ends) + 1] if len(ends) >= 2 else order
+            reach = max(self.GROUND_VIA_REACH_MM, float(joint.land_radius_mm) + 0.05)
+            holes.append((spanned, Point(joint.position).buffer(reach)))
+
+        # Union-find over pieces, then tracks, then holes.
+        parent = list(range(len(pieces) + len(tracks) + len(holes)))
+
+        def root(index):
+            while parent[index] != index:
+                parent[index] = parent[parent[index]]
+                index = parent[index]
+            return index
+
+        def join(first, others):
+            for other in others:
+                parent[root(other)] = root(first)
+
+        # Per layer, the copper a hole or track can meet there.
+        copper = defaultdict(list)
+        for index, (layer, part) in enumerate(pieces):
+            copper[layer].append((index, part))
+        for offset, (layer, body) in enumerate(tracks):
+            copper[layer].append((len(pieces) + offset, body))
+        trees = {
+            layer: (STRtree([geometry for _index, geometry in items]), [index for index, _g in items])
+            for layer, items in copper.items()
+        }
+
+        def touched(layer, geometry):
+            if layer not in trees:
+                return []
+            tree, indices = trees[layer]
+            return [indices[int(found)] for found in tree.query(geometry, predicate="intersects")]
+
+        for offset, (layer, body) in enumerate(tracks):
+            join(len(pieces) + offset, touched(layer, body))
+        for offset, (spanned, land) in enumerate(holes):
+            join(len(pieces) + len(tracks) + offset, [
+                index for layer in spanned for index in touched(layer, land)
+            ])
+        area = defaultdict(float)
+        for index, (_layer, part) in enumerate(pieces):
+            area[root(index)] += float(part.area)
+        if not area:
+            return {}
+        main = max(area, key=area.get)
+        islands = defaultdict(list)
+        for index, (layer, part) in enumerate(pieces):
+            if root(index) != main:
+                islands[layer].append(part)
+        return dict(islands)
+
     def _identify_ground_plane_layers(self):
         """Distinguish dedicated reference planes from incidental GND pours."""
         aliases = {name.upper() for name in self.settings.reference_net_names}
@@ -1242,12 +1346,13 @@ class EMCAnalyzer:
             return
         bounds = self.snapshot.bounds_mm
         board_area = max((bounds[2] - bounds[0]) * (bounds[3] - bounds[1]), 1e-9)
+        islands = self._ground_islands()
         for layer in sorted(self._ground_plane_layers):
             geometry = self._ground_zones[layer]
-            parts = list(getattr(geometry, "geoms", [geometry]))
-            if len(parts) > 3:
+            if len(islands.get(layer, ())) >= 3:
                 self._add("GP-003", "GROUND", "HIGH", "Fragmented ground plane",
-                          f"Ground copper on layer {layer} contains {len(parts)} disconnected islands.",
+                          f"Ground copper on layer {layer} contains {len(islands[layer])} islands "
+                          "that no via or track joins to the rest of the ground.",
                           "Remove isolated islands or join them with ground copper and stitching vias.",
                           "HIGH", location=(*geometry.centroid.coords[0], layer))
             fill = 100.0 * float(geometry.area) / board_area

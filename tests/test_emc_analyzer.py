@@ -8,8 +8,9 @@ from unittest.mock import patch
 
 try:
     from shapely.geometry import box
+    from shapely.ops import unary_union
 except ImportError:
-    box = None
+    box = unary_union = None
 
 from emc_analyzer import (
     EMCAnalyzer, EMCGeometrySnapshot, EMCTrack, EMCVia, EMCFootprint,
@@ -169,6 +170,60 @@ class TestEMCAnalyzer(unittest.TestCase):
         )
         result = EMCAnalyzer(snap, self.settings()).analyze()
         self.assertNotIn("GP-002", {finding.rule_id for finding in result.findings})
+
+    def test_gp003_counts_pour_pieces_no_via_joins_to_the_ground(self):
+        # A fill leaves a ring of copper around each via it cannot flood over;
+        # five such rings on the ground plane, each stitched by its via to a
+        # full B.Cu pour, are not islands. Without the vias they are.
+        from shapely.geometry import Point as ShapelyPoint
+
+        centres = [(10.0 + 6.0 * index, 20.0) for index in range(5)]
+        plane = box(0.0, 0.0, 45.0, 80.0)
+        rings = []
+        for centre in centres:
+            plane = plane.difference(ShapelyPoint(centre).buffer(1.5))
+            rings.append(ShapelyPoint(centre).buffer(1.0).difference(ShapelyPoint(centre).buffer(0.3)))
+        ground = {1: unary_union([plane, *rings]), 31: box(0.0, 0.0, 45.0, 80.0)}
+
+        def gp003(vias):
+            snap = EMCGeometrySnapshot(
+                bounds_mm=(0.0, 0.0, 45.0, 80.0), stackup=stackup(),
+                tracks=[EMCTrack("SIG", (5.0, 60.0), (40.0, 60.0), 0.2, 0, 35.0)],
+                vias=vias, zones_by_net={"GND": ground},
+            )
+            settings = EMCAnalysisSettings(reference_net_names=["GND"])
+            return [item for item in EMCAnalyzer(snap, settings).analyze().findings if item.rule_id == "GP-003"]
+
+        stitched = [EMCVia("GND", centre, (0, 31)) for centre in centres]
+        self.assertEqual(gp003(stitched + [EMCVia("GND", (30.0, 50.0), (0, 31))]), [])
+        bare = gp003([EMCVia("GND", (30.0, 50.0), (0, 31))])
+        self.assertEqual(len(bare), 1)
+        self.assertIn("5 islands", bare[0].description)
+
+    def test_gp003_follows_ground_pins_and_back_side_tracks(self):
+        # A two-layer board: four B.Cu ground pieces cut off by routing, each
+        # holding a ground pin whose F.Cu track runs to a via on the main
+        # pour. Pins and tracks join them; without them they are islands.
+        main = box(0.0, 0.0, 60.0, 40.0)
+        pieces = [box(5.0 + 12.0 * index, 45.0, 10.0 + 12.0 * index, 50.0) for index in range(4)]
+        ground = {31: unary_union([main, *pieces])}
+        pins = [EMCVia("GND", (7.5 + 12.0 * index, 47.5), (), 0.85) for index in range(4)]
+        tracks = [EMCTrack("GND", (7.5 + 12.0 * index, 47.5), (7.5 + 12.0 * index, 30.0), 0.4, 0, 17.5)
+                  for index in range(4)]
+        vias = [EMCVia("GND", (7.5 + 12.0 * index, 30.0), (0, 31)) for index in range(4)]
+
+        def gp003(**joints):
+            snap = EMCGeometrySnapshot(
+                bounds_mm=(0.0, 0.0, 60.0, 55.0), stackup=stackup(),
+                tracks=joints.get("tracks", []) + [EMCTrack("SIG", (1.0, 43.0), (59.0, 43.0), 0.2, 0, 58.0)],
+                vias=joints.get("vias", []), through_pads=joints.get("through_pads", []),
+                zones_by_net={"GND": ground},
+            )
+            settings = EMCAnalysisSettings(reference_net_names=["GND"])
+            return [item for item in EMCAnalyzer(snap, settings).analyze().findings if item.rule_id == "GP-003"]
+
+        self.assertEqual(gp003(tracks=tracks, vias=vias, through_pads=pins), [])
+        self.assertEqual(len(gp003(tracks=tracks, vias=vias)), 1)
 
     def test_live_board_capture_converts_ipc_values_before_worker_use(self):
         net = SimpleNamespace(name="SYS_CLK")

@@ -434,6 +434,7 @@ class HybridMesher:
         # ------------------------------------------------------------------
         # 1. Track segments — analytical resistance
         # ------------------------------------------------------------------
+        end_trees = self._track_end_trees(net_name, board)
         seg_count = 0
         for seg in board.segments:
             if seg.net_name != net_name:
@@ -465,9 +466,11 @@ class HybridMesher:
             # on islands. The track is split where it crosses each land, and
             # the pieces' resistances add up to the whole track's.
             contacts = self._land_contacts(seg, length_mm, width_mm, land_trees)
+            tees = self._tee_ends(seg, length_mm, width_mm, end_trees)
             stations = sorted({
                 0.0, *self._land_crossings(seg, length_mm, land_trees),
-                *(station for station, _point, _extent in contacts), length_mm,
+                *(station for station, _point, _extent in contacts),
+                *(station for station, _point, _width in tees), length_mm,
             })
             added = False
             for start_mm, end_mm in zip(stations, stations[1:]):
@@ -511,6 +514,28 @@ class HybridMesher:
                 vx, vy, _ = mesh.node_coords[v]
                 reach_mm = max(math.hypot(vx - ux, vy - uy), _SNAP)
                 span_mm = min(width_mm, max(extent_mm, self._effective_grid_step))
+                mesh.add_edge_direct(
+                    u, v, 1.0 / segment_resistance(reach_mm, span_mm, thickness_mm, self._rho),
+                    kind="lateral",
+                    cross_section_mm2=span_mm * thickness_mm,
+                    geometry_source=f"seg:{seg.layer}",
+                )
+                added = True
+            # A track of the net ending on this one's copper -- a T, which
+            # KiCad connects -- is joined where it lands. Meshed only between
+            # its own ends, this track passed the junction by and the branch
+            # ending on it was solved as a floating island, its pads reported
+            # cut off from their net.
+            for station_mm, (ex, ey), end_width_mm in tees:
+                u = attach(x0 + (x1 - x0) * station_mm / length_mm,
+                           y0 + (y1 - y0) * station_mm / length_mm, layer_id)
+                v = attach(ex, ey, layer_id)
+                if u == v:
+                    continue
+                ux, uy, _ = mesh.node_coords[u]
+                vx, vy, _ = mesh.node_coords[v]
+                reach_mm = max(math.hypot(vx - ux, vy - uy), _SNAP)
+                span_mm = min(width_mm, end_width_mm)
                 mesh.add_edge_direct(
                     u, v, 1.0 / segment_resistance(reach_mm, span_mm, thickness_mm, self._rho),
                     kind="lateral",
@@ -757,6 +782,57 @@ class HybridMesher:
             along = [line.project(shapely.Point(point)) for point in shapely.get_coordinates(touch)]
             contacts.append((station, tuple(on_touch), max(along) - min(along)))
         return contacts
+
+    @staticmethod
+    def _track_end_trees(net_name: str, board: ParsedBoard) -> dict:
+        """The net's track ends per layer: ``{layer: (STRtree, [(point, width)])}``.
+
+        An end two tracks share is listed once, with the wider track's width.
+        """
+        ends_by_layer: dict = {}
+        for seg in board.segments:
+            if seg.net_name != net_name or seg.start == seg.end:
+                continue
+            width_mm = seg.width_mm if seg.width_mm > 0 else 0.2
+            ends = ends_by_layer.setdefault(seg.layer, {})
+            for x, y in (seg.start, seg.end):
+                key = (_snap(x), _snap(y))
+                ends[key] = max(ends.get(key, 0.0), width_mm)
+        return {
+            layer: (shapely.STRtree([shapely.Point(point) for point in ends]), list(ends.items()))
+            for layer, ends in ends_by_layer.items()
+        }
+
+    @staticmethod
+    def _tee_ends(seg: Segment, length_mm: float, width_mm: float, end_trees: dict) -> list:
+        """Track ends of *seg*'s net and layer lying on its copper, its own ends apart.
+
+        ``[(station, point, width)]``: the distance along the track nearest
+        the end, the end, and the width of the track ending there. KiCad joins
+        a track to any track of its net whose copper it ends on, which takes
+        the end within half the track's width of its axis, round caps
+        included.
+        """
+        entry = end_trees.get(seg.layer)
+        if entry is None:
+            return []
+        tree, ends = entry
+        own = {(_snap(seg.start[0]), _snap(seg.start[1])), (_snap(seg.end[0]), _snap(seg.end[1]))}
+        line = shapely.LineString([seg.start, seg.end])
+        tees = []
+        for index in tree.query(line.buffer(width_mm / 2.0 + _SNAP), predicate="intersects"):
+            point, end_width_mm = ends[int(index)]
+            if point in own:
+                continue
+            station = min(max(line.project(shapely.Point(point)), 0.0), length_mm)
+            if station <= _SNAP:
+                station = 0.0
+            elif station >= length_mm - _SNAP:
+                station = length_mm
+            else:
+                station = round(station / _SNAP) * _SNAP
+            tees.append((station, point, end_width_mm))
+        return tees
 
     @staticmethod
     def _pad_layers(board: ParsedBoard, pad):

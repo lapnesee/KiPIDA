@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+The thermal model no longer puts a component's heat into its mounting
+holes: an unplated hole (NPTH), which KiCad writes as a pad the size of its
+drill on every copper layer, is no solder joint. On a
+module whose fixing holes outsize its pins, every watt went into the holes
+and drew a hotspot over 200 C on bare laminate; the board temperature read
+under each footprint used the same pads.
+The DC mesh joins a track that ends on another track of its net and layer
+short of that track's ends, a T, as KiCad does: the branch was solved as a
+floating island and DC-008 reported its pads cut off from their net.
+A netclass shared by two nets that KiCad's suffix rule pairs (VIN_P and
+VIN_N) only declares a differential pair when it sets a pair width or gap
+of its own, or names an impedance; a power class keeping the Default
+class's pair geometry no longer turns a supply into a 100-ohm pair to
+analyse.
+GP-003 counts as islands only the ground pour pieces no via, plated pin or
+ground track joins to the main ground: the rings a fill leaves around vias
+and a two-layer board's pieces tied by their pins read as a fragmented
+plane. On KiCad's demos the old count flagged 8 plane layers, the new one
+none.
 Tooltips show in the interface's language: the catalog already held their
 French, and the window showed their English.
 The enclosure's internal air now includes the film from the air to the
