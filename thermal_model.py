@@ -196,7 +196,10 @@ def merge_component_heat_sources(estimated, saved_components, preserve_user=True
 
     Automatic entries retain their current loss estimate but keep the physical
     package and junction settings explicitly saved by the user.  User-owned
-    entries remain fully manual, including their power value.
+    entries remain fully manual, including their power value, and stay when
+    the estimate does not name them: a bridge diode's loss typed by hand has
+    no electrical estimate, and dropping it here took it out of the saved
+    configuration at the next refresh.
     """
     saved_by_ref = {component.ref_des: component for component in saved_components}
     merged = []
@@ -227,6 +230,12 @@ def merge_component_heat_sources(estimated, saved_components, preserve_user=True
                 current_derating=[dict(row) for row in prior.current_derating or []],
                 current_derating_source=prior.current_derating_source,
             ))
+    if preserve_user:
+        estimated_refs = {component.ref_des for component in estimated}
+        merged.extend(
+            replace(component) for component in saved_components
+            if component.model_source == "user" and component.ref_des not in estimated_refs
+        )
     return merged
 
 

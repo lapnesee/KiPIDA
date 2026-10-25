@@ -150,6 +150,29 @@ class TestPowerLossEstimator(unittest.TestCase):
         self.assertEqual(merged[0].model_source, "user")
 
 
+    def test_refresh_keeps_manual_heat_sources_the_estimate_does_not_name(self):
+        # A rectifier diode's loss typed by hand has no electrical estimate:
+        # the merge walked the estimate only and dropped it, and the saved
+        # configuration lost it at the next refresh.
+        estimated = [ThermalComponentModel(ref_des="U1", power_w=2.0, model_source="regulator-loss")]
+        saved = [
+            ThermalComponentModel(ref_des="D2", power_w=0.4, model_source="user"),
+            ThermalComponentModel(ref_des="Q7", power_w=0.3, model_source="regulator-loss"),
+            ThermalComponentModel(ref_des="D1", power_w=0.5, width_mm=5.0, model_source="user"),
+        ]
+
+        merged = merge_component_heat_sources(estimated, saved)
+
+        self.assertEqual([item.ref_des for item in merged], ["U1", "D2", "D1"])
+        self.assertEqual((merged[2].power_w, merged[2].width_mm), (0.5, 5.0))
+        self.assertIsNot(merged[2], saved[2])
+        # A full re-estimate still starts over.
+        self.assertEqual(
+            [item.ref_des for item in merge_component_heat_sources(estimated, saved, preserve_user=False)],
+            ["U1"],
+        )
+
+
 class EmptyLiveBoardTests(unittest.TestCase):
     """A board whose IPC answers empty must not be solved as bare laminate."""
 

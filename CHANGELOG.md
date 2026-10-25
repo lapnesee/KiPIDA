@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+A heat source entered by hand is kept when the electrical estimate does not
+name it, a rectifier diode's loss for instance: a refresh of the component
+list, on loading a project or refreshing the live board, dropped it and the
+saved configuration lost it.
 The thermal model no longer puts a component's heat into its mounting
 holes: an unplated hole (NPTH), which KiCad writes as a pad the size of its
 drill on every copper layer, is no solder joint. On a
