@@ -229,6 +229,8 @@ def merge_component_heat_sources(estimated, saved_components, preserve_user=True
                 rated_current_a=prior.rated_current_a,
                 current_derating=[dict(row) for row in prior.current_derating or []],
                 current_derating_source=prior.current_derating_source,
+                body_exchange=prior.body_exchange,
+                body_area_mm2=prior.body_area_mm2,
             ))
     if preserve_user:
         estimated_refs = {component.ref_des for component in estimated}

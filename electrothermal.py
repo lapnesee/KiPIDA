@@ -132,6 +132,13 @@ class ElectroThermalSolver:
             board_temperature = (
                 float(np.max(temperatures[indices])) if indices else float(ambient_c)
             )
+            body = (getattr(thermal_mesh, "body_nodes", None) or {}).get(ref_des)
+            if body is not None:
+                # A body node is the part's own temperature (thermal_solver.py).
+                index = int(body["node"]) if identity_nodes else int(node_to_index.get(body["node"], -1))
+                if 0 <= index < len(temperatures):
+                    result[ref_des] = float(temperatures[index])
+                    continue
             component = thermal_mesh.component_models.get(ref_des)
             junction_rise = 0.0
             if component is not None:
@@ -140,6 +147,12 @@ class ElectroThermalSolver:
                 )
             result[ref_des] = board_temperature + junction_rise
         return result
+
+    @staticmethod
+    def _heat_nodes(thermal_mesh, ref_des):
+        """The nodes a component's own heat is deposited on: its body node, or the cells under it."""
+        heat_nodes = (getattr(thermal_mesh, "component_heat_nodes", None) or {}).get(ref_des)
+        return heat_nodes if heat_nodes else thermal_mesh.component_nodes.get(ref_des, [])
 
     def solve(self, thermal_mesh, settings, rail_contexts, progress_callback=None,
               rails=None, ambient_for_heat_w=None):
@@ -201,7 +214,7 @@ class ElectroThermalSolver:
         component_nonstage_power = {}
         if rails:
             for ref_des, stage_power in initial_stage_power.items():
-                nodes = thermal_mesh.component_nodes.get(ref_des, [])
+                nodes = self._heat_nodes(thermal_mesh, ref_des)
                 component = thermal_mesh.component_models.get(ref_des)
                 if not nodes or getattr(component, "model_source", "") == "user":
                     continue
@@ -244,7 +257,7 @@ class ElectroThermalSolver:
                 dynamic_stages = dynamic.stages
                 dynamic_power = self._stage_power_by_component(dynamic_stages)
                 for ref_des, stage_power in dynamic_power.items():
-                    nodes = thermal_mesh.component_nodes.get(ref_des, [])
+                    nodes = self._heat_nodes(thermal_mesh, ref_des)
                     component = thermal_mesh.component_models.get(ref_des)
                     if not nodes or getattr(component, "model_source", "") == "user":
                         continue

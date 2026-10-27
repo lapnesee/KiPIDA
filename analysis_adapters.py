@@ -1767,6 +1767,11 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
                 f"Estimated Tj is {component.junction_temperature_c:.3f} C with "
                 f"{component.margin_c:.3f} C margin"
                 + (
+                    f" at its body node, which passes {component.body_to_air_w:.3g} W to the air "
+                    f"and {component.body_to_board_w:.3g} W to the board"
+                    if getattr(component, "body_exchange", False) else ""
+                )
+                + (
                     f", from a thetaJB of {theta:g} C/W taken from {source}."
                     if stated else
                     f", from an assumed thetaJB of {theta:g} C/W; the datasheet value "

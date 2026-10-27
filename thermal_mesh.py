@@ -185,8 +185,8 @@ class PackedThermalBranches:
 class PackedThermalBoundaries:
     """Compact convective-boundary storage matching ``PackedThermalBranches``."""
 
-    _KIND_CODES = {"convection": 0, "top": 1, "bottom": 2, "edge": 3}
-    _KIND_NAMES = ("convection", "top", "bottom", "edge")
+    _KIND_CODES = {"convection": 0, "top": 1, "bottom": 2, "edge": 3, "body": 4}
+    _KIND_NAMES = ("convection", "top", "bottom", "edge", "body")
 
     def __init__(self):
         self.node_id = array("i")
@@ -253,6 +253,10 @@ class PackedThermalBoundaries:
             return np.zeros(len(self), dtype=bool)
         return np.frombuffer(bytes(self.kind), dtype=np.uint8) == code
 
+    def set_conductance(self, index, conductance_w_k):
+        """Replace one boundary's conductance: a component body's, refined on its own temperature."""
+        self.conductance[int(index)] = float(conductance_w_k)
+
     def scale_kind(self, kind, factor):
         """Multiply the conductances of one boundary kind in place.
 
@@ -293,6 +297,12 @@ class ThermalMesh:
     # Every footprint's outer-slice cells under its pads, heat source or not:
     # the board temperature a capacitor's dielectric sees (placement_nodes).
     placement_nodes: Dict[str, List[int]] = field(default_factory=dict)
+    # Where each component's own heat is deposited: its body node for a part
+    # with body_exchange, else the same cells as component_nodes. body_nodes
+    # keeps, per such part, its node, its air boundary's index and the
+    # geometry the solver refines that boundary's coefficient with.
+    component_heat_nodes: Dict[str, List[int]] = field(default_factory=dict)
+    body_nodes: Dict[str, dict] = field(default_factory=dict)
     grid_size_mm: float = 1.0
     bounds_mm: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
     layer_specs: List[ThermalLayerSpec] = field(default_factory=list)
@@ -679,6 +689,67 @@ class ThermalMesher:
             delta_t_k=delta_t_k,
         )
         return surface_convection.combined_h(natural, forced)
+
+    @staticmethod
+    def body_geometry(component, placement_side):
+        """A body node's exposed faces: ``{"top_m2", "side_m2", "top_length_m", "height_m", "facing"}``.
+
+        The top is width x depth, the sides the four faces of height_mm; the
+        face against the board exchanges with the board, not the air, and is
+        left out. A stated body_area_mm2 rescales both to it. A part on the
+        bottom side has its top face pointing down.
+        """
+        width = max(1.0e-4, float(component.width_mm) * 1.0e-3)
+        depth = max(1.0e-4, float(component.depth_mm) * 1.0e-3)
+        height = max(1.0e-4, float(component.height_mm) * 1.0e-3)
+        top, sides = width * depth, 2.0 * (width + depth) * height
+        stated = float(getattr(component, "body_area_mm2", 0.0) or 0.0) * 1.0e-6
+        if stated > 0.0:
+            scale = stated / (top + sides)
+            top, sides = top * scale, sides * scale
+        return {
+            "top_m2": top, "side_m2": sides,
+            "top_length_m": width * depth / (2.0 * (width + depth)),
+            "height_m": height,
+            "facing": "down" if str(placement_side).upper() == "BOTTOM" else "up",
+        }
+
+    @staticmethod
+    def body_air_conductance(settings: ThermalAnalysisSettings, geometry, body_c,
+                             air_velocity_m_s=None):
+        """W/K from a body node at *body_c* to the air: convection on its top and sides plus radiation.
+
+        The top face takes the horizontal-plate correlation on its own length
+        and facing, the sides the vertical-plate one on the body height, both
+        at the body's rise over ambient; FORCED airflow blends in the forced
+        correlation as for the board, a CUSTOM coefficient wins unchanged.
+        """
+        ambient = float(settings.ambient_c)
+        rise = max(0.0, float(body_c) - ambient)
+        mode = str(settings.airflow.mode or "NATURAL").upper()
+        if mode == "CUSTOM":
+            top_h = side_h = max(0.1, float(settings.airflow.custom_h_w_m2k))
+        else:
+            top_h = surface_convection.natural_convection_h(
+                rise, geometry["top_length_m"], facing=geometry["facing"], ambient_c=ambient,
+            )
+            side_h = surface_convection.vertical_plate_h(
+                rise, geometry["height_m"], ambient_c=ambient, minimum_h=2.0,
+            )
+            if mode == "FORCED" or air_velocity_m_s is not None:
+                velocity = (float(settings.airflow.velocity_m_s) if air_velocity_m_s is None
+                            else float(air_velocity_m_s))
+                length = max(geometry["top_length_m"], geometry["height_m"])
+                forced = surface_convection.forced_convection_h(
+                    velocity, length, ambient_c=ambient, delta_t_k=rise,
+                )
+                top_h = surface_convection.combined_h(top_h, forced)
+                side_h = surface_convection.combined_h(side_h, forced)
+        radiative = (
+            surface_convection.radiation_h(settings.emissivity, ambient + rise, ambient)
+            if settings.include_radiation else 0.0
+        )
+        return (top_h + radiative) * geometry["top_m2"] + (side_h + radiative) * geometry["side_m2"]
 
     def _layer_specs(self, stackup):
         copper = stackup.get("copper", {})
@@ -1216,6 +1287,35 @@ class ThermalMesher:
             )
             inside = set(inner)
             mesh.component_board_nodes[component.ref_des] = [node for node in outer if node not in inside]
+            theta = float(getattr(component, "theta_jb_c_per_w", 0.0) or 0.0)
+            if getattr(component, "body_exchange", False) and theta > 0.0 and shares and total_share > 0.0:
+                # The body node: its heat reaches the board through thetaJB,
+                # spread over the cells the direct deposit would have heated,
+                # and the air through its own faces (body_air_conductance).
+                body = len(mesh.nodes)
+                mesh.nodes.append(body)
+                outer_z = mesh.node_coords[shares[0][0]][2]
+                lift = float(component.height_mm) / 2.0
+                mesh.node_coords[body] = (
+                    float(placement.x_mm), float(placement.y_mm),
+                    outer_z - lift if placement.side == "BOTTOM" else outer_z + lift,
+                )
+                mesh.node_layers[body] = None
+                for candidate, share in shares:
+                    mesh.add_branch(body, candidate, (share / total_share) / theta)
+                geometry = self.body_geometry(component, placement.side)
+                air = self.body_air_conductance(
+                    settings, geometry, float(settings.ambient_c) + nominal_rise_k,
+                    air_velocity_m_s=mesh.air_velocity_m_s,
+                )
+                mesh.body_nodes[component.ref_des] = {
+                    "node": body, "boundary": len(mesh.boundaries), "geometry": geometry,
+                }
+                mesh.add_boundary(body, air, "body")
+                mesh.add_heat(body, component.power_w)
+                mesh.component_heat_nodes[component.ref_des] = [body]
+                continue
+            mesh.component_heat_nodes[component.ref_des] = list(mesh.component_nodes[component.ref_des])
             for candidate, share in shares:
                 mesh.add_heat(candidate, component.power_w * share / total_share)
 

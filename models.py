@@ -977,6 +977,18 @@ class ThermalComponentModel:
     rated_current_a: float = 0.0
     current_derating: List[Dict[str, float]] = field(default_factory=list)
     current_derating_source: str = ""
+    # A part that sheds a real share of its heat through its own surface (a
+    # power module, a large inductor or transformer): its loss goes into one
+    # body node instead of the board. The body reaches the board through
+    # theta_jb_c_per_w, spread over its heat pads as the direct deposit would
+    # be, and the air through its exposed surface -- body_area_mm2, or the
+    # width x depth top and the four sides of height_mm when 0 -- at the
+    # board's convection correlations and radiation, refined against the
+    # body's own temperature. Its junction is the body node. Off, the part
+    # keeps the default model: all its heat into the board, Tj = board +
+    # P x thetaJB.
+    body_exchange: bool = False
+    body_area_mm2: float = 0.0
 
 
 @dataclass
@@ -1053,6 +1065,11 @@ class ComponentThermalResult:
     rated_current_a: float = 0.0
     current_derating: List[Dict[str, float]] = field(default_factory=list)
     current_derating_source: str = ""
+    # ThermalComponentModel.body_exchange: what its body passes to the air and
+    # to the board; both 0 for a part without a body node.
+    body_exchange: bool = False
+    body_to_air_w: float = 0.0
+    body_to_board_w: float = 0.0
 
 
 @dataclass

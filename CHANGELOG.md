@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+A thermal component can shed heat through its own body (`body_exchange`):
+its loss goes into one body node tied to the board through its thetaJB,
+spread over its heat pads, and to the air through its top and sides
+(`body_area_mm2`, or its box), with the board's convection correlations and
+radiation refined on the body's own temperature. Its junction is the body
+node, and the report gives what it passes to the air and to the board. A
+power module on a small board put its whole loss into the board and read
+the board as its case: on a 96 x 31 mm PoE carrier, 6.35 W of module loss
+made a 176 C hotspot under the module, whose own 39 cm2 of surface the
+model ignored. Off by default; parts without it are unchanged.
 A heat source entered by hand is kept when the electrical estimate does not
 name it, a rectifier diode's loss for instance: a refresh of the component
 list, on loading a project or refreshing the live board, dropped it and the

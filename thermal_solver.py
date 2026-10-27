@@ -185,6 +185,26 @@ class ThermalSolver:
             mesh.surface_h_w_m2k[kind] = new_h
             updated = True
 
+        # A component body's air boundary, on the body's own temperature and
+        # dimensions rather than the board face's mean.
+        for body in (getattr(mesh, "body_nodes", None) or {}).values():
+            index = node_index.get(int(body["node"]), -1)
+            if index < 0:
+                continue
+            current_g = float(mesh.boundaries.conductance[body["boundary"]])
+            new_g = ThermalMesher.body_air_conductance(
+                settings, body["geometry"], float(temperatures[index]),
+                air_velocity_m_s=getattr(mesh, "air_velocity_m_s", None),
+            )
+            if new_g <= 0.0 or current_g <= 0.0:
+                continue
+            change = abs(new_g - current_g) / current_g
+            worst_change = max(worst_change, change)
+            if change <= self.SURFACE_H_TOLERANCE:
+                continue
+            mesh.boundaries.set_conductance(body["boundary"], new_g)
+            updated = True
+
         mesh.surface_correlation_in_range = in_range
         if updated:
             # Boundary conductances are baked into the assembled matrix, so a
@@ -311,7 +331,18 @@ class ThermalSolver:
 
         if np.any(~np.isfinite(temperatures)):
             raise ValueError("Thermal solution contains non-finite temperatures.")
-        hotspot_index = int(np.argmax(temperatures))
+        bodies = getattr(mesh, "body_nodes", None) or {}
+        body_indices = [
+            index for index in (translate(entry["node"]) for entry in bodies.values()) if index is not None
+        ]
+        if body_indices and len(body_indices) < count:
+            # The board's hotspot: a body node is a component's own
+            # temperature, reported as its junction, not a point of the board.
+            board_temperatures = np.array(temperatures, dtype=float, copy=True)
+            board_temperatures[body_indices] = -np.inf
+            hotspot_index = int(np.argmax(board_temperatures))
+        else:
+            hotspot_index = int(np.argmax(temperatures))
         hotspot_node = mesh.nodes[hotspot_index]
         hotspot_x, hotspot_y, hotspot_z = mesh.node_coords[hotspot_node]
         hotspot = ThermalHotspot(
@@ -345,6 +376,15 @@ class ThermalSolver:
             # 98.7 C at 0.4, 0.2 and 0.1 mm; 87.5, 87.8 and 89.1 C 1 mm out).
             board_temperature = float(np.max(temperatures[valid_indices]))
             junction = board_temperature + component.power_w * max(0.0, component.theta_jb_c_per_w)
+            body_to_air = body_to_board = 0.0
+            body = bodies.get(ref_des)
+            if body is not None and translate(body["node"]) is not None:
+                # A body node is the part's own temperature; what it does not
+                # pass to the air reaches the board through thetaJB.
+                junction = float(temperatures[translate(body["node"])])
+                boundary_g = float(mesh.boundaries.conductance[body["boundary"]])
+                body_to_air = boundary_g * (junction - float(ambient_c))
+                body_to_board = float(component.power_w) - body_to_air
             component_results.append(ComponentThermalResult(
                 ref_des=ref_des,
                 board_temperature_c=board_temperature,
@@ -360,6 +400,9 @@ class ThermalSolver:
                 rated_current_a=float(getattr(component, "rated_current_a", 0.0) or 0.0),
                 current_derating=list(getattr(component, "current_derating", None) or []),
                 current_derating_source=str(getattr(component, "current_derating_source", "") or ""),
+                body_exchange=body is not None,
+                body_to_air_w=body_to_air,
+                body_to_board_w=body_to_board,
             ))
         component_results.sort(key=lambda item: item.junction_temperature_c, reverse=True)
         # The hottest cell under each footprint's pads (mesh.placement_nodes).

@@ -281,6 +281,12 @@ def format_thermal_report(
                 f"{getattr(component, 'board_reference', 'under the part')}; {status}; "
                 f"{component.model_source}; thermal={component.thermal_source}]"
             )
+            if getattr(component, "body_exchange", False):
+                lines.append(
+                    f"      body node: {component.body_to_air_w:.4g} W to the air through its own "
+                    f"surface, {component.body_to_board_w:.4g} W to the board through thetaJB; "
+                    "Tj is the body temperature"
+                )
             if component.thermal_condition:
                 lines.append(f"      thermal condition: {component.thermal_condition}")
     else:

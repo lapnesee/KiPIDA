@@ -298,7 +298,7 @@ class TestConfigManager(unittest.TestCase):
             components=[ThermalComponentModel(
                 ref_des="U2", power_w=1.25, width_mm=4.0, depth_mm=4.0,
                 theta_jb_c_per_w=8.0, max_junction_c=150.0,
-                model_source="user",
+                model_source="user", body_exchange=True, body_area_mm2=3880.0,
             )],
         )
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
@@ -321,6 +321,8 @@ class TestConfigManager(unittest.TestCase):
             self.assertFalse(loaded.show_internal_copper_layers)
             self.assertEqual(loaded.components[0].ref_des, "U2")
             self.assertAlmostEqual(loaded.components[0].power_w, 1.25)
+            self.assertTrue(loaded.components[0].body_exchange)
+            self.assertEqual(loaded.components[0].body_area_mm2, 3880.0)
         finally:
             if Path(filepath).exists():
                 os.unlink(filepath)

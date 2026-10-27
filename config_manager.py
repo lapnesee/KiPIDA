@@ -820,6 +820,8 @@ def _thermal_settings_to_dict(settings: ThermalAnalysisSettings) -> dict:
             "rated_current_a": component.rated_current_a,
             "current_derating": [dict(row) for row in component.current_derating],
             "current_derating_source": component.current_derating_source,
+            "body_exchange": component.body_exchange,
+            "body_area_mm2": component.body_area_mm2,
         } for component in settings.components],
     }
 
@@ -885,6 +887,8 @@ def _dict_to_thermal_settings(data: dict) -> ThermalAnalysisSettings:
                 if isinstance(row, dict) and "temperature_c" in row and "percent" in row
             ],
             current_derating_source=str(component.get("current_derating_source", "") or ""),
+            body_exchange=bool(component.get("body_exchange", False)),
+            body_area_mm2=float(component.get("body_area_mm2", 0.0) or 0.0),
         ) for component in data.get("components", [])],
     )
 
