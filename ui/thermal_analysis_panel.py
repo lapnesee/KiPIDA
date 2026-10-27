@@ -1,3 +1,4 @@
+from dataclasses import fields
 import math
 
 import wx
@@ -6,11 +7,11 @@ from ui.number_input import parse_number
 from i18n import _
 
 try:
-    from models import AirflowSettings, ThermalAnalysisSettings
+    from models import AirflowSettings, ThermalAnalysisSettings, ThermalHeatsink
     from thermal_model import PowerLossEstimator, merge_component_heat_sources
     from thermal_mesh import estimate_thermal_mesh_cost
 except (ImportError, ValueError):
-    from models import AirflowSettings, ThermalAnalysisSettings
+    from models import AirflowSettings, ThermalAnalysisSettings, ThermalHeatsink
     from thermal_model import PowerLossEstimator, merge_component_heat_sources
     from thermal_mesh import estimate_thermal_mesh_cost
 
@@ -47,8 +48,15 @@ class ThermalComponentDialog(wx.Dialog):
         self.txt_height = wx.TextCtrl(self, value=f"{component.height_mm:g}")
         self.txt_theta = wx.TextCtrl(self, value=f"{component.theta_jb_c_per_w:g}")
         self.txt_tjmax = wx.TextCtrl(self, value=f"{component.max_junction_c:g}")
+        self.txt_body_area = wx.TextCtrl(self, value=f"{component.body_area_mm2:g}")
         self.chk_enabled = wx.CheckBox(self, label="Include as heat source")
         self.chk_enabled.SetValue(component.enabled)
+        self.chk_body = wx.CheckBox(self, label="Shed heat through its own body")
+        self.chk_body.SetValue(bool(component.body_exchange))
+        self.chk_body.SetToolTip(
+            "Its loss goes into a body node, tied to the board through Theta JB and to the "
+            "air through its top and sides (a power module, a large inductor)."
+        )
         for label, control in (
             ("Power (W):", self.txt_power),
             ("Width (mm):", self.txt_width),
@@ -61,6 +69,10 @@ class ThermalComponentDialog(wx.Dialog):
             grid.Add(control, 1, wx.EXPAND)
         grid.Add(wx.StaticText(self, label="Enabled:"), 0, wx.ALIGN_CENTER_VERTICAL)
         grid.Add(self.chk_enabled, 0)
+        grid.Add(wx.StaticText(self, label="Body exchange:"), 0, wx.ALIGN_CENTER_VERTICAL)
+        grid.Add(self.chk_body, 0)
+        grid.Add(wx.StaticText(self, label="Body area (mm2, 0 = its box):"), 0, wx.ALIGN_CENTER_VERTICAL)
+        grid.Add(self.txt_body_area, 1, wx.EXPAND)
         sizer.Add(grid, 1, wx.EXPAND | wx.ALL, 12)
         sizer.Add(self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL), 0, wx.EXPAND | wx.ALL, 12)
         self.SetSizerAndFit(sizer)
@@ -74,12 +86,122 @@ class ThermalComponentDialog(wx.Dialog):
             parse_number(self.txt_theta.GetValue()),
             parse_number(self.txt_tjmax.GetValue()),
         ]
-        if any(value < 0 for value in values[:-1]) or values[-1] <= -273.15:
+        body_area = parse_number(self.txt_body_area.GetValue())
+        if any(value < 0 for value in values[:-1]) or values[-1] <= -273.15 or body_area < 0:
             raise ValueError("Thermal model values must be non-negative and physically valid.")
         component.power_w, component.width_mm, component.depth_mm = values[:3]
         component.height_mm, component.theta_jb_c_per_w, component.max_junction_c = values[3:]
         component.enabled = self.chk_enabled.GetValue()
+        component.body_exchange = self.chk_body.GetValue()
+        component.body_area_mm2 = body_area
         component.model_source = "user"
+
+
+HEATSINK_MOUNTS = ("BOARD", "COMPONENT")
+HEATSINK_SIDES = ("BOTTOM", "TOP")
+HEATSINK_ORIENTATIONS = ("VERTICAL", "UP", "DOWN")
+# The labels of the heatsink's numeric fields, in the dataclass's order.
+HEATSINK_NUMBER_LABELS = (
+    "Zone X min (mm):", "Zone Y min (mm):", "Zone X max (mm):", "Zone Y max (mm):",
+    "Theta JC to its top (C/W):", "Interface thickness (mm):", "Interface k (W/mK):",
+    "Contact resistance (K cm2/W):", "Theta SA (C/W, 0 = from fins):",
+    "Effective fin area (mm2):", "Fin length (mm, 0 = auto):", "Heatsink emissivity:",
+)
+# (attribute, label) of those fields.
+HEATSINK_NUMBER_FIELDS = tuple(zip(
+    (item.name for item in fields(ThermalHeatsink) if item.type in (float, "float")),
+    HEATSINK_NUMBER_LABELS,
+))
+
+
+def format_polygon(points):
+    """``x y; x y; ...`` for a heatsink's polygon_mm."""
+    return "; ".join(f"{float(x):g} {float(y):g}" for x, y in points or [])
+
+
+def parse_polygon(text):
+    """A heatsink's polygon_mm from ``x y; x y; ...``; empty text is no polygon.
+
+    A space between x and y leaves the comma to a decimal comma.
+    """
+    points = []
+    for item in str(text or "").replace("\n", ";").split(";"):
+        if not item.strip():
+            continue
+        values = item.split()
+        if len(values) != 2:
+            raise ValueError("Write the polygon as x y; x y; x y, one point between semicolons.")
+        points.append([parse_number(values[0]), parse_number(values[1])])
+    if points and len(points) < 3:
+        raise ValueError("A heatsink polygon needs three points or more.")
+    return points
+
+
+class ThermalHeatsinkDialog(wx.Dialog):
+    def __init__(self, parent, heatsink):
+        super().__init__(parent, title=_("Heatsink: {name}").format(name=heatsink.name))
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        grid = wx.FlexGridSizer(cols=2, hgap=8, vgap=6)
+        grid.AddGrowableCol(1, 1)
+        self.txt_name = wx.TextCtrl(self, value=heatsink.name)
+        self.chk_enabled = wx.CheckBox(self, label="Bond it to the board")
+        self.chk_enabled.SetValue(heatsink.enabled)
+        self.choice_mount = wx.Choice(self, choices=list(HEATSINK_MOUNTS))
+        self.choice_mount.SetSelection(max(0, self.choice_mount.FindString(str(heatsink.mount).upper())))
+        self.choice_side = wx.Choice(self, choices=list(HEATSINK_SIDES))
+        self.choice_side.SetSelection(
+            1 if str(heatsink.side).upper().startswith("T") else 0
+        )
+        self.txt_ref = wx.TextCtrl(self, value=heatsink.ref_des)
+        self.txt_polygon = wx.TextCtrl(self, value=format_polygon(heatsink.polygon_mm))
+        self.txt_polygon.SetToolTip("x y; x y; x y in board millimetres; empty uses the zone rectangle.")
+        self.choice_orientation = wx.Choice(self, choices=list(HEATSINK_ORIENTATIONS))
+        self.choice_orientation.SetSelection(
+            max(0, self.choice_orientation.FindString(str(heatsink.orientation).upper()))
+        )
+        self.numbers = {
+            name: wx.TextCtrl(self, value=f"{float(getattr(heatsink, name)):g}")
+            for name, _label in HEATSINK_NUMBER_FIELDS
+        }
+        labels = dict(HEATSINK_NUMBER_FIELDS)
+        rows = [
+            ("Name:", self.txt_name), ("Enabled:", self.chk_enabled),
+            ("Mount:", self.choice_mount), ("Board face:", self.choice_side),
+        ] + [(labels[name], self.numbers[name]) for name in ("x_min_mm", "y_min_mm", "x_max_mm", "y_max_mm")] + [
+            ("Zone polygon:", self.txt_polygon), ("Component:", self.txt_ref),
+        ] + [(labels[name], self.numbers[name]) for name, _label in HEATSINK_NUMBER_FIELDS[4:11]] + [
+            ("Fin orientation:", self.choice_orientation),
+            (labels["emissivity"], self.numbers["emissivity"]),
+        ]
+        for label, control in rows:
+            grid.Add(wx.StaticText(self, label=label), 0, wx.ALIGN_CENTER_VERTICAL)
+            grid.Add(control, 1, wx.EXPAND)
+        sizer.Add(grid, 1, wx.EXPAND | wx.ALL, 12)
+        sizer.Add(wx.StaticText(
+            self,
+            label=("A BOARD heatsink covers the zone on the chosen face; a COMPONENT one sits on "
+                   "the part's top. Theta SA is the datasheet's figure, taken as constant."),
+        ), 0, wx.LEFT | wx.RIGHT, 12)
+        sizer.Add(self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL), 0, wx.EXPAND | wx.ALL, 12)
+        self.SetSizerAndFit(sizer)
+
+    def apply_to(self, heatsink):
+        values = {name: parse_number(self.numbers[name].GetValue()) for name, _label in HEATSINK_NUMBER_FIELDS}
+        if any(value < 0 for name, value in values.items() if not name.endswith(("_min_mm", "_max_mm"))):
+            raise ValueError("Heatsink resistances, areas and lengths must be non-negative.")
+        polygon = parse_polygon(self.txt_polygon.GetValue())
+        name = self.txt_name.GetValue().strip()
+        if not name:
+            raise ValueError("A heatsink needs a name.")
+        heatsink.name = name
+        heatsink.enabled = self.chk_enabled.GetValue()
+        heatsink.mount = HEATSINK_MOUNTS[max(0, self.choice_mount.GetSelection())]
+        heatsink.side = HEATSINK_SIDES[max(0, self.choice_side.GetSelection())]
+        heatsink.ref_des = self.txt_ref.GetValue().strip()
+        heatsink.polygon_mm = polygon
+        heatsink.orientation = HEATSINK_ORIENTATIONS[max(0, self.choice_orientation.GetSelection())]
+        for name, value in values.items():
+            setattr(heatsink, name, value)
 
 
 class ThermalAnalysisPanel(wx.Panel):
@@ -222,6 +344,25 @@ class ThermalAnalysisPanel(wx.Panel):
         buttons.Add(self.btn_edit, 0)
         component_box.Add(buttons, 0, wx.ALL, 5)
         main.Add(component_box, 1, wx.EXPAND | wx.ALL, 5)
+
+        heatsink_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Heatsinks")
+        heatsink_parent = heatsink_box.GetStaticBox()
+        self.heatsink_list = wx.ListCtrl(
+            heatsink_parent, style=wx.LC_REPORT | wx.LC_SINGLE_SEL, size=(-1, 90),
+        )
+        for index, (label, width) in enumerate((
+            ("Use", 50), ("Name", 80), ("Mount", 140), ("Interface", 120), ("Air side", 120),
+        )):
+            self.heatsink_list.InsertColumn(index, label, width=width)
+        heatsink_box.Add(self.heatsink_list, 0, wx.EXPAND | wx.ALL, 5)
+        heatsink_buttons = wx.BoxSizer(wx.HORIZONTAL)
+        self.btn_add_heatsink = wx.Button(heatsink_parent, label="Add Heatsink")
+        self.btn_edit_heatsink = wx.Button(heatsink_parent, label="Edit Heatsink")
+        self.btn_remove_heatsink = wx.Button(heatsink_parent, label="Remove Heatsink")
+        for button in (self.btn_add_heatsink, self.btn_edit_heatsink, self.btn_remove_heatsink):
+            heatsink_buttons.Add(button, 0, wx.RIGHT, 5)
+        heatsink_box.Add(heatsink_buttons, 0, wx.ALL, 5)
+        main.Add(heatsink_box, 0, wx.EXPAND | wx.ALL, 5)
         main.Add(wx.StaticText(
             self,
             label=("Steady-state 3D solid conduction with convective boundaries. "
@@ -233,6 +374,10 @@ class ThermalAnalysisPanel(wx.Panel):
         self.btn_toggle.Bind(wx.EVT_BUTTON, self._on_toggle)
         self.btn_edit.Bind(wx.EVT_BUTTON, self._on_edit)
         self.component_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit)
+        self.btn_add_heatsink.Bind(wx.EVT_BUTTON, self._on_add_heatsink)
+        self.btn_edit_heatsink.Bind(wx.EVT_BUTTON, self._on_edit_heatsink)
+        self.btn_remove_heatsink.Bind(wx.EVT_BUTTON, self._on_remove_heatsink)
+        self.heatsink_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit_heatsink)
         self.choice_mesh_preset.Bind(wx.EVT_CHOICE, self._on_mesh_preset)
         self.choice_color_minimum.Bind(wx.EVT_CHOICE, self._on_color_minimum_mode)
         self.choice_color_maximum.Bind(wx.EVT_CHOICE, self._on_color_maximum_mode)
@@ -384,6 +529,69 @@ class ThermalAnalysisPanel(wx.Panel):
         finally:
             dialog.Destroy()
 
+    def _update_heatsink_list(self):
+        self.heatsink_list.DeleteAllItems()
+        for heatsink in self.settings.heatsinks:
+            row = self.heatsink_list.InsertItem(
+                self.heatsink_list.GetItemCount(), "Yes" if heatsink.enabled else "No"
+            )
+            self.heatsink_list.SetItem(row, 1, heatsink.name)
+            self.heatsink_list.SetItem(row, 2, (
+                f"on {heatsink.ref_des}" if str(heatsink.mount).upper() == "COMPONENT"
+                else f"{heatsink.side} {heatsink.x_min_mm:g}-{heatsink.x_max_mm:g} x "
+                     f"{heatsink.y_min_mm:g}-{heatsink.y_max_mm:g}"
+                     + (" (polygon)" if heatsink.polygon_mm else "")
+            ))
+            self.heatsink_list.SetItem(row, 3, (
+                f"{heatsink.interface_thickness_mm:g} mm @ {heatsink.interface_k_w_mk:g} W/mK"
+                if heatsink.interface_thickness_mm else
+                f"{heatsink.interface_resistance_k_cm2_w:g} K cm2/W"
+            ))
+            self.heatsink_list.SetItem(row, 4, (
+                f"{heatsink.theta_sa_c_per_w:g} C/W" if heatsink.theta_sa_c_per_w
+                else f"{heatsink.fin_area_mm2:g} mm2 fins"
+            ))
+
+    def _selected_heatsink(self):
+        selected = self.heatsink_list.GetFirstSelected()
+        if selected == -1 or selected >= len(self.settings.heatsinks):
+            return None
+        return self.settings.heatsinks[selected]
+
+    def _edit_heatsink(self, heatsink):
+        """Run the dialog on *heatsink*; True when it was accepted and applied."""
+        dialog = ThermalHeatsinkDialog(self, heatsink)
+        try:
+            if dialog.ShowModal() == wx.ID_OK:
+                dialog.apply_to(heatsink)
+                return True
+        except ValueError as exc:
+            wx.MessageBox(str(exc), "Invalid Heatsink", wx.OK | wx.ICON_ERROR)
+        finally:
+            dialog.Destroy()
+        return False
+
+    def _on_add_heatsink(self, _event):
+        names = {heatsink.name for heatsink in self.settings.heatsinks}
+        number = 1
+        while f"HS{number}" in names:
+            number += 1
+        heatsink = ThermalHeatsink(name=f"HS{number}")
+        if self._edit_heatsink(heatsink):
+            self.settings.heatsinks.append(heatsink)
+            self._update_heatsink_list()
+
+    def _on_edit_heatsink(self, _event):
+        heatsink = self._selected_heatsink()
+        if heatsink is not None and self._edit_heatsink(heatsink):
+            self._update_heatsink_list()
+
+    def _on_remove_heatsink(self, _event):
+        heatsink = self._selected_heatsink()
+        if heatsink is not None:
+            self.settings.heatsinks.remove(heatsink)
+            self._update_heatsink_list()
+
     def get_settings(self):
         mode = self.choice_airflow.GetStringSelection() or "NATURAL"
         self.settings.ambient_c = parse_number(self.txt_ambient.GetValue())
@@ -504,6 +712,7 @@ class ThermalAnalysisPanel(wx.Panel):
         self.txt_color_maximum.Enable(
             THERMAL_COLOR_MAXIMUM_MODES[maximum_index][1] == "CUSTOM"
         )
+        self._update_heatsink_list()
         # Recompute all automatic entries when loading a project so configs
         # saved by older versions cannot retain V*I connector heat or output-
         # inductor regulator placement. Explicit user models remain untouched.

@@ -14,11 +14,11 @@ except ImportError:
     pypardiso = None
 
 try:
-    from .models import ComponentThermalResult, ThermalHotspot, ThermalResult
+    from .models import ComponentThermalResult, HeatsinkThermalResult, ThermalHotspot, ThermalResult
     from .compute_backend import SparseComputeBackend
     from .thermal_mesh import component_reference_nodes
 except (ImportError, ValueError):
-    from models import ComponentThermalResult, ThermalHotspot, ThermalResult
+    from models import ComponentThermalResult, HeatsinkThermalResult, ThermalHotspot, ThermalResult
     from compute_backend import SparseComputeBackend
     from thermal_mesh import component_reference_nodes
 
@@ -68,7 +68,8 @@ class ThermalSolver:
             materialize_temperatures=materialize_temperatures,
         )
         base = dict(getattr(mesh, "surface_h_w_m2k", {}) or {})
-        if not base or str(settings.airflow.mode or "").upper() == "CUSTOM":
+        own_nodes = getattr(mesh, "body_nodes", None) or getattr(mesh, "heatsink_nodes", None)
+        if not (base or own_nodes) or str(settings.airflow.mode or "").upper() == "CUSTOM":
             return result
 
         result.surface_refined = True
@@ -187,22 +188,36 @@ class ThermalSolver:
 
         # A component body's air boundary, on the body's own temperature and
         # dimensions rather than the board face's mean.
-        for body in (getattr(mesh, "body_nodes", None) or {}).values():
-            index = node_index.get(int(body["node"]), -1)
+        # A heatsink stated by its fins, likewise; a stated thetaSA stays.
+        refined = [
+            entry for entry in (getattr(mesh, "body_nodes", None) or {}).values()
+            if entry.get("boundary") is not None
+        ] + [
+            entry for entry in (getattr(mesh, "heatsink_nodes", None) or [])
+            if float(entry["heatsink"].theta_sa_c_per_w or 0.0) <= 0.0
+        ]
+        for entry in refined:
+            index = node_index.get(int(entry["node"]), -1)
             if index < 0:
                 continue
-            current_g = float(mesh.boundaries.conductance[body["boundary"]])
-            new_g = ThermalMesher.body_air_conductance(
-                settings, body["geometry"], float(temperatures[index]),
-                air_velocity_m_s=getattr(mesh, "air_velocity_m_s", None),
-            )
+            current_g = float(mesh.boundaries.conductance[entry["boundary"]])
+            if "heatsink" in entry:
+                new_g = ThermalMesher.heatsink_air_conductance(
+                    settings, entry["heatsink"], entry["geometry"], float(temperatures[index]),
+                    air_velocity_m_s=getattr(mesh, "air_velocity_m_s", None),
+                )
+            else:
+                new_g = ThermalMesher.body_air_conductance(
+                    settings, entry["geometry"], float(temperatures[index]),
+                    air_velocity_m_s=getattr(mesh, "air_velocity_m_s", None),
+                )
             if new_g <= 0.0 or current_g <= 0.0:
                 continue
             change = abs(new_g - current_g) / current_g
             worst_change = max(worst_change, change)
             if change <= self.SURFACE_H_TOLERANCE:
                 continue
-            mesh.boundaries.set_conductance(body["boundary"], new_g)
+            mesh.boundaries.set_conductance(entry["boundary"], new_g)
             updated = True
 
         mesh.surface_correlation_in_range = in_range
@@ -332,12 +347,16 @@ class ThermalSolver:
         if np.any(~np.isfinite(temperatures)):
             raise ValueError("Thermal solution contains non-finite temperatures.")
         bodies = getattr(mesh, "body_nodes", None) or {}
+        heatsinks = getattr(mesh, "heatsink_nodes", None) or []
         body_indices = [
-            index for index in (translate(entry["node"]) for entry in bodies.values()) if index is not None
+            index for index in (
+                translate(entry["node"]) for entry in list(bodies.values()) + list(heatsinks)
+            ) if index is not None
         ]
         if body_indices and len(body_indices) < count:
             # The board's hotspot: a body node is a component's own
-            # temperature, reported as its junction, not a point of the board.
+            # temperature, reported as its junction, and a heatsink node its
+            # own, reported with it; neither is a point of the board.
             board_temperatures = np.array(temperatures, dtype=float, copy=True)
             board_temperatures[body_indices] = -np.inf
             hotspot_index = int(np.argmax(board_temperatures))
@@ -352,6 +371,45 @@ class ThermalSolver:
             z_mm=float(hotspot_z),
             temperature_c=float(temperatures[hotspot_index]),
         )
+
+        heatsink_results = []
+        to_heatsink = {}
+        for entry in heatsinks:
+            index = translate(entry["node"])
+            if index is None:
+                continue
+            heatsink = entry["heatsink"]
+            temperature = float(temperatures[index])
+            air_g = float(mesh.boundaries.conductance[entry["boundary"]])
+            to_air = air_g * (temperature - float(ambient_c))
+            base = [(translate(node), weight) for node, weight in entry["base"]]
+            base = [(item, weight) for item, weight in base if item is not None]
+            weight_sum = sum(weight for _item, weight in base)
+            component_mount = str(heatsink.mount or "BOARD").upper() == "COMPONENT"
+            if component_mount:
+                to_heatsink[str(heatsink.ref_des).strip()] = to_air
+            heatsink_results.append(HeatsinkThermalResult(
+                name=str(heatsink.name),
+                mount="COMPONENT" if component_mount else "BOARD",
+                temperature_c=temperature,
+                to_air_w=float(to_air),
+                side="" if component_mount else (
+                    "BOTTOM" if str(heatsink.side or "BOTTOM").upper().startswith("B") else "TOP"
+                ),
+                ref_des=str(heatsink.ref_des).strip() if component_mount else "",
+                base_c=(
+                    sum(float(temperatures[item]) * weight for item, weight in base) / weight_sum
+                    if weight_sum > 0.0 else temperature
+                ),
+                contact_area_mm2=float(entry["contact_m2"]) * 1.0e6,
+                interface_c_per_w=float(entry["interface_c_per_w"]),
+                theta_sa_c_per_w=1.0 / air_g if air_g > 0.0 else float("inf"),
+                theta_sa_source=(
+                    "stated" if float(heatsink.theta_sa_c_per_w or 0.0) > 0.0
+                    else f"{float(heatsink.fin_area_mm2):g} mm2 of fins, "
+                         f"{entry['geometry']['orientation'].lower()}"
+                ),
+            ))
 
         component_results = []
         for ref_des in mesh.component_nodes:
@@ -376,15 +434,18 @@ class ThermalSolver:
             # 98.7 C at 0.4, 0.2 and 0.1 mm; 87.5, 87.8 and 89.1 C 1 mm out).
             board_temperature = float(np.max(temperatures[valid_indices]))
             junction = board_temperature + component.power_w * max(0.0, component.theta_jb_c_per_w)
-            body_to_air = body_to_board = 0.0
+            body_to_air = body_to_board = body_to_heatsink = 0.0
             body = bodies.get(ref_des)
             if body is not None and translate(body["node"]) is not None:
                 # A body node is the part's own temperature; what it does not
-                # pass to the air reaches the board through thetaJB.
+                # pass to the air or to a heatsink on it reaches the board
+                # through thetaJB.
                 junction = float(temperatures[translate(body["node"])])
-                boundary_g = float(mesh.boundaries.conductance[body["boundary"]])
-                body_to_air = boundary_g * (junction - float(ambient_c))
-                body_to_board = float(component.power_w) - body_to_air
+                if body.get("boundary") is not None:
+                    boundary_g = float(mesh.boundaries.conductance[body["boundary"]])
+                    body_to_air = boundary_g * (junction - float(ambient_c))
+                body_to_heatsink = float(to_heatsink.get(ref_des, 0.0))
+                body_to_board = float(component.power_w) - body_to_air - body_to_heatsink
             component_results.append(ComponentThermalResult(
                 ref_des=ref_des,
                 board_temperature_c=board_temperature,
@@ -403,6 +464,7 @@ class ThermalSolver:
                 body_exchange=body is not None,
                 body_to_air_w=body_to_air,
                 body_to_board_w=body_to_board,
+                body_to_heatsink_w=body_to_heatsink,
             ))
         component_results.sort(key=lambda item: item.junction_temperature_c, reverse=True)
         # The hottest cell under each footprint's pads (mesh.placement_nodes).
@@ -460,6 +522,8 @@ class ThermalSolver:
             hotspot=hotspot,
             component_results=component_results,
             placement_temperatures_c=placement_temperatures,
+            heatsink_results=heatsink_results,
+            heatsink_skipped=list(getattr(mesh, "heatsink_skipped", None) or []),
             total_input_power_w=input_power,
             total_boundary_power_w=float(boundary_power),
             energy_balance_error_pct=float(balance_error),

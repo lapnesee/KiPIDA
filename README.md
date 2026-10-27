@@ -34,6 +34,7 @@ Power-delivery and thermal issues are often discovered late: an undersized coppe
 - Natural, forced, and custom convection modes with exposed top, bottom, and edge surfaces.
 - Manual or power-tree-derived component heat sources, regulator loss placement, and compact junction-temperature estimates.
 - Electro-thermal coupling: iterates temperature-dependent copper resistance and DC `I²R` loss to convergence.
+- Passive cooling: a part can shed heat through its own body (power module, large magnetics), and heatsinks can be bonded to a zone of either board face or to a part's top, through a gap pad or a stated contact resistance, with a datasheet thetaSA or a fin area at the board's airflow.
 - Adjustable thermal mesh from 0.01 to 5 mm, including a 0.1 mm Super preset, projected node/branch/memory estimates, and adaptive safety limits.
 - 3D, top, bottom, and internal-copper temperature maps with a selectable palette and configurable lower and upper colour bounds. Temperatures above a custom maximum saturate at the hottest colour. The thermal overlay can be injected into dedicated non-electrical KiCad user layers with the same colour scale, then removed from the GUI.
 
@@ -218,6 +219,33 @@ thermal models retain their in-session mesh and sparse-solver cache.
 6. Use **Inject thermal overlay** to place the current top and bottom thermal maps plus legends on dedicated KiCad user layers. Use **Clear thermal overlay** to remove only Ki-PIDA-owned overlay images.
 
 Thermal mesh cost grows approximately with the inverse square of the XY grid step: halving the grid step creates roughly four times as many XY cells. Use the estimate shown in the thermal panel and configure a RAM ceiling in **Runtime & Acceleration** before requesting a very fine mesh.
+
+### Heatsinks
+
+**Heatsinks** in **3D Thermal** adds one heatsink per row. A **BOARD** heatsink covers a
+zone of one board face, in the board coordinates KiCad shows (millimetres, Y down): the
+rectangle *Zone X/Y min/max*, or a polygon `x y; x y; x y`. Each outer cell under the
+zone reaches the heatsink through the interface over the area it holds, and that area no
+longer exchanges with the air itself. A **COMPONENT** heatsink sits on a part's top: the
+part gets a body node joined to the board through its Theta JB and to the heatsink through
+*Theta JC to its top* plus the interface over its width x depth.
+
+The interface is a gap pad's thickness / k plus an area-specific contact resistance
+(K cm2/W); both 0 is a bonded joint. The air side is the datasheet's Theta SA, taken as
+constant, or an effective fin area with the board's natural, forced or custom convection
+on the fin length and orientation, plus radiation at the heatsink's emissivity, refined
+on the heatsink's own temperature. The report gives each heatsink's temperature, its base
+temperature, the heat it passes to the air and the resistances used; a heatsink that
+cannot be bonded is named (TH-010). In the saved `.kipida.json`, under `thermal_profile`:
+
+```json
+"heatsinks": [{
+  "name": "HS1", "enabled": true, "mount": "BOARD", "side": "BOTTOM",
+  "x_min_mm": 137.0, "y_min_mm": 92.0, "x_max_mm": 161.0, "y_max_mm": 112.0,
+  "interface_thickness_mm": 1.0, "interface_k_w_mk": 3.0,
+  "theta_sa_c_per_w": 8.0
+}]
+```
 
 The board model is an engineering steady-state solid-conduction approximation. Junction estimates use compact package thermal parameters and require review against component datasheets and measurement before sign-off.
 

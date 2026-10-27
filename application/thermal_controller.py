@@ -104,9 +104,14 @@ def thermal_cache_key(settings, compute_settings, coupled, copper_losses,
             float(component.depth_mm), float(component.height_mm),
             float(component.theta_jb_c_per_w), float(component.max_junction_c),
             bool(component.enabled), str(component.model_source),
+            bool(getattr(component, "body_exchange", False)),
+            float(getattr(component, "body_area_mm2", 0.0) or 0.0),
         )
         for component in settings.components
     ))
+    # A heatsink, or a part's body node, changes the mesh: a cached one
+    # would hand back the board solved without the change.
+    heatsinks = tuple(repr(heatsink) for heatsink in getattr(settings, "heatsinks", None) or ())
     losses = tuple(sorted(
         (float(loss.x_mm), float(loss.y_mm), int(loss.layer_id), float(loss.power_w))
         for loss in copper_losses
@@ -118,7 +123,7 @@ def thermal_cache_key(settings, compute_settings, coupled, copper_losses,
         float(airflow.velocity_m_s), float(airflow.direction_deg),
         float(airflow.custom_h_w_m2k), bool(airflow.expose_top),
         bool(airflow.expose_bottom), bool(airflow.expose_edges), components, losses,
-        None if air_velocity_m_s is None else float(air_velocity_m_s),
+        None if air_velocity_m_s is None else float(air_velocity_m_s), heatsinks,
     )
     runtime = (
         str(getattr(compute_settings, "backend", "AUTO")),

@@ -316,7 +316,9 @@ class ElectroThermalSolver:
             # the refinement itself). Skipped in CUSTOM airflow, where h is
             # user-specified, matching solve_with_surface_refinement's guard.
             surface_base = dict(getattr(thermal_mesh, "surface_h_w_m2k", {}) or {})
-            if surface_base and str(settings.airflow.mode or "").upper() != "CUSTOM":
+            own_nodes = (getattr(thermal_mesh, "body_nodes", None)
+                         or getattr(thermal_mesh, "heatsink_nodes", None))
+            if (surface_base or own_nodes) and str(settings.airflow.mode or "").upper() != "CUSTOM":
                 thermal_solver._refine_surface_exchange(thermal_mesh, settings, thermal_result)
                 thermal_result.surface_refined = True
                 # TH-8: this result was already built by the solve() a few

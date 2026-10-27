@@ -12,10 +12,10 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 try:
-    from shapely.geometry import Point, box
+    from shapely.geometry import Point, Polygon, box
     from shapely.prepared import prep
 except ImportError:
-    Point = prep = box = None
+    Point = Polygon = prep = box = None
 
 try:
     from shapely import from_wkb
@@ -185,8 +185,8 @@ class PackedThermalBranches:
 class PackedThermalBoundaries:
     """Compact convective-boundary storage matching ``PackedThermalBranches``."""
 
-    _KIND_CODES = {"convection": 0, "top": 1, "bottom": 2, "edge": 3, "body": 4}
-    _KIND_NAMES = ("convection", "top", "bottom", "edge", "body")
+    _KIND_CODES = {"convection": 0, "top": 1, "bottom": 2, "edge": 3, "body": 4, "heatsink": 5}
+    _KIND_NAMES = ("convection", "top", "bottom", "edge", "body", "heatsink")
 
     def __init__(self):
         self.node_id = array("i")
@@ -257,6 +257,28 @@ class PackedThermalBoundaries:
         """Replace one boundary's conductance: a component body's, refined on its own temperature."""
         self.conductance[int(index)] = float(conductance_w_k)
 
+    def scale_nodes(self, kind, factors):
+        """Multiply one kind's conductance at each node of *factors* ({node: factor}).
+
+        A heatsink's base covers part of a board face: the cells under it keep
+        only the share of their face it leaves to the air.
+        """
+        if not len(self) or not factors:
+            return
+        nodes = np.fromiter(factors.keys(), dtype=np.int64, count=len(factors))
+        scale = np.fromiter(factors.values(), dtype=np.float64, count=len(factors))
+        order = np.argsort(nodes)
+        nodes, scale = nodes[order], scale[order]
+        ids = np.frombuffer(self.node_id, dtype=np.int32).astype(np.int64)
+        position = np.clip(np.searchsorted(nodes, ids), 0, nodes.size - 1)
+        mask = self.kind_mask(kind) & (nodes[position] == ids)
+        if not mask.any():
+            return
+        values = np.frombuffer(self.conductance, dtype=np.float64).copy()
+        values[mask] *= scale[position[mask]]
+        self.conductance = array("d")
+        self.conductance.frombytes(values.tobytes())
+
     def scale_kind(self, kind, factor):
         """Multiply the conductances of one boundary kind in place.
 
@@ -303,6 +325,13 @@ class ThermalMesh:
     # geometry the solver refines that boundary's coefficient with.
     component_heat_nodes: Dict[str, List[int]] = field(default_factory=dict)
     body_nodes: Dict[str, dict] = field(default_factory=dict)
+    # One entry per heatsink bonded (ThermalAnalysisSettings.heatsinks): its
+    # node, its air boundary's index, the [(node, weight)] it is bonded to,
+    # and what the solver and the report need of it. A part under a COMPONENT
+    # heatsink has a body node whose "boundary" is None unless it also has
+    # body_exchange. heatsink_skipped says why a configured one was not.
+    heatsink_nodes: List[dict] = field(default_factory=list)
+    heatsink_skipped: List[str] = field(default_factory=list)
     grid_size_mm: float = 1.0
     bounds_mm: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
     layer_specs: List[ThermalLayerSpec] = field(default_factory=list)
@@ -750,6 +779,114 @@ class ThermalMesher:
             if settings.include_radiation else 0.0
         )
         return (top_h + radiative) * geometry["top_m2"] + (side_h + radiative) * geometry["side_m2"]
+
+    # A heatsink bonded with no interface stated: 0.01 K cm2/W, a solder or
+    # sintered joint, which keeps the matrix finite without a resistance of
+    # its own worth reporting.
+    BONDED_INTERFACE_M2K_W = 1.0e-6
+
+    @classmethod
+    def heatsink_interface_m2k_w(cls, heatsink):
+        """The interface's area-specific resistance, m2K/W: a gap pad's t/k plus a stated contact resistance."""
+        thickness = max(0.0, float(heatsink.interface_thickness_mm or 0.0)) * 1.0e-3
+        conductivity = float(heatsink.interface_k_w_mk or 0.0)
+        bulk = thickness / conductivity if thickness > 0.0 and conductivity > 0.0 else 0.0
+        contact = max(0.0, float(heatsink.interface_resistance_k_cm2_w or 0.0)) * 1.0e-4
+        return max(cls.BONDED_INTERFACE_M2K_W, bulk + contact)
+
+    @staticmethod
+    def heatsink_problem(heatsink):
+        """Why *heatsink* cannot be modelled as entered, or "" when it can."""
+        if float(heatsink.theta_sa_c_per_w or 0.0) <= 0.0 and float(heatsink.fin_area_mm2 or 0.0) <= 0.0:
+            return "neither theta_sa_c_per_w nor fin_area_mm2 is stated"
+        if float(heatsink.interface_thickness_mm or 0.0) > 0.0 and float(heatsink.interface_k_w_mk or 0.0) <= 0.0:
+            return "an interface thickness is stated without its conductivity"
+        if str(heatsink.mount or "BOARD").upper() == "COMPONENT":
+            return "" if str(heatsink.ref_des or "").strip() else "no ref_des for a COMPONENT mount"
+        if len(heatsink.polygon_mm or []) < 3 and not (
+            float(heatsink.x_max_mm) > float(heatsink.x_min_mm)
+            and float(heatsink.y_max_mm) > float(heatsink.y_min_mm)
+        ):
+            return "its zone is empty (x_max_mm <= x_min_mm or y_max_mm <= y_min_mm, and no polygon_mm)"
+        return ""
+
+    @staticmethod
+    def heatsink_geometry(heatsink, base_area_m2):
+        """The air side of a heatsink stated by its fins: ``{"area_m2", "length_m", "orientation"}``."""
+        length = float(heatsink.fin_length_mm or 0.0) * 1.0e-3
+        return {
+            "area_m2": max(0.0, float(heatsink.fin_area_mm2 or 0.0)) * 1.0e-6,
+            "length_m": length if length > 0.0 else max(1.0e-3, math.sqrt(max(0.0, base_area_m2))),
+            "orientation": str(heatsink.orientation or "VERTICAL").upper(),
+        }
+
+    @staticmethod
+    def heatsink_air_conductance(settings: ThermalAnalysisSettings, heatsink, geometry, heatsink_c,
+                                 air_velocity_m_s=None):
+        """W/K from a heatsink at *heatsink_c* to the air.
+
+        A stated theta_sa_c_per_w is taken as it is, at any temperature and
+        airflow: it is the datasheet's figure at its own condition. Fins are
+        a vertical plate on their length (VERTICAL) or a horizontal one
+        facing UP or DOWN, at the heatsink's rise, blended with the forced
+        correlation when the board's airflow is FORCED, a CUSTOM coefficient
+        winning unchanged, plus radiation at the heatsink's own emissivity.
+        The fin area is the effective one, fin efficiency included.
+        """
+        theta = float(heatsink.theta_sa_c_per_w or 0.0)
+        if theta > 0.0:
+            return 1.0 / theta
+        ambient = float(settings.ambient_c)
+        rise = max(0.0, float(heatsink_c) - ambient)
+        mode = str(settings.airflow.mode or "NATURAL").upper()
+        if mode == "CUSTOM":
+            convective = max(0.1, float(settings.airflow.custom_h_w_m2k))
+        else:
+            if geometry["orientation"] in ("UP", "DOWN"):
+                convective = surface_convection.natural_convection_h(
+                    rise, geometry["length_m"], facing=geometry["orientation"].lower(), ambient_c=ambient,
+                )
+            else:
+                convective = surface_convection.vertical_plate_h(
+                    rise, geometry["length_m"], ambient_c=ambient, minimum_h=2.0,
+                )
+            if mode == "FORCED" or air_velocity_m_s is not None:
+                velocity = (float(settings.airflow.velocity_m_s) if air_velocity_m_s is None
+                            else float(air_velocity_m_s))
+                forced = surface_convection.forced_convection_h(
+                    velocity, geometry["length_m"], ambient_c=ambient, delta_t_k=rise,
+                )
+                convective = surface_convection.combined_h(convective, forced)
+        emissivity = float(heatsink.emissivity or 0.0)
+        radiative = (
+            surface_convection.radiation_h(emissivity, ambient + rise, ambient)
+            if settings.include_radiation and emissivity > 0.0 else 0.0
+        )
+        return (convective + radiative) * geometry["area_m2"]
+
+    def _add_heatsink(self, mesh, settings, heatsink, base, contact_m2, interface_c_per_w,
+                      coords, nominal_rise_k):
+        """One heatsink node bonded to *base* ([(node, conductance W/K)]) and to the air."""
+        node = len(mesh.nodes)
+        mesh.nodes.append(node)
+        mesh.node_coords[node] = coords
+        mesh.node_layers[node] = None
+        for candidate, conductance in base:
+            mesh.add_branch(node, candidate, conductance)
+        geometry = self.heatsink_geometry(heatsink, contact_m2)
+        air = self.heatsink_air_conductance(
+            settings, heatsink, geometry, float(settings.ambient_c) + nominal_rise_k,
+            air_velocity_m_s=mesh.air_velocity_m_s,
+        )
+        total = sum(conductance for _candidate, conductance in base)
+        mesh.heatsink_nodes.append({
+            "node": node, "boundary": len(mesh.boundaries), "heatsink": heatsink,
+            "geometry": geometry, "contact_m2": contact_m2,
+            "interface_c_per_w": interface_c_per_w,
+            "base": [(candidate, conductance / total) for candidate, conductance in base],
+        })
+        mesh.add_boundary(node, air, "heatsink")
+        return node
 
     def _layer_specs(self, stackup):
         copper = stackup.get("copper", {})
@@ -1238,6 +1375,28 @@ class ThermalMesher:
         # for. intended_input_power_w is that ask, tallied independently of
         # whether the deposit below actually lands.
         intended_power_w = 0.0
+        heatsinks = []
+        for heatsink in getattr(settings, "heatsinks", None) or []:
+            if not heatsink.enabled:
+                continue
+            problem = self.heatsink_problem(heatsink)
+            if problem:
+                mesh.heatsink_skipped.append(f"{heatsink.name}: {problem}")
+            else:
+                heatsinks.append(heatsink)
+        # A heatsink set on a part, by its reference; the first one wins.
+        mounted = {}
+        for heatsink in heatsinks:
+            if str(heatsink.mount or "BOARD").upper() != "COMPONENT":
+                continue
+            reference = str(heatsink.ref_des).strip()
+            if reference in mounted:
+                mesh.heatsink_skipped.append(
+                    f"{heatsink.name}: {reference} already carries {mounted[reference].name}"
+                )
+            else:
+                mounted[reference] = heatsink
+        bonded = set()
         for component in model.components:
             if not component.enabled or component.power_w <= 0:
                 continue
@@ -1288,10 +1447,13 @@ class ThermalMesher:
             inside = set(inner)
             mesh.component_board_nodes[component.ref_des] = [node for node in outer if node not in inside]
             theta = float(getattr(component, "theta_jb_c_per_w", 0.0) or 0.0)
-            if getattr(component, "body_exchange", False) and theta > 0.0 and shares and total_share > 0.0:
+            exchanges = bool(getattr(component, "body_exchange", False))
+            heatsink = mounted.get(component.ref_des)
+            if (exchanges or heatsink is not None) and theta > 0.0 and shares and total_share > 0.0:
                 # The body node: its heat reaches the board through thetaJB,
                 # spread over the cells the direct deposit would have heated,
-                # and the air through its own faces (body_air_conductance).
+                # the air through its own faces (body_air_conductance) when it
+                # has body_exchange, and a heatsink set on its top.
                 body = len(mesh.nodes)
                 mesh.nodes.append(body)
                 outer_z = mesh.node_coords[shares[0][0]][2]
@@ -1304,20 +1466,106 @@ class ThermalMesher:
                 for candidate, share in shares:
                     mesh.add_branch(body, candidate, (share / total_share) / theta)
                 geometry = self.body_geometry(component, placement.side)
-                air = self.body_air_conductance(
-                    settings, geometry, float(settings.ambient_c) + nominal_rise_k,
-                    air_velocity_m_s=mesh.air_velocity_m_s,
-                )
+                if heatsink is not None:
+                    # The heatsink's base covers the top face.
+                    geometry["top_m2"] = 0.0
                 mesh.body_nodes[component.ref_des] = {
-                    "node": body, "boundary": len(mesh.boundaries), "geometry": geometry,
+                    "node": body, "boundary": None, "geometry": geometry,
                 }
-                mesh.add_boundary(body, air, "body")
+                if exchanges:
+                    air = self.body_air_conductance(
+                        settings, geometry, float(settings.ambient_c) + nominal_rise_k,
+                        air_velocity_m_s=mesh.air_velocity_m_s,
+                    )
+                    mesh.body_nodes[component.ref_des]["boundary"] = len(mesh.boundaries)
+                    mesh.add_boundary(body, air, "body")
+                if heatsink is not None:
+                    # Junction to case top, then the interface over the top.
+                    contact = max(1.0e-8, float(placement.width_mm) * float(placement.depth_mm) * 1.0e-6)
+                    interface = self.heatsink_interface_m2k_w(heatsink) / contact
+                    path = max(0.0, float(heatsink.theta_jc_c_per_w or 0.0)) + interface
+                    x, y, z = mesh.node_coords[body]
+                    lift = float(component.height_mm) / 2.0 + 1.0
+                    self._add_heatsink(
+                        mesh, settings, heatsink, [(body, 1.0 / path)], contact, interface,
+                        (x, y, z - lift if placement.side == "BOTTOM" else z + lift), nominal_rise_k,
+                    )
+                    bonded.add(component.ref_des)
                 mesh.add_heat(body, component.power_w)
                 mesh.component_heat_nodes[component.ref_des] = [body]
                 continue
             mesh.component_heat_nodes[component.ref_des] = list(mesh.component_nodes[component.ref_des])
             for candidate, share in shares:
                 mesh.add_heat(candidate, component.power_w * share / total_share)
+
+        for reference, heatsink in mounted.items():
+            if reference in bonded:
+                continue
+            component = next((item for item in model.components if item.ref_des == reference), None)
+            if component is None or reference not in model.placements:
+                reason = f"{reference} is not on the board"
+            elif not component.enabled or component.power_w <= 0:
+                reason = f"{reference} is not an enabled heat source"
+            elif float(component.theta_jb_c_per_w or 0.0) <= 0.0:
+                reason = f"{reference} has no thetaJB to reach the board through"
+            else:
+                reason = f"{reference} found no cell to deposit on"
+            mesh.heatsink_skipped.append(f"{heatsink.name}: {reason}")
+
+        # A heatsink on a zone of a board face: each outer cell under it
+        # reaches the heatsink through the interface over the area it holds,
+        # and leaves only the rest of its face to the air.
+        cell_area_mm2 = grid * grid
+        for heatsink in heatsinks:
+            if str(heatsink.mount or "BOARD").upper() == "COMPONENT":
+                continue
+            bottom = str(heatsink.side or "BOTTOM").upper().startswith("B")
+            iz = len(specs) - 1 if bottom else 0
+            points = [(float(x), float(y)) for x, y in (heatsink.polygon_mm or [])]
+            zone = Polygon(points) if len(points) >= 3 else box(
+                float(heatsink.x_min_mm), float(heatsink.y_min_mm),
+                float(heatsink.x_max_mm), float(heatsink.y_max_mm),
+            )
+            if not zone.is_valid:
+                zone = zone.buffer(0)
+            weights = {}
+            zone_min_x, zone_min_y, zone_max_x, zone_max_y = zone.bounds
+            for iy in range(max(0, int(math.floor((zone_min_y - min_y) / grid))),
+                            min(ny - 1, int(math.floor((zone_max_y - min_y) / grid))) + 1):
+                for ix in range(max(0, int(math.floor((zone_min_x - min_x) / grid))),
+                                min(nx - 1, int(math.floor((zone_max_x - min_x) / grid))) + 1):
+                    candidate = mesh.node_map.get((ix, iy, iz))
+                    if candidate is None:
+                        continue
+                    overlap = zone.intersection(box(
+                        min_x + ix * grid, min_y + iy * grid,
+                        min_x + (ix + 1) * grid, min_y + (iy + 1) * grid,
+                    )).area
+                    if overlap > 0.0:
+                        weights[candidate] = min(cell_area_mm2, overlap)
+            if not weights:
+                mesh.heatsink_skipped.append(f"{heatsink.name}: its zone covers no board cell")
+                continue
+            contact = sum(weights.values()) * 1.0e-6
+            per_area = self.heatsink_interface_m2k_w(heatsink)
+            face = "bottom" if bottom else "top"
+            mesh.boundaries.scale_nodes(face, {
+                candidate: max(0.0, 1.0 - area / cell_area_mm2) for candidate, area in weights.items()
+            })
+            if face in mesh.surface_area_m2:
+                mesh.surface_area_m2[face] = max(0.0, mesh.surface_area_m2[face] - contact)
+            outer_z = mesh.node_coords[next(iter(weights))][2]
+            lift = max(0.0, float(heatsink.interface_thickness_mm or 0.0)) + 1.0
+            centroid = zone.centroid
+            self._add_heatsink(
+                mesh, settings, heatsink,
+                [(candidate, area * 1.0e-6 / per_area) for candidate, area in weights.items()],
+                contact, per_area / contact,
+                (float(centroid.x), float(centroid.y), outer_z - lift if bottom else outer_z + lift),
+                nominal_rise_k,
+            )
+        if mesh.heatsink_skipped:
+            self._log("Heatsinks left out: " + "; ".join(mesh.heatsink_skipped) + ".")
 
         def pad_nodes(pads, iz):
             """The slice's cells centred on *pads*; for a pad smaller than a

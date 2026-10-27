@@ -992,6 +992,70 @@ class ThermalComponentModel:
 
 
 @dataclass
+class ThermalHeatsink:
+    """A heatsink: one isothermal node bonded through an interface and shedding heat to the air.
+
+    mount "BOARD" bonds it to a zone of one board face (side "TOP" or
+    "BOTTOM"): the rectangle x/y_min..max_mm in board coordinates, or
+    polygon_mm ([[x, y], ...], three points or more) when given. Each outer
+    cell under the zone reaches the heatsink through the interface over the
+    area it holds, and that area no longer exchanges with the air itself.
+    mount "COMPONENT" sets it on ref_des's top: the part gets a body node
+    (as ThermalComponentModel.body_exchange does), joined to the heatsink
+    through theta_jc_c_per_w (junction to the case top) plus the interface
+    over the part's width x depth.
+
+    The interface is interface_thickness_mm / interface_k_w_mk (a gap pad)
+    plus interface_resistance_k_cm2_w (a datasheet's area-specific contact
+    resistance); both 0 is a bonded joint. The air side is theta_sa_c_per_w
+    when stated, taken as constant; otherwise fin_area_mm2 at the airflow
+    settings' correlations on fin_length_mm (the square root of the base
+    area when 0) for its orientation -- "VERTICAL" plates, or a horizontal
+    plate facing "UP" or "DOWN" -- plus radiation at emissivity (0 unless
+    stated: fins that face each other radiate mostly to one another), refined
+    on the heatsink's own temperature. Off (enabled False or no heatsink at
+    all), the board is solved as before.
+    """
+    name: str = "HS1"
+    enabled: bool = True
+    mount: str = "BOARD"  # BOARD, COMPONENT
+    side: str = "BOTTOM"  # TOP, BOTTOM (BOARD mount)
+    x_min_mm: float = 0.0
+    y_min_mm: float = 0.0
+    x_max_mm: float = 0.0
+    y_max_mm: float = 0.0
+    polygon_mm: List[List[float]] = field(default_factory=list)
+    ref_des: str = ""
+    theta_jc_c_per_w: float = 0.0
+    interface_thickness_mm: float = 0.0
+    interface_k_w_mk: float = 0.0
+    interface_resistance_k_cm2_w: float = 0.0
+    theta_sa_c_per_w: float = 0.0
+    fin_area_mm2: float = 0.0
+    fin_length_mm: float = 0.0
+    orientation: str = "VERTICAL"  # VERTICAL, UP, DOWN
+    emissivity: float = 0.0
+
+
+@dataclass
+class HeatsinkThermalResult:
+    """What one heatsink did: its temperature, the heat it passed to the air, the path's resistances."""
+    name: str
+    mount: str
+    temperature_c: float
+    to_air_w: float
+    side: str = ""
+    ref_des: str = ""
+    # The area-weighted temperature of what it is bonded to: the board cells
+    # under its zone, or the part's body node.
+    base_c: float = 0.0
+    contact_area_mm2: float = 0.0
+    interface_c_per_w: float = 0.0
+    theta_sa_c_per_w: float = 0.0
+    theta_sa_source: str = ""
+
+
+@dataclass
 class ThermalAnalysisSettings:
     """Persisted settings for steady-state 3D thermal analysis."""
     ambient_c: float = 25.0
@@ -1022,6 +1086,7 @@ class ThermalAnalysisSettings:
     copper_temp_coefficient_per_c: float = COPPER_TEMPERATURE_COEFFICIENT_PER_C
     components: List[ThermalComponentModel] = field(default_factory=list)
     power_stage_reports: List[PowerStageResult] = field(default_factory=list)
+    heatsinks: List[ThermalHeatsink] = field(default_factory=list)
 
     def resolved_color_scale_minimum_c(self) -> Optional[float]:
         """Return the requested lower colour bound, or None for auto."""
@@ -1070,6 +1135,9 @@ class ComponentThermalResult:
     body_exchange: bool = False
     body_to_air_w: float = 0.0
     body_to_board_w: float = 0.0
+    # What its body passes to a heatsink set on it (ThermalHeatsink mount
+    # COMPONENT); 0 without one.
+    body_to_heatsink_w: float = 0.0
 
 
 @dataclass
@@ -1084,6 +1152,10 @@ class ThermalResult:
     # {reference: C}, the hottest board cell under each footprint's pads,
     # heat source or not (thermal_mesh placement_nodes).
     placement_temperatures_c: Dict[str, float] = field(default_factory=dict)
+    # One row per heatsink the mesh bonded (ThermalAnalysisSettings.heatsinks), and
+    # one "name: reason" line per configured heatsink it could not.
+    heatsink_results: List[HeatsinkThermalResult] = field(default_factory=list)
+    heatsink_skipped: List[str] = field(default_factory=list)
     # The check at twice the grid step, when it ran
     # (ThermalAnalysisController._mesh_sensitivity), so a domain reading
     # these temperatures can tell how far the mesh moves them.

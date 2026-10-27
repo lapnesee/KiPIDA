@@ -5565,3 +5565,126 @@ msgstr "L’arrêt à distance de Palace a échoué ({p0}) ; le calcul tourne pe
 
 msgid "From the enclosure's walls to the room around it: the wall's conduction, its outer convection and radiation. The air's film against the walls inside is computed."
 msgstr "Des parois du boîtier à la pièce qui l’entoure : conduction de la paroi, convection et rayonnement extérieurs. Le film d’air contre les parois, à l’intérieur, est calculé."
+
+msgid " (polygon)"
+msgstr " (polygone)"
+
+msgid "A BOARD heatsink covers the zone on the chosen face; a COMPONENT one sits on the part's top. Theta SA is the datasheet's figure, taken as constant."
+msgstr "Un radiateur BOARD couvre la zone sur la face choisie ; un radiateur COMPONENT se pose sur le dessus du composant. Theta SA est la valeur de la fiche technique, prise constante."
+
+msgid "A heatsink entered but not bonded to the board leaves every temperature solved as if it were not there."
+msgstr "Un radiateur saisi mais non relié à la carte laisse chaque température calculée comme s’il n’existait pas."
+
+msgid "A heatsink needs a name."
+msgstr "Un radiateur doit avoir un nom."
+
+msgid "A heatsink polygon needs three points or more."
+msgstr "Le polygone d’un radiateur demande au moins trois points."
+
+msgid "Add Heatsink"
+msgstr "Ajouter un radiateur"
+
+msgid "Board face:"
+msgstr "Face de la carte :"
+
+msgid "Body area (mm2, 0 = its box):"
+msgstr "Surface du corps (mm2, 0 = son boîtier) :"
+
+msgid "Body exchange:"
+msgstr "Échange par le corps :"
+
+msgid "Bond it to the board"
+msgstr "Le relier à la carte"
+
+msgid "Component:"
+msgstr "Composant :"
+
+msgid "Contact resistance (K cm2/W):"
+msgstr "Résistance de contact (K cm2/W) :"
+
+msgid "Edit Heatsink"
+msgstr "Modifier le radiateur"
+
+msgid "Effective fin area (mm2):"
+msgstr "Surface effective des ailettes (mm2) :"
+
+msgid "Fin length (mm, 0 = auto):"
+msgstr "Longueur des ailettes (mm, 0 = auto) :"
+
+msgid "Fin orientation:"
+msgstr "Orientation des ailettes :"
+
+msgid "Heatsink emissivity:"
+msgstr "Émissivité du radiateur :"
+
+msgid "Heatsink left out of the thermal model"
+msgstr "Radiateur absent du modèle thermique"
+
+msgid "Heatsink resistances, areas and lengths must be non-negative."
+msgstr "Les résistances, surfaces et longueurs du radiateur doivent être positives ou nulles."
+
+msgid "Heatsink: {name}"
+msgstr "Radiateur : {name}"
+
+msgid "Heatsinks"
+msgstr "Radiateurs"
+
+msgid "Interface k (W/mK):"
+msgstr "k de l’interface (W/mK) :"
+
+msgid "Interface thickness (mm):"
+msgstr "Épaisseur de l’interface (mm) :"
+
+msgid "Invalid Heatsink"
+msgstr "Radiateur non valide"
+
+msgid "Its loss goes into a body node, tied to the board through Theta JB and to the air through its top and sides (a power module, a large inductor)."
+msgstr "Sa perte va dans un nœud corps, relié à la carte par Theta JB et à l’air par son dessus et ses côtés (un module de puissance, une grosse inductance)."
+
+msgid "Mount"
+msgstr "Montage"
+
+msgid "Mount:"
+msgstr "Montage :"
+
+msgid "Netclass pair settings could not be read ({p0}); every shared netclass counts."
+msgstr "Les réglages de paire des classes de nets n’ont pas pu être lus ({p0}) ; chaque classe partagée compte."
+
+msgid "Remove Heatsink"
+msgstr "Retirer le radiateur"
+
+msgid "Rerun thermal after correcting it: the report should list the heatsink with its temperature and the heat it passes to the air."
+msgstr "Relancez le thermique après correction : le rapport doit donner le radiateur avec sa température et la chaleur qu’il cède à l’air."
+
+msgid "Shed heat through its own body"
+msgstr "Évacuer la chaleur par son propre corps"
+
+msgid "Theta JC to its top (C/W):"
+msgstr "Theta JC vers son dessus (C/W) :"
+
+msgid "Air side"
+msgstr "Côté air"
+
+msgid "Theta SA (C/W, 0 = from fins):"
+msgstr "Theta SA (C/W, 0 = par les ailettes) :"
+
+msgid "Write the polygon as x y; x y; x y, one point between semicolons."
+msgstr "Écrivez le polygone sous la forme x y; x y; x y, un point entre deux points-virgules."
+
+msgid "Zone X max (mm):"
+msgstr "Zone X max (mm) :"
+
+msgid "Zone X min (mm):"
+msgstr "Zone X min (mm) :"
+
+msgid "Zone Y max (mm):"
+msgstr "Zone Y max (mm) :"
+
+msgid "Zone Y min (mm):"
+msgstr "Zone Y min (mm) :"
+
+msgid "Zone polygon:"
+msgstr "Polygone de la zone :"
+
+msgid "x y; x y; x y in board millimetres; empty uses the zone rectangle."
+msgstr "x y; x y; x y en millimètres de la carte ; vide, le rectangle de la zone s’applique."

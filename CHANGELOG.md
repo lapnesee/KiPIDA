@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+A heatsink can be bonded to the board (`thermal_profile.heatsinks`): on a zone of
+either face (`mount` BOARD, a rectangle or `polygon_mm`), where each outer
+cell under it reaches one heatsink node through the interface over the area
+it holds and leaves only the rest of its face to the air, or on a part's top
+(`mount` COMPONENT), which gives the part a body node joined to the board
+through its thetaJB and to the heatsink through `theta_jc_c_per_w` plus the
+interface. The interface is a gap pad's thickness over its k plus an
+area-specific contact resistance; the air side a stated `theta_sa_c_per_w`,
+constant, or an effective fin area at the airflow settings' correlations and
+the heatsink's emissivity, refined on its own temperature. The board hotspot
+leaves the heatsink nodes out; the report gives each one's temperature, base
+temperature, heat to the air and resistances, and names one it could not
+bond (TH-010). On a closed 30 x 20 mm board, 4 W through a 1 mm, 3 W/mK pad
+under the whole underside and an 8 K/W heatsink read 57.0 C at the heatsink
+and 2.22 K across the pad, the series network's values. The thermal panel
+edits the heatsinks, and a component's body exchange and body area. No
+heatsink by default: boards and saved configurations without one solve as
+before.
+Turning a component's body exchange on or off, or changing its body area,
+now solves the board again: the in-session thermal cache did not key on
+either and handed back the previous result. Heatsinks are in its key too.
 A thermal component can shed heat through its own body (`body_exchange`):
 its loss goes into one body node tied to the board through its thetaJB,
 spread over its heat pads, and to the air through its top and sides

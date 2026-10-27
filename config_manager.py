@@ -14,7 +14,7 @@ try:
         DifferentialAnalysisSettings, DifferentialPairCandidate,
         EMCAnalysisSettings, EMCInductorModel, EMCPhase10Settings, EMCSignalSource,
         PowerRail, ProjectConfig, StackupLayerModel, StackupProfile,
-        ThermalAnalysisSettings, ThermalComponentModel, UnifiedLoad,
+        ThermalAnalysisSettings, ThermalComponentModel, ThermalHeatsink, UnifiedLoad,
         UnifiedSource, VoltageRegulator,
     )
 except (ImportError, ValueError):
@@ -25,7 +25,7 @@ except (ImportError, ValueError):
         DifferentialAnalysisSettings, DifferentialPairCandidate,
         EMCAnalysisSettings, EMCInductorModel, EMCPhase10Settings, EMCSignalSource,
         PowerRail, ProjectConfig, StackupLayerModel, StackupProfile,
-        ThermalAnalysisSettings, ThermalComponentModel, UnifiedLoad,
+        ThermalAnalysisSettings, ThermalComponentModel, ThermalHeatsink, UnifiedLoad,
         UnifiedSource, VoltageRegulator,
     )
 
@@ -823,7 +823,44 @@ def _thermal_settings_to_dict(settings: ThermalAnalysisSettings) -> dict:
             "body_exchange": component.body_exchange,
             "body_area_mm2": component.body_area_mm2,
         } for component in settings.components],
+        "heatsinks": [_heatsink_to_dict(heatsink) for heatsink in settings.heatsinks],
     }
+
+
+_HEATSINK_NUMBERS = (
+    "x_min_mm", "y_min_mm", "x_max_mm", "y_max_mm", "theta_jc_c_per_w",
+    "interface_thickness_mm", "interface_k_w_mk", "interface_resistance_k_cm2_w",
+    "theta_sa_c_per_w", "fin_area_mm2", "fin_length_mm", "emissivity",
+)
+
+
+def _heatsink_to_dict(heatsink: ThermalHeatsink) -> dict:
+    data = {
+        "name": heatsink.name, "enabled": heatsink.enabled,
+        "mount": heatsink.mount, "side": heatsink.side,
+        "polygon_mm": [[float(x), float(y)] for x, y in heatsink.polygon_mm],
+        "ref_des": heatsink.ref_des, "orientation": heatsink.orientation,
+    }
+    data.update((name, getattr(heatsink, name)) for name in _HEATSINK_NUMBERS)
+    return data
+
+
+def _dict_to_heatsink(data: dict) -> ThermalHeatsink:
+    default = ThermalHeatsink()
+    return ThermalHeatsink(
+        name=str(data.get("name", default.name) or default.name),
+        enabled=bool(data.get("enabled", True)),
+        mount=str(data.get("mount", default.mount) or default.mount).upper(),
+        side=str(data.get("side", default.side) or default.side).upper(),
+        polygon_mm=[
+            [float(point[0]), float(point[1])]
+            for point in data.get("polygon_mm", []) or []
+            if isinstance(point, (list, tuple)) and len(point) >= 2
+        ],
+        ref_des=str(data.get("ref_des", "") or ""),
+        orientation=str(data.get("orientation", default.orientation) or default.orientation).upper(),
+        **{name: float(data.get(name, getattr(default, name)) or 0.0) for name in _HEATSINK_NUMBERS},
+    )
 
 
 def _dict_to_thermal_settings(data: dict) -> ThermalAnalysisSettings:
@@ -890,6 +927,10 @@ def _dict_to_thermal_settings(data: dict) -> ThermalAnalysisSettings:
             body_exchange=bool(component.get("body_exchange", False)),
             body_area_mm2=float(component.get("body_area_mm2", 0.0) or 0.0),
         ) for component in data.get("components", [])],
+        heatsinks=[
+            _dict_to_heatsink(heatsink) for heatsink in data.get("heatsinks", []) or []
+            if isinstance(heatsink, dict)
+        ],
     )
 
 

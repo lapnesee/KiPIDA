@@ -282,15 +282,35 @@ def format_thermal_report(
                 f"{component.model_source}; thermal={component.thermal_source}]"
             )
             if getattr(component, "body_exchange", False):
+                heatsink_w = float(getattr(component, "body_to_heatsink_w", 0.0) or 0.0)
                 lines.append(
                     f"      body node: {component.body_to_air_w:.4g} W to the air through its own "
-                    f"surface, {component.body_to_board_w:.4g} W to the board through thetaJB; "
+                    "surface, "
+                    + (f"{heatsink_w:.4g} W to its heatsink, " if heatsink_w else "")
+                    + f"{component.body_to_board_w:.4g} W to the board through thetaJB; "
                     "Tj is the body temperature"
                 )
             if component.thermal_condition:
                 lines.append(f"      thermal condition: {component.thermal_condition}")
     else:
         lines.append("  - No mapped component heat source.")
+    heatsinks = list(getattr(result, "heatsink_results", None) or [])
+    skipped = list(getattr(result, "heatsink_skipped", None) or [])
+    if heatsinks or skipped:
+        lines.extend(["", "Heatsinks:"])
+        for heatsink in heatsinks:
+            where = (
+                f"on {heatsink.ref_des}" if heatsink.mount == "COMPONENT"
+                else f"on the {heatsink.side.lower()} face"
+            )
+            lines.append(
+                f"  - {heatsink.name} {where}, {heatsink.contact_area_mm2:.0f} mm2: "
+                f"T={heatsink.temperature_c:.2f} C, base {heatsink.base_c:.2f} C, "
+                f"{heatsink.to_air_w:.4g} W to the air [interface {heatsink.interface_c_per_w:.4g} K/W, "
+                f"thetaSA {heatsink.theta_sa_c_per_w:.4g} K/W, {heatsink.theta_sa_source}]"
+            )
+        for line in skipped:
+            lines.append(f"  - left out, {line}")
     lines.extend(["", "Model scope: steady-state 3D solid conduction with convective boundaries; this is not a volumetric CFD airflow solution."])
     if result.compute_fallback_reason:
         lines.append(f"Compute fallback: {result.compute_fallback_reason}")

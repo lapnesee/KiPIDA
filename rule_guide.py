@@ -477,6 +477,13 @@ GUIDE: Dict[str, RuleGuide] = {
         "no real box.",
         "Rerun thermal after entering the coefficient: the finding should not return.",
         _D, _LOW),
+    "TH-010": RuleGuide(
+        "Heatsink left out of the thermal model",
+        "A heatsink entered but not bonded to the board leaves every temperature solved "
+        "as if it were not there.",
+        "Rerun thermal after correcting it: the report should list the heatsink with its "
+        "temperature and the heat it passes to the air.",
+        _D, _LOW),
     "VS-001": RuleGuide(
         "Sparse ground stitching",
         "Planes stitched far apart resonate at frequencies inside the band.",

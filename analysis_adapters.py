@@ -1108,6 +1108,41 @@ def _thermal_surface_metrics(domain_result: Any) -> list:
     ]
 
 
+def _thermal_heatsink_metrics(domain_result: Any) -> list:
+    """Each heatsink's temperature and the heat it passes to the air."""
+    metrics = []
+    for item in getattr(domain_result, "heatsink_results", None) or ():
+        metrics.append(AnalysisMetric(
+            f"heatsink_{item.name}_c", f"Heatsink {item.name} temperature",
+            float(item.temperature_c), "°C", "INFO",
+        ))
+        metrics.append(AnalysisMetric(
+            f"heatsink_{item.name}_w", f"Heatsink {item.name} heat to the air",
+            float(item.to_air_w), "W", "INFO",
+        ))
+    return metrics
+
+
+def _thermal_heatsink_evidence(domain_result: Any) -> list:
+    """The path each heatsink adds: interface, thetaSA, and what it carried."""
+    rows = list(getattr(domain_result, "heatsink_results", None) or ())
+    if not rows:
+        return []
+    named = "; ".join(
+        f"{item.name} on "
+        + (item.ref_des if item.mount == "COMPONENT" else f"the {item.side.lower()} face")
+        + f", {item.contact_area_mm2:.0f} mm2: {item.base_c:.1f} C at its base, "
+        f"{item.temperature_c:.1f} C, {item.to_air_w:.3g} W to the air through "
+        f"{item.interface_c_per_w:.3g} K/W of interface and a thetaSA of "
+        f"{item.theta_sa_c_per_w:.3g} K/W ({item.theta_sa_source})"
+        for item in rows
+    )
+    return [AnalysisEvidence(
+        "HEATSINKS", f"Heatsink(s): {named}.",
+        reference=f"{len(rows)} heatsink(s) bonded",
+    )]
+
+
 def _thermal_surface_detail(domain_result: Any) -> str:
     """One line naming the coefficients used and where they came from.
 
@@ -1767,8 +1802,12 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
                 f"Estimated Tj is {component.junction_temperature_c:.3f} C with "
                 f"{component.margin_c:.3f} C margin"
                 + (
-                    f" at its body node, which passes {component.body_to_air_w:.3g} W to the air "
-                    f"and {component.body_to_board_w:.3g} W to the board"
+                    f" at its body node, which passes {component.body_to_air_w:.3g} W to the air"
+                    + (
+                        f", {component.body_to_heatsink_w:.3g} W to its heatsink"
+                        if getattr(component, "body_to_heatsink_w", 0.0) else ""
+                    )
+                    + f" and {component.body_to_board_w:.3g} W to the board"
                     if getattr(component, "body_exchange", False) else ""
                 )
                 + (
@@ -1832,6 +1871,18 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
             "Check that every heat-dissipating component is placed on the board and enabled.",
             confidence=EvidenceConfidence.DETERMINISTIC,
         ))
+    skipped = list(getattr(domain_result, "heatsink_skipped", None) or [])
+    if skipped:
+        # A heatsink entered and not modelled would read as a board that
+        # still runs hot with it, so it is named, not dropped.
+        findings.append(_finding(
+            "TH-010", 1, "MODEL_INPUT", FindingSeverity.MEDIUM,
+            "Heatsink left out of the thermal model",
+            f"{len(skipped)} configured heatsink(s) were not bonded to the board: "
+            + "; ".join(skipped) + ". Temperatures are solved without them.",
+            "Correct the heatsink's zone, reference or air-side figure in the thermal settings.",
+            confidence=EvidenceConfidence.DETERMINISTIC,
+        ))
     findings.extend(_estimated_efficiency_findings(
         power_stage_reports, float(getattr(domain_result, "total_input_power_w", 0.0) or 0.0),
     ))
@@ -1873,6 +1924,18 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
                 str(reference): round(float(value), 2)
                 for reference, value in (getattr(domain_result, "placement_temperatures_c", None) or {}).items()
             },
+            "heatsinks": [
+                {
+                    "name": item.name, "mount": item.mount, "side": item.side,
+                    "reference": item.ref_des,
+                    "temperature_c": round(float(item.temperature_c), 2),
+                    "base_c": round(float(item.base_c), 2),
+                    "to_air_w": round(float(item.to_air_w), 4),
+                    "interface_c_per_w": round(float(item.interface_c_per_w), 4),
+                    "theta_sa_c_per_w": round(float(item.theta_sa_c_per_w), 4),
+                }
+                for item in getattr(domain_result, "heatsink_results", None) or ()
+            ],
         },
         findings=findings,
         metrics=[
@@ -1905,7 +1968,8 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
                 "WARN" if float(components[0].margin_c) < 0 else "INFO",
             )] if components else []
         ) + _least_junction_margin_metrics(components)
-        + _thermal_surface_metrics(domain_result) + sensitivity_metrics + enclosure_metrics,
+        + _thermal_surface_metrics(domain_result) + _thermal_heatsink_metrics(domain_result)
+        + sensitivity_metrics + enclosure_metrics,
         provenance=[
             AnalysisEvidence(
                 "PCB_GEOMETRY",
@@ -1917,7 +1981,8 @@ def adapt_thermal_result(domain_result: Any, coupled: bool = False, elapsed_seco
                 _thermal_surface_detail(domain_result),
                 reference=str(getattr(domain_result, "convection_basis", "") or "surface correlation"),
             ),
-        ] + _thermal_hotspot_location_evidence(hotspot, mesh) + _thermal_junction_evidence(components) + [
+        ] + _thermal_hotspot_location_evidence(hotspot, mesh) + _thermal_junction_evidence(components)
+        + _thermal_heatsink_evidence(domain_result) + [
             AnalysisEvidence(
                 "POWER_MODEL",
                 "Heat sources use configured component losses and optional DC copper losses.",
