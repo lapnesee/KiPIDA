@@ -6,10 +6,16 @@ from ui.number_input import parse_number
 from i18n import _
 
 try:
-    from ac_model import ACModelBuilder, format_capacitance, parse_capacitance
+    from ac_model import (
+        ACModelBuilder, format_capacitance, is_discovery_estimate, merge_discovered_capacitors,
+        parse_capacitance,
+    )
     from models import AC_SOURCE_PRESETS, ACAnalysisSettings, ACMeasurementPort, ACSourceModel
 except (ImportError, ValueError):
-    from ac_model import ACModelBuilder, format_capacitance, parse_capacitance
+    from ac_model import (
+        ACModelBuilder, format_capacitance, is_discovery_estimate, merge_discovered_capacitors,
+        parse_capacitance,
+    )
     from models import AC_SOURCE_PRESETS, ACAnalysisSettings, ACMeasurementPort, ACSourceModel
 
 
@@ -52,21 +58,15 @@ def apply_saved_capacitor(capacitor, saved):
     """Carry a saved capacitor's state onto a freshly rediscovered one.
 
     Enabled/disabled is always a user choice and always carries over. The
-    modelled values (capacitance, ESR, ESL, model_source) only carry over
-    when the user actually edited them -- CapacitorModelDialog.apply_to sets
-    model_source="user" -- otherwise a stale estimate from a previous
-    discovery would shadow a rediscovery's corrected derating or ESR (AC-7),
-    e.g. after the rail's voltage changes or a case-size fix lands.
-
-    A model whose source starts with "datasheet" carries over too: it holds
-    the manufacturer's measured ESR, ESL and DC-biased capacitance, which no
-    rediscovery can improve on. P02 Rev E's C36 was rediscovered at 11.4 uF
-    under 20 V from the generic curve, where Taiyo Yuden's own curve gives
-    5.87 uF.
+    modelled values (capacitance, ESR, ESL, model_source) carry over unless
+    the saved model is Ki-PIDA's own discovery estimate: a stale estimate
+    must not shadow a rediscovery's corrected derating or ESR (AC-7), but a
+    user edit, a datasheet model or any value another tool wrote into the
+    file is kept. P02 Rev E's C36 was rediscovered at 11.4 uF under 20 V
+    from the generic curve, where Taiyo Yuden's own curve gives 5.87 uF.
     """
     capacitor.enabled = saved.enabled
-    source = str(saved.model_source or "")
-    if source == "user" or source.lower().startswith("datasheet"):
+    if not is_discovery_estimate(saved.model_source):
         capacitor.capacitance_f = saved.capacitance_f
         capacitor.esr_ohm = saved.esr_ohm
         capacitor.esl_h = saved.esl_h
@@ -454,12 +454,9 @@ class ACAnalysisPanel(wx.Panel):
                     rail.net_name, ground_name,
                     rail_voltage_v=float(getattr(rail, "nominal_voltage", 0.0) or 0.0),
                 )
-                existing = {cap.ref_des: cap for cap in profile.capacitors}
-                for capacitor in discovered:
-                    saved = existing.get(capacitor.ref_des)
-                    if saved is not None:
-                        apply_saved_capacitor(capacitor, saved)
-                profile.capacitors = discovered
+                profile.capacitors = merge_discovered_capacitors(
+                    discovered, profile.capacitors, log=self.log_callback,
+                )
             self.capacitors = profile.capacitors
             self._profile_rail_name = rail.net_name
             self._update_cap_list()
@@ -537,6 +534,7 @@ class ACAnalysisPanel(wx.Panel):
         )
         profile.optimizer_max_additions = int(self.txt_max_additions.GetValue())
 
+        previous = (("source", profile.source), ("measurement port", profile.measurement_port))
         source_ref = self._selected_text(self.choice_source)
         source_pad_names = self._source_options(rail).get(source_ref, [])
         profile.source = ACSourceModel(
@@ -555,7 +553,29 @@ class ACAnalysisPanel(wx.Panel):
         )
         profile.capacitors = self.capacitors
         self.profiles[rail.net_name] = profile
+        self._log_realigned_pads(rail.net_name, previous, (profile.source, profile.measurement_port))
         return profile
+
+    def _log_realigned_pads(self, rail_name, previous, current):
+        """Name a saved source's or port's pads the board no longer matches."""
+        if not self.log_callback:
+            return
+        for (label, before), after in zip(previous, current):
+            if before is None or not before.ref_des or before.ref_des != after.ref_des:
+                continue
+            moved = [
+                f"{side} {', '.join(map(str, old)) or '-'} -> {', '.join(map(str, new)) or '-'}"
+                for side, old, new in (
+                    ("rail", before.rail_pad_names, after.rail_pad_names),
+                    ("return", before.ground_pad_names, after.ground_pad_names),
+                )
+                if old and set(map(str, old)) != set(map(str, new))
+            ]
+            if moved:
+                self.log_callback(
+                    f"AC {rail_name}: {label} {after.ref_des} pads realigned with the board "
+                    f"({'; '.join(moved)})."
+                )
 
     def get_settings(self):
         return self._save_current_profile()

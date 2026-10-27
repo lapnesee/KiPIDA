@@ -129,6 +129,26 @@ class TestEMCAnalyzer(unittest.TestCase):
         self.assertEqual(finding.severity, "HIGH")
         self.assertIn("ground pad 18.0 mm from Q11's", finding.description)
 
+    def test_a_dc_feed_on_its_own_return_conductor_is_not_held_to_the_plane(self):
+        # poe_bt: the PoE centre taps carry DC back on their pair (POE_CT12
+        # on POE_CT36); GP-001 and RP-001 treated them as fast signals and
+        # asked for a ground via that would join the isolated primary to GND.
+        def rules(**source):
+            settings = EMCAnalysisSettings(sources=[EMCSignalSource("Feed", "SYS_CLK", "DIGITAL", **source)])
+            messages = []
+            findings = EMCAnalyzer(self.snapshot(), settings, log_callback=messages.append).analyze().findings
+            return {item.rule_id for item in findings if "SYS_CLK" in item.nets}, messages
+
+        dc_feed, messages = rules(frequency_hz=0.0, negative_net_name="SYS_RET")
+        self.assertFalse({"GP-001", "RP-001"} & dc_feed)
+        self.assertTrue(any(line.startswith("EMC: SYS_CLK declared as DC feeds") for line in messages))
+        # With edges of its own, a pair's common mode still needs the plane.
+        paired, _ = rules(frequency_hz=25e6, negative_net_name="SYS_RET")
+        self.assertTrue({"GP-001", "RP-001"} <= paired)
+        # No frequency says nothing about the return: the plane rules stand.
+        unknown, _ = rules(frequency_hz=0.0)
+        self.assertTrue({"GP-001", "RP-001"} <= unknown)
+
     def test_detects_plane_void_switching_area_and_missing_return_via(self):
         result = EMCAnalyzer(self.snapshot(), self.settings()).analyze()
         rules = {finding.rule_id for finding in result.findings}
@@ -224,6 +244,35 @@ class TestEMCAnalyzer(unittest.TestCase):
 
         self.assertEqual(gp003(tracks=tracks, vias=vias, through_pads=pins), [])
         self.assertEqual(len(gp003(tracks=tracks, vias=vias)), 1)
+
+    def test_gp003_takes_each_isolated_ground_on_its_own(self):
+        # poe_bt: the PoE side's ground (/POE_MOD_VN) pours most of In1; the
+        # isolated secondary's GND holds its own pour there and three pin
+        # rings joined by their barrels to its B.Cu plane. Counted as one
+        # ground, the larger primary pour made every GND piece an island.
+        primary = box(0.0, 0.0, 40.0, 50.0)
+        secondary = box(50.0, 0.0, 70.0, 50.0)
+        rings = [box(55.0 + 4.0 * index, 55.0, 57.0 + 4.0 * index, 57.0) for index in range(3)]
+        zones = {
+            "/POE_MOD_VN": {1: primary},
+            "GND": {1: unary_union([secondary, *rings]), 31: box(50.0, 0.0, 70.0, 60.0)},
+        }
+        pins = [EMCVia("GND", (56.0 + 4.0 * index, 56.0), (), 0.9) for index in range(3)]
+
+        def gp003(through_pads):
+            snap = EMCGeometrySnapshot(
+                bounds_mm=(0.0, 0.0, 70.0, 60.0), stackup=stackup(),
+                tracks=[EMCTrack("SIG", (1.0, 58.0), (40.0, 58.0), 0.2, 0, 39.0)],
+                vias=[EMCVia("GND", (60.0, 20.0), (0, 31))], through_pads=through_pads,
+                zones_by_net=zones,
+            )
+            settings = EMCAnalysisSettings(reference_net_names=["GND", "/POE_MOD_VN"])
+            return [item for item in EMCAnalyzer(snap, settings).analyze().findings if item.rule_id == "GP-003"]
+
+        self.assertEqual(gp003(pins), [])
+        bare = gp003([])
+        self.assertEqual(len(bare), 1)
+        self.assertIn("3 islands", bare[0].description)
 
     def test_live_board_capture_converts_ipc_values_before_worker_use(self):
         net = SimpleNamespace(name="SYS_CLK")

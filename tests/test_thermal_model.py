@@ -163,9 +163,10 @@ class TestPowerLossEstimator(unittest.TestCase):
 
         merged = merge_component_heat_sources(estimated, saved)
 
-        self.assertEqual([item.ref_des for item in merged], ["U1", "D2", "D1"])
-        self.assertEqual((merged[2].power_w, merged[2].width_mm), (0.5, 5.0))
-        self.assertIsNot(merged[2], saved[2])
+        # The saved order stands; the newly estimated U1 comes after it.
+        self.assertEqual([item.ref_des for item in merged], ["D2", "D1", "U1"])
+        self.assertEqual((merged[1].power_w, merged[1].width_mm), (0.5, 5.0))
+        self.assertIsNot(merged[1], saved[2])
         # A full re-estimate still starts over.
         self.assertEqual(
             [item.ref_des for item in merge_component_heat_sources(estimated, saved, preserve_user=False)],

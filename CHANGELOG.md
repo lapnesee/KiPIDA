@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+Loading a project and saving it again, as each batch does, gives the file
+back. Before, it came out changed without anyone touching it:
+- AC capacitor models keep their saved capacitance, ESR and ESL unless the
+  saved model is Ki-PIDA's own discovery estimate. Its source starts with
+  `value-and-package-estimate`, or reads `estimated` when a file has none.
+  On poe_bt, models a generator had written as "estimate: TDK ..." were
+  replaced by the case size table before each batch.
+- Capacitors keep their saved order. Rediscovery adds the ones newly found
+  across the rail and drops the ones gone, and the log names both. Saved
+  pads that no longer match the board are logged, for a capacitor and for
+  an AC source or measurement port.
+- A pad number split over two pads counts once: poe_bt's source ground pads
+  were saved as 9, 11, 12, 12.
+- Thermal heat sources keep their saved order, with newly estimated parts
+  after it. A saved profile gains no 0 W external load it did not hold.
+  Any saved source the power estimate did not write is kept whole, as a
+  hand-entered one was; the estimate writes `power-tree-load`,
+  `power-tree-external-load` and `regulator-loss`.
+GP-003 looks for islands net by net. Each reference net is its own ground,
+so the primary and secondary of an isolated supply are not islands of each
+other. On poe_bt the larger /POE_MOD_VN pour made all ten GND pieces of In1
+and of In2 islands, including the rings that the barrels of the
+through-hole ground pins join.
+GP-001 and RP-001 leave DC feeds alone: an EMC source with no frequency
+that names its own return conductor (`negative_net_name`). Its current
+returns through that conductor, not the plane. The ground via RP-001 asked
+for would have joined poe_bt's isolated PoE side to GND through its centre
+taps. The log names the nets it skips. A source with a frequency, or with
+no stated return, is checked as before.
+
 A heatsink can be bonded to the board (`thermal_profile.heatsinks`): on a zone of
 either face (`mount` BOARD, a rectangle or `polygon_mm`), where each outer
 cell under it reaches one heatsink node through the interface over the area

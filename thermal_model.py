@@ -191,26 +191,50 @@ class PowerLossEstimator:
         return PowerLossEstimator.estimate_details(rails).components
 
 
+# The sources PowerLossEstimator writes; "estimated" is what a file without
+# a source loads as. A saved component with any other source (user, or a
+# note another tool wrote) holds values the file chose.
+ESTIMATE_SOURCES = frozenset({
+    "", "estimated", "power-tree-load", "power-tree-external-load", "regulator-loss",
+})
+
+
+def is_estimated_heat_source(model_source) -> bool:
+    return str(model_source or "").strip() in ESTIMATE_SOURCES
+
+
 def merge_component_heat_sources(estimated, saved_components, preserve_user=True):
     """Merge fresh electrical losses with persisted thermal component models.
 
     Automatic entries retain their current loss estimate but keep the physical
-    package and junction settings explicitly saved by the user.  User-owned
-    entries remain fully manual, including their power value, and stay when
-    the estimate does not name them: a bridge diode's loss typed by hand has
-    no electrical estimate, and dropping it here took it out of the saved
-    configuration at the next refresh.
+    package and junction settings explicitly saved by the user.  Entries the
+    estimate did not write (user, or another tool's) remain fully manual,
+    including their power value, and stay when the estimate does not name
+    them: a bridge diode's loss typed by hand has no electrical estimate, and
+    dropping it here took it out of the saved configuration at the next
+    refresh.
+
+    Loading and saving must give the file back: the saved order is kept,
+    newly estimated parts come after it, and a zero-watt external load is
+    only listed in a profile not saved yet. poe_bt's generated file gained a
+    J2 at 0 W and a new order at every save.
     """
-    saved_by_ref = {component.ref_des: component for component in saved_components}
-    merged = []
+    if not preserve_user:
+        return list(estimated)
+    saved_by_ref = {}
+    for component in saved_components:
+        saved_by_ref.setdefault(component.ref_des, component)
+    merged = {}
     for component in estimated:
         prior = saved_by_ref.get(component.ref_des)
-        if prior is None or not preserve_user:
-            merged.append(component)
-        elif prior.model_source == "user":
-            merged.append(replace(prior))
+        if prior is None:
+            if saved_by_ref and component.power_w <= 0.0:
+                continue
+            merged[component.ref_des] = component
+        elif not is_estimated_heat_source(prior.model_source):
+            merged[component.ref_des] = replace(prior)
         else:
-            merged.append(replace(
+            merged[component.ref_des] = replace(
                 component,
                 width_mm=prior.width_mm,
                 depth_mm=prior.depth_mm,
@@ -231,14 +255,13 @@ def merge_component_heat_sources(estimated, saved_components, preserve_user=True
                 current_derating_source=prior.current_derating_source,
                 body_exchange=prior.body_exchange,
                 body_area_mm2=prior.body_area_mm2,
-            ))
-    if preserve_user:
-        estimated_refs = {component.ref_des for component in estimated}
-        merged.extend(
-            replace(component) for component in saved_components
-            if component.model_source == "user" and component.ref_des not in estimated_refs
-        )
-    return merged
+            )
+    for ref_des, component in saved_by_ref.items():
+        if ref_des not in merged and not is_estimated_heat_source(component.model_source):
+            merged[ref_des] = replace(component)
+    order = [ref_des for ref_des in saved_by_ref if ref_des in merged]
+    order += [ref_des for ref_des in merged if ref_des not in saved_by_ref]
+    return [merged[ref_des] for ref_des in order]
 
 
 class ThermalModelBuilder:

@@ -993,6 +993,20 @@ class EMCAnalyzer:
         for pair in self.differential_pairs:
             if getattr(pair, "enabled", True):
                 self._fast_nets.update((pair.positive_net, pair.negative_net))
+        # A source with no frequency of its own that names its own return
+        # conductor is a DC feed and its return: its current comes back
+        # through that conductor, not through the plane under it, so neither
+        # the plane-gap check (GP-001) nor the ground-via check (RP-001)
+        # applies, and the via RP-001 asks for would join an isolated
+        # supply's primary to its secondary. poe_bt's PoE centre taps
+        # (POE_CT12 back on POE_CT36, POE_CT45 on POE_CT78) drew both. A
+        # source with edges of its own keeps both: a pair's common mode
+        # still needs the plane.
+        self._dc_feed_nets = set()
+        for name, source in self._source_by_net.items():
+            negative = str(source.negative_net_name or "").strip()
+            if negative and float(source.frequency_hz or 0.0) <= 0.0:
+                self._dc_feed_nets.update((name, negative))
         self._checks = 0
 
     def log(self, message):
@@ -1039,7 +1053,22 @@ class EMCAnalyzer:
     GROUND_VIA_REACH_MM = 0.5
 
     def _ground_islands(self):
-        """``{layer: [piece]}``: ground pour pieces joined to the board's main ground by nothing.
+        """``{layer: [piece]}``: ground pour pieces joined to their net's main ground by nothing.
+
+        Each reference net is its own ground: an isolated supply's primary
+        and secondary grounds are two, and neither is an island of the
+        other. poe_bt declares GND and the PoE side's /POE_MOD_VN; counted
+        as one ground, the larger /POE_MOD_VN pour made every GND piece of
+        In1 and In2 an island, ten a layer.
+        """
+        islands = defaultdict(list)
+        for net in dict.fromkeys(self.settings.reference_net_names):
+            for layer, parts in self._net_islands(net).items():
+                islands[layer].extend(parts)
+        return dict(islands)
+
+    def _net_islands(self, net):
+        """``{layer: [piece]}``: *net*'s pour pieces joined to its main body by nothing.
 
         A pour splits into pieces wherever tracks and pads cut it, and the
         small ring a fill leaves around a via is a piece of its own. A ground
@@ -1050,20 +1079,23 @@ class EMCAnalyzer:
         The main ground is the joined group of greatest pour area; every
         piece outside it is an island.
         """
-        grounds = set(self.settings.reference_net_names)
         pieces = []
-        for layer, geometry in self._ground_zones.items():
+        for layer, geometry in (self.snapshot.zones_by_net.get(net) or {}).items():
+            if geometry is None:
+                continue
             for part in getattr(geometry, "geoms", [geometry]):
                 if not part.is_empty:
-                    pieces.append((layer, part))
+                    pieces.append((int(layer), part))
+        if not pieces:
+            return {}
         tracks = [
             (track.layer_id, LineString([track.start, track.end]).buffer(max(track.width_mm, 0.0) / 2.0))
-            for net in grounds for track in self._tracks.get(net, ())
+            for track in self._tracks.get(net, ())
         ]
         order = [int(layer.layer_id) for layer in self._copper_layers if layer.layer_id is not None]
         holes = []
         for joint in [*self.snapshot.vias, *self.snapshot.through_pads]:
-            if joint.net_name not in grounds:
+            if joint.net_name != net:
                 continue
             ends = [order.index(layer) for layer in joint.layer_ids if layer in order]
             spanned = order[min(ends):max(ends) + 1] if len(ends) >= 2 else order
@@ -1481,7 +1513,8 @@ class EMCAnalyzer:
                 continue
             source = source_by_net.get(net)
             total_length = sum(item.length_mm for item in tracks)
-            if (net in self._fast_nets and net not in pair_nets and self._enabled("GROUND")
+            if (net in self._fast_nets and net not in pair_nets and net not in self._dc_feed_nets
+                    and self._enabled("GROUND")
                     and LineString is not None and self._ground_zones):
                 self._check()
                 covered_length = 0.0
@@ -1576,6 +1609,7 @@ class EMCAnalyzer:
         for via in self.snapshot.vias:
             if (via.net_name in self.settings.reference_net_names
                     or via.net_name in self.snapshot.power_nets
+                    or via.net_name in self._dc_feed_nets
                     or via.net_name not in self._fast_nets):
                 continue
             # A via is an EMC reference transition only when this routed net is
@@ -2622,6 +2656,12 @@ class EMCAnalyzer:
                 "filled zones or net-connected pads), so every EMI/EMC check would read "
                 "an empty board rather than the real one. Wait for PCB Editor "
                 "synchronisation and retry."
+            )
+        feeds = sorted(name for name in self._source_by_net if name in self._dc_feed_nets)
+        if feeds:
+            self.log(
+                f"EMC: {', '.join(feeds)} declared as DC feeds returning on their own conductor; "
+                "the plane-gap (GP-001) and ground-via (RP-001) checks skip them."
             )
         stages = [
             ("Ground planes", self._ground_rules),

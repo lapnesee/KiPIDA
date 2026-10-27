@@ -607,6 +607,69 @@ def format_capacitance(value_f: float) -> str:
     return f"{value_f:g}F"
 
 
+# Every capacitor model Ki-PIDA's own discovery writes starts with this.
+DISCOVERY_ESTIMATE_SOURCE = "value-and-package-estimate"
+
+
+def is_discovery_estimate(model_source) -> bool:
+    """Whether a saved capacitor model is Ki-PIDA's own estimate, which a
+    rediscovery may replace. "estimated" is what a file without a source
+    loads as. Any other source (user, datasheet, a note written by hand or
+    by another tool) holds values the file chose."""
+    text = str(model_source or "").strip()
+    return text in ("", "estimated") or text.startswith(DISCOVERY_ESTIMATE_SOURCE)
+
+
+def merge_discovered_capacitors(discovered, saved, log=None):
+    """The board's rail-to-return capacitors, carrying a saved profile's state.
+
+    The board decides which capacitors there are and on which pads: new
+    ones come in, gone ones go, each named in *log* when a saved list
+    existed. Enabled always carries over. The modelled values carry over
+    unless the saved model is Ki-PIDA's own estimate (AC-7: a stale estimate
+    must not shadow a corrected derating). poe_bt's generator saved
+    "estimate: TDK ..." models with the datasheet's ESR and ESL; the case
+    size table replaced them before each batch, and three campaigns ran
+    on models nobody chose.
+
+    The saved order is kept, new capacitors after it, so loading and saving
+    gives the file back.
+    """
+    saved_by_ref = {}
+    for capacitor in saved or []:
+        saved_by_ref.setdefault(capacitor.ref_des, capacitor)
+    found = {capacitor.ref_des: capacitor for capacitor in discovered}
+    for capacitor in discovered:
+        prior = saved_by_ref.get(capacitor.ref_des)
+        if prior is None:
+            continue
+        capacitor.enabled = prior.enabled
+        if not is_discovery_estimate(prior.model_source):
+            capacitor.capacitance_f = prior.capacitance_f
+            capacitor.esr_ohm = prior.esr_ohm
+            capacitor.esl_h = prior.esl_h
+            capacitor.model_source = prior.model_source
+        moved = [
+            f"{label} {', '.join(before)} -> {', '.join(after)}"
+            for label, before, after in (
+                ("rail", prior.rail_pad_names, capacitor.rail_pad_names),
+                ("return", prior.ground_pad_names, capacitor.ground_pad_names),
+            )
+            if before and set(map(str, before)) != set(map(str, after))
+        ]
+        if moved and log:
+            log(f"AC: {capacitor.ref_des} pads realigned with the board ({'; '.join(moved)}).")
+    order = [ref for ref in saved_by_ref if ref in found]
+    added = [capacitor.ref_des for capacitor in discovered if capacitor.ref_des not in saved_by_ref]
+    if saved_by_ref and log:
+        gone = [ref for ref in saved_by_ref if ref not in found]
+        if gone:
+            log(f"AC: {', '.join(gone)} no longer bridge the rail and its return; left out of the profile.")
+        if added:
+            log(f"AC: {', '.join(added)} found across the rail and its return; added to the profile.")
+    return [found[ref] for ref in order + added]
+
+
 class _PlanarNodeIndex:
     """Bucketed (x, y) index over mesh nodes for nearest-neighbour lookups.
 
@@ -950,11 +1013,15 @@ class ACModelBuilder:
 
             if not rail_pads or not ground_pads:
                 continue
+            # A pad number split over two pads (a thermal pad in halves)
+            # names one terminal, not two.
+            rail_pads = list(dict.fromkeys(rail_pads))
+            ground_pads = list(dict.fromkeys(ground_pads))
 
             candidate = self._is_dnp(footprint) or capacitance is None
             footprint_name = self._get_footprint_name(footprint)
             case_size = _case_size_from_footprint_name(footprint_name)
-            model_source = "value-and-package-estimate"
+            model_source = DISCOVERY_ESTIMATE_SOURCE
             # ESR and ESL cannot be looked up from the part number offline,
             # so a part that states them in "ESR"/"ESL" fields (from its
             # datasheet) is taken at its word; otherwise the case-size table
@@ -1007,8 +1074,12 @@ class ACModelBuilder:
         footprint = self._find_footprint(ref_des)
         if not footprint:
             return []
-        return [self._pad_number(pad) for pad in self._get_pads(footprint)
-                if self._pad_net_name(pad) == net_name]
+        # Once each: poe_bt's U1 has two pads numbered 12, and the saved
+        # source's ground pads came back as 9, 11, 12, 12.
+        return list(dict.fromkeys(
+            self._pad_number(pad) for pad in self._get_pads(footprint)
+            if self._pad_net_name(pad) == net_name
+        ))
 
     def find_pad_nodes(self, mesh, ref_des, pad_names, net_name):
         footprint = self._find_footprint(ref_des)
