@@ -562,6 +562,28 @@ class ThermalMesher:
         # shown to survive.
         return max(10000, min(hard_limit, memory_nodes)), cuda_requested
 
+    # Edge cells are measured against the copper of a square of this many
+    # cells a side.
+    _EDGE_TILE_CELLS = 16
+
+    @staticmethod
+    def _polygonal(geometry):
+        """The area-bearing part of an overlay result, as one polygonal geometry.
+
+        A clip whose edge runs along a copper edge comes back as a
+        GeometryCollection of polygons, lines and points. Its ``boundary`` is
+        None, so the outline walk marked no edge cell, and every later
+        overlay against it took GEOS's slow mixed-dimension path.
+        """
+        import shapely
+        if geometry is None or geometry.is_empty or geometry.geom_type in ("Polygon", "MultiPolygon"):
+            return geometry
+        parts = shapely.get_parts(geometry)
+        nested = [ThermalMesher._polygonal(part) for part in parts if part.geom_type == "GeometryCollection"]
+        keep = [part for part in parts if part.geom_type in ("Polygon", "MultiPolygon")]
+        keep += [part for part in nested if part is not None and not part.is_empty]
+        return shapely.union_all(keep) if keep else shapely.Polygon()
+
     @staticmethod
     def _sample_layer_band(outline, copper, min_x, min_y, nx, row_start, row_stop, grid,
                            outline_is_rectangular=False):
@@ -612,10 +634,10 @@ class ThermalMesher:
                     # The band's copper only, cut once: walking and
                     # intersecting the whole layer per band cost 3.2 s a
                     # layer on P02 Rev E's In1.Cu at 0.2 mm, 0.09 s before.
-                    band_copper = shapely.intersection(copper, shapely.box(
+                    band_copper = ThermalMesher._polygonal(shapely.intersection(copper, shapely.box(
                         min_x - grid, min_y + (int(row_start) - 1) * grid,
                         min_x + (int(nx) + 1) * grid, min_y + (int(row_stop) + 1) * grid,
-                    ))
+                    )))
                     walk = shapely.segmentize(band_copper.boundary, grid / 3.0)
                     points = shapely.get_coordinates(walk)
                 except (ImportError, AttributeError):
@@ -634,7 +656,26 @@ class ThermalMesher:
                         x_grid[candidates] - half, y_grid[candidates] - half,
                         x_grid[candidates] + half, y_grid[candidates] + half,
                     )
-                    covered = shapely.area(shapely.intersection(band_copper, cells))
+                    # Each cell meets the copper of its own tile, not the
+                    # whole band: one overlay per cell against a band of a
+                    # 6-layer board's outer copper (~60,000 vertices) ran for
+                    # hours on P02 Rev F at 0.2 mm.
+                    tile = ThermalMesher._EDGE_TILE_CELLS
+                    tiles_x = (int(nx) + tile - 1) // tile
+                    cols = candidates % int(nx)
+                    rows = candidates // int(nx)
+                    keys, owner = np.unique((rows // tile) * tiles_x + cols // tile, return_inverse=True)
+                    tile_x0 = min_x + (keys % tiles_x) * tile * grid
+                    tile_y0 = min_y + (int(row_start) + (keys // tiles_x) * tile) * grid
+                    # A hair wider than the cells they hold, so a cell edge
+                    # rounded a femtometre outward still meets its copper.
+                    pad = grid * 1.0e-6
+                    pieces = shapely.intersection(band_copper, shapely.box(
+                        tile_x0 - pad, tile_y0 - pad,
+                        tile_x0 + tile * grid + pad, tile_y0 + tile * grid + pad,
+                    ))
+                    pieces = np.array([ThermalMesher._polygonal(piece) for piece in pieces], dtype=object)
+                    covered = shapely.area(shapely.intersection(pieces[owner.ravel()], cells))
                     fraction[candidates] = np.clip(covered / (grid * grid), 0.0, 1.0)
             active = np.flatnonzero(inside)
             # Return the same compact, deterministic cell tuples consumed by

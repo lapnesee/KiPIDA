@@ -160,6 +160,60 @@ class CopperFractionTests(unittest.TestCase):
         self.assertTrue(all(0.0 < fractions[(ix, 1)] < 1.0 for ix in range(4)))
         self.assertEqual(fractions[(0, 0)], 0.0)
 
+    @staticmethod
+    def _cell_by_cell(copper, min_x, min_y, nx, row_start, row_stop, grid):
+        """The copper fraction of every cell, one overlay each against the whole layer."""
+        import shapely
+        return {
+            (ix, iy): shapely.area(shapely.intersection(copper, shapely.box(
+                min_x + ix * grid, min_y + iy * grid, min_x + (ix + 1) * grid, min_y + (iy + 1) * grid,
+            ))) / (grid * grid)
+            for iy in range(row_start, row_stop) for ix in range(nx)
+        }
+
+    def test_a_band_cut_along_a_copper_edge_keeps_its_traces_and_fractions(self):
+        # P02 Rev F's B.Cu cut at row 125 of 250 gave a GeometryCollection:
+        # its boundary was None, so the outline walk marked nothing, and one
+        # overlay per edge cell against it ran for hours.
+        import shapely
+        from shapely.geometry import box
+        from thermal_mesh import ThermalMesher
+        grid, nx, row_start, row_stop = 0.5, 40, 3, 12
+        pour_below = box(0.0, 0.0, 20.0, 1.0)      # ends exactly on the band's lower cut, y = 1.0
+        pour = box(2.3, 2.2, 7.9, 4.6)
+        trace = box(0.0, 3.95, 20.0, 4.05)        # 0.1 mm, between two rows of cell centres
+        copper = shapely.union_all([pour_below, pour, trace])
+        cut = shapely.intersection(copper, box(-grid, (row_start - 1) * grid, (nx + 1) * grid, (row_stop + 1) * grid))
+        self.assertEqual(cut.geom_type, "GeometryCollection")
+
+        cells = ThermalMesher._sample_layer_band(box(0.0, 0.0, 20.0, 6.0), copper, 0.0, 0.0, nx, row_start, row_stop, grid)
+
+        expected = self._cell_by_cell(copper, 0.0, 0.0, nx, row_start, row_stop, grid)
+        for ix, iy, fraction in cells:
+            self.assertAlmostEqual(fraction, expected[(ix, iy)], places=9, msg=(ix, iy))
+        self.assertTrue(all(0.0 < fraction for ix, iy, fraction in cells if iy in (7, 8) and ix > 16))
+
+    def test_tiled_edge_cells_match_one_overlay_per_cell(self):
+        # Edge cells are measured against their tile's copper; across tile
+        # borders the fractions must equal one overlay against the layer.
+        import shapely
+        from shapely.geometry import Point, box
+        from thermal_mesh import ThermalMesher
+        grid, nx, row_start, row_stop = 0.2, 70, 5, 45
+        copper = shapely.union_all(
+            [Point(1.0 + 1.37 * k, 1.5 + 0.61 * (k % 7)).buffer(0.45) for k in range(9)] +
+            [box(0.0, 3.1, 14.0, 3.33), box(6.05, 0.0, 6.17, 10.0)]
+        ).difference(Point(6.5, 4.0).buffer(0.8))
+        self.assertGreater(nx, 2 * ThermalMesher._EDGE_TILE_CELLS)
+
+        cells = ThermalMesher._sample_layer_band(box(0.0, 0.0, 14.0, 10.0), copper, 0.0, 0.0, nx, row_start, row_stop, grid)
+
+        expected = self._cell_by_cell(copper, 0.0, 0.0, nx, row_start, row_stop, grid)
+        self.assertEqual(len(cells), nx * (row_stop - row_start))
+        for ix, iy, fraction in cells:
+            self.assertAlmostEqual(fraction, expected[(ix, iy)], places=9, msg=(ix, iy))
+
+
 class NearestNodesTests(unittest.TestCase):
     def test_the_vectorised_lookup_matches_nearest_node(self):
         # The electro-thermal coupling mapped P02 Rev E's 2,641,865 electrical

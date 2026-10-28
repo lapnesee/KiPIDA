@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+The thermal mesh no longer stalls on a band cut along a copper edge. Such a
+cut comes back from GEOS as a GeometryCollection of polygons, lines and
+points. Two things followed:
+- Its boundary was None, so the outline walk marked no edge cell, and a
+  trace narrower than a cell that ran between cell centres counted as no
+  copper.
+- Every edge cell met the collection through GEOS's mixed-dimension overlay.
+  On P02 Rev F (6 layers, 0.2 mm), the second half of B.Cu sat in it for
+  more than two hours, on the v8 and v10 boards alike.
+
+The band keeps its polygons only. Each edge cell now meets the copper of
+its own 16 x 16-cell tile instead of the whole band. That band takes 1.7 s,
+and an ordinary band 1.4 s instead of 25.8 s, with the same fractions to
+3e-13.
+
 Loading a project and saving it again, as each batch does, gives the file
 back. Before, it came out changed without anyone touching it:
 - AC capacitor models keep their saved capacitance, ESR and ESL unless the
