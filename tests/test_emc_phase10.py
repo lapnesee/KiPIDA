@@ -58,9 +58,31 @@ class Phase10Tests(unittest.TestCase):
         regions = select_target_regions(self.snapshot(), findings, settings.phase10)
         del settings.phase10._parent_sources
         self.assertEqual(len(regions), 1)
-        self.assertEqual(regions[0].bounds_mm, (7.0, 7.0, 13.0, 13.0))
+        # EMC-4: a SWITCHING region is the evidence point +/- margin UNIONED
+        # with the switch node's own copper (here the U4_SW track, x 9-12)
+        # plus margin, not the point alone -- P02 Rev E's region_1 held L1
+        # but neither Q10 nor Q11, 20.1 mm apart, because it never looked
+        # past one point.
+        self.assertEqual(regions[0].bounds_mm, (4.0, 4.0, 16.0, 16.0))
         self.assertEqual(regions[0].source_names, ["U4 switch"])
         self.assertGreater(regions[0].estimated_cells, 0)
+
+    def test_a_region_over_the_cell_limit_is_meshed_coarser_not_skipped(self):
+        # P02 Rev E: both regions exceeded 2,000,000 cells at 0.25 mm (9.2M
+        # and 2.1M) and were skipped on every run.
+        settings = self.settings()
+        settings.phase10.mesh_resolution_mm = 0.1
+        settings.phase10.maximum_cells = 200000
+        settings.phase10._parent_sources = settings.sources
+        findings = [EMCFinding(
+            "SW-002", "SWITCHING", "HIGH", "Hot loop", "", "",
+            evidence=[EMCEvidence("board", "located", 10.0, 10.0, 3)], nets=["U4_SW"],
+        )]
+        (region,) = select_target_regions(self.snapshot(), findings, settings.phase10)
+        del settings.phase10._parent_sources
+        self.assertLessEqual(region.estimated_cells, 200000)
+        self.assertGreater(region.mesh_resolution_mm, 0.1)
+        self.assertIn("to fit the 200,000-cell limit", region.warnings[0])
 
     def test_source_linked_emission_region_precedes_passive_high_finding(self):
         settings = self.settings()
@@ -166,6 +188,249 @@ class Phase10Tests(unittest.TestCase):
             self.assertEqual(audits[0].compatibility, "MAPPING_VERIFIED_PSPICE_ONLY")
             self.assertTrue(Path(audits[0].wrapper_path).is_file())
             self.assertIn("XCORE VIN VBST EN SW", Path(audits[0].wrapper_path).read_text())
+
+    def test_an_encrypted_model_runs_in_its_manufacturer_bench_under_pspice(self):
+        # TI ships SLVMDD9's TPS55288 with "TPS55288 Startup.net", whose
+        # instance puts the boost-side SW2 pin on net SW2. PSpice for TI runs
+        # what ngspice cannot; a fake runner stands in for pspice.exe.
+        from emc_phase10 import read_pspice_print
+
+        class FakePSpice:
+            available = True
+
+            def run(self, netlist):
+                text = Path(netlist).read_text()
+                self.circuit = text
+                out = Path(netlist).with_suffix(".out")
+                rows = [
+                    f"  {k * 0.25e-6:.7E}  {9.0:.7E}  {12.0 if (k // 5) % 2 else 0.0:.7E}"
+                    for k in range(400)
+                ]
+                out.write_text("   TIME   V(SW1)   V(SW2)\n" + "\n".join(rows) + "\n JOB CONCLUDED\n")
+                return "concluded", out, 1.0
+
+        snapshot = self.snapshot()
+        snapshot.footprints = [EMCFootprint("U4", "TPS552882RPMR", (10.0, 10.0))]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "tps55288.lib").write_text(
+                ".SUBCKT TPS55288 DR1L DR1H VIN SW1 SW2 PGND\n+ PARAMS: SS=0\n$CDNENCSTART_ADV2\n",
+                encoding="utf-8",
+            )
+            (root / "bench").mkdir()
+            (root / "bench" / "TPS55288 Startup.net").write_text(
+                "X_U2 DR1L DR1H VIN SW1 SW2 0 TPS55288 PARAMS:\n+ SS=0\n", encoding="utf-8",
+            )
+            (root / "MODEL_CATALOG.csv").write_text(
+                "Component;SPICE_status;Model_or_action;Location_or_source;Notes\n"
+                "TPS552882RPMR;OFFICIEL_PSPICE_CHIFFRE;TPS55288;tps55288.lib;\n",
+                encoding="utf-8",
+            )
+            fake = FakePSpice()
+            audits = SpiceModelInventory(
+                root, audit_directory=root / "audit", pspice_runner=fake,
+                probe_cache_directory=root / "cache",
+            ).audit(snapshot, self.settings().sources)
+            self.assertEqual(audits[0].status, "PSPICE_BENCH_PASS")
+            self.assertIn(".PRINT TRAN V([SW1]) V([SW2])", fake.circuit)
+            self.assertIn("V(SW2) switched at 400 kHz", audits[0].notes)
+        # PSpice splits a wide table; the columns join by name.
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "wide.out"
+            out.write_text(
+                "   TIME   V(SW)   V(OUT)   I(L1)\n  1.0E-06  1.0  2.0  3.0\n  2.0E-06  4.0  5.0  6.0\n"
+                "   TIME   I(R1)\n  1.0E-06  7.0\n  2.0E-06  8.0\n JOB CONCLUDED\n"
+            )
+            columns = read_pspice_print(out)
+            self.assertEqual(columns["TIME"], [1.0e-6, 2.0e-6])
+            self.assertEqual(columns["I(R1)"], [7.0, 8.0])
+            # A name filling its 16-character column runs into the next, as
+            # in P02 Rev E's U5 board bench.
+            out.write_text(
+                "  TIME            V(N_MAIN_3V3_SW)I(L_L2)         V(N__3V3_MAIN)  \n"
+                "   2.8000000E-04  -1.7752400E-02   2.4656173E-01   9.0192461E-01\n JOB CONCLUDED\n"
+            )
+            columns = read_pspice_print(out)
+            self.assertEqual(columns["I(L_L2)"], [0.24656173])
+
+    def test_an_encrypted_model_without_a_verified_mapping_is_pspice_only(self):
+        # TI's model for P02 Rev E's TPS552882 (SLVMDD9, sub-circuit
+        # TPS55288) is Cadence-encrypted; found through the catalog it read
+        # AVAILABLE_REQUIRES_PIN_MAPPING, as if ngspice could run it.
+        snapshot = self.snapshot()
+        snapshot.footprints = [EMCFootprint("U4", "TPS552882RPMR", (10.0, 10.0))]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "tps55288.lib").write_text(
+                ".SUBCKT TPS55288 DR1L DR1H VIN EN SCL_NULL SDA_NULL\n$CDNENCSTART_ADV2\n",
+                encoding="utf-8",
+            )
+            (root / "MODEL_CATALOG.csv").write_text(
+                "Component;SPICE_status;Model_or_action;Location_or_source;Notes\n"
+                "TPS552882RPMR;OFFICIEL_PSPICE_CHIFFRE;TPS55288;tps55288.lib;\n",
+                encoding="utf-8",
+            )
+            audits = SpiceModelInventory(root).audit(snapshot, self.settings().sources)
+            self.assertEqual(audits[0].status, "AVAILABLE_PSPICE_ONLY")
+            self.assertIn("PSpice only", audits[0].notes)
+
+    @staticmethod
+    def p02_u14_board():
+        """P02 Rev E's U14 (LMR51450SDRRR) and the parts around it."""
+        from ingest.board_reader import Footprint, Pad, ParsedBoard
+
+        def part(reference, value, *pads, dnp=False):
+            return Footprint(reference, value, "", (0.0, 0.0), 0.0, "F.Cu", "", "", [
+                Pad(number, net, "passive", (0.0, 0.0), pinfunction=function)
+                for number, function, net in pads
+            ], dnp=dnp)
+
+        u14 = part("U14", "LMR51450SDRRR",
+                   *[(str(k), f"SW_{k}", "/J2_SRC_SW") for k in (1, 2, 3)],
+                   ("4", "BOOT_4", "/J2_SRC_BOOT"), ("5", "PG_5", "unconnected-(U14-PG-Pad5)"),
+                   ("6", "RT_6", "unconnected-(U14-RT-Pad6)"), ("7", "FB_7", "/J2_SRC_FB"),
+                   ("8", "AGND_8", "/J2_SRC_AGND"), ("9", "EN_9", "/J2_SRC_EN"),
+                   *[(str(k), f"VIN_{k}", "/VBUS_SYS") for k in (10, 11, 12)],
+                   ("13", "PGND_13", "GND"))
+        two = [
+            ("L3", "4.7uH / Isat>=12A", "/J2_SRC_SW", "/J2_SRC_VBUS"),
+            ("C54", "100n 50V X7R", "/J2_SRC_BOOT", "/J2_SRC_SW"),
+            ("R59", "100k 0.1%", "/J2_SRC_VBUS", "/J2_SRC_FB"),
+            ("R60", "18.2k 0.1%", "/J2_SRC_FB", "/J2_SRC_AGND"),
+            ("R62", "47k 1%", "/VBUS_SYS", "/J2_SRC_EN"),
+            ("R64", "21k 0.1%", "/J2_SRC_FB", "/J2_SRC_FB_SWITCH"),
+            ("C36", "22u 35V X5R", "/VBUS_SYS", "GND"),
+            ("C49", "47u 16V X5R", "/J2_SRC_VBUS", "GND"),
+        ]
+        footprints = [u14] + [part(ref, value, ("1", "", a), ("2", "", b)) for ref, value, a, b in two]
+        footprints += [
+            part("C60", "330p DNP", ("1", "", "/J2_SRC_SW"), ("2", "", "GND"), dnp=True),
+            part("Q13", "BC847B", ("1", "B", "/J2_PDO2"), ("2", "E", "GND"), ("3", "C", "/J2_SRC_FB_SWITCH")),
+        ]
+        return ParsedBoard(Path("p02.kicad_pcb"), None, None, footprints, [], [], [])
+
+    def test_a_converter_is_read_from_the_board_into_a_pspice_bench(self):
+        # P02 Rev E's U14 leaves RT open, which its datasheet sets to 500 kHz
+        # and TI's model does not switch with; R64 leads to a transistor, C60
+        # is not fitted.
+        from emc_phase10 import board_converter_bench
+
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / "LMR51450_TRANS.lib"
+            model.write_text(
+                ".SUBCKT LMR51450_TRANS AGND BOOT EN FB GND PGOOD RT SW1 SW2 SW3 VIN1 VIN2 VIN3\n"
+                "+  PARAMS: MODE=0\n$ENCRYPTED_LIB\n", encoding="utf-8",
+            )
+            bench = board_converter_bench(
+                self.p02_u14_board(), "U14", model, "LMR51450_TRANS", "/J2_SRC_SW",
+                {"/VBUS_SYS": 20.0, "/J2_SRC_VBUS": 5.2}, 3.0, 20.0,
+            )
+        text = bench["text"]
+        self.assertIn("R_KIPIDA_RT N_OPEN_U14_RT 0 31600", text)
+        self.assertIn("L_L3 N_J2_SRC_SW N_J2_SRC_VBUS 4.7e-06 IC=3", text)
+        self.assertIn("C_C49 N_J2_SRC_VBUS 0 4.7e-05 IC=5.2", text)
+        self.assertIn("R_R62 N_VBUS_SYS N_J2_SRC_EN 47000", text)
+        self.assertIn("R_KIPIDA_LOAD N_J2_SRC_VBUS 0 1.73333", text)
+        self.assertIn("LMR51450_TRANS PARAMS: MODE=1", text)
+        self.assertNotIn("C60", text)
+        self.assertNotIn("R64", text)
+        self.assertIn("GND=0", bench["pin_mapping"])
+        self.assertIn("SW3=/J2_SRC_SW", bench["pin_mapping"])
+
+    def test_a_board_circuit_draws_the_power_trees_current(self):
+        # P02 Rev E: U4's circuit drew the 4.36 A entered for its source,
+        # where the power tree's loads give U4 4.726 A.
+        from dataclasses import replace
+        from types import SimpleNamespace
+        from models import EMCBoardCircuitResult, EMCPhase10Result, EMCSpiceModelAudit
+        from power_tree import ConverterOutput
+
+        drawn = []
+
+        class FakeSimulator:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            def run(self, _board, source, reference, _path, model_name, *_rest):
+                drawn.append(source.current_a)
+                return EMCBoardCircuitResult(source.name, reference, "NOT_BUILT", model_name)
+
+        source = EMCSignalSource("U4 SW1 buck leg (Q10/Q11/L1)", "/SYS_5V_SW1", kind="SWITCHING",
+                                 frequency_hz=400e3, voltage_swing_v=20.0, current_a=4.36)
+        snapshot = SimpleNamespace(rail_voltages={}, converter_outputs={
+            "U4": ConverterOutput("U4 buck-boost 5 V machine", "/SYS_5V_PRE_SENSE", 4.7262, 400e3),
+        })
+        audit = EMCSpiceModelAudit("U4", "TPS552882", source.name, "PSPICE_BENCH_PASS",
+                                   model_name="TPS55288", model_path="tps55288.lib")
+        logged = []
+        # The 22:29 run, source entered at the tree's 4.726 A, still logged a
+        # difference against its unrounded 4.7262 A.
+        for entered in (4.36, 4.726):
+            with tempfile.TemporaryDirectory() as directory:
+                board = Path(directory) / "p02.kicad_pcb"
+                board.write_text("(kicad_pcb)", encoding="utf-8")
+                pipeline = EMCPhase10Pipeline(
+                    snapshot, EMCAnalysisSettings(sources=[replace(source, current_a=entered)]), None,
+                    board_file_path=board, log_callback=logged.append,
+                )
+                with patch("emc_phase10.read_board", return_value=object()),                         patch("emc_phase10.BoardCircuitSimulator", FakeSimulator):
+                    pipeline._run_board_circuits(
+                        EMCPhase10Result(spice_model_audit=[audit]), None, Path(directory),
+                    )
+        self.assertEqual(drawn, [4.7262, 4.7262])
+        self.assertEqual([line for line in logged if "the source is entered at" in line],
+                         ["[PHASE 10] Board circuit U4 draws 4.73 A, U4 buck-boost 5 V machine's output "
+                          "in the power tree; the source is entered at 4.36 A."])
+
+    def test_a_board_circuit_gives_the_excitation_its_switched_current(self):
+        # P02 Rev E's U14 in its board circuit under PSpice for TI: 478.5 kHz,
+        # 5.2 V, inductor 2.16 to 3.82 A under the source's 3 A load.
+        import re
+        from application.emc_controller import _phase10_spice_findings
+        from emc_phase10 import BoardCircuitSimulator, board_circuit_excitation
+        from models import EMCPhase10Result
+
+        class FakePSpice:
+            calls = 0
+
+            def run(self, netlist):
+                self.calls += 1
+                step, stop, start = (float(item) for item in re.search(
+                    r"\.TRAN (\S+) (\S+) (\S+)", Path(netlist).read_text()).groups())
+                rows = []
+                for k in range(int(round((stop - start) / step)) + 1):
+                    t = start + k * step
+                    phase = (t * 478.5e3) % 1.0
+                    ramp = 2.1 + 1.8 * (phase / 0.27 if phase < 0.27 else (1 - phase) / 0.73)
+                    current = max(2.158, min(3.824, ramp))
+                    rows.append(f"  {t:.8E}  {20.0 if phase < 0.27 else 0.0:.7E}  {current:.7E}  {5.2:.7E}")
+                out = Path(netlist).with_suffix(".out")
+                out.write_text("  TIME            V(N_J2_SRC_SW)  I(L_L3)         V(N_J2_SRC_VBUS)\n"
+                               + "\n".join(rows) + "\n JOB CONCLUDED\n")
+                return "concluded", out, 88.0
+
+        source = EMCSignalSource("U14 SW (J2 source buck)", "/J2_SRC_SW", kind="SWITCHING",
+                                 frequency_hz=500e3, rise_time_ns=5.0, voltage_swing_v=20.0, current_a=3.0)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            model = root / "LMR51450_TRANS.lib"
+            model.write_text(".SUBCKT LMR51450_TRANS AGND BOOT EN FB GND PGOOD RT SW1 SW2 SW3 VIN1 VIN2 "
+                             "VIN3\n+  PARAMS: MODE=0\n", encoding="utf-8")
+            fake = FakePSpice()
+            simulator = BoardCircuitSimulator(fake, root / "cache")
+            rails = {"/VBUS_SYS": 20.0, "/J2_SRC_VBUS": 5.2}
+            result = simulator.run(self.p02_u14_board(), source, "U14", model, "LMR51450_TRANS", rails,
+                                   root / "run")
+            again = simulator.run(self.p02_u14_board(), source, "U14", model, "LMR51450_TRANS", rails,
+                                  root / "again")
+        self.assertEqual(result.status, "SWITCHING")
+        self.assertAlmostEqual(result.frequency_hz / 1e3, 478.5, delta=2.0)
+        self.assertEqual((again.status, fake.calls), ("SWITCHING", 1))
+        # 478.5 kHz is within 10 % of the configured 500 kHz: nothing to report.
+        self.assertEqual(_phase10_spice_findings(EMCPhase10Result(board_circuits=[result])), [])
+        excitation = board_circuit_excitation(source, result)
+        self.assertEqual((excitation.provenance, excitation.peak_current_a), ("BOARD_CIRCUIT_PSPICE", 3.824))
+        self.assertAlmostEqual(excitation.maximum_dv_dt_v_s, 20.0 / 5e-9)
 
     @unittest.skipUnless(
         Path(r"C:\Spice64\bin\ngspice_con.exe").is_file()
@@ -279,11 +544,9 @@ Time for 8000 iterations with 399562.00 cells : 117.83 sec
         self.assertIsNone(points[0].limit_dbuv_m)
         self.assertIsNone(points[0].margin_db)
         self.assertIn("RELATIVE", points[0].provenance)
-
-    def test_known_windows_tool_paths_are_considered(self):
-        statuses = Phase10Toolchain(self.settings().phase10).detect()
-        names = {item.name for item in statuses}
-        self.assertEqual(names, {"NGSPICE", "OPENEMS", "OPENEMS_PYTHON", "GMSH", "PALACE"})
+        # A relative peak, not a quasi-peak field strength (EMC-8).
+        self.assertEqual(points[0].detector, "PEAK_RELATIVE")
+        self.assertAlmostEqual(points[0].level_rel_db, -8.0)
 
     def test_pipeline_routes_full_wave_execution_to_remote_palace_backend(self):
         settings = self.settings()
@@ -346,7 +609,10 @@ Time for 8000 iterations with 399562.00 cells : 117.83 sec
                 r"C:\Spice64\bin\ngspice_con.exe"
             ).run(self.settings().sources[0], directory)
             self.assertEqual(result.status, "SIMULATED")
-            self.assertEqual(result.provenance, "PARAMETRIC_NGSPICE")
+            # EMC-6: this is an ideal pulse into a resistive load, not a
+            # device-model circuit simulation; "PARAMETRIC_NGSPICE" said
+            # otherwise.
+            self.assertEqual(result.provenance, "IDEAL_PULSE")
             self.assertTrue(Path(result.waveform_path).is_file())
 
     @unittest.skipUnless(

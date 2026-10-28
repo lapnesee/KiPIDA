@@ -124,6 +124,31 @@ def main():
             early_log("Board has no document attribute")
         
         if board:
+            # Say which copy of the plugin is running, and which build.
+            #
+            # Without this, "is the code I just deployed the code that ran?"
+            # can only be answered by inferring from behaviour. That inference
+            # cost several rounds here, and got the answer wrong once: a
+            # hardcoded default in config_manager produced exactly the symptom
+            # of a stale deployment.
+            #
+            # The path matters as much as the hash. KiCad loads the plugin from
+            # wherever it was registered, which need not be the directory that
+            # was updated -- and the hash alone cannot reveal that.
+            try:
+                import os as _os
+
+                from runtime_environment import build_commit, plugin_version, source_fingerprint
+
+                _root = _os.path.dirname(_os.path.abspath(__file__))
+                early_log(
+                    f"Ki-PIDA {plugin_version(_root)} "
+                    f"(build {source_fingerprint(_root) or 'unknown'}"
+                    + (f", commit {build_commit(_root)}" if build_commit(_root) else "")
+                    + f") loaded from {_root}"
+                )
+            except Exception as exc:  # pragma: no cover - never block startup
+                early_log(f"Could not determine the plugin build: {exc}")
             early_log("Ki-PIDA connected successfully.")
         else:
             early_log("ERROR: client.get_board() returned None.")
@@ -132,7 +157,34 @@ def main():
         early_log(f"Connection failed with error: {e}")
         import traceback
         early_log(traceback.format_exc())
-        
+
+    # Record what the launching application says about itself, including when
+    # the connection failed. Nothing is decided from it yet: the Zeo layer's
+    # activation rule is chosen from these lines (docs/plan-universalite.md).
+    try:
+        from host_probe import append_host_report, describe_host
+
+        host_lines = describe_host(client, board, project)
+        for line in host_lines:
+            early_log(f"[HOST] {line}")
+        report_path = append_host_report(host_lines)
+        if report_path:
+            early_log(f"[HOST] Appended to {report_path}")
+    except Exception as exc:  # pragma: no cover - never block startup
+        early_log(f"[HOST] Host probe failed: {exc}")
+
+    # The host and the project it named decide whether the Zeo multi-board
+    # layer applies (docs/plan-universalite.md, section 3).
+    project_context = None
+    if project is not None and getattr(project, "path", None):
+        try:
+            from ingest.project_context import build_project_context, detect_host
+
+            project_context = build_project_context(project.path, detect_host(client))
+            early_log(f"[HOST] Project context: {project_context.summary}")
+        except Exception as exc:  # pragma: no cover - never block startup
+            early_log(f"[HOST] Project context unavailable: {exc}")
+
     # 2. Initialize wx App
     app = wx.App()
 
@@ -155,7 +207,7 @@ def main():
     
     # 3. Create and Show Dialog
     try:
-        dlg = KiPIDA_MainDialog(None, board_adapter=board, project=project)
+        dlg = KiPIDA_MainDialog(None, board_adapter=board, project=project, project_context=project_context)
     except Exception as e:
         early_log(f"CRITICAL: Failed to create KiPIDA_MainDialog: {e}")
         import traceback

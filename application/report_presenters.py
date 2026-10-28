@@ -1,6 +1,6 @@
 """Pure text presenters for analysis results; no wx or KiCad dependencies."""
 
-from ac_model import format_capacitance
+from ac_model import format_capacitance, target_mask
 from power_loss import format_power_stage_report
 
 
@@ -10,10 +10,24 @@ def format_ac_report(result, optimization=None, settings=None):
     worst = float(getattr(final, "worst_impedance_ohm", 0.0) or 0.0)
     frequencies = list(getattr(final, "frequencies_hz", ()) or ())
     impedance = list(getattr(final, "impedance_ohm", ()) or ())
-    failures = [
-        float(frequency) for frequency, value in zip(frequencies, impedance)
-        if target > 0.0 and abs(complex(value)) > target
-    ]
+    # Judged against the same mask as the verdict: flat to the step's
+    # bandwidth, rising with frequency above it (ac_model.target_mask).
+    # P02 Rev E's /VBUS_SYS, 2026-09-29 19:30, printed "Status: PASS" over
+    # "Worst/target ratio: 2.48x" and 9 exceeding points, all of them above
+    # its 35 MHz band.
+    bandwidth = float(getattr(final, "target_bandwidth_hz", 0.0) or 0.0)
+    floor_hz = float(getattr(final, "target_floor_hz", 0.0) or 0.0)
+    below_floor = float(getattr(final, "target_below_floor_ohm", 0.0) or 0.0)
+    points = [
+        (
+            float(frequency), abs(complex(value)),
+            target_mask(target, bandwidth, float(frequency), floor_hz, below_floor),
+        )
+        for frequency, value in zip(frequencies, impedance)
+    ] if target > 0.0 else []
+    failures = [frequency for frequency, magnitude, allowed in points if magnitude > allowed]
+    above_flat = sum(1 for _frequency, magnitude, _allowed in points if magnitude > target)
+    ratio = max((magnitude / allowed for _f, magnitude, allowed in points), default=0.0)
     capacitors = [
         item for item in (getattr(settings, "capacitors", ()) or ())
         if bool(getattr(item, "enabled", True))
@@ -24,10 +38,18 @@ def format_ac_report(result, optimization=None, settings=None):
         f"Status: {'PASS' if final.meets_target else 'TARGET NOT MET'}",
         f"Worst |Z|: {final.worst_impedance_ohm:.6g} ohm",
         f"Worst frequency: {final.worst_frequency_hz:.6g} Hz",
-        f"Target: {final.target_impedance_ohm:.6g} ohm",
-        f"Worst/target ratio: {(worst / target if target > 0 else 0.0):.3g}x",
+        f"Target: {final.target_impedance_ohm:.6g} ohm"
+        + (f", flat to {bandwidth / 1e6:.3g} MHz and rising with frequency above it"
+           if bandwidth > 0.0 else "")
+        + (f"; {below_floor:.6g} ohm below {floor_hz / 1e3:g} kHz"
+           if floor_hz > 0.0 and below_floor > 0.0 else ""),
+        f"Worst/target ratio: {ratio:.3g}x"
+        + (" (against the impedance allowed at each frequency)"
+           if bandwidth > 0.0 or floor_hz > 0.0 else ""),
         f"Target exceedance: {len(failures)}/{len(frequencies)} point(s)"
-        + (f", {failures[0]:.6g} to {failures[-1]:.6g} Hz" if failures else ""),
+        + (f", {failures[0]:.6g} to {failures[-1]:.6g} Hz" if failures else "")
+        + (f"; {above_flat} point(s) above the flat target, within its rise above the band"
+           if bandwidth > 0.0 and above_flat > len(failures) else ""),
         f"AC mesh: {int(getattr(final, 'mesh_node_count', 0)):,} nodes; requested "
         f"{float(getattr(final, 'requested_grid_size_mm', 0.0)):g} mm; effective "
         f"{float(getattr(final, 'effective_grid_size_mm', 0.0)):g} mm",
@@ -85,7 +107,9 @@ def format_cfd_report(mesh, result):
         f"Maximum air temperature: {result.maximum_air_temperature_c:.3f} C",
         f"Maximum solid temperature: {result.maximum_solid_temperature_c:.3f} C",
         f"Mapped heat: {result.total_heat_w:.6g} W",
-        f"Mass balance error: {result.mass_balance_error_pct:.4g}%",
+        "Mass balance error: not applicable (sealed enclosure, no through-flow)"
+        if not getattr(result, "mass_balance_applicable", True)
+        else f"Mass balance error: {result.mass_balance_error_pct:.4g}%",
         f"Energy balance error: {result.energy_balance_error_pct:.4g}%",
         f"Compute backend: {result.compute_backend} ({result.compute_device})",
         f"Last energy solve: {result.compute_solve_seconds:.4g} s, residual {result.compute_relative_residual:.4g}",
@@ -100,7 +124,15 @@ def format_dc_report(system_results):
     lines = ["System Simulation Results:", "=========================="]
     for net, data in system_results.items():
         vmin, vmax, drop = data["stats"]
-        lines.extend([f"Rail: {net}", f"  Range: {vmin:.4f} - {vmax:.4f} V", f"  Drop:  {drop:.4f} V", ""])
+        lines.extend([f"Rail: {net}", f"  Range: {vmin:.4f} - {vmax:.4f} V"])
+        if "load_drop_v" in data:
+            lines.append(f"  Worst load drop: {float(data['load_drop_v']):.4f} V")
+            lines.append(f"  Net spread: {drop:.4f} V")
+        else:
+            lines.append(f"  Drop:  {drop:.4f} V")
+        if data.get("engine"):
+            lines.append(f"  DC mesh: {data['engine']}")
+        lines.append("")
         actual_grid = data.get("grid_size_mm")
         requested_grid = data.get("requested_grid_size_mm", actual_grid)
         if actual_grid is not None:
@@ -108,6 +140,18 @@ def format_dc_report(system_results):
             lines.append(f"  DC grid: {actual_grid:.4g} mm{suffix}")
             if data.get("adaptive_grid"):
                 lines.append(f"  Requested DC grid: {requested_grid:.4g} mm")
+        grid_check = data.get("grid_sensitivity") or {}
+        if "delta_pct" in grid_check:
+            lines.append(
+                f"  Grid check: worst load drop {float(grid_check['check_drop_v']):.4f} V at "
+                f"{float(grid_check['check_grid_mm']):.4g} mm, {float(grid_check['delta_pct']):.1f}% "
+                f"from the {float(grid_check['grid_mm']):.4g} mm solve"
+            )
+        elif "below_budget_share" in grid_check:
+            lines.append(
+                f"  Grid check: not refined, the drop being under "
+                f"{float(grid_check['below_budget_share']):.0%} of the budget"
+            )
         detailed = data.get("detailed_result")
         if detailed is not None and not getattr(detailed, "valid", True):
             excluded = ", ".join(getattr(detailed, "excluded_load_references", []))
@@ -233,13 +277,40 @@ def format_thermal_report(
             lines.append(
                 f"  - {component.ref_des}: Tj={component.junction_temperature_c:.2f} C, "
                 f"P={component.power_w:.4g} W, margin={component.margin_c:.2f} C "
-                f"[theta JB={component.theta_jb_c_per_w:.4g} C/W; {status}; "
+                f"[theta JB={component.theta_jb_c_per_w:.4g} C/W over the board "
+                f"{getattr(component, 'board_reference', 'under the part')}; {status}; "
                 f"{component.model_source}; thermal={component.thermal_source}]"
             )
+            if getattr(component, "body_exchange", False):
+                heatsink_w = float(getattr(component, "body_to_heatsink_w", 0.0) or 0.0)
+                lines.append(
+                    f"      body node: {component.body_to_air_w:.4g} W to the air through its own "
+                    "surface, "
+                    + (f"{heatsink_w:.4g} W to its heatsink, " if heatsink_w else "")
+                    + f"{component.body_to_board_w:.4g} W to the board through thetaJB; "
+                    "Tj is the body temperature"
+                )
             if component.thermal_condition:
                 lines.append(f"      thermal condition: {component.thermal_condition}")
     else:
         lines.append("  - No mapped component heat source.")
+    heatsinks = list(getattr(result, "heatsink_results", None) or [])
+    skipped = list(getattr(result, "heatsink_skipped", None) or [])
+    if heatsinks or skipped:
+        lines.extend(["", "Heatsinks:"])
+        for heatsink in heatsinks:
+            where = (
+                f"on {heatsink.ref_des}" if heatsink.mount == "COMPONENT"
+                else f"on the {heatsink.side.lower()} face"
+            )
+            lines.append(
+                f"  - {heatsink.name} {where}, {heatsink.contact_area_mm2:.0f} mm2: "
+                f"T={heatsink.temperature_c:.2f} C, base {heatsink.base_c:.2f} C, "
+                f"{heatsink.to_air_w:.4g} W to the air [interface {heatsink.interface_c_per_w:.4g} K/W, "
+                f"thetaSA {heatsink.theta_sa_c_per_w:.4g} K/W, {heatsink.theta_sa_source}]"
+            )
+        for line in skipped:
+            lines.append(f"  - left out, {line}")
     lines.extend(["", "Model scope: steady-state 3D solid conduction with convective boundaries; this is not a volumetric CFD airflow solution."])
     if result.compute_fallback_reason:
         lines.append(f"Compute fallback: {result.compute_fallback_reason}")
@@ -312,13 +383,6 @@ def format_differential_report(results, stackup, target_tolerance_pct):
                 f"refs={section.reference_above or '-'} / {section.reference_below or '-'}, "
                 f"coverage={section.reference_coverage_pct:.1f}%{coplanar_detail}"
             )
-            if section.refinement_status not in {"2D_BASELINE", "NOT_APPLICABLE"}:
-                lines.append(
-                    f"    3-D refinement: {section.refinement_status}; "
-                    f"2-D={section.two_d_impedance_ohm:.3f} ohm -> "
-                    f"refined={section.three_d_impedance_ohm:.3f} ohm; "
-                    f"reason={section.refinement_reason}"
-                )
             section_warnings.update(section.warnings)
         section_warnings.update(result.warnings)
         lines.extend(f"  WARNING: {warning}" for warning in sorted(section_warnings))
@@ -374,10 +438,10 @@ def format_emc_summary_lines(settings, result):
     lines = [
         "EMI / EMC Pre-compliance Results",
         "================================",
-        f"Target: {settings.standard} ({settings.market})",
+        f"Reference standard (not evaluated): {settings.standard} ({settings.market})",
         f"Frequency band: {settings.frequency_start_hz / 1e6:g} .. "
         f"{settings.frequency_stop_hz / 1e6:g} MHz",
-        f"Risk score: {result.risk_score}/100",
+        f"Relative risk score (uncalibrated, not a compliance margin): {result.risk_score}/100",
         "Risk scoring: severity weighted by evidence confidence; repeated rules capped.",
         f"Checks evaluated: {result.total_checks}",
         f"Findings: {len(result.findings)} — critical {counts.get('CRITICAL', 0)}, "
@@ -544,6 +608,26 @@ def format_emc_phase10_lines(settings, result):
             f"max di/dt={excitation.maximum_di_dt_a_s:.6g} A/s; {excitation.provenance}."
         )
         lines.extend(f"      note: {note}" for note in excitation.notes)
+    circuits = getattr(phase10, "board_circuits", None) or []
+    if circuits:
+        lines.append("  - Converters in the board's circuit:")
+    for circuit in circuits:
+        if circuit.status in {"SWITCHING", "NOT_STEADY"}:
+            lines.append(
+                f"    * {circuit.component_ref} [{circuit.source_name}]: {circuit.status} after "
+                f"{circuit.simulated_s * 1e3:.3g} ms; {circuit.frequency_hz / 1e3:.1f} kHz, switch "
+                f"{circuit.switch_low_v:.2f} to {circuit.switch_high_v:.2f} V, output {circuit.output_v:.3f} V "
+                f"(rail {circuit.output_nominal_v:g} V), inductor {circuit.inductor_valley_a:.2f} to "
+                f"{circuit.inductor_peak_a:.2f} A, mean {circuit.inductor_mean_a:.2f} A."
+            )
+        else:
+            lines.append(f"    * {circuit.component_ref} [{circuit.source_name}]: {circuit.status}.")
+        if circuit.pin_mapping:
+            lines.append(f"      pins: {circuit.pin_mapping}")
+        if circuit.parts:
+            lines.append(f"      parts: {', '.join(circuit.parts)}")
+        lines.extend(f"      disagrees: {item}" for item in circuit.disagreements)
+        lines.extend(f"      note: {note}" for note in circuit.notes)
     lines.append("  - Remote Palace analyses:")
     if not getattr(phase10, "palace_runs", None):
         lines.append("    * None.")

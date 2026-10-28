@@ -37,6 +37,13 @@ class DCPlotPresenterTests(unittest.TestCase):
         self.assertEqual(layer_name(stackup, 2), "In1.Cu")
         self.assertEqual(layer_name(stackup, 7), "7")
 
+    def test_a_designer_layer_name_carries_kicads_own(self):
+        # COH-12: P02 Rev E's DC hotspots named F.Cu "F.Signal", the name
+        # IPC reports, while the campaign named it "F.Cu".
+        from layer_labels import canonical_copper_name
+        stackup = {"copper": {3: {"name": "F.Signal", "canonical_name": canonical_copper_name(3)}}}
+        self.assertEqual(layer_name(stackup, 3), "F.Signal (F.Cu)")
+
     def test_render_groups_rails_and_sorts_layers(self):
         mesh = SimpleNamespace(
             node_coords={1: (0, 0, 2), 2: (1, 0, 0)}, nodes=[1, 2],
@@ -52,6 +59,29 @@ class DCPlotPresenterTests(unittest.TestCase):
             self.assertTrue(kwargs["as_png"])
             self.assertAlmostEqual(kwargs["vmin"], 2.97)
             self.assertEqual(kwargs["vmax"], 3.3)
+
+    def test_the_plot_lock_is_taken_one_figure_at_a_time(self):
+        # P02 Rev E, 14:21:59-14:22:52: the DC maps held the lock over all
+        # 227 figures and the differential analysis waited 53 s to draw two.
+        class CountingLock:
+            def __init__(self):
+                self.entries, self.held = 0, False
+
+            def __enter__(self):
+                assert not self.held
+                self.entries, self.held = self.entries + 1, True
+
+            def __exit__(self, *_exc):
+                self.held = False
+
+        lock = CountingLock()
+        mesh = SimpleNamespace(node_coords={1: (0, 0, 2), 2: (1, 0, 0)}, nodes=[1, 2])
+        render_dc_plots(
+            {"VCC": {"mesh": mesh, "results": {1: 3.2, 2: 3.3}, "stats": (3.2, 3.3, 0.1)}},
+            plotter_factory=FakePlotter, plot_lock=lock,
+        )
+        self.assertEqual(lock.entries, 3)  # 3-D view and two layers, one each
+        self.assertFalse(lock.held)
 
     def test_drop_percentage_is_clamped(self):
         mesh = SimpleNamespace(node_coords={1: (0, 0, 0)}, nodes=[1])

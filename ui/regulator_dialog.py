@@ -1,12 +1,84 @@
 import wx
+from ui.number_input import parse_number
 try:
     from models import generate_regulator_name
 except ImportError:
     from ..models import generate_regulator_name
 
+
+CURVE_SOURCES = ("datasheet", "measurement")
+
+
+def parse_efficiency_points(text):
+    """loss_model["efficiency_table"] rows from one point per line.
+
+    A line is "Iout efficiency", at the regulator's own input and output, or
+    "Vin Vout Iout efficiency" for a datasheet's several curves. Fields part
+    on spaces, tabs or ";", a decimal comma is read as a point, and an
+    efficiency above 1 is a percentage. TH-008 asked for this curve while
+    the dialog took a single efficiency, which power_loss always treats as
+    a fallback, so the finding could never go away.
+    """
+    rows = []
+    for number, line in enumerate(str(text or "").splitlines(), start=1):
+        fields = line.replace(";", " ").split()
+        if not fields:
+            continue
+        try:
+            values = [float(field.replace(",", ".")) for field in fields]
+        except ValueError:
+            raise ValueError(f"Line {number}: '{line.strip()}' is not a list of numbers.") from None
+        if len(values) not in (2, 4):
+            raise ValueError(f"Line {number}: give 'Iout efficiency' or 'Vin Vout Iout efficiency'.")
+        *voltages, current, efficiency = values
+        if efficiency > 1.0:
+            efficiency /= 100.0
+        if not 0.0 < efficiency <= 1.0 or current < 0.0:
+            raise ValueError(f"Line {number}: the efficiency must lie in (0, 100] % and the current "
+                             "must not be negative.")
+        row = {"iout_a": current, "efficiency": round(efficiency, 6)}
+        if voltages:
+            row = {"vin_v": voltages[0], "vout_v": voltages[1], **row}
+        rows.append(row)
+    return rows
+
+
+def format_efficiency_points(table):
+    """The text parse_efficiency_points reads back, efficiencies in %."""
+    lines = []
+    for row in table or ():
+        efficiency = f"{float(row.get('efficiency', 0.0)) * 100.0:g}"
+        current = f"{float(row.get('iout_a', 0.0)):g}"
+        if "vin_v" in row or "vout_v" in row:
+            lines.append(f"{float(row.get('vin_v', 0.0)):g} {float(row.get('vout_v', 0.0)):g} "
+                         f"{current} {efficiency}")
+        else:
+            lines.append(f"{current} {efficiency}")
+    return "\n".join(lines)
+
+
+def apply_efficiency_curve(regulator, data):
+    """Set or clear the regulator's efficiency curve from the dialog's values,
+    leaving the rest of its loss model as it was."""
+    model = dict(regulator.loss_model or {})
+    table = list(data.get("efficiency_table") or ())
+    if table:
+        model["efficiency_table"] = table
+        source = dict(model.get("efficiency_table_source") or {})
+        source.update({
+            "source": data.get("efficiency_table_source") or CURVE_SOURCES[0],
+            "confidence": source.get("confidence", "medium"),
+            "reference": data.get("efficiency_table_reference", ""),
+        })
+        model["efficiency_table_source"] = source
+    else:
+        model.pop("efficiency_table", None)
+        model.pop("efficiency_table_source", None)
+    regulator.loss_model = model
+
 class RegulatorDialog(wx.Dialog):
     def __init__(self, parent, title, available_rails, discoverer, input_rail=None, output_rail=None):
-        super(RegulatorDialog, self).__init__(parent, title=title, size=(500, 650))
+        super(RegulatorDialog, self).__init__(parent, title=title, size=(520, 780))
         
         self.available_rails = sorted(available_rails)
         self.discoverer = discoverer
@@ -88,7 +160,9 @@ class RegulatorDialog(wx.Dialog):
         
         # --- Params Section ---
         sb_param = wx.StaticBoxSizer(wx.VERTICAL, self, "Parameters")
-        grid_p = wx.FlexGridSizer(2, 2, 5, 5)
+        # Rows as many as there are fields: (2, 2) held three rows already,
+        # which wx asserts on.
+        grid_p = wx.FlexGridSizer(0, 2, 5, 5)
         
         grid_p.Add(wx.StaticText(sb_param.GetStaticBox(), label="Type:"), 0, wx.ALIGN_CENTER_VERTICAL)
         self.cmb_type = wx.ComboBox(sb_param.GetStaticBox(), choices=["LINEAR", "SWITCHING"], style=wx.CB_READONLY)
@@ -109,7 +183,33 @@ class RegulatorDialog(wx.Dialog):
             sb_param.GetStaticBox(), choices=[], style=wx.CB_READONLY
         )
         grid_p.Add(self.cmb_thermal_comp, 1, wx.EXPAND)
-        
+
+        # The curve replaces the single efficiency above at the operating
+        # point; without one the loss rests on that estimate (TH-008).
+        box = sb_param.GetStaticBox()
+        self.lbl_curve = wx.StaticText(box, label="Efficiency curve:")
+        grid_p.Add(self.lbl_curve, 0, wx.ALIGN_TOP)
+        self.txt_curve = wx.TextCtrl(box, style=wx.TE_MULTILINE, size=(-1, 90))
+        self.txt_curve.SetToolTip(
+            "One point per line: 'Iout(A) efficiency(%)' at this regulator's input and output, "
+            "or 'Vin Vout Iout efficiency' for several curves. Leave empty to use the single "
+            "efficiency above."
+        )
+        grid_p.Add(self.txt_curve, 1, wx.EXPAND)
+        self.lbl_curve_source = wx.StaticText(box, label="Curve from:")
+        grid_p.Add(self.lbl_curve_source, 0, wx.ALIGN_CENTER_VERTICAL)
+        source_row = wx.BoxSizer(wx.HORIZONTAL)
+        self.cmb_curve_source = wx.ComboBox(box, choices=list(CURVE_SOURCES), style=wx.CB_READONLY)
+        self.cmb_curve_source.SetValue(CURVE_SOURCES[0])
+        source_row.Add(self.cmb_curve_source, 0, wx.RIGHT, 5)
+        self.txt_curve_reference = wx.TextCtrl(box)
+        self.txt_curve_reference.SetHint("Reference, e.g. datasheet figure")
+        source_row.Add(self.txt_curve_reference, 1, wx.EXPAND)
+        grid_p.Add(source_row, 1, wx.EXPAND)
+        self._curve_controls = (self.txt_curve, self.cmb_curve_source, self.txt_curve_reference)
+        for control in self._curve_controls:
+            control.Disable()
+
         grid_p.AddGrowableCol(1, 1)
         sb_param.Add(grid_p, 1, wx.EXPAND | wx.ALL, 5)
         vbox.Add(sb_param, 0, wx.EXPAND | wx.ALL, 5)
@@ -188,10 +288,9 @@ class RegulatorDialog(wx.Dialog):
             self.cmb_thermal_comp.SetSelection(0)
 
     def on_type_change(self, event):
-        if self.cmb_type.GetValue() == "SWITCHING":
-            self.txt_eff.Enable()
-        else:
-            self.txt_eff.Disable()
+        switching = self.cmb_type.GetValue() == "SWITCHING"
+        for control in (self.txt_eff,) + self._curve_controls:
+            control.Enable(switching)
 
 
     def _update_auto_name(self):
@@ -240,11 +339,15 @@ class RegulatorDialog(wx.Dialog):
             regulator.thermal_ref_des or regulator.input_ref_des
         )
         
+        model = dict(getattr(regulator, "loss_model", None) or {})
+        self.txt_curve.SetValue(format_efficiency_points(model.get("efficiency_table")))
+        source = dict(model.get("efficiency_table_source") or {})
+        if source.get("source") in CURVE_SOURCES:
+            self.cmb_curve_source.SetValue(source["source"])
+        self.txt_curve_reference.SetValue(str(source.get("reference", "") or ""))
+
         # Enable/disable efficiency based on type
-        if regulator.reg_type == "SWITCHING":
-            self.txt_eff.Enable()
-        else:
-            self.txt_eff.Disable()
+        self.on_type_change(None)
             
     def on_ok(self, event):
         name = self.txt_name.GetValue().strip()
@@ -276,12 +379,17 @@ class RegulatorDialog(wx.Dialog):
 
         if self.cmb_type.GetValue() == "SWITCHING":
             try:
-                eff = float(self.txt_eff.GetValue())
+                eff = parse_number(self.txt_eff.GetValue())
                 if not (0.0 < eff <= 1.0): raise ValueError()
             except ValueError:
                 wx.MessageBox("Efficiency must be between 0.0 and 1.0", "Error", wx.OK | wx.ICON_ERROR)
                 return
-                
+            try:
+                parse_efficiency_points(self.txt_curve.GetValue())
+            except ValueError as exc:
+                wx.MessageBox(f"Efficiency curve: {exc}", "Error", wx.OK | wx.ICON_ERROR)
+                return
+
         event.Skip()
         
     def GetValue(self):
@@ -298,6 +406,12 @@ class RegulatorDialog(wx.Dialog):
             'output_ref_des': self.cmb_output_comp.GetValue(),
             'output_pads': out_pads,
             'type': self.cmb_type.GetValue(),
-            'efficiency': float(self.txt_eff.GetValue()) if self.cmb_type.GetValue() == "SWITCHING" else 1.0,
+            'efficiency': parse_number(self.txt_eff.GetValue()) if self.cmb_type.GetValue() == "SWITCHING" else 1.0,
             'thermal_ref_des': self.cmb_thermal_comp.GetValue(),
+            'efficiency_table': (
+                parse_efficiency_points(self.txt_curve.GetValue())
+                if self.cmb_type.GetValue() == "SWITCHING" else []
+            ),
+            'efficiency_table_source': self.cmb_curve_source.GetValue(),
+            'efficiency_table_reference': self.txt_curve_reference.GetValue().strip(),
         }

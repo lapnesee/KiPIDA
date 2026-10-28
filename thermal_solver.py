@@ -14,11 +14,13 @@ except ImportError:
     pypardiso = None
 
 try:
-    from .models import ComponentThermalResult, ThermalHotspot, ThermalResult
+    from .models import ComponentThermalResult, HeatsinkThermalResult, ThermalHotspot, ThermalResult
     from .compute_backend import SparseComputeBackend
+    from .thermal_mesh import component_reference_nodes
 except (ImportError, ValueError):
-    from models import ComponentThermalResult, ThermalHotspot, ThermalResult
+    from models import ComponentThermalResult, HeatsinkThermalResult, ThermalHotspot, ThermalResult
     from compute_backend import SparseComputeBackend
+    from thermal_mesh import component_reference_nodes
 
 
 class ThermalSolver:
@@ -37,6 +39,197 @@ class ThermalSolver:
     def _log(self, message):
         if self.log_callback:
             self.log_callback(f"[THERMAL SOLVER] {message}")
+
+    # Surface refinement stops when every face's coefficient moves less than
+    # this fraction between passes.  2% is far below the uncertainty of the
+    # correlations themselves, so tightening it would buy precision the
+    # physics cannot support.
+    SURFACE_H_TOLERANCE = 0.02
+    SURFACE_REFINEMENT_PASSES = 3
+
+    def solve_with_surface_refinement(self, mesh, settings, progress_callback=None,
+                                      materialize_temperatures=True):
+        """Solve, then correct the surface coefficients against the solution.
+
+        Natural convection and radiation both depend on how hot the surface
+        ends up, which is not known when the mesh is built.  The mesh starts
+        from a nominal rise; this re-evaluates each face's coefficient from the
+        temperature actually obtained, rescales that face's boundaries, and
+        re-solves, until the coefficients stop moving.
+
+        Falls back to a single plain solve when the mesh carries no surface
+        bookkeeping -- a mesh built by an older path, or one whose airflow mode
+        is CUSTOM, where the user has fixed h and refining it would override
+        them.
+        """
+        result = self.solve(
+            mesh, ambient_c=settings.ambient_c,
+            progress_callback=progress_callback,
+            materialize_temperatures=materialize_temperatures,
+        )
+        base = dict(getattr(mesh, "surface_h_w_m2k", {}) or {})
+        own_nodes = getattr(mesh, "body_nodes", None) or getattr(mesh, "heatsink_nodes", None)
+        if not (base or own_nodes) or str(settings.airflow.mode or "").upper() == "CUSTOM":
+            return result
+
+        result.surface_refined = True
+        for iteration in range(1, self.SURFACE_REFINEMENT_PASSES + 1):
+            updated, worst_change = self._refine_surface_exchange(mesh, settings, result)
+            if not updated:
+                break
+            self._log(
+                f"Surface exchange pass {iteration}: coefficients moved "
+                f"{worst_change * 100.0:.1f}% -- re-solving."
+            )
+            result = self.solve(
+                mesh, ambient_c=settings.ambient_c,
+                progress_callback=None,
+                materialize_temperatures=materialize_temperatures,
+            )
+            result.surface_refined = True
+            if worst_change <= self.SURFACE_H_TOLERANCE:
+                break
+        applied = ", ".join(
+            f"{kind} {value:.1f}" for kind, value in sorted(mesh.surface_h_w_m2k.items())
+        )
+        self._log(
+            f"Surface exchange settled at W/m2K: {applied} "
+            f"({getattr(mesh, 'convection_basis', 'unspecified basis')})."
+        )
+        # TH-8: _refine_surface_exchange always evaluates in-range (even when
+        # it finds nothing left to move, in which case the loop above never
+        # re-solves after it), so this must be copied on unconditionally
+        # rather than only on the result built by the next solve().
+        result.surface_correlation_in_range = dict(
+            getattr(mesh, "surface_correlation_in_range", {}) or {}
+        )
+        return result
+
+    def _refine_surface_exchange(self, mesh, settings, result):
+        """Recompute each face's coefficient from the solved temperatures.
+
+        Returns ``(updated, worst_relative_change)``.  ``updated`` is False
+        when every face already agrees with its solution to within tolerance,
+        which is the signal to stop iterating.
+        """
+        try:
+            from .thermal_mesh import ThermalMesher
+            from . import surface_convection
+        except (ImportError, ValueError):
+            from thermal_mesh import ThermalMesher
+            import surface_convection
+
+        temperatures = getattr(result, "temperature_vector_c", None)
+        if temperatures is None:
+            temperatures = np.fromiter(
+                (result.temperatures_c.get(node, settings.ambient_c) for node in mesh.nodes),
+                dtype=float, count=len(mesh.nodes),
+            )
+        temperatures = np.asarray(temperatures, dtype=float).reshape(-1)
+        node_index = {node: index for index, node in enumerate(mesh.nodes)}
+        boundary_nodes, _ = mesh.boundaries.arrays()
+        length_m = float(getattr(mesh, "characteristic_length_m", 0.0) or 0.0)
+        if length_m <= 0.0:
+            return False, 0.0
+
+        ambient = float(settings.ambient_c)
+        worst_change = 0.0
+        updated = False
+        # TH-8: natural_convection_in_range/forced_convection_in_range existed
+        # but were never called anywhere, so a board whose Rayleigh number
+        # sits outside the laminar horizontal-plate correlations' stated
+        # range (P02 Rev E: Ra ~ 8.0e3, below the 1e4 lower bound) got the
+        # correlation's number with no caveat that it was extrapolated.
+        # Evaluated here, at the operating point the solve actually settles
+        # on, rather than the mesh's nominal ambient + 30 K guess.
+        in_range = {}
+        for kind, current_h in list(mesh.surface_h_w_m2k.items()):
+            mask = mesh.boundaries.kind_mask(kind)
+            if not mask.any():
+                continue
+            indices = np.fromiter(
+                (node_index.get(int(node), -1) for node in boundary_nodes[mask]),
+                dtype=np.int64,
+            )
+            indices = indices[indices >= 0]
+            if not indices.size:
+                continue
+            face_mean_c = float(np.mean(temperatures[indices]))
+            delta_t = max(0.0, face_mean_c - ambient)
+            film_c = ambient + delta_t / 2.0
+            rayleigh = surface_convection.rayleigh_number(delta_t, length_m, film_c)
+            kind_in_range = surface_convection.natural_convection_in_range(rayleigh)
+            velocity = getattr(mesh, "air_velocity_m_s", None)
+            if str(settings.airflow.mode or "").upper() == "FORCED" or velocity:
+                reynolds = surface_convection.reynolds_number(
+                    velocity if velocity else settings.airflow.velocity_m_s, length_m, film_c,
+                )
+                kind_in_range = kind_in_range and surface_convection.forced_convection_in_range(reynolds)
+            in_range[kind] = kind_in_range
+            convective = ThermalMesher.surface_coefficient(
+                settings, kind, delta_t, length_m,
+                air_velocity_m_s=getattr(mesh, "air_velocity_m_s", None),
+            )
+            radiative = 0.0
+            if settings.include_radiation:
+                radiative = surface_convection.radiation_h(
+                    settings.emissivity, face_mean_c, ambient,
+                )
+            new_h = convective + radiative
+            if new_h <= 0.0 or current_h <= 0.0:
+                continue
+            change = abs(new_h - current_h) / current_h
+            worst_change = max(worst_change, change)
+            if change <= self.SURFACE_H_TOLERANCE:
+                continue
+            mesh.boundaries.scale_kind(kind, new_h / current_h)
+            mesh.surface_h_w_m2k[kind] = new_h
+            updated = True
+
+        # A component body's air boundary, on the body's own temperature and
+        # dimensions rather than the board face's mean.
+        # A heatsink stated by its fins, likewise; a stated thetaSA stays.
+        refined = [
+            entry for entry in (getattr(mesh, "body_nodes", None) or {}).values()
+            if entry.get("boundary") is not None
+        ] + [
+            entry for entry in (getattr(mesh, "heatsink_nodes", None) or [])
+            if float(entry["heatsink"].theta_sa_c_per_w or 0.0) <= 0.0
+        ]
+        for entry in refined:
+            index = node_index.get(int(entry["node"]), -1)
+            if index < 0:
+                continue
+            current_g = float(mesh.boundaries.conductance[entry["boundary"]])
+            if "heatsink" in entry:
+                new_g = ThermalMesher.heatsink_air_conductance(
+                    settings, entry["heatsink"], entry["geometry"], float(temperatures[index]),
+                    air_velocity_m_s=getattr(mesh, "air_velocity_m_s", None),
+                )
+            else:
+                new_g = ThermalMesher.body_air_conductance(
+                    settings, entry["geometry"], float(temperatures[index]),
+                    air_velocity_m_s=getattr(mesh, "air_velocity_m_s", None),
+                )
+            if new_g <= 0.0 or current_g <= 0.0:
+                continue
+            change = abs(new_g - current_g) / current_g
+            worst_change = max(worst_change, change)
+            if change <= self.SURFACE_H_TOLERANCE:
+                continue
+            mesh.boundaries.set_conductance(entry["boundary"], new_g)
+            updated = True
+
+        mesh.surface_correlation_in_range = in_range
+        if updated:
+            # Boundary conductances are baked into the assembled matrix, so a
+            # rescale invalidates it.  Dropping the cache is what makes the
+            # next solve see the new coefficients.
+            self._matrix_cache = {}
+            mesh.convection_coefficient_w_m2k = mesh.surface_h_w_m2k.get(
+                "top", mesh.convection_coefficient_w_m2k,
+            )
+        return updated, worst_change
 
     def solve(self, mesh, ambient_c=25.0, progress_callback=None,
               materialize_temperatures=True):
@@ -153,7 +346,22 @@ class ThermalSolver:
 
         if np.any(~np.isfinite(temperatures)):
             raise ValueError("Thermal solution contains non-finite temperatures.")
-        hotspot_index = int(np.argmax(temperatures))
+        bodies = getattr(mesh, "body_nodes", None) or {}
+        heatsinks = getattr(mesh, "heatsink_nodes", None) or []
+        body_indices = [
+            index for index in (
+                translate(entry["node"]) for entry in list(bodies.values()) + list(heatsinks)
+            ) if index is not None
+        ]
+        if body_indices and len(body_indices) < count:
+            # The board's hotspot: a body node is a component's own
+            # temperature, reported as its junction, and a heatsink node its
+            # own, reported with it; neither is a point of the board.
+            board_temperatures = np.array(temperatures, dtype=float, copy=True)
+            board_temperatures[body_indices] = -np.inf
+            hotspot_index = int(np.argmax(board_temperatures))
+        else:
+            hotspot_index = int(np.argmax(temperatures))
         hotspot_node = mesh.nodes[hotspot_index]
         hotspot_x, hotspot_y, hotspot_z = mesh.node_coords[hotspot_node]
         hotspot = ThermalHotspot(
@@ -164,17 +372,80 @@ class ThermalSolver:
             temperature_c=float(temperatures[hotspot_index]),
         )
 
+        heatsink_results = []
+        to_heatsink = {}
+        for entry in heatsinks:
+            index = translate(entry["node"])
+            if index is None:
+                continue
+            heatsink = entry["heatsink"]
+            temperature = float(temperatures[index])
+            air_g = float(mesh.boundaries.conductance[entry["boundary"]])
+            to_air = air_g * (temperature - float(ambient_c))
+            base = [(translate(node), weight) for node, weight in entry["base"]]
+            base = [(item, weight) for item, weight in base if item is not None]
+            weight_sum = sum(weight for _item, weight in base)
+            component_mount = str(heatsink.mount or "BOARD").upper() == "COMPONENT"
+            if component_mount:
+                to_heatsink[str(heatsink.ref_des).strip()] = to_air
+            heatsink_results.append(HeatsinkThermalResult(
+                name=str(heatsink.name),
+                mount="COMPONENT" if component_mount else "BOARD",
+                temperature_c=temperature,
+                to_air_w=float(to_air),
+                side="" if component_mount else (
+                    "BOTTOM" if str(heatsink.side or "BOTTOM").upper().startswith("B") else "TOP"
+                ),
+                ref_des=str(heatsink.ref_des).strip() if component_mount else "",
+                base_c=(
+                    sum(float(temperatures[item]) * weight for item, weight in base) / weight_sum
+                    if weight_sum > 0.0 else temperature
+                ),
+                contact_area_mm2=float(entry["contact_m2"]) * 1.0e6,
+                interface_c_per_w=float(entry["interface_c_per_w"]),
+                theta_sa_c_per_w=1.0 / air_g if air_g > 0.0 else float("inf"),
+                theta_sa_source=(
+                    "stated" if float(heatsink.theta_sa_c_per_w or 0.0) > 0.0
+                    else f"{float(heatsink.fin_area_mm2):g} mm2 of fins, "
+                         f"{entry['geometry']['orientation'].lower()}"
+                ),
+            ))
+
         component_results = []
-        for ref_des, nodes in mesh.component_nodes.items():
+        for ref_des in mesh.component_nodes:
             component = mesh.component_models[ref_des]
+            nodes, board_reference = component_reference_nodes(mesh, ref_des)
             valid_indices = np.fromiter(
                 (translate(node) for node in nodes if translate(node) is not None),
                 dtype=np.int64,
             )
             if valid_indices.size == 0:
                 continue
-            board_temperature = float(np.mean(temperatures[valid_indices]))
+            # TH-5: the mean under-part temperature can sit well below the
+            # part's own hotspot -- P02 Rev E read Q10 Tj 110.64 C under a
+            # 114.71 C board hotspot beneath Q10 itself. thetaJB already maps
+            # the part's total dissipation to its hottest junction, so the
+            # board-side term it adds to should be the hottest cell under the
+            # part, not an average that a cooler pad drags down. A psiJB or
+            # thetaJB is referred to the board 1 mm from the package instead
+            # (component_reference_nodes): under the part, P02 Rev E's U15
+            # added its psiJB to the peak of its own pads, which rose at every
+            # grid refinement (a model of the board around it: 92.8, 94.7 and
+            # 98.7 C at 0.4, 0.2 and 0.1 mm; 87.5, 87.8 and 89.1 C 1 mm out).
+            board_temperature = float(np.max(temperatures[valid_indices]))
             junction = board_temperature + component.power_w * max(0.0, component.theta_jb_c_per_w)
+            body_to_air = body_to_board = body_to_heatsink = 0.0
+            body = bodies.get(ref_des)
+            if body is not None and translate(body["node"]) is not None:
+                # A body node is the part's own temperature; what it does not
+                # pass to the air or to a heatsink on it reaches the board
+                # through thetaJB.
+                junction = float(temperatures[translate(body["node"])])
+                if body.get("boundary") is not None:
+                    boundary_g = float(mesh.boundaries.conductance[body["boundary"]])
+                    body_to_air = boundary_g * (junction - float(ambient_c))
+                body_to_heatsink = float(to_heatsink.get(ref_des, 0.0))
+                body_to_board = float(component.power_w) - body_to_air - body_to_heatsink
             component_results.append(ComponentThermalResult(
                 ref_des=ref_des,
                 board_temperature_c=board_temperature,
@@ -186,8 +457,22 @@ class ThermalSolver:
                 theta_jb_c_per_w=component.theta_jb_c_per_w,
                 thermal_source=getattr(component, "thermal_source", "estimate"),
                 thermal_condition=getattr(component, "thermal_condition", ""),
+                board_reference=board_reference,
+                rated_current_a=float(getattr(component, "rated_current_a", 0.0) or 0.0),
+                current_derating=list(getattr(component, "current_derating", None) or []),
+                current_derating_source=str(getattr(component, "current_derating_source", "") or ""),
+                body_exchange=body is not None,
+                body_to_air_w=body_to_air,
+                body_to_board_w=body_to_board,
+                body_to_heatsink_w=body_to_heatsink,
             ))
         component_results.sort(key=lambda item: item.junction_temperature_c, reverse=True)
+        # The hottest cell under each footprint's pads (mesh.placement_nodes).
+        placement_temperatures = {}
+        for ref_des, nodes in (getattr(mesh, "placement_nodes", None) or {}).items():
+            indices = [index for index in (translate(node) for node in nodes) if index is not None]
+            if indices:
+                placement_temperatures[ref_des] = float(np.max(temperatures[np.asarray(indices)]))
 
         if hasattr(mesh.boundaries, "arrays"):
             boundary_ids, boundary_g = mesh.boundaries.arrays()
@@ -206,11 +491,26 @@ class ThermalSolver:
             )
         denominator = max(abs(input_power), 1e-12)
         balance_error = abs(boundary_power - input_power) / denominator * 100.0
+        # TH-9: the check above only proves the linear solve is internally
+        # consistent -- everything deposited eventually leaves through a
+        # boundary -- not that everything the model asked for was deposited
+        # in the first place. A component with no placement, or whose
+        # window and nearest-node fallback both came up empty, or a
+        # copper-loss point whose nearest cell was not found (an unplaced or
+        # disabled component, or a copper branch without a cell,
+        # electrothermal.py:241) is invisible to it: it just deposits less
+        # heat, and a smaller total balances against itself just as cleanly.
+        intended_power = float(getattr(mesh, "intended_input_power_w", 0.0) or 0.0)
+        deposit_shortfall = max(0.0, intended_power - input_power)
         if progress_callback:
             progress_callback(3, 3, "results")
+        shortfall_note = (
+            f", {deposit_shortfall:.4g} W of {intended_power:.4g} W intended never reached a cell"
+            if deposit_shortfall > 1e-9 else ""
+        )
         self._log(
             f"Solved {count:,} nodes; hotspot {hotspot.temperature_c:.2f} C, "
-            f"energy error {balance_error:.3g}%; backend {compute.metadata.backend}, "
+            f"energy error {balance_error:.3g}%{shortfall_note}; backend {compute.metadata.backend}, "
             f"residual {compute.metadata.relative_residual:.3g}."
         )
         result_temperatures = ({
@@ -221,10 +521,23 @@ class ThermalSolver:
             temperature_vector_c=temperatures,
             hotspot=hotspot,
             component_results=component_results,
+            placement_temperatures_c=placement_temperatures,
+            heatsink_results=heatsink_results,
+            heatsink_skipped=list(getattr(mesh, "heatsink_skipped", None) or []),
             total_input_power_w=input_power,
             total_boundary_power_w=float(boundary_power),
             energy_balance_error_pct=float(balance_error),
+            intended_input_power_w=intended_power,
+            undeposited_power_w=float(deposit_shortfall),
             convection_coefficient_w_m2k=float(mesh.convection_coefficient_w_m2k),
+            surface_h_w_m2k=dict(getattr(mesh, "surface_h_w_m2k", {}) or {}),
+            surface_correlation_in_range=dict(
+                getattr(mesh, "surface_correlation_in_range", {}) or {}
+            ),
+            convection_basis=str(getattr(mesh, "convection_basis", "") or ""),
+            characteristic_length_m=float(
+                getattr(mesh, "characteristic_length_m", 0.0) or 0.0
+            ),
             compute_backend=compute.metadata.backend,
             compute_device=compute.metadata.device,
             compute_solve_seconds=compute.metadata.solve_seconds,
@@ -235,4 +548,8 @@ class ThermalSolver:
             compute_fallback_reason=compute.metadata.fallback_reason,
             compute_matrix_assembly=compute.metadata.matrix_assembly,
             compute_warm_start_used=compute.metadata.warm_start_used,
+            requested_grid_size_mm=float(getattr(mesh, "requested_grid_size_mm", 0.0) or 0.0),
+            effective_grid_size_mm=float(getattr(mesh, "grid_size_mm", 0.0) or 0.0),
+            adaptive_grid=bool(getattr(mesh, "adaptive_grid", False)),
+            mesh_node_count=len(getattr(mesh, "nodes", ()) or ()),
         )

@@ -1,9 +1,10 @@
 import math
+import time
 import unittest
 
 import numpy as np
 
-from cfd_mesh import CFDMeshGenerator
+from cfd_mesh import CFDMesh, CFDMeshGenerator
 from cfd_model import CFDObstacle, EnclosureModel
 from cfd_solver import EnclosureCFDSolver
 from models import CFDBoundaryPatch, EnclosureCFDSettings
@@ -18,7 +19,6 @@ class TestEnclosureCFDSolver(unittest.TestCase):
         settings.geometry.wall_heat_transfer_w_m2k = 8.0
         settings.solver.cell_size_mm = 6.0
         settings.solver.max_iterations = 12
-        settings.solver.pressure_iterations = 12
         settings.solver.tolerance = 1e-8
         settings.solver.pseudo_time_step_s = 0.002
         return settings
@@ -56,6 +56,195 @@ class TestEnclosureCFDSolver(unittest.TestCase):
         self.assertGreater(result.maximum_velocity_m_s, 0.0)
         self.assertTrue(math.isfinite(result.mass_balance_error_pct))
         self.assertTrue(np.isfinite(np.asarray(result.velocity_u_m_s)).all())
+
+    def test_energy_operator_is_not_assembled_cell_by_cell(self):
+        # P02 Rev E, 2026-09-22 21:56: the 165 x 100 x 50 mm enclosure meshed to
+        # 33 x 20 x 10 cells and took 129 s for 435 iterations; assembling the
+        # energy equation one cell and face at a time cost 0.34-0.67 s per
+        # call, nine tenths of the run. Whole-array assembly takes ~3 ms.
+        settings = EnclosureCFDSettings()
+        settings.geometry.width_mm = 165.0
+        settings.geometry.depth_mm = 100.0
+        settings.geometry.height_mm = 50.0
+        settings.solver.cell_size_mm = 5.0
+        model = EnclosureModel(
+            dimensions_mm=(165.0, 100.0, 50.0),
+            obstacles=[CFDObstacle("PCB", (5, 5, 18, 160, 95, 19.6), 0.3, 1.0)],
+        )
+        mesh = CFDMeshGenerator().generate_mesh(model, settings)
+        self.assertEqual(mesh.shape, (33, 20, 10))
+        solver = EnclosureCFDSolver()
+        velocity = [np.zeros(mesh.shape) for _ in range(3)]
+        previous = np.full(mesh.shape, settings.ambient_c + 10.0)
+
+        started = time.perf_counter()
+        temperature, _ = solver._solve_energy(mesh, settings, velocity, previous)
+        elapsed = time.perf_counter() - started
+
+        self.assertGreater(float(np.max(temperature)), settings.ambient_c)
+        self.assertLess(elapsed, 0.15)
+
+    def test_energy_advection_is_origin_invariant(self):
+        # docs/audit-2026-09-23.md CFD-2, P02 Rev E 2026-09-22 21:56:
+        # advecting with velocities re-averaged from cells instead of the
+        # pressure projection's own faces left the discrete energy row sums
+        # proportional to the field's *discrete* divergence -- a spurious
+        # term that scales with absolute temperature, not (T - ambient).
+        # Measured as Sum|rho cp div(V) T| = 21.5 W for 4.75 W injected, and
+        # it moved the reported peak air temperature from 404.7 to 1005.9 C
+        # when the origin shifted C -> K (scratchpad p02_inspect.py). Film
+        # coefficients are frozen to one ambient so only the advection
+        # operator -- not the legitimately absolute convection correlations
+        # -- is under test.
+        settings = self._settings()
+        model = EnclosureModel(
+            dimensions_mm=(30.0, 30.0, 30.0),
+            obstacles=[CFDObstacle("HOT", (12, 12, 12, 18, 18, 18), 5.0, 0.5)],
+        )
+        mesh = CFDMeshGenerator().generate_mesh(model, settings)
+
+        # Both correlations are legitimately functions of the *absolute*
+        # ambient temperature (film: air properties; beta, since CFD-7: the
+        # ideal-gas 1/T), so shifting ambient_c by 273.15 to fake a C -> K
+        # relabelling would otherwise also fake a real ambient change in
+        # each. Freezing both to the original ambient isolates the one
+        # thing this test is about: the advection operator.
+        orig_film = EnclosureCFDSolver._film_coefficient
+        orig_beta = EnclosureCFDSolver._boussinesq_beta
+        ambient0 = settings.ambient_c
+        frozen_film = staticmethod(
+            lambda dt, L, s, amb, e, facing="up", buoyancy_resolved=False,
+            _o=orig_film, _a=ambient0: _o(dt, L, s, _a, e, facing, buoyancy_resolved)
+        )
+        frozen_beta = staticmethod(lambda ambient_c, _o=orig_beta, _a=ambient0: _o(_a))
+        EnclosureCFDSolver._film_coefficient = frozen_film
+        EnclosureCFDSolver._boussinesq_beta = frozen_beta
+        try:
+            result_c = EnclosureCFDSolver().solve(mesh, settings)
+            shifted_settings = self._settings()
+            shifted_settings.ambient_c = ambient0 + 273.15
+            mesh_k = CFDMeshGenerator().generate_mesh(model, shifted_settings)
+            result_k = EnclosureCFDSolver().solve(mesh_k, shifted_settings)
+        finally:
+            EnclosureCFDSolver._film_coefficient = staticmethod(orig_film)
+            EnclosureCFDSolver._boussinesq_beta = staticmethod(orig_beta)
+
+        self.assertLess(
+            abs(result_c.maximum_air_temperature_c
+                - (result_k.maximum_air_temperature_c - 273.15)),
+            1.0,
+        )
+
+    def test_film_coefficient_facing_sets_the_natural_convection_branch(self):
+        # docs/audit-2026-09-23.md CFD-6: every solid-air face used to pass
+        # facing="up" regardless of which way it actually faces, over-
+        # estimating a downward-facing bottom face by the correlation's own
+        # stated ratio, 0.54 vs 0.27 (surface_convection.natural_convection_h).
+        up = EnclosureCFDSolver._film_coefficient(20.0, 0.01, 0.0, 25.0, 0.0, "up")
+        down = EnclosureCFDSolver._film_coefficient(20.0, 0.01, 0.0, 25.0, 0.0, "down")
+        self.assertGreater(up, down)
+        self.assertAlmostEqual(up / down, 0.54 / 0.27, places=2)
+
+    def test_a_resolved_buoyant_flow_is_not_counted_twice(self):
+        # CFD-6: with no fan the solved air speed is the buoyancy-driven flow
+        # itself, and blending its forced coefficient with the natural one
+        # counted the buoyancy twice.
+        import surface_convection
+        natural = surface_convection.natural_convection_h(20.0, 0.01, facing="up", ambient_c=25.0)
+        forced = surface_convection.forced_convection_h(0.05, 0.01, ambient_c=25.0, delta_t_k=20.0)
+        film = EnclosureCFDSolver._film_coefficient(20.0, 0.01, 0.05, 25.0, 0.0, "up", True)
+        self.assertAlmostEqual(film, max(natural, forced))
+
+    def test_boussinesq_beta_uses_the_actual_ambient_not_a_fixed_25c(self):
+        # docs/audit-2026-09-23.md CFD-7: beta was FluidProperties.thermal_
+        # expansion_per_k, a constant fitted at 25 C (0.00335 = 1/298.15)
+        # and applied unchanged at any ambient -- off by ~6.7% at P02 Rev E's
+        # 45 C ambient.
+        beta_25 = EnclosureCFDSolver._boussinesq_beta(25.0)
+        beta_45 = EnclosureCFDSolver._boussinesq_beta(45.0)
+        self.assertAlmostEqual(beta_25, 1.0 / 298.15, places=6)
+        self.assertAlmostEqual(beta_45, 1.0 / 318.15, places=6)
+        self.assertGreater(abs(beta_25 - beta_45) / beta_45, 0.06)
+
+    def test_free_stream_is_sampled_over_and_under_a_flat_board(self):
+        # P02 Rev E, 2026-09-22 21:58: a 1.6 mm board 15 mm up a 165 x 100 x
+        # 50 mm enclosure gave no sample at all -- the slab stopped at the
+        # board's own, solid, layer of cells -- and the report showed 0 m/s.
+        settings = EnclosureCFDSettings()
+        settings.solver.cell_size_mm = 5.0
+        obstacles = [CFDObstacle("PCB", (0, 0, 15, 160, 100, 16.6), 0.6, 0.4)]
+        obstacles += [
+            CFDObstacle(f"U{i}", (10 + 15 * i, 40, 16.6, 16 + 15 * i, 46, 20), 8.0, 0.2)
+            for i in range(10)
+        ]
+        mesh = CFDMeshGenerator().generate_mesh(
+            EnclosureModel((165.0, 100.0, 50.0), obstacles=obstacles), settings,
+        )
+        speed = np.ones(mesh.shape)
+        speed[:, :, -1] = 0.0  # the no-slip lid
+
+        velocity, cells = EnclosureCFDSolver._board_free_stream(mesh, speed)
+
+        self.assertGreater(cells, 0)
+        self.assertEqual(velocity, 1.0)
+
+    def test_free_stream_normal_comes_from_orientation_not_mask_extent(self):
+        # docs/audit-2026-09-23.md CFD-5, redo of commit 15666c8: with a
+        # board collapsed to one mesh cell (CFD-1's fallback, still possible
+        # for a board smaller than a cell on every axis) the populated mask's
+        # extent is (0, 0, 0) on every axis, so the old argmin-based normal
+        # trivially picked axis 0 (x) regardless of which way the board
+        # actually faces. On P02 Rev E that sampled a line running through
+        # the board's own plane -- 7 cells at 0.0117 m/s -- instead of the
+        # air above and below it. Built by hand rather than through
+        # CFDMeshGenerator so this exercises the sampler's own logic
+        # independently of whatever CFD-1 now does to the mesh.
+        shape = (13, 13, 13)
+        solid = np.zeros(shape, dtype=bool)
+        solid[6, 6, 6] = True
+        names = np.full(shape, "AIR", dtype=object)
+        names[6, 6, 6] = "PCB"
+        mesh = CFDMesh(
+            shape=shape, spacing_m=(0.005, 0.005, 0.005),
+            dimensions_m=(0.065, 0.065, 0.065),
+            fluid_mask=~solid, solid_mask=solid,
+            solid_conductivity_w_mk=np.zeros(shape), heat_sources_w=np.zeros(shape),
+            obstacle_names=names,
+        )
+        # Slow in-plane air (what the old, wrong axis would sample) against
+        # fast air rising and sinking through the board's true (XY) normal.
+        speed = np.full(shape, 0.02)
+        speed[6, 6, :] = 1.0
+
+        velocity, cells = EnclosureCFDSolver._board_free_stream(
+            mesh, speed, board_orientation="XY",
+        )
+
+        self.assertEqual(cells, 4)
+        self.assertAlmostEqual(velocity, 1.0)
+
+    def test_auto_backend_gets_a_cfd_specific_cuda_threshold(self):
+        # docs/audit-2026-09-23.md CFD-3: with the user's saved runtime.json
+        # (backend AUTO, cuda_min_nodes lowered to 1,000 for other domains),
+        # P02 Rev E's 6,600-cell enclosure mesh went to CUDA at 324 ms/it
+        # against 17 ms/it on CPU (scratchpad p02_usercfg.py).
+        from runtime_config import RuntimeComputeSettings
+
+        logged = []
+        settings = RuntimeComputeSettings(backend="AUTO", cuda_enabled=True, cuda_min_nodes=1000)
+        solver = EnclosureCFDSolver(compute_settings=settings, log_callback=logged.append)
+
+        self.assertEqual(solver.compute_backend.settings.cuda_min_nodes, 100_000)
+        self.assertEqual(settings.cuda_min_nodes, 1000)  # caller's object is untouched
+        self.assertTrue(any("CUDA threshold" in message for message in logged))
+
+    def test_forced_cuda_backend_keeps_its_configured_threshold(self):
+        from runtime_config import RuntimeComputeSettings
+
+        settings = RuntimeComputeSettings(backend="CUDA", cuda_enabled=True, cuda_min_nodes=1000)
+        solver = EnclosureCFDSolver(compute_settings=settings)
+
+        self.assertEqual(solver.compute_backend.settings.cuda_min_nodes, 1000)
 
     def test_cancellation_stops_before_iteration(self):
         settings = self._settings()

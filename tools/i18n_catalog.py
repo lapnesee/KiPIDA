@@ -14,6 +14,7 @@ POT = ROOT / "locales" / "kipida.pot"
 PLACEHOLDER = re.compile(r"(?<!\{)\{([A-Za-z_][A-Za-z0-9_]*)(?:![^}:]+)?(?::[^}]+)?\}(?!\})")
 SOURCE_FILES = (
     list((ROOT / "ui").glob("*.py")) +
+    list((ROOT / "report").glob("*.py")) +
     [path for path in ROOT.glob("*.py") if path.name != "i18n.py"]
 )
 
@@ -33,20 +34,28 @@ def human_literal(value, force=False):
         return False
     if not force and re.fullmatch(r"[a-z_]+", text):
         return False
+    # A tag or a prefix compared against data ("board-circuit", "unconnected-"),
+    # an S-expression token ("(footprint "), a path entered as a default.
+    if not force and re.fullmatch(r"[a-z]+(?:-[a-z]*)+", text):
+        return False
+    if re.fullmatch(r"\([a-z_]+ ?", text) or re.match(r"[A-Za-z]:\\|~/", text):
+        return False
     if text.startswith(("KiPIDA-", "__", "http://", "https://")):
         return False
     if text.startswith("%") or (text.startswith(".") and " " not in text):
         return False
     if text.startswith("^") or ("|" in text and " " not in text):
         return False
-    if "(?P<" in text or "[^" in text or "[_/]" in text:
+    if "(?P<" in text or "(?<" in text or "[^" in text or "[_/]" in text:
         return False
     if re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?", text, re.I):
         return False
-    literal_text = re.sub(r"\{[A-Za-z_][^}]*\}", "", text)
+    # Fields, and a log line's "[TAG]" prefix, are not words to translate:
+    # "[EM FIELD] {p0}" has none.
+    literal_text = re.sub(r"^\s*\[[^\]]*\]", "", re.sub(r"\{[A-Za-z_][^}]*\}", "", text))
     if "{" in text and sum(char.isalpha() for char in literal_text) < 4:
         return False
-    if re.fullmatch(r"[A-Za-z0-9_.-]+\.(py|json|png|toml|txt|kicad_[a-z]+)", text):
+    if re.fullmatch(r"[A-Za-z0-9_.-]+\.(py|json|png|toml|txt|log|kicad_[a-z]+)", text):
         return False
     return True
 
@@ -67,7 +76,7 @@ class MessageVisitor(ast.NodeVisitor):
             name = node.func.id
         elif isinstance(node.func, ast.Attribute):
             name = node.func.attr
-        if name in {"_", "gettext_text"} and node.args:
+        if name in {"_", "gettext_text", "N_"} and node.args:
             value = self._literal(node.args[0])
             if value is not None:
                 self.add(value, node, force=True)
@@ -109,8 +118,12 @@ class MessageVisitor(ast.NodeVisitor):
     def visit_Constant(self, node):
         # Existing wx panels contain many label tuples that flow through a
         # local ``label`` variable. Include human-facing literals from UI and
-        # EMC rule files so the automatic display hooks have catalog entries.
-        if self.path.parent.name == "ui" or self.path.name in {"emc_analyzer.py", "em_field_solver.py"}:
+        # EMC rule files so the automatic display hooks have catalog entries,
+        # and the rule guide's names and explanations, which the campaign
+        # report shows translated.
+        if self.path.parent.name == "ui" or self.path.name in {
+            "emc_analyzer.py", "em_field_solver.py", "rule_guide.py",
+        }:
             if isinstance(node.value, str):
                 self.add(node.value, node)
 

@@ -7,7 +7,7 @@ class AnalysisRegistryTests(unittest.TestCase):
     def test_default_tools_have_stable_navigation_groups(self):
         groups = DEFAULT_ANALYSES.grouped()
         self.assertEqual(
-            list(groups), ["Power Integrity", "Signal Integrity", "EMI / EMC", "Thermal", "Application"],
+            list(groups), ["Design Rules", "Power Integrity", "Signal Integrity", "EMI / EMC", "Thermal", "Application"],
         )
         self.assertEqual([item.analysis_id for item in groups["Power Integrity"]], ["DC", "AC"])
         self.assertEqual([item.analysis_id for item in groups["Thermal"]], ["THERMAL", "CFD"])

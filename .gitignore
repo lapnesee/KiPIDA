@@ -218,3 +218,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Agent worktrees (transient; never part of the repo)
+.claude/worktrees/

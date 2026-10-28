@@ -23,6 +23,14 @@ class TestCapacitorDiscovery(unittest.TestCase):
         self.assertIsNone(parse_capacitance("DNP"))
         self.assertIsNone(parse_capacitance("TPS7A0233PDBVR"))
 
+    def test_parses_bom_values_that_go_on_after_the_rating(self):
+        # Values from the P02 Rev E board, which the AC tab used to take for
+        # 100 nF candidates; a unitless leading number still reads as nothing.
+        self.assertAlmostEqual(parse_capacitance("47u 16V X5R"), 47e-6)
+        self.assertAlmostEqual(parse_capacitance("4.7u 50V X7R; Ceff>=1u"), 4.7e-6)
+        self.assertAlmostEqual(parse_capacitance("68u / 35V 20% hybride"), 68e-6)
+        self.assertIsNone(parse_capacitance("1206 X7R"))
+
     def test_formats_engineering_units(self):
         self.assertEqual(format_capacitance(4.7e-6), "4.7uF")
         self.assertEqual(format_capacitance(100e-9), "100nF")
@@ -57,6 +65,99 @@ class TestCapacitorDiscovery(unittest.TestCase):
         self.assertTrue(capacitors[1].candidate)
         self.assertLess(capacitors[0].esl_h, capacitors[1].esl_h)
         self.assertEqual(builder.discover_ground_nets(), ["GND"])
+
+    def test_a_class_ii_capacitor_is_derated_at_the_rail_voltage(self):
+        # C56 of the P02 Rev E board, 47u 16V X5R on the 5.08 V +5V_RAIL,
+        # entered the sweep at its nominal 47 uF: an optimistic Z(f).
+        def part(reference, value):
+            return SimpleNamespace(reference=reference, value=value, footprint_name="Capacitor_SMD:C_1210",
+                                   pads=[pad("1", "+5V_RAIL"), pad("2", "GND")], dnp=False)
+
+        builder = ACModelBuilder(SimpleNamespace(footprints=[
+            part("C56", "47u 16V X5R"), part("C60", "330p 50V C0G"), part("C81", "68u / 35V 20% hybride"),
+        ]))
+        capacitors = {cap.ref_des: cap for cap in builder.discover_capacitors("+5V_RAIL", "GND", rail_voltage_v=5.08)}
+
+        retained = 1.0 / (1.0 + ((5.08 / 16.0) / 0.6) ** 1.5)
+        self.assertAlmostEqual(capacitors["C56"].capacitance_f, 47e-6 * retained)
+        self.assertIn("DC bias X5R 16 V at 5.08 V", capacitors["C56"].model_source)
+        self.assertIn("estimate", capacitors["C56"].model_source)
+        # Class I and non-ceramic parts keep their nominal value.
+        self.assertAlmostEqual(capacitors["C60"].capacitance_f, 330e-12)
+        self.assertAlmostEqual(capacitors["C81"].capacitance_f, 68e-6)
+
+    def test_esr_and_derating_come_from_case_size_not_a_fixed_constant(self):
+        # AC-7: a fixed 10 mOhm ESR and a single generic derating curve
+        # regardless of case size were both optimistic for small, high-CV
+        # parts. A 22uF/35V X5R in 0603 must derate MORE (lower retention,
+        # AC-7's "25-40% typical in small high-CV MLCC") and carry a HIGHER
+        # typical ESR than the same part in 1210.
+        def part(reference, footprint):
+            return SimpleNamespace(reference=reference, value="22u 35V X5R", footprint_name=footprint,
+                                   pads=[pad("1", "/VBUS_SYS"), pad("2", "GND")], dnp=False)
+
+        builder = ACModelBuilder(SimpleNamespace(footprints=[
+            part("C1", "Capacitor_SMD:C_0603"), part("C2", "Capacitor_SMD:C_1210"),
+        ]))
+        capacitors = {
+            cap.ref_des: cap for cap in
+            builder.discover_capacitors("/VBUS_SYS", "GND", rail_voltage_v=20.0)
+        }
+        self.assertLess(capacitors["C1"].capacitance_f, capacitors["C2"].capacitance_f)
+        self.assertGreater(capacitors["C1"].esr_ohm, capacitors["C2"].esr_ohm)
+
+
+class TestPartFields(unittest.TestCase):
+    def test_esr_and_esl_come_from_the_parts_fields_when_stated(self):
+        # ESR/ESL were never taken from the part: P02 Rev E's capacitors
+        # carry an MPN (C57: CL32A476KOJNNNE) and no ESR/ESL, so they stay
+        # case-size estimates and say which part to look up; stated fields win.
+        fields = lambda **values: [SimpleNamespace(name=k, text=SimpleNamespace(value=v)) for k, v in values.items()]
+        footprint = lambda ref, **values: SimpleNamespace(
+            reference=ref, value="47u 16V X5R", footprint_name="C_1210_3225Metric",
+            pads=[pad("1", "+5V"), pad("2", "GND")], texts_and_fields=fields(**values),
+        )
+        board = SimpleNamespace(footprints=[
+            footprint("C57", MPN="CL32A476KOJNNNE"),
+            footprint("C58", ESR="5 mOhm", ESL="0.4nH"),
+        ])
+
+        c57, c58 = ACModelBuilder(board).discover_capacitors("+5V", "GND")
+
+        self.assertIn("not from CL32A476KOJNNNE", c57.model_source)
+        self.assertAlmostEqual(c58.esr_ohm, 0.005)
+        self.assertAlmostEqual(c58.esl_h, 0.4e-9)
+
+
+class TestHybridACMesh(unittest.TestCase):
+    def test_a_pour_edge_node_stands_for_the_copper_it_covers(self):
+        # On P02 Rev E's /VBUS_SYS the hybrid lattice counted a whole cell of
+        # cavity per node: 0.600 nF against 0.360 nF on the raster mesh.
+        # Each node now stands for its share of a cell, so a 10 x 10 mm pour
+        # off the grid covers 100 mm2 of cavity.
+        from pathlib import Path
+        from ingest.board_reader import (
+            BoardBounds, CopperLayer, ParsedBoard, Stackup, Zone,
+        )
+        from mesh import Mesher
+
+        square = lambda x0, y0, size: [(x0, y0), (x0 + size, y0), (x0 + size, y0 + size), (x0, y0 + size)]
+        board = ParsedBoard(
+            Path("synthetic.kicad_pcb"),
+            Stackup([CopperLayer(0, "F.Cu", "signal", 0.035),
+                     CopperLayer(31, "B.Cu", "signal", 0.035)], 1.6, 2),
+            BoardBounds(0.0, 0.0, 30.0, 30.0), [], [], [],
+            [Zone("VCC", "F.Cu", filled_polygon=square(5.23, 5.37, 10.0)),
+             Zone("GND", "B.Cu", filled_polygon=square(0.0, 0.0, 25.0))],
+        )
+        stackup = {"substrate": [{"between": [0, 1], "thickness_mm": 1.53, "epsilon_r": 4.4}]}
+        settings = SimpleNamespace(rail_name="VCC", ground_net_name="GND")
+
+        rail, _ground, cells = ACModelBuilder(None)._hybrid_meshes(
+            board, {0: 0, 31: 1}, settings, stackup, 0.5, Mesher.__new__(Mesher),
+        )
+
+        self.assertAlmostEqual(sum(cells.values()) * rail.grid_step ** 2, 100.0, delta=1.0)
 
 
 if __name__ == "__main__":

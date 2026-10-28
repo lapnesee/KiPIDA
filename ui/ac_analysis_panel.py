@@ -1,13 +1,76 @@
+import math
+
 import wx
+from ui.number_input import parse_number
 
 from i18n import _
 
 try:
-    from ac_model import ACModelBuilder, format_capacitance, parse_capacitance
-    from models import ACAnalysisSettings, ACMeasurementPort, ACSourceModel
+    from ac_model import (
+        ACModelBuilder, format_capacitance, is_discovery_estimate, merge_discovered_capacitors,
+        parse_capacitance,
+    )
+    from models import AC_SOURCE_PRESETS, ACAnalysisSettings, ACMeasurementPort, ACSourceModel
 except (ImportError, ValueError):
-    from ac_model import ACModelBuilder, format_capacitance, parse_capacitance
-    from models import ACAnalysisSettings, ACMeasurementPort, ACSourceModel
+    from ac_model import (
+        ACModelBuilder, format_capacitance, is_discovery_estimate, merge_discovered_capacitors,
+        parse_capacitance,
+    )
+    from models import AC_SOURCE_PRESETS, ACAnalysisSettings, ACMeasurementPort, ACSourceModel
+
+
+def rail_to_show(rail_names, shown, profiles):
+    """The rail the AC tab shows once a project's profiles are loaded.
+
+    The one on screen if the project configured it for AC, else the first
+    rail it did. P02 Rev E saved AC profiles for three rails; the tab stayed
+    on the first rail of the tree, /J1_VBUS_RAW, and the campaign's AC sweep
+    failed there for want of a measurement port.
+    """
+    if not profiles or shown in profiles:
+        return shown
+    return next((name for name in rail_names if name in profiles), shown)
+
+
+def port_options(rail, profile=None):
+    """The rail's candidate measurement components, as {ref_des: rail pad names}.
+
+    Its loads, then the inputs of the regulators it feeds, then the port a
+    saved profile names. P02 Rev E's /VBUS_SYS feeds converters and has no
+    load of its own: its saved port, Q10, fell out of a list of loads only,
+    the tab saved an empty port over it, and the campaign's AC sweep found no
+    port to measure.
+    """
+    options = {
+        load.component_ref.ref_des: list(load.pad_names)
+        for load in (getattr(rail, "loads", ()) or ())
+    }
+    for regulator in getattr(rail, "child_regulators", ()) or ():
+        if regulator.input_ref_des:
+            options.setdefault(regulator.input_ref_des, list(regulator.input_pad_names))
+    saved = getattr(profile, "measurement_port", None)
+    if saved is not None and saved.ref_des:
+        options.setdefault(saved.ref_des, list(saved.rail_pad_names))
+    return options
+
+
+def apply_saved_capacitor(capacitor, saved):
+    """Carry a saved capacitor's state onto a freshly rediscovered one.
+
+    Enabled/disabled is always a user choice and always carries over. The
+    modelled values (capacitance, ESR, ESL, model_source) carry over unless
+    the saved model is Ki-PIDA's own discovery estimate: a stale estimate
+    must not shadow a rediscovery's corrected derating or ESR (AC-7), but a
+    user edit, a datasheet model or any value another tool wrote into the
+    file is kept. P02 Rev E's C36 was rediscovered at 11.4 uF under 20 V
+    from the generic curve, where Taiyo Yuden's own curve gives 5.87 uF.
+    """
+    capacitor.enabled = saved.enabled
+    if not is_discovery_estimate(saved.model_source):
+        capacitor.capacitance_f = saved.capacitance_f
+        capacitor.esr_ohm = saved.esr_ohm
+        capacitor.esl_h = saved.esl_h
+        capacitor.model_source = saved.model_source
 
 
 class CapacitorModelDialog(wx.Dialog):
@@ -36,8 +99,8 @@ class CapacitorModelDialog(wx.Dialog):
         capacitance = parse_capacitance(self.txt_capacitance.GetValue())
         if capacitance is None:
             raise ValueError("Enter a valid capacitance such as 100n, 4u7, or 10uF.")
-        esr = float(self.txt_esr.GetValue()) / 1e3
-        esl = float(self.txt_esl.GetValue()) * 1e-9
+        esr = parse_number(self.txt_esr.GetValue()) / 1e3
+        esl = parse_number(self.txt_esl.GetValue()) * 1e-9
         if esr < 0 or esl < 0:
             raise ValueError("ESR and ESL must be zero or greater.")
         capacitor.capacitance_f = capacitance
@@ -56,11 +119,14 @@ class ACAnalysisPanel(wx.Panel):
         ("Custom", "CUSTOM", None, None),
     )
 
-    def __init__(self, parent, board, rails_provider, log_callback=None):
+    def __init__(self, parent, board, rails_provider, log_callback=None, design_provider=None):
         super().__init__(parent)
         self.board = board
         self.rails_provider = rails_provider
         self.log_callback = log_callback
+        # The project's saved board and schematic as one netlist, read on demand.
+        self.design_provider = design_provider
+        self._declared_grounds_cache = None
         self.profiles = {}
         self.capacitors = []
         self._updating = False
@@ -89,10 +155,21 @@ class ACAnalysisPanel(wx.Panel):
         self.txt_f_stop = wx.TextCtrl(settings_parent, value="1e8")
         self.txt_points = wx.TextCtrl(settings_parent, value="121")
         self.txt_mesh_resolution = wx.TextCtrl(settings_parent, value="0.5")
-        self.txt_target_mohm = wx.TextCtrl(settings_parent, value="50")
+        # Blank means "derive from the rail voltage, ripple and load current".
+        # A pre-filled number here decided pass/fail on every board without
+        # anyone choosing it.
+        self.txt_target_mohm = wx.TextCtrl(settings_parent, value="")
         self.txt_source_r_mohm = wx.TextCtrl(settings_parent, value="10")
         self.txt_source_l_nh = wx.TextCtrl(settings_parent, value="1")
         self.txt_max_additions = wx.TextCtrl(settings_parent, value="8")
+        # The default 10 mOhm + 1 nH source has no board evidence and hides
+        # the source/bulk anti-resonance a real cable or regulator output
+        # shows (AC-2): a preset picks a documented, source-typed (R, L)
+        # pair instead of leaving the factory-floor default unquestioned.
+        self.choice_source_model = wx.Choice(
+            settings_parent, choices=[label for _key, label, _r, _l in AC_SOURCE_PRESETS] + ["Custom"],
+        )
+        self.choice_source_model.SetSelection(0)
 
         rows = [
             ("Power rail:", self.choice_rail, "Return net:", self.choice_ground),
@@ -100,7 +177,8 @@ class ACAnalysisPanel(wx.Panel):
             ("Analysis preset:", self.choice_preset, "", wx.StaticText(settings_parent, label="")),
             ("Start frequency (Hz):", self.txt_f_start, "Stop frequency (Hz):", self.txt_f_stop),
             ("Frequency points:", self.txt_points, "AC mesh resolution (mm):", self.txt_mesh_resolution),
-            ("Target |Z| (mOhm):", self.txt_target_mohm, "Max capacitor additions:", self.txt_max_additions),
+            ("Target |Z| (mOhm, blank = auto):", self.txt_target_mohm, "Max capacitor additions:", self.txt_max_additions),
+            ("Source model:", self.choice_source_model, "", wx.StaticText(settings_parent, label="")),
             ("Source R (mOhm):", self.txt_source_r_mohm, "Source L (nH):", self.txt_source_l_nh),
         ]
         for left_label, left_ctrl, right_label, right_ctrl in rows:
@@ -143,6 +221,9 @@ class ACAnalysisPanel(wx.Panel):
         self.choice_rail.Bind(wx.EVT_CHOICE, self._on_context_changed)
         self.choice_ground.Bind(wx.EVT_CHOICE, self._on_context_changed)
         self.choice_preset.Bind(wx.EVT_CHOICE, self._on_preset_changed)
+        self.choice_source_model.Bind(wx.EVT_CHOICE, self._on_source_model_changed)
+        self.txt_source_r_mohm.Bind(wx.EVT_TEXT, self._on_source_rl_changed)
+        self.txt_source_l_nh.Bind(wx.EVT_TEXT, self._on_source_rl_changed)
         self.txt_points.Bind(wx.EVT_TEXT, self._on_complexity_changed)
         self.txt_mesh_resolution.Bind(wx.EVT_TEXT, self._on_complexity_changed)
         self.btn_refresh.Bind(wx.EVT_BUTTON, self._on_refresh)
@@ -162,7 +243,7 @@ class ACAnalysisPanel(wx.Panel):
     def _update_cost_hint(self):
         try:
             points = max(1, int(self.txt_points.GetValue()))
-            mesh = max(0.1, float(self.txt_mesh_resolution.GetValue()))
+            mesh = max(0.1, parse_number(self.txt_mesh_resolution.GetValue()))
             relative = (points / 121.0) * (0.5 / mesh) ** 2
             if relative <= 0.6:
                 level = "low"
@@ -205,12 +286,53 @@ class ACAnalysisPanel(wx.Panel):
             return
         try:
             index = self._preset_index_for_values(
-                int(self.txt_points.GetValue()), float(self.txt_mesh_resolution.GetValue()),
+                int(self.txt_points.GetValue()), parse_number(self.txt_mesh_resolution.GetValue()),
             )
             self.choice_preset.SetSelection(index)
         except ValueError:
             self.choice_preset.SetSelection(len(self.ANALYSIS_PRESETS) - 1)
         self._update_cost_hint()
+
+    def _on_source_model_changed(self, _event):
+        if self._updating:
+            return
+        selection = self.choice_source_model.GetSelection()
+        if selection == wx.NOT_FOUND or selection >= len(AC_SOURCE_PRESETS):
+            return
+        _key, _label, resistance_ohm, inductance_h = AC_SOURCE_PRESETS[selection]
+        self._updating = True
+        try:
+            self.txt_source_r_mohm.SetValue(f"{resistance_ohm * 1e3:g}")
+            self.txt_source_l_nh.SetValue(f"{inductance_h * 1e9:g}")
+        finally:
+            self._updating = False
+
+    def _on_source_rl_changed(self, _event):
+        if self._updating:
+            return
+        try:
+            index = self._source_preset_index_for_values(
+                parse_number(self.txt_source_r_mohm.GetValue()) / 1e3,
+                parse_number(self.txt_source_l_nh.GetValue()) * 1e-9,
+            )
+        except ValueError:
+            index = len(AC_SOURCE_PRESETS)
+        self._updating = True
+        try:
+            self.choice_source_model.SetSelection(index)
+        finally:
+            self._updating = False
+
+    @staticmethod
+    def _source_preset_index_for_values(resistance_ohm, inductance_h):
+        """The AC_SOURCE_PRESETS entry matching (R, L), or the trailing
+        "Custom" index when the values match none of them."""
+        for index, (_key, _label, preset_r, preset_l) in enumerate(AC_SOURCE_PRESETS):
+            if math.isclose(resistance_ohm, preset_r, rel_tol=1e-6) and math.isclose(
+                inductance_h, preset_l, rel_tol=1e-6,
+            ):
+                return index
+        return len(AC_SOURCE_PRESETS)
 
     def _rails(self):
         return list(self.rails_provider() or [])
@@ -246,6 +368,22 @@ class ACAnalysisPanel(wx.Panel):
                     options.setdefault(regulator.output_ref_des, list(regulator.output_pad_names))
         return options
 
+    def _declared_grounds(self):
+        """Nets a ground symbol names in the project's saved files, read once per discovery."""
+        if self._declared_grounds_cache is None:
+            self._declared_grounds_cache = []
+            if self.design_provider is not None:
+                try:
+                    design = self.design_provider()
+                    self._declared_grounds_cache = sorted(
+                        net.name for net in design.nets if net.ground_source == "power_symbol"
+                    )
+                except Exception as exc:
+                    if self.log_callback:
+                        self.log_callback(f"AC: the project's ground symbols could not be read ({exc}); "
+                                          "ground nets are found by name.")
+        return self._declared_grounds_cache
+
     def refresh(self, force_discovery=False):
         if self._updating:
             return
@@ -256,10 +394,16 @@ class ACAnalysisPanel(wx.Panel):
             self.choice_rail.Set(rail_names)
             self._select_text(self.choice_rail, previous_rail)
 
-            ground_names = self.builder.discover_ground_nets()
+            if force_discovery:
+                self._declared_grounds_cache = None
+            declared_grounds = self._declared_grounds()
+            ground_names = declared_grounds + [
+                name for name in self.builder.discover_ground_nets() if name not in declared_grounds
+            ]
+            default_ground = declared_grounds[0] if declared_grounds else "GND"
             previous_ground = self._selected_text(self.choice_ground)
             self.choice_ground.Set(ground_names)
-            self._select_text(self.choice_ground, previous_ground or "GND")
+            self._select_text(self.choice_ground, previous_ground or default_ground)
 
             rail = self._active_rail()
             if rail is None:
@@ -272,11 +416,16 @@ class ACAnalysisPanel(wx.Panel):
                 profile = ACAnalysisSettings(rail_name=rail.net_name)
                 self.profiles[rail.net_name] = profile
 
-            self._select_text(self.choice_ground, profile.ground_net_name or "GND")
+            # A profile never set keeps the dataclass's "GND"; on a board whose
+            # ground symbol names another net, that net is the default.
+            ground = profile.ground_net_name
+            if not ground or (ground not in ground_names and declared_grounds):
+                ground = default_ground
+            self._select_text(self.choice_ground, ground)
             source_refs = sorted(self._source_options(rail))
-            load_refs = sorted({load.component_ref.ref_des for load in rail.loads})
+            port_refs = sorted(port_options(rail, profile))
             self.choice_source.Set(source_refs)
-            self.choice_port.Set(load_refs)
+            self.choice_port.Set(port_refs)
             self._select_text(self.choice_source, profile.source.ref_des)
             self._select_text(self.choice_port, profile.measurement_port.ref_des)
 
@@ -288,24 +437,26 @@ class ACAnalysisPanel(wx.Panel):
                 profile.frequency_points, profile.mesh_resolution_mm,
             ))
             self._update_cost_hint()
-            self.txt_target_mohm.SetValue(f"{profile.target_impedance_ohm * 1e3:g}")
+            self.txt_target_mohm.SetValue(
+                f"{profile.target_impedance_ohm * 1e3:g}"
+                if profile.target_impedance_ohm > 0.0 else ""
+            )
             self.txt_source_r_mohm.SetValue(f"{profile.source.resistance_ohm * 1e3:g}")
             self.txt_source_l_nh.SetValue(f"{profile.source.inductance_h * 1e9:g}")
+            self.choice_source_model.SetSelection(self._source_preset_index_for_values(
+                profile.source.resistance_ohm, profile.source.inductance_h,
+            ))
             self.txt_max_additions.SetValue(str(profile.optimizer_max_additions))
 
             ground_name = self._selected_text(self.choice_ground)
             if force_discovery or not profile.capacitors:
-                discovered = self.builder.discover_capacitors(rail.net_name, ground_name)
-                existing = {cap.ref_des: cap for cap in profile.capacitors}
-                for capacitor in discovered:
-                    if capacitor.ref_des in existing:
-                        saved = existing[capacitor.ref_des]
-                        capacitor.enabled = saved.enabled
-                        capacitor.capacitance_f = saved.capacitance_f
-                        capacitor.esr_ohm = saved.esr_ohm
-                        capacitor.esl_h = saved.esl_h
-                        capacitor.model_source = saved.model_source
-                profile.capacitors = discovered
+                discovered = self.builder.discover_capacitors(
+                    rail.net_name, ground_name,
+                    rail_voltage_v=float(getattr(rail, "nominal_voltage", 0.0) or 0.0),
+                )
+                profile.capacitors = merge_discovered_capacitors(
+                    discovered, profile.capacitors, log=self.log_callback,
+                )
             self.capacitors = profile.capacitors
             self._profile_rail_name = rail.net_name
             self._update_cap_list()
@@ -364,10 +515,10 @@ class ACAnalysisPanel(wx.Panel):
         profile = self.profiles.get(rail.net_name, ACAnalysisSettings(rail_name=rail.net_name))
         profile.rail_name = rail.net_name
         profile.ground_net_name = self._selected_text(self.choice_ground) or "GND"
-        profile.frequency_start_hz = float(self.txt_f_start.GetValue())
-        profile.frequency_stop_hz = float(self.txt_f_stop.GetValue())
+        profile.frequency_start_hz = parse_number(self.txt_f_start.GetValue())
+        profile.frequency_stop_hz = parse_number(self.txt_f_stop.GetValue())
         profile.frequency_points = int(self.txt_points.GetValue())
-        profile.mesh_resolution_mm = float(self.txt_mesh_resolution.GetValue())
+        profile.mesh_resolution_mm = parse_number(self.txt_mesh_resolution.GetValue())
         if profile.frequency_start_hz <= 0:
             raise ValueError("Start frequency must be greater than zero.")
         if profile.frequency_stop_hz <= profile.frequency_start_hz:
@@ -376,29 +527,55 @@ class ACAnalysisPanel(wx.Panel):
             raise ValueError("Frequency points must be between 11 and 401.")
         if not 0.2 <= profile.mesh_resolution_mm <= 2.0:
             raise ValueError("AC mesh resolution must be between 0.2 and 2.0 mm.")
-        profile.target_impedance_ohm = float(self.txt_target_mohm.GetValue()) / 1e3
+        # Blank or zero leaves the target to be derived from the rail.
+        target_text = self.txt_target_mohm.GetValue().strip()
+        profile.target_impedance_ohm = (
+            float(target_text) / 1e3 if target_text else 0.0
+        )
         profile.optimizer_max_additions = int(self.txt_max_additions.GetValue())
 
+        previous = (("source", profile.source), ("measurement port", profile.measurement_port))
         source_ref = self._selected_text(self.choice_source)
         source_pad_names = self._source_options(rail).get(source_ref, [])
         profile.source = ACSourceModel(
             ref_des=source_ref,
             rail_pad_names=source_pad_names,
             ground_pad_names=self.builder.pad_names_for_net(source_ref, profile.ground_net_name),
-            resistance_ohm=float(self.txt_source_r_mohm.GetValue()) / 1e3,
-            inductance_h=float(self.txt_source_l_nh.GetValue()) * 1e-9,
+            resistance_ohm=parse_number(self.txt_source_r_mohm.GetValue()) / 1e3,
+            inductance_h=parse_number(self.txt_source_l_nh.GetValue()) * 1e-9,
         )
 
         port_ref = self._selected_text(self.choice_port)
-        load = next((item for item in rail.loads if item.component_ref.ref_des == port_ref), None)
         profile.measurement_port = ACMeasurementPort(
             ref_des=port_ref,
-            rail_pad_names=list(load.pad_names) if load else [],
+            rail_pad_names=port_options(rail, profile).get(port_ref, []),
             ground_pad_names=self.builder.pad_names_for_net(port_ref, profile.ground_net_name),
         )
         profile.capacitors = self.capacitors
         self.profiles[rail.net_name] = profile
+        self._log_realigned_pads(rail.net_name, previous, (profile.source, profile.measurement_port))
         return profile
+
+    def _log_realigned_pads(self, rail_name, previous, current):
+        """Name a saved source's or port's pads the board no longer matches."""
+        if not self.log_callback:
+            return
+        for (label, before), after in zip(previous, current):
+            if before is None or not before.ref_des or before.ref_des != after.ref_des:
+                continue
+            moved = [
+                f"{side} {', '.join(map(str, old)) or '-'} -> {', '.join(map(str, new)) or '-'}"
+                for side, old, new in (
+                    ("rail", before.rail_pad_names, after.rail_pad_names),
+                    ("return", before.ground_pad_names, after.ground_pad_names),
+                )
+                if old and set(map(str, old)) != set(map(str, new))
+            ]
+            if moved:
+                self.log_callback(
+                    f"AC {rail_name}: {label} {after.ref_des} pads realigned with the board "
+                    f"({'; '.join(moved)})."
+                )
 
     def get_settings(self):
         return self._save_current_profile()
@@ -409,4 +586,9 @@ class ACAnalysisPanel(wx.Panel):
 
     def set_profiles(self, profiles):
         self.profiles = dict(profiles or {})
+        rail_names = [rail.net_name for rail in self._rails()]
+        shown = rail_to_show(rail_names, self._selected_text(self.choice_rail), self.profiles)
+        if shown and shown != self._selected_text(self.choice_rail):
+            self.choice_rail.Set(rail_names)
+            self._select_text(self.choice_rail, shown)
         self.refresh(force_discovery=False)

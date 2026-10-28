@@ -20,11 +20,79 @@ try:
 except ImportError:
     HAS_KIPY = False
 
+try:
+    from .physical_constants import (
+        COPPER_RESISTIVITY_OHM_MM, DEFAULT_BOARD_THICKNESS_MM, DEFAULT_COPPER_THICKNESS_MM,
+    )
+    from .ingest.board_reader import arc_polyline
+    from .layer_labels import canonical_copper_name
+except (ImportError, ValueError):
+    from physical_constants import (
+        COPPER_RESISTIVITY_OHM_MM, DEFAULT_BOARD_THICKNESS_MM, DEFAULT_COPPER_THICKNESS_MM,
+    )
+    from ingest.board_reader import arc_polyline
+    from layer_labels import canonical_copper_name
+
 # Constants mapping (approximate)
 # Needs to be verified against kipy enums
 # For now defining local helpers
 def to_mm(val_nm):
     return val_nm / 1e6
+
+
+def live_capture_has_no_copper(track_count, via_count, zone_count, pad_count):
+    """True when a live geometry capture holds no copper and no net pads.
+
+    KiCad's IPC answers every collection empty while the PCB editor is still
+    synchronising (``thermal_model.ThermalModelBuilder.build`` refuses the
+    same condition, added in 1bf2be7). A capture with zero tracks, zero vias,
+    zero filled zones and zero net-connected pads is not "an empty board" --
+    it is "no board was captured" -- and scoring or diffing it produces false
+    findings. A campaign on P02 Rev E started while the editor was still
+    synchronising (report campaign-...-213933, 2026-09-22 21:39) hit this:
+    EMC read the empty geometry as GP-002 CRITICAL "No ground plane
+    detected" (verdict FAIL, action #1) while DC-004 reported 17 rails
+    "differs ... (100% of it)" against the saved file, both from a capture
+    that simply had not finished arriving.
+    """
+    return track_count == 0 and via_count == 0 and zone_count == 0 and pad_count == 0
+
+
+def file_layers_to_live(file_layers, live_copper, layer_order=None):
+    """``{canonical name: live layer id}`` for a board file's copper layers.
+
+    *file_layers* lists ``(ordinal, canonical name, designer name)`` top to
+    bottom. Paired by canonical name, then by the designer's name, which is
+    all the live stackup knows a renamed layer by, then by position when both
+    stacks hold as many copper layers. A layer nothing pairs is left out
+    rather than kept under its file ordinal, which in KiCad 10 can be another
+    live layer's id: on P02 Rev E the file's In2.Cu is 6, the IPC id of In3.Cu,
+    so the In2 VBUS_SYS pour was read as In3 copper and every saved pour looked
+    edited. With no live stackup at all the file ordinals are all there is.
+    """
+    if not live_copper:
+        return {name: identifier for identifier, name, _user in file_layers}
+    by_name = {}
+    for layer_id, properties in live_copper.items():
+        name = str((properties or {}).get('name', '') or '')
+        if name:
+            by_name.setdefault(name, int(layer_id))
+    paired = {}
+    for _identifier, name, user_name in file_layers:
+        live_id = by_name.get(name)
+        if live_id is None and user_name:
+            live_id = by_name.get(user_name)
+        if live_id is not None and live_id not in paired.values():
+            paired[name] = live_id
+    order = [int(layer_id) for layer_id in (layer_order or live_copper.keys())]
+    if len(paired) < len(file_layers) and len(order) == len(file_layers):
+        used = set(paired.values())
+        for (_identifier, name, _user), live_id in zip(file_layers, order):
+            if name not in paired and live_id not in used:
+                paired[name] = live_id
+                used.add(live_id)
+    return paired
+
 
 class GeometryExtractor:
     def __init__(self, board, debug=False, log_callback=None, board_path=None):
@@ -72,7 +140,10 @@ class GeometryExtractor:
                 try:
                     val = getattr(obj, method_name)()
                     if val is not None: return val
-                except: pass
+                except Exception:
+                    # A getter this kipy version lacks or refuses: the next
+                    # spelling is tried, then the default.
+                    pass
         return default
 
     def _get_board_items(self, attr_name):
@@ -83,7 +154,9 @@ class GeometryExtractor:
                 result = getattr(self.board, method_name)()
                 if result is not None:
                     return result
-            except: pass
+            except Exception:
+                # The attribute spelling below is tried next.
+                pass
         if hasattr(self.board, attr_name):
             result = getattr(self.board, attr_name)
             # kipy 0.3 exposes board.footprints / board.zones as operation
@@ -93,8 +166,9 @@ class GeometryExtractor:
             if callable(get_all):
                 try:
                     return get_all()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    if self.log_callback:
+                        self.log_callback(f"Board {attr_name} could not be read ({exc}).")
             try:
                 iter(result)
                 return result
@@ -174,22 +248,13 @@ class GeometryExtractor:
         except (OSError, UnicodeDecodeError):
             return None
         points = []
-        graphic_start = re.compile(r'\(gr_(?:rect|line|arc|poly|curve|circle)\b')
         coordinate = re.compile(
             r'\((?:start|end|mid|center|xy)\s+'
             r'([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)'
         )
-        for match in graphic_start.finditer(text):
-            depth = 0
-            end = None
-            for index in range(match.start(), len(text)):
-                depth += (text[index] == '(') - (text[index] == ')')
-                if depth == 0:
-                    end = index + 1
-                    break
-            if end is None:
-                continue
-            graphic = text[match.start():end]
+        for graphic in GeometryExtractor._balanced_blocks(
+            text, '(gr_rect', '(gr_line', '(gr_arc', '(gr_poly', '(gr_curve', '(gr_circle',
+        ):
             if not re.search(r'\(layer\s+"Edge\.Cuts"\)', graphic):
                 continue
             points.extend((float(x), float(y)) for x, y in coordinate.findall(graphic))
@@ -212,22 +277,13 @@ class GeometryExtractor:
         except (OSError, UnicodeDecodeError):
             return None
         shapes = []
-        graphic_start = re.compile(r'\(gr_(?:rect|poly|circle)\b')
         coordinate = re.compile(
             r'\((?:start|end|center|xy)\s+'
             r'([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)'
         )
-        for match in graphic_start.finditer(text):
-            depth = 0
-            end = None
-            for index in range(match.start(), len(text)):
-                depth += (text[index] == '(') - (text[index] == ')')
-                if depth == 0:
-                    end = index + 1
-                    break
-            if end is None:
-                continue
-            graphic = text[match.start():end]
+        for graphic in GeometryExtractor._balanced_blocks(
+            text, '(gr_rect', '(gr_poly', '(gr_circle',
+        ):
             if not re.search(r'\(layer\s+"Edge\.Cuts"\)', graphic):
                 continue
             points = [(float(x), float(y)) for x, y in coordinate.findall(graphic)]
@@ -254,6 +310,58 @@ class GeometryExtractor:
         if not shapes:
             return None
         return unary_union(shapes) if unary_union is not None else shapes[0]
+
+    @staticmethod
+    def _stackup_layers_from_file(board_path):
+        """Return each ``(layer ...)`` list of the saved ``(stackup ...)`` table,
+        top to bottom, or None when the file or its stackup cannot be read.
+
+        The search skips quoted strings: a title-block comment reading
+        "(stackup unchanged)" would otherwise be taken for the table.
+        """
+        try:
+            text = Path(board_path).read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError, TypeError):
+            return None
+        stackup = next(GeometryExtractor._balanced_blocks(text, '(stackup'), None)
+        if stackup is None:
+            return None
+        return list(GeometryExtractor._balanced_blocks(stackup, '(layer'))
+
+    @staticmethod
+    def _stackup_from_file(board_path):
+        """Read per-dielectric er/material/loss tangent from the saved
+        .kicad_pcb stackup table, in physical top-to-bottom order.
+
+        Needed because the IPC API's BoardStackupDielectricLayer.layers list
+        comes back empty on some KiCad 10 installs (see get_epsilon_r in
+        _get_stackup_protobuf) even though the same stackup is written
+        correctly to the board file. P02 Rev E, run 20260922-2156: IPC
+        reported er 4.4 "FR4" tan d 0 on all 5 dielectrics; the file has
+        4.1 / 4.6 / 4.16 / 4.6 / 4.1 with materials 3313 / FR4 / 2116 / FR4 /
+        3313 (audit-2026-09-23.md SI-1).
+        """
+        layers = GeometryExtractor._stackup_layers_from_file(board_path)
+        if layers is None:
+            return None
+        dielectrics = []
+        surface = re.compile(r'\(layer\s+"[^"]*"\s*\(type\s+"[^"]*(?:Solder Mask|Silk Screen|Solder Paste)"\)')
+        for layer_text in layers:
+            if surface.match(layer_text):
+                continue  # a mask can carry its own epsilon_r; it is no substrate
+            eps_match = re.search(r'\(epsilon_r\s+([-+]?\d*\.?\d+)', layer_text)
+            if not eps_match:
+                continue  # copper: no dielectric constant
+            thickness_match = re.search(r'\(thickness\s+([-+]?\d*\.?\d+)', layer_text)
+            material_match = re.search(r'\(material\s+"((?:\\.|[^"\\])*)"', layer_text)
+            loss_match = re.search(r'\(loss_tangent\s+([-+]?\d*\.?\d+)', layer_text)
+            dielectrics.append({
+                'thickness_mm': float(thickness_match.group(1)) if thickness_match else 0.0,
+                'material': material_match.group(1) if material_match else '',
+                'epsilon_r': float(eps_match.group(1)),
+                'loss_tangent': float(loss_match.group(1)) if loss_match else 0.0,
+            })
+        return dielectrics
 
     def get_board_outline(self, board_file_path=None):
         """Return an Edge.Cuts polygon for thermal meshing without padding."""
@@ -297,6 +405,32 @@ class GeometryExtractor:
         max_x, max_y = max(x for x, _ in points), max(y for _, y in points)
         return (min_x - margin_mm, min_y - margin_mm, max_x + margin_mm, max_y + margin_mm)
 
+    @staticmethod
+    def _solder_masks_from_file(board_path):
+        """Top/bottom solder-mask thickness (and er when written) from the file.
+
+        IPC's stackup is read for copper and dielectrics only, so the mask the
+        differential solver models above an outer-layer pair fell back to a
+        0.02 mm / er 3.3 default; P02 Rev E's file says 0.01 mm on both sides
+        (audit-2026-09-23.md SI-6). KiCad writes epsilon_r for a mask only when
+        the user set one, so it is optional.
+        """
+        masks = {}
+        head = re.compile(r'\(layer\s+"([FB])\.Mask"\s*\(type\s+"[^"]*Solder Mask"\)')
+        for body in GeometryExtractor._stackup_layers_from_file(board_path) or []:
+            match = head.match(body)
+            if match is None:
+                continue
+            thickness = re.search(r'\(thickness\s+([-+]?\d*\.?\d+)', body)
+            epsilon = re.search(r'\(epsilon_r\s+([-+]?\d*\.?\d+)', body)
+            if not thickness:
+                continue
+            masks["top" if match.group(1) == "F" else "bottom"] = {
+                'thickness_mm': float(thickness.group(1)),
+                'epsilon_r': float(epsilon.group(1)) if epsilon else 0.0,
+            }
+        return masks
+
     def get_board_stackup(self):
         """
         Extracts physical stackup properties.
@@ -333,8 +467,8 @@ class GeometryExtractor:
                 return None
             
             stackup = self.board.get_stackup()
-            
-            rho_copper = 1.68e-5 # Ohm-mm
+
+            rho_copper = COPPER_RESISTIVITY_OHM_MM
             copper_data = {}
             layer_order = []
             substrates = []
@@ -348,11 +482,24 @@ class GeometryExtractor:
                 if hasattr(dielectric_layer, 'layers') and dielectric_layer.layers:
                     return dielectric_layer.layers[0].epsilon_r
                 return 4.4 # Default FR4
-            
+
             def get_material(dielectric_layer):
                 if hasattr(dielectric_layer, 'layers') and dielectric_layer.layers:
                     return dielectric_layer.layers[0].material_name
                 return "FR4"
+
+            def get_loss_tangent(dielectric_layer):
+                if hasattr(dielectric_layer, 'layers') and dielectric_layer.layers:
+                    return getattr(dielectric_layer.layers[0], 'loss_tangent', 0.0)
+                return 0.0
+
+            def has_ipc_dielectric_properties(dielectric_layer):
+                # SI-1: KiCad IPC returns an empty .layers list on some KiCad
+                # 10 installs; the three helpers above then fall back to
+                # 4.4/"FR4"/0 silently. This flags that fallback so the
+                # stackup builder below can re-read the real values from the
+                # saved board file instead of trusting the IPC default.
+                return bool(getattr(dielectric_layer, 'layers', None))
 
             # Iterate layers
             for i, layer in enumerate(stackup.layers):
@@ -378,7 +525,8 @@ class GeometryExtractor:
                     
                     copper_data[lid] = {
                         'name': name,
-                        'thickness_mm': thickness_mm if thickness_mm > 0 else 0.035
+                        'canonical_name': canonical_copper_name(lid),
+                        'thickness_mm': thickness_mm if thickness_mm > 0 else DEFAULT_COPPER_THICKNESS_MM
                     }
                     layer_order.append(lid)
                     
@@ -394,15 +542,50 @@ class GeometryExtractor:
                             d_layer = layer.dielectric
                             eps = get_epsilon_r(d_layer)
                             mat = get_material(d_layer)
-                            
+                            loss = get_loss_tangent(d_layer)
+
                             substrates.append({
                                 'thickness_mm': thickness_mm,
                                 'between': [last_copper, None],
                                 'material': mat,
-                                'epsilon_r': eps
+                                'epsilon_r': eps,
+                                'loss_tangent': loss,
+                                '_ipc_dielectric_ok': has_ipc_dielectric_properties(d_layer),
                             })
                         else:
                             substrates[-1]['thickness_mm'] += thickness_mm
+
+            warnings = []
+            missing = [sub for sub in substrates if not sub.get('_ipc_dielectric_ok', True)]
+            if missing:
+                # Re-read the dielectrics IPC could not give us from the
+                # saved board file, which carries the real values (SI-1).
+                file_dielectrics = self._stackup_from_file(self.board_path) if self.board_path else None
+                if file_dielectrics and len(file_dielectrics) == len(substrates):
+                    for sub, file_sub in zip(substrates, file_dielectrics):
+                        if sub.get('_ipc_dielectric_ok', True):
+                            continue
+                        sub['epsilon_r'] = file_sub['epsilon_r']
+                        sub['material'] = file_sub['material'] or sub['material']
+                        sub['loss_tangent'] = file_sub['loss_tangent']
+                        if file_sub['thickness_mm'] > 0:
+                            sub['thickness_mm'] = file_sub['thickness_mm']
+                else:
+                    names = []
+                    for sub in missing:
+                        l1, l2 = sub['between']
+                        n1 = copper_data.get(l1, {}).get('name', str(l1))
+                        n2 = copper_data.get(l2, {}).get('name', str(l2)) if l2 is not None else "Bottom"
+                        names.append(f"{n1}-{n2}")
+                    warnings.append(
+                        "IPC gave no dielectric constant for " + ", ".join(names)
+                        + " and the board file was unavailable to fall back to; "
+                        "using default er 4.4 'FR4'. Impedance results on these "
+                        "layers are not trustworthy."
+                    )
+
+            for sub in substrates:
+                sub.pop('_ipc_dielectric_ok', None)
 
             result = {
                 'copper': copper_data,
@@ -410,8 +593,11 @@ class GeometryExtractor:
                 'substrate': substrates,
                 'resistivity': rho_copper,
                 'source': 'KICAD_IPC',
-                'trustworthy': bool(copper_data and substrates),
-                'warnings': [],
+                'trustworthy': bool(copper_data and substrates) and not warnings,
+                'warnings': warnings,
+                'solder_masks': (
+                    self._solder_masks_from_file(self.board_path) if self.board_path else {}
+                ),
             }
             
             if self.debug:
@@ -441,21 +627,23 @@ class GeometryExtractor:
         if self.debug:
             self.logger.warning(msg)
 
-        rho_copper = 1.68e-5 # Ohm-mm
-        
+        rho_copper = COPPER_RESISTIVITY_OHM_MM
+
         # Default to F.Cu (0) and B.Cu (31)
         f_cu_id = 0
         b_cu_id = 31
-        
+
         copper_data = {
-            f_cu_id: {'name': 'F.Cu', 'thickness_mm': 0.035},
-            b_cu_id: {'name': 'B.Cu', 'thickness_mm': 0.035}
+            f_cu_id: {'name': 'F.Cu', 'thickness_mm': DEFAULT_COPPER_THICKNESS_MM},
+            b_cu_id: {'name': 'B.Cu', 'thickness_mm': DEFAULT_COPPER_THICKNESS_MM}
         }
-        
+
         layer_order = [f_cu_id, b_cu_id]
-        
+
         substrates = [{
-            'thickness_mm': 1.6,
+            # The dielectric of a default board, not the board: the two copper
+            # layers take their share of the finished thickness.
+            'thickness_mm': DEFAULT_BOARD_THICKNESS_MM - 2 * DEFAULT_COPPER_THICKNESS_MM,
             'between': [f_cu_id, b_cu_id],
             'material': 'FR4',
             'epsilon_r': 4.4
@@ -498,7 +686,7 @@ class GeometryExtractor:
             layers.append(StackupLayerModel(
                 name=layer.get('name', str(layer_id)),
                 kind='COPPER',
-                thickness_mm=float(layer.get('thickness_mm', 0.035)),
+                thickness_mm=float(layer.get('thickness_mm', DEFAULT_COPPER_THICKNESS_MM)),
                 layer_id=int(layer_id),
                 material='Copper',
                 epsilon_r=1.0,
@@ -517,6 +705,20 @@ class GeometryExtractor:
                     epsilon_r=float(dielectric.get('epsilon_r', 4.4)),
                     loss_tangent=float(dielectric.get('loss_tangent', 0.0)),
                 ))
+        masks = data.get('solder_masks') or {}
+        for side, name in (("top", "F.Mask"), ("bottom", "B.Mask")):
+            mask = masks.get(side)
+            if not mask:
+                continue
+            layer = StackupLayerModel(
+                name=name, kind='SOLDER_MASK',
+                thickness_mm=float(mask.get('thickness_mm', 0.0)),
+                material='Solder mask', epsilon_r=float(mask.get('epsilon_r', 0.0)),
+            )
+            if side == "top":
+                layers.insert(0, layer)
+            else:
+                layers.append(layer)
         warnings = list(data.get('warnings', []))
         if any(layer.kind == 'DIELECTRIC' and layer.thickness_mm <= 0 for layer in layers):
             warnings.append('One or more dielectric thicknesses are missing.')
@@ -551,6 +753,32 @@ class GeometryExtractor:
             })
         return result
 
+    def get_track_summary(self, net_name):
+        """Count, narrowest width and oblique count of a net's tracks.
+
+        What a raster result needs to state its own error: the narrowest track
+        in grid steps, and whether any track -- an arc always -- runs off the
+        grid axes.
+        """
+        try:
+            from .raster_fidelity import is_oblique
+        except (ImportError, ValueError):
+            from raster_fidelity import is_oblique
+        count, finest, oblique = 0, 0.0, 0
+        for track in self._get_items_for_net('tracks', net_name):
+            start = self._get_val(track, 'start')
+            end = self._get_val(track, 'end')
+            width_mm = to_mm(self._get_val(track, 'width', 0.0))
+            if start is None or end is None or width_mm <= 0.0:
+                continue
+            count += 1
+            finest = width_mm if count == 1 else min(finest, width_mm)
+            p0 = (to_mm(self._get_val(start, 'x', 0)), to_mm(self._get_val(start, 'y', 0)))
+            p1 = (to_mm(self._get_val(end, 'x', 0)), to_mm(self._get_val(end, 'y', 0)))
+            if self._get_val(track, 'mid') is not None or is_oblique(p0, p1):
+                oblique += 1
+        return {"track_count": count, "finest_width_mm": finest, "oblique_count": oblique}
+
     def get_track_geometry(self, net_name):
         """Return physical routed-copper geometry grouped by layer.
 
@@ -570,16 +798,18 @@ class GeometryExtractor:
                 continue
             points = [
                 (to_mm(self._get_val(start, 'x', 0)), to_mm(self._get_val(start, 'y', 0))),
+                (to_mm(self._get_val(end, 'x', 0)), to_mm(self._get_val(end, 'y', 0))),
             ]
             mid = self._get_val(track, 'mid')
             if mid is not None:
-                points.append((
-                    to_mm(self._get_val(mid, 'x', 0)),
-                    to_mm(self._get_val(mid, 'y', 0)),
-                ))
-            points.append((
-                to_mm(self._get_val(end, 'x', 0)), to_mm(self._get_val(end, 'y', 0)),
-            ))
+                # The arc itself, as the offline reader draws it. Start, mid
+                # and end alone cut a quarter-turn's corner by 7.6 % of its
+                # radius, and this copper is compared with the saved file's.
+                points = arc_polyline(
+                    points[0],
+                    (to_mm(self._get_val(mid, 'x', 0)), to_mm(self._get_val(mid, 'y', 0))),
+                    points[1],
+                )
             if len(set(points)) == 1:
                 geometry = Point(points[0]).buffer(width_mm / 2.0)
             else:
@@ -649,35 +879,39 @@ class GeometryExtractor:
         return merged
 
     @staticmethod
-    def _balanced_blocks(text, token):
-        """Yield balanced S-expression blocks beginning with *token*."""
+    def _balanced_blocks(text, *tokens):
+        """Yield the balanced S-expression lists headed by one of *tokens*.
+
+        A token is an opening parenthesis and a keyword, such as "(zone". It
+        must end the keyword ("(zone" does not match "(zone_connect"), and a
+        token inside a quoted string, such as a title-block comment reading
+        "(stackup unchanged)", is text, not a list. *text* must start outside
+        a string. Lists are yielded in file order; the search resumes after
+        each one, so a list nested in a yielded one is not yielded.
+        """
+        string = r'"(?:\\.|[^"\\])*"'
+        head = re.compile(
+            string + '|(?:' + '|'.join(re.escape(token) for token in tokens)
+            + r')(?=[\s()"]|$)'
+        )
+        scan = re.compile(string + r'|[()]')
         start = 0
         while True:
-            begin = text.find(token, start)
-            if begin < 0:
+            match = head.search(text, start)
+            if match is None:
                 return
+            if match.group().startswith('"'):
+                start = match.end()
+                continue
             depth = 0
-            quoted = False
-            escaped = False
-            for index in range(begin, len(text)):
-                character = text[index]
-                if quoted:
-                    if escaped:
-                        escaped = False
-                    elif character == "\\":
-                        escaped = True
-                    elif character == '"':
-                        quoted = False
-                    continue
-                if character == '"':
-                    quoted = True
-                elif character == "(":
+            for item in scan.finditer(text, match.start()):
+                if item.group() == "(":
                     depth += 1
-                elif character == ")":
+                elif item.group() == ")":
                     depth -= 1
                     if depth == 0:
-                        yield text[begin:index + 1]
-                        start = index + 1
+                        yield text[match.start():item.end()]
+                        start = item.end()
                         break
             else:
                 return
@@ -694,30 +928,26 @@ class GeometryExtractor:
         except (OSError, UnicodeDecodeError):
             return self._file_zone_geometry_cache
 
-        file_layer_ids = {
-            name: int(identifier)
-            for identifier, name in re.findall(
-                r'^\s*\((\d+)\s+"([^"]+)"\s+(?:signal|power|mixed|jumper)',
+        # The file's copper layers, top to bottom: ordinal, canonical name and
+        # the designer's name when one was given ("PWR.L3" for In2.Cu).
+        file_layers = [
+            (int(identifier), name, user_name)
+            for identifier, name, user_name in re.findall(
+                r'^\s*\((\d+)\s+"([^"]+)"\s+(?:signal|power|mixed|jumper)(?:\s+"([^"]*)")?',
                 text, flags=re.MULTILINE,
             )
-        }
+        ]
         # KiCad 10's IPC API exposes protobuf layer enum values which do not
         # necessarily equal the numeric IDs serialized in the .kicad_pcb file
         # (for example B.Cu can be 8 live but 2 on disk).  Differential tracks
-        # and stackup use the live IDs, so remap saved-zone layers by name.
+        # and stackup use the live IDs, so remap saved-zone layers to them.
         try:
-            live_copper = self.get_board_stackup().get('copper', {})
+            stackup = self.get_board_stackup() or {}
         except Exception:
-            live_copper = {}
-        live_layer_ids = {
-            str(properties.get('name', '')): int(layer_id)
-            for layer_id, properties in live_copper.items()
-            if properties.get('name')
-        }
-        layer_ids = {
-            name: live_layer_ids.get(name, identifier)
-            for name, identifier in file_layer_ids.items()
-        }
+            stackup = {}
+        layer_ids = file_layers_to_live(
+            file_layers, stackup.get('copper', {}) or {}, stackup.get('layer_order'),
+        )
         by_net = {}
         for zone in self._balanced_blocks(text, "(zone"):
             net_match = re.search(r'\(net\s+"((?:\\.|[^"])*)"\)', zone)
@@ -757,6 +987,79 @@ class GeometryExtractor:
     def _zone_geometry_from_file(self, net_name):
         return dict(self._load_file_zone_geometry().get(net_name, {}))
 
+    def pad_polygon(self, pad):
+        """A pad's copper outline in board mm: a circle, or its rectangle turned by its angle.
+
+        Its size is the pad's own or, failing that, its padstack's first
+        copper layer's; a pad reporting neither is taken as 1 x 1 mm.
+        """
+        # Position (Absolute)
+        pos = self._get_val(pad, 'position')
+        x_mm = to_mm(self._get_val(pos, 'x', 0))
+        y_mm = to_mm(self._get_val(pos, 'y', 0))
+
+        # Size & Shape
+        w_mm = 0
+        h_mm = 0
+        shape_type = 0 # 0=Circle, 1=Rect, 2=RoundRect/Oval? Need verification.
+
+        # Try direct size first
+        size = self._get_val(pad, 'size')
+        if size:
+            w_mm = to_mm(self._get_val(size, 'x', 0))
+            h_mm = to_mm(self._get_val(size, 'y', 0))
+            shape_type = self._get_val(pad, 'shape', 1)
+
+        # Fallback to padstack
+        if w_mm == 0:
+            ps = self._get_val(pad, 'padstack')
+            if ps:
+                cls = self._get_val(ps, 'copper_layers', [])
+                if cls and len(cls) > 0:
+                    l0 = cls[0]
+                    sz = self._get_val(l0, 'size')
+                    w_mm = to_mm(self._get_val(sz, 'x', 0))
+                    h_mm = to_mm(self._get_val(sz, 'y', 0))
+                    shape_type = self._get_val(l0, 'shape', 1)
+
+        if w_mm == 0: w_mm = 1.0
+        if h_mm == 0: h_mm = 1.0
+
+        # Rotation
+        pad_rot = self._get_val(pad, 'rotation', 0)
+        if pad_rot == 0:
+             ps = self._get_val(pad, 'padstack')
+             pad_rot = self._get_val(ps, 'angle', 0)
+        try: pad_rot = float(pad_rot)
+        except: pad_rot = 0.0
+
+        # Create Shape
+        # Shape types (Empirical/Guess based on kipy enum):
+        # PSS_CIRCLE = 0, PSS_RECT = 1, PSS_ROUNDRECT = 2, PSS_OVAL = 3
+        # For now, treat Circle as Circle, everything else as Box/Rect
+        # If only one dimension is relevant for circle, usually x==y
+
+        # Note: 'shape' attribute value 2 seen in inspection for Rect/RoundRect pads
+
+        if str(shape_type) == 'PSS_CIRCLE' or shape_type == 0:
+            # Circle
+            return Point(x_mm, y_mm).buffer(w_mm / 2)
+        # Rectangle / Oval / RoundRect
+        base_box = box(-w_mm / 2, -h_mm / 2, w_mm / 2, h_mm / 2)
+        rotated_shape = affinity.rotate(base_box, -pad_rot, origin=(0, 0))
+        return affinity.translate(rotated_shape, x_mm, y_mm)
+
+    def pad_layers(self, pad):
+        """The layer ids a pad declares, its padstack's when it states none itself."""
+        layers = self._get_val(pad, 'layers')
+        if not layers:
+            ps = self._get_val(pad, 'padstack')
+            if ps:
+                layers = self._get_val(ps, 'layers')
+                if not layers:
+                     layers = self._get_val(ps, 'copper_layers')
+        return layers or []
+
     def get_net_geometry(self, net_name, merge=True):
         """
         Extracts and merges geometry for a specific net.
@@ -776,10 +1079,10 @@ class GeometryExtractor:
         # 1. Process Tracks
         tracks = self._get_items_for_net('tracks', net_name)
         
-        # We might want to buffer tracks slightly more than half-width to ensure 
-        # grid points are caught if the track is very thin.
-        # A safety buffer of 0.1mm helps catch grid nodes.
-        safety_buffer = 0.05 
+        # safety_buffer was 0.05 mm; zeroed to remove systematic resistance under-estimation.
+        # HybridMesher uses exact analytical geometry; the legacy raster path is unaffected
+        # in terms of topology (grid nodes still land inside tracks at normal grid steps).
+        safety_buffer = 0.0
         
         for track in tracks:
             start = self._get_val(track, 'start')
@@ -931,83 +1234,8 @@ class GeometryExtractor:
                     
         # 2. Process Pads (Footprints)
         for pad in self._get_items_for_net('pads', net_name):
-                net = self._get_val(pad, 'net')
-                p_net_name = self._get_val(net, 'name', "")
-                    
-                # Geometry
-                # Position (Absolute)
-                pos = self._get_val(pad, 'position')
-                x_mm = to_mm(self._get_val(pos, 'x', 0))
-                y_mm = to_mm(self._get_val(pos, 'y', 0))
-                
-                # Size & Shape
-                w_mm = 0
-                h_mm = 0
-                shape_type = 0 # 0=Circle, 1=Rect, 2=RoundRect/Oval? Need verification.
-                
-                # Try direct size first
-                size = self._get_val(pad, 'size')
-                if size:
-                    w_mm = to_mm(self._get_val(size, 'x', 0))
-                    h_mm = to_mm(self._get_val(size, 'y', 0))
-                    shape_type = self._get_val(pad, 'shape', 1)
-                
-                # Fallback to padstack
-                if w_mm == 0:
-                    ps = self._get_val(pad, 'padstack')
-                    if ps:
-                        cls = self._get_val(ps, 'copper_layers', [])
-                        if cls and len(cls) > 0:
-                            l0 = cls[0]
-                            sz = self._get_val(l0, 'size')
-                            w_mm = to_mm(self._get_val(sz, 'x', 0))
-                            h_mm = to_mm(self._get_val(sz, 'y', 0))
-                            shape_type = self._get_val(l0, 'shape', 1)
-
-                if w_mm == 0: w_mm = 1.0
-                if h_mm == 0: h_mm = 1.0
-
-                # Rotation
-                pad_rot = self._get_val(pad, 'rotation', 0)
-                if pad_rot == 0:
-                     ps = self._get_val(pad, 'padstack')
-                     pad_rot = self._get_val(ps, 'angle', 0)
-                try: pad_rot = float(pad_rot)
-                except: pad_rot = 0.0
-                
-                # Create Shape
-                # Shape types (Empirical/Guess based on kipy enum): 
-                # PSS_CIRCLE = 0, PSS_RECT = 1, PSS_ROUNDRECT = 2, PSS_OVAL = 3
-                # For now, treat Circle as Circle, everything else as Box/Rect
-                # If only one dimension is relevant for circle, usually x==y
-                
-                # Note: 'shape' attribute value 2 seen in inspection for Rect/RoundRect pads
-                
-                pad_poly = None
-                
-                if str(shape_type) == 'PSS_CIRCLE' or shape_type == 0:
-                     # Circle
-                     pad_poly = Point(x_mm, y_mm).buffer(w_mm / 2)
-                else:
-                    # Rectangle / Oval / RoundRect
-                    minx, miny = -w_mm/2, -h_mm/2
-                    maxx, maxy = w_mm/2, h_mm/2
-                    base_box = box(minx, miny, maxx, maxy)
-                    rotated_shape = affinity.rotate(base_box, -pad_rot, origin=(0,0))
-                    pad_poly = affinity.translate(rotated_shape, x_mm, y_mm)
-                
-                # Layers
-                layers = self._get_val(pad, 'layers')
-                if not layers:
-                    ps = self._get_val(pad, 'padstack')
-                    if ps:
-                        layers = self._get_val(ps, 'layers')
-                        if not layers:
-                             layers = self._get_val(ps, 'copper_layers')
-
-                if not layers: layers = []
-                
-                for lid in layers:
+                pad_poly = self.pad_polygon(pad)
+                for lid in self.pad_layers(pad):
                    if is_copper(lid):
                        add_shape(lid, pad_poly)
 

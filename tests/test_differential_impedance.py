@@ -53,9 +53,36 @@ class DifferentialImpedanceTests(unittest.TestCase):
         self.assertEqual(result.length_symmetry_status, "PASS")
         self.assertEqual(result.skew_limit_ps, 25.0)
 
+    def test_an_off_target_pair_keeps_its_2d_impedance(self):
+        # P02 Rev E: the "targeted 3-D refinement" rescaled sections already
+        # more than 10 % off target by an empirical factor, 79.16 -> 76.48
+        # ohm, pushing them further off (SI-4). The 2-D solve now stands.
+        snapshot = DifferentialGeometrySnapshot(
+            tracks_by_net={"USB_DP": [segment(0.0)], "USB_DM": [segment(0.3)]},
+            zones_by_net={"GND": {1: Polygon([(-1, -2), (11, -2), (11, 2), (-1, 2)])}},
+        )
+        self.pair.target_impedance_ohm = 50.0
+        result = DifferentialImpedanceSolver(snapshot, self.stackup, self.settings).solve_pair(self.pair)
+        section = result.sections[0]
+        self.assertEqual(section.three_d_impedance_ohm, section.two_d_impedance_ohm)
+        self.assertEqual(section.differential_impedance_ohm, section.two_d_impedance_ohm)
+        self.assertFalse(any("3-D" in warning for warning in result.warnings))
+
+    def test_the_stackup_solder_mask_replaces_the_settings_default(self):
+        # P02 Rev E's file states F.Mask and B.Mask at 0.01 mm; the solver
+        # used the 0.02 mm / er 3.3 settings default instead (SI-6).
+        self.stackup.layers.insert(0, StackupLayerModel("F.Mask", "SOLDER_MASK", 0.01))
+        solver = DifferentialImpedanceSolver(None, self.stackup, self.settings)
+        self.assertEqual(solver._solder_mask(0), (0.01, 3.3))
+
     def test_excessive_length_skew_forces_pair_fail(self):
+        # Mismatch must clear the USB 25 ps limit using the *effective*
+        # dielectric constant from the 2-D microstrip field solve (~2.7 for
+        # this geometry, lower than the substrate's raw 4.2 because part of
+        # the field fringes through air above the trace). 6 mm of mismatch
+        # gives comfortable margin over the ~4.5 mm failure threshold.
         short_negative = segment(0.3)
-        short_negative.update(end=(6.0, 0.3), length_mm=6.0)
+        short_negative.update(end=(4.0, 0.3), length_mm=4.0)
         snapshot = DifferentialGeometrySnapshot(
             tracks_by_net={"USB_DP": [segment(0.0)], "USB_DM": [short_negative]},
             zones_by_net={"GND": {1: Polygon([(-1, -2), (11, -2), (11, 2), (-1, 2)])}},
@@ -155,6 +182,37 @@ class DifferentialImpedanceTests(unittest.TestCase):
         self.assertFalse(result.trustworthy)
         self.assertTrue(any("cannot qualify" in warning for warning in result.warnings))
 
+    def test_a_short_partly_referenced_escape_does_not_make_the_pair_an_estimate(self):
+        # P02 Rev E: identical USB geometry read FAIL/HIGH on two pairs and
+        # ESTIMATE/MEDIUM on three, only because a connector escape had a
+        # partial plane. The verdict now rests on the qualified length.
+        snapshot = DifferentialGeometrySnapshot(
+            tracks_by_net={"USB_DP": [segment(0.0)], "USB_DM": [segment(0.3)]},
+        )
+        solver = DifferentialImpedanceSolver(snapshot, self.stackup, self.settings)
+        positive, negative = segment(0.0), segment(0.3)
+        solver._match_sections = lambda *_args: [
+            (positive, negative, 0.2, 19.0),
+            (positive, negative, 0.2, 1.0),
+        ]
+        contexts = iter([
+            ReferencePlaneContext(
+                topology="MICROSTRIP", reference_below="GND", distance_below_mm=0.2,
+                epsilon_r_below=4.2, coverage_below_pct=100.0, trustworthy=True,
+            ),
+            ReferencePlaneContext(
+                topology="MICROSTRIP", reference_below="GND", distance_below_mm=0.2,
+                epsilon_r_below=4.2, coverage_below_pct=70.0, trustworthy=False,
+            ),
+        ])
+        solver.plane_analyzer = type(
+            "PlaneAnalyzer", (), {"analyze": lambda self, *_args: next(contexts)}
+        )()
+        result = solver.solve_pair(self.pair)
+        self.assertAlmostEqual(result.qualified_length_pct, 95.0)
+        self.assertIn(result.status, {"PASS", "FAIL"})
+        self.assertEqual(result.weighted_impedance_ohm, result.sections[0].differential_impedance_ohm)
+
     def test_sub_width_section_is_diagnostic_not_aggregate_impedance(self):
         snapshot = DifferentialGeometrySnapshot(
             tracks_by_net={"USB_DP": [segment(0.0)], "USB_DM": [segment(0.3)]},
@@ -199,6 +257,18 @@ class DifferentialImpedanceTests(unittest.TestCase):
         ))
         self.assertTrue(any("connector/breakout" in warning for warning in result.warnings))
 
+
+    def test_auto_solves_a_pair_flanked_by_same_layer_ground_as_coplanar(self):
+        # P02 Rev E: a GND pour runs 0.2 mm from the USB pairs along ~90 % of
+        # their length; AUTO ignored it and solved plain microstrip (SI-8).
+        from shapely.geometry import box
+        flanks = box(-1, -2, 11, 2).difference(box(-1, -0.25, 11, 0.55))
+        snapshot = DifferentialGeometrySnapshot(
+            tracks_by_net={"USB_DP": [segment(0.0)], "USB_DM": [segment(0.3)]},
+            zones_by_net={"GND": {0: flanks, 1: box(-1, -2, 11, 2)}},
+        )
+        result = DifferentialImpedanceSolver(snapshot, self.stackup, self.settings).solve_pair(self.pair)
+        self.assertTrue(result.sections[0].topology.startswith("COPLANAR"))
 
 if __name__ == "__main__":
     unittest.main()

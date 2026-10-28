@@ -5,10 +5,18 @@ import unittest
 from application.dc_controller import (
     DCAnalysisCancelled,
     DCAnalysisController,
+    DCBoardSnapshot,
     DCControllerCallbacks,
+    DCFootprintSnapshot,
+    DCNetSnapshot,
+    DCPadSnapshot,
     DCPointSnapshot,
+    _mesh_nodes,
+    _propagated_pass_voltages,
+    _rail_injections,
     capture_dc_board,
 )
+from models import ComponentRef, PowerRail, VoltageRegulator
 
 
 class FakeEngine:
@@ -113,6 +121,66 @@ class DCControllerTests(unittest.TestCase):
         )
         snapshot = capture_dc_board(SimpleNamespace(footprints=[], vias=[via]))
         self.assertEqual(snapshot.vias[0].drill_size, DCPointSnapshot(320_000, 320_000))
+
+    def test_a_pass_element_propagates_its_input_voltage_not_nominal(self):
+        # DC-3 regression. P02 Rev E (2026-09-22): the J2 chain (buck L3 ->
+        # fuse -> eFuse -> shunt -> switch -> J2) totals 20.4+26.5+6.7+2.4 =
+        # 56.1 mV of copper the old Dirichlet-at-nominal reset made invisible
+        # at every link; the 5 V chain to J6 totals 3.3+24.2+15.3 = 42.8 mV.
+        # This checks the propagation mechanism directly: a fuse (LINEAR,
+        # same nominal in and out -- a pass element, not a regulator) must
+        # carry its own input rail's real solved voltage, minus I*r_pass_ohm,
+        # to its output rail's source -- not reset to nominal.
+        fuse = VoltageRegulator(
+            name="F1 fuse", input_rail_name="UPSTREAM", input_ref_des="F1",
+            input_pad_names=["1"], output_rail_name="DOWNSTREAM",
+            output_ref_des="F1", output_pad_names=["2"], reg_type="LINEAR",
+            r_pass_ohm=0.05,
+        )
+        upstream = PowerRail("UPSTREAM", nominal_voltage=5.0, child_regulators=[fuse])
+        downstream = PowerRail("DOWNSTREAM", nominal_voltage=5.0)
+        rails = [upstream, downstream]
+        demands = [(fuse, 1.0)]  # 1 A drawn through the fuse
+
+        def locate(ref_des, pad_names):
+            return [42] if ref_des == "F1" else []
+
+        sources, loads, regulator_input_nodes = _rail_injections(
+            upstream, rails, demands, locate, lambda m: None, pass_voltages={},
+        )
+        self.assertEqual(regulator_input_nodes, {"DOWNSTREAM": [42]})
+        pass_voltages = {}
+        # The upstream rail's own copper drops the fuse's input pad to 4.95 V.
+        _propagated_pass_voltages(
+            upstream, rails, demands, regulator_input_nodes, {42: 4.95}, pass_voltages,
+        )
+        self.assertAlmostEqual(pass_voltages["DOWNSTREAM"], 4.95 - 1.0 * 0.05)  # 4.90 V
+
+        def locate_output(ref_des, pad_names):
+            return [7] if ref_des == "F1" else []
+
+        down_sources, _loads, _nodes = _rail_injections(
+            downstream, rails, [], locate_output, lambda m: None, pass_voltages=pass_voltages,
+        )
+        self.assertEqual(down_sources, [{"node_id": 7, "voltage": 4.90}])
+
+        # Without pass_voltages (or before the upstream rail is solved), the
+        # output still falls back to nominal -- the pre-DC-3 behaviour, kept
+        # for the case propagation is not yet available.
+        down_sources_no_chain, _loads, _nodes = _rail_injections(
+            downstream, rails, [], locate_output, lambda m: None,
+        )
+        self.assertEqual(down_sources_no_chain, [{"node_id": 7, "voltage": 5.0}])
+
+    def test_raster_locator_finds_a_pad_on_the_bottom_layer(self):
+        # KiCad 10's IPC numbers B.Cu 34. The locator stopped at id 31, which
+        # left the J1, F1 and U6 sources of the P02 Rev E board unlocated.
+        pad = DCPadSnapshot(
+            "A4", "A4", DCPointSnapshot(1_000_000, 2_000_000), DCNetSnapshot("VBUS"), layers=(34,),
+        )
+        board = DCBoardSnapshot((DCFootprintSnapshot("J1", (pad,)),), ())
+        mesh = SimpleNamespace(grid_origin=(0.0, 0.0), grid_step=0.1, node_map={(10, 20, 34): 7})
+        self.assertEqual(_mesh_nodes(mesh, board, "J1", ["A4"]), [7])
 
 
 if __name__ == "__main__":

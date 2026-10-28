@@ -34,6 +34,7 @@ Power-delivery and thermal issues are often discovered late: an undersized coppe
 - Natural, forced, and custom convection modes with exposed top, bottom, and edge surfaces.
 - Manual or power-tree-derived component heat sources, regulator loss placement, and compact junction-temperature estimates.
 - Electro-thermal coupling: iterates temperature-dependent copper resistance and DC `I²R` loss to convergence.
+- Passive cooling: a part can shed heat through its own body (power module, large magnetics), and heatsinks can be bonded to a zone of either board face or to a part's top, through a gap pad or a stated contact resistance, with a datasheet thetaSA or a fin area at the board's airflow.
 - Adjustable thermal mesh from 0.01 to 5 mm, including a 0.1 mm Super preset, projected node/branch/memory estimates, and adaptive safety limits.
 - 3D, top, bottom, and internal-copper temperature maps with a selectable palette and configurable lower and upper colour bounds. Temperatures above a custom maximum saturate at the hottest colour. The thermal overlay can be injected into dedicated non-electrical KiCad user layers with the same colour scale, then removed from the GUI.
 
@@ -219,6 +220,33 @@ thermal models retain their in-session mesh and sparse-solver cache.
 
 Thermal mesh cost grows approximately with the inverse square of the XY grid step: halving the grid step creates roughly four times as many XY cells. Use the estimate shown in the thermal panel and configure a RAM ceiling in **Runtime & Acceleration** before requesting a very fine mesh.
 
+### Heatsinks
+
+**Heatsinks** in **3D Thermal** adds one heatsink per row. A **BOARD** heatsink covers a
+zone of one board face, in the board coordinates KiCad shows (millimetres, Y down): the
+rectangle *Zone X/Y min/max*, or a polygon `x y; x y; x y`. Each outer cell under the
+zone reaches the heatsink through the interface over the area it holds, and that area no
+longer exchanges with the air itself. A **COMPONENT** heatsink sits on a part's top: the
+part gets a body node joined to the board through its Theta JB and to the heatsink through
+*Theta JC to its top* plus the interface over its width x depth.
+
+The interface is a gap pad's thickness / k plus an area-specific contact resistance
+(K cm2/W); both 0 is a bonded joint. The air side is the datasheet's Theta SA, taken as
+constant, or an effective fin area with the board's natural, forced or custom convection
+on the fin length and orientation, plus radiation at the heatsink's emissivity, refined
+on the heatsink's own temperature. The report gives each heatsink's temperature, its base
+temperature, the heat it passes to the air and the resistances used; a heatsink that
+cannot be bonded is named (TH-010). In the saved `.kipida.json`, under `thermal_profile`:
+
+```json
+"heatsinks": [{
+  "name": "HS1", "enabled": true, "mount": "BOARD", "side": "BOTTOM",
+  "x_min_mm": 137.0, "y_min_mm": 92.0, "x_max_mm": 161.0, "y_max_mm": 112.0,
+  "interface_thickness_mm": 1.0, "interface_k_w_mk": 3.0,
+  "theta_sa_c_per_w": 8.0
+}]
+```
+
 The board model is an engineering steady-state solid-conduction approximation. Junction estimates use compact package thermal parameters and require review against component datasheets and measurement before sign-off.
 
 ## 📖 Enclosure CFD
@@ -262,6 +290,64 @@ The **Results → Analysis Results** workspace keeps each analysis type separate
 Each new history entry contains a `manifest.json` index, a structured and
 schema-versioned `result.json`, a human-readable `report.txt`, and its plot
 artifacts. Older report-only entries remain readable.
+
+`KiPIDA-results` gets its own `.gitignore` when Ki-PIDA creates it, so a
+`git add -A` in the project does not take hundreds of megabytes of plots.
+**Clean up...** in the Results workspace deletes older entries after showing
+what it frees: the latest 5 runs of each analysis, the latest 5 campaigns and
+the runs those campaigns name are kept. The log of each session is kept in
+English in `KiPIDA-results/ki-pida.log`, whatever the interface language.
+
+## 🧾 Analysis Batch and Campaign Report
+
+**Run Analysis Batch...** is offered on every page. It lists the analyses
+with what each will run on (rails, AC profiles, EMI sources), any input still
+at its default, and how long it took last time; tick the ones to run. When
+the batch ends, Ki-PIDA writes beside the board, in `KiPIDA-results`:
+
+| File | Contents |
+|---|---|
+| `campaign-<stamp>.html` | The report, self-contained: opens offline and prints with every folded block open |
+| `campaign-<stamp>.json` | The whole campaign, which the next report compares with |
+| `actions-<stamp>.csv` | One row per deduplicated action, ranked, with its decision list |
+| `findings-<stamp>.csv` | One row per finding (per remediation), with its run and build |
+| `domains-<stamp>.csv` | One row per analysis: status, score, run, compute time; those that did not complete too |
+
+**Build Consolidated Report** writes the same files from the analyses already
+run in the session, without running them again.
+
+The report opens on its **decision**. The verdict is **FAIL** as soon as one
+action is to fix before manufacture, **WARN** when something is to review, to
+check on the prototype, or when a selected analysis did not complete, and
+**PASS** only otherwise. The actions are sorted into four lists:
+
+- **Fix before manufacture** — a defect the analyses are sure enough of.
+- **Review before manufacture** — likely, but resting on an estimate.
+- **Check on the prototype** — layout rules of thumb only a measurement settles.
+- **Data to complete** — a result that rests on a default value; see below.
+
+Then come what changed since the previous campaign of the board (resolved,
+new, regraded, still present), one card per action (why it is a risk, what to
+do, how to check it, how sure the tool is), the component view, the details
+per domain with their figures, and the appendices: provenance, limitations,
+configuration, and the Ki-PIDA build each analysis ran on.
+
+### Data to complete
+
+An action under **Data to complete** names the input a result rests on.
+The common ones and where to fill them:
+
+| Finding | Where |
+|---|---|
+| Enclosure wall coefficient left at its default (TH-009) | **Thermal → Enclosure CFD**, *Wall h (W/m2K)* |
+| A rail's source impedance left at its default (AC-006) | **Power Integrity → AC Impedance**, *Source model*, *Source R (mOhm)*, *Source L (nH)* |
+| Converter loss resting on an estimated efficiency (TH-008) | The regulator's dialog in **Project → Power Tree & DC**, *Efficiency curve*: one point per line, `Iout efficiency` (`0.5 88`) or `Vin Vout Iout efficiency` |
+| A switching source or inductor model entered at another current than the power tree gives its converter (SW-004) | **EMI / EMC → Pre-compliance**, **Edit Selected** (sources) or **Edit Selected Model** (inductors) |
+
+Numeric fields accept a decimal comma as well as a point.
+
+A French walk-through of a first report is in
+[docs/premier-rapport.md](docs/premier-rapport.md).
 
 ## 🧭 Workspace organization
 

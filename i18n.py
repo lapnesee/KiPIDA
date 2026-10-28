@@ -101,8 +101,13 @@ def _build_template_translations(translation):
             parts.append(f"(?P<{match.group(1)}>.+?)")
             cursor = match.end()
         parts.append(re.escape(message[cursor:]))
-        patterns.append((re.compile("^" + "".join(parts) + "$", re.DOTALL), translated))
-    return patterns
+        literal = len(_BRACE_FIELD.sub("", message))
+        patterns.append((literal, re.compile("^" + "".join(parts) + "$", re.DOTALL), translated))
+    # The most specific first: "Configuration saved to {p0}" also matches
+    # what "Configuration saved to {p0} {p1}." was written for, and took
+    # "before the batch" into the file name it left untranslated.
+    patterns.sort(key=lambda item: -item[0])
+    return [(pattern, translated) for _literal, pattern, translated in patterns]
 
 
 @lru_cache(maxsize=4096)
@@ -121,10 +126,26 @@ def gettext_text(message):
             match = pattern.match(message)
             if match:
                 try:
-                    return template.format(**match.groupdict())
+                    return template.format(**{
+                        name: _phrase(value) for name, value in match.groupdict().items()
+                    })
                 except (KeyError, ValueError):
                     continue
         return message
+
+
+def _phrase(value):
+    """A template's value, translated when it is itself a catalog phrase.
+
+    "Configuration saved to {p0} {p1}." took "before the batch" as p1, and
+    P02 Rev E's French log read "Configuration enregistrée dans
+    p02_revision_e.kipida.json before the batch.". Only values of several
+    words are looked up, which a net, file or part name hardly ever is.
+    """
+    if " " not in value.strip():
+        return value
+    translated = _translation.gettext(value)
+    return translated if translated else value
 
 
 def ngettext(singular, plural, count):
@@ -145,6 +166,15 @@ def available_languages():
 
 
 _ = gettext_text
+
+
+def N_(message):
+    """Mark a module-level string for the catalog and return it unchanged.
+
+    A table built at import time cannot call _(): the language is chosen
+    later. Its entries are marked with N_ and passed to _() where shown.
+    """
+    return message
 
 
 def install_wx_translation_hooks(wx):
@@ -239,4 +269,13 @@ def install_wx_translation_hooks(wx):
             return super().SetPageText(index, _(text))
 
     wx.Notebook = LocalizedNotebook
+
+    # The catalog held the tooltips' French -- the grid check's, the
+    # efficiency curve's -- and the window showed their English.
+    original_set_tooltip = wx.Window.SetToolTip
+
+    def localized_set_tooltip(self, tip):
+        return original_set_tooltip(self, _(tip) if isinstance(tip, str) else tip)
+
+    wx.Window.SetToolTip = localized_set_tooltip
     _wx_hooks_installed = True

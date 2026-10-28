@@ -79,6 +79,13 @@ class TestElectroThermalSolver(unittest.TestCase):
             thermal_mesh, settings, contexts, rails=rails
         )
 
+        first_power = thermal_mesh.component_models["L1"].power_w
+        # TH-11: the same cached mesh solved again must start from the model's
+        # own power, not the hot value the first run wrote back.
+        settings.power_stage_reports = initial.stages
+        ElectroThermalSolver().solve(thermal_mesh, settings, contexts, rails=rails)
+        self.assertAlmostEqual(thermal_mesh.component_models["L1"].power_w, first_power, places=9)
+
         final_stage = next(stage for stage in settings.power_stage_reports if stage.name == "buck")
         final_l1 = next(loss for loss in final_stage.losses if loss.ref_des == "L1")
         self.assertGreater(final_l1.provenance["temperature_c"], 25.0)
@@ -137,6 +144,140 @@ class TestElectroThermalSolver(unittest.TestCase):
         self.assertGreater(result.dc_results["5V"].total_loss_w, 1.0)
         self.assertLessEqual(result.iterations, settings.coupled_iterations)
         self.assertTrue(result.converged)
+
+    def test_coupled_loop_refines_natural_convection_h(self):
+        # TH-2: the coupled path called solve() and never
+        # solve_with_surface_refinement, so h stayed at the mesh's nominal
+        # "ambient + 30 K" guess -- P02 Rev E published exactly that guess
+        # (h_top 16.44, h_bottom 12.00 W/m2K) while the report claimed
+        # "refined against the solved surface temperature".
+        settings = ThermalAnalysisSettings(
+            ambient_c=25.0,
+            grid_size_mm=2.0,
+            airflow=AirflowSettings(
+                mode="NATURAL",
+                expose_top=True, expose_bottom=True, expose_edges=True,
+            ),
+            include_radiation=False,
+            coupled_iterations=10,
+            convergence_c=0.01,
+            relaxation=1.0,
+        )
+        board_model = ThermalBoardModel(
+            bounds_mm=(0.0, 0.0, 10.0, 10.0),
+            outline=box(0.0, 0.0, 10.0, 10.0),
+            stackup={
+                "copper": {
+                    0: {"name": "F.Cu", "thickness_mm": 0.035},
+                    31: {"name": "B.Cu", "thickness_mm": 0.035},
+                },
+                "layer_order": [0, 31],
+                "substrate": [{"between": [0, 31], "thickness_mm": 1.53}],
+            },
+            copper_by_layer={
+                0: box(0.0, 0.0, 10.0, 10.0),
+                31: box(0.0, 0.0, 10.0, 10.0),
+            },
+        )
+        thermal_mesh = ThermalMesher().generate_mesh(board_model, settings)
+        nominal_h = thermal_mesh.surface_h_w_m2k["top"]
+
+        electrical_mesh = Mesh()
+        electrical_mesh.nodes = [0, 1]
+        electrical_mesh.node_coords = {0: (2.0, 5.0, 0), 1: (8.0, 5.0, 0)}
+        electrical_mesh.add_edge_direct(0, 1, g=1.0)
+        contexts = {
+            "5V": {
+                "mesh": electrical_mesh,
+                "sources": [{"node_id": 0, "voltage": 5.0}],
+                "loads": [{"node_id": 1, "current": 1.0}],
+            }
+        }
+
+        result = ElectroThermalSolver().solve(thermal_mesh, settings, contexts)
+
+        self.assertTrue(result.thermal.surface_refined)
+        self.assertNotAlmostEqual(
+            thermal_mesh.surface_h_w_m2k["top"], nominal_h, places=3,
+        )
+
+    def test_default_relaxation_does_not_drag_a_settled_coupling(self):
+        # P02 Rev E, 2026-09-22 21:56: the solved hotspot sat at 114.68-114.71 C
+        # from the first iteration, yet the deltas ran 69.68, 27.89, 11.17 ...
+        # 0.046 C -- exactly 0.4**k of the first 69.68 C rise over the 45 C
+        # ambient -- and the loop spent 9 iterations measuring the 0.6
+        # relaxation catching up with a field that had already settled.
+        settings = ThermalAnalysisSettings(
+            ambient_c=45.0, grid_size_mm=2.0,
+            airflow=AirflowSettings(
+                mode="CUSTOM", custom_h_w_m2k=20.0,
+                expose_top=True, expose_bottom=True, expose_edges=True,
+            ),
+            include_radiation=False, coupled_iterations=10,
+            convergence_c=0.1, relaxation=0.6,
+        )
+        board_model = ThermalBoardModel(
+            bounds_mm=(0.0, 0.0, 10.0, 10.0),
+            outline=box(0.0, 0.0, 10.0, 10.0),
+            stackup={
+                "copper": {0: {"name": "F.Cu", "thickness_mm": 0.035}},
+                "layer_order": [0], "substrate": [],
+            },
+            copper_by_layer={0: box(0.0, 0.0, 10.0, 10.0)},
+            # As on P02 (4.39 W, 0.40-0.45 W of it copper), fixed component
+            # heat sets the rise and the copper loss only nudges it.
+            placements={"Q1": ThermalPlacement("Q1", 5.0, 5.0, 3.0, 3.0)},
+            components=[ThermalComponentModel(
+                "Q1", power_w=0.18, width_mm=3.0, depth_mm=3.0,
+                theta_jb_c_per_w=0.0, model_source="user",
+            )],
+        )
+        thermal_mesh = ThermalMesher().generate_mesh(board_model, settings)
+        electrical_mesh = Mesh()
+        electrical_mesh.nodes = [0, 1]
+        electrical_mesh.node_coords = {0: (2.0, 5.0, 0), 1: (8.0, 5.0, 0)}
+        electrical_mesh.add_edge_direct(0, 1, g=50.0)
+        contexts = {"5V": {
+            "mesh": electrical_mesh,
+            "sources": [{"node_id": 0, "voltage": 5.0}],
+            "loads": [{"node_id": 1, "current": 1.0}],
+        }}
+
+        result = ElectroThermalSolver().solve(thermal_mesh, settings, contexts)
+
+        self.assertGreater(result.thermal.hotspot.temperature_c - 45.0, 10.0)
+        self.assertTrue(result.converged)
+        self.assertLessEqual(result.iterations, 3)
+
+    def test_heat_that_never_reaches_the_mesh_is_reported(self):
+        # TH-9: the energy balance only compares deposited heat with what
+        # leaves, so a component with no placement lost its heat silently.
+        from thermal_solver import ThermalSolver
+        from analysis_adapters import adapt_thermal_result
+        settings = ThermalAnalysisSettings(
+            ambient_c=45.0, grid_size_mm=2.0,
+            airflow=AirflowSettings(mode="CUSTOM", custom_h_w_m2k=20.0,
+                                    expose_top=True, expose_bottom=True, expose_edges=True),
+            include_radiation=False,
+        )
+        board_model = ThermalBoardModel(
+            bounds_mm=(0.0, 0.0, 10.0, 10.0), outline=box(0.0, 0.0, 10.0, 10.0),
+            stackup={"copper": {0: {"name": "F.Cu", "thickness_mm": 0.035}},
+                     "layer_order": [0], "substrate": []},
+            copper_by_layer={0: box(0.0, 0.0, 10.0, 10.0)},
+            placements={"Q1": ThermalPlacement("Q1", 5.0, 5.0, 3.0, 3.0)},
+            components=[
+                ThermalComponentModel("Q1", power_w=0.18, width_mm=3.0, depth_mm=3.0,
+                                      theta_jb_c_per_w=0.0, model_source="user"),
+                ThermalComponentModel("U9", power_w=0.5, width_mm=3.0, depth_mm=3.0,
+                                      theta_jb_c_per_w=0.0, model_source="user"),
+            ],
+        )
+        mesh = ThermalMesher().generate_mesh(board_model, settings)
+        result = ThermalSolver().solve(mesh, settings.ambient_c)
+        self.assertAlmostEqual(result.undeposited_power_w, 0.5, places=6)
+        adapted = adapt_thermal_result(result)
+        self.assertIn("TH-005", {item.rule_id for item in adapted.findings})
 
     def test_thermal_sampling_uses_configured_workers_as_row_bands(self):
         settings = ThermalAnalysisSettings(

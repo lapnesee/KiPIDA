@@ -13,12 +13,45 @@ if plugin_dir not in sys.path:
 # Let's simple-mock wx to ensure logic runs even if system python doesn't have wx (though user python likely does)
 import types
 from types import SimpleNamespace
-if 'wx' not in sys.modules:
+# Stub wx only when it is genuinely absent, never merely because this module
+# imported first.
+#
+# The guard was `if 'wx' not in sys.modules`, which under unittest discovery is
+# a race: every test module is imported before any test runs, so whichever got
+# there first decided whether the whole suite saw real wx. On a machine with
+# wxPython installed this module usually won, and every test needing a real
+# wx.App skipped itself -- silently, and increasingly as more such tests were
+# written. Nineteen skips at the last count, and rising with each one added.
+#
+# Importing the real wx first settles it by capability rather than by order.
+try:  # pragma: no cover - depends on the environment, not on a branch
+    import wx  # noqa: F401
+except ImportError:
     wx_mock = types.ModuleType('wx')
     wx_mock.Bitmap = lambda *args: "BITMAP_OBJECT"
     wx_mock.Image = lambda *args: "IMAGE_OBJECT"
     wx_mock.BITMAP_TYPE_PNG = 1
     sys.modules['wx'] = wx_mock
+
+_WX_APP = None
+
+
+def setUpModule():
+    """Give the real wx the App its bitmap calls require.
+
+    With the stub, Plotter's wx.Bitmap/wx.Image calls were lambdas and needed
+    nothing. Now that the real module is used whenever it is installed, those
+    calls raise "the wx.App object must be created first" -- so the App that
+    was never needed becomes part of the fixture. Without it these tests still
+    pass, but against the error path rather than the one they were written for.
+    """
+    global _WX_APP
+    if hasattr(wx, "App") and not isinstance(getattr(wx, "App", None), type(lambda: 0)):
+        try:
+            _WX_APP = wx.App(False)
+        except Exception:  # pragma: no cover - headless without a display
+            _WX_APP = None
+
 
 from plotter import Plotter
 from mesh import Mesh
@@ -100,6 +133,51 @@ class TestPlotter(unittest.TestCase):
         self.assertIsNotNone(self.plotter.plot_3d_mesh(self.mesh, self.stackup))
         self.assertIsNone(self.plotter.plot_layer_2d(self.mesh, 1, self.stackup))
 
+    def _gridded_mesh(self, side):
+        mesh = Mesh()
+        mesh.grid_origin, mesh.grid_step = (0.0, 0.0), 0.1
+        mesh.node_map, mesh.node_coords, mesh.results = {}, {}, {}
+        for index in range(side * side):
+            xi, yi = divmod(index, side)
+            mesh.node_map[(xi, yi, 0)] = index
+            mesh.node_coords[index] = (xi * 0.1, yi * 0.1, 0)
+            mesh.results[index] = 5.0 - 1e-6 * index
+        mesh.nodes = list(mesh.node_coords)
+        return mesh
+
+    def test_dc_maps_do_not_draw_one_marker_per_node(self):
+        # P02 Rev E, 2026-09-22: 227 DC maps took 103 s after the DC finished,
+        # 8.4 s for one layer of /VBUS_SYS (375,478 nodes) drawn as markers.
+        from unittest.mock import patch
+        import matplotlib.axes
+
+        mesh = self._gridded_mesh(250)
+        drawn = []
+        original = matplotlib.axes.Axes.scatter
+
+        def counting(axis, xs, *args, **kwargs):
+            drawn.append(len(xs))
+            return original(axis, xs, *args, **kwargs)
+
+        with patch.object(matplotlib.axes.Axes, "scatter", counting):
+            layer = self.plotter.plot_layer_2d(mesh, 0, self.stackup, as_png=True)
+        self.assertTrue(layer.startswith(b"\x89PNG"))
+        self.assertEqual(drawn, [])
+
+        from mpl_toolkits.mplot3d import Axes3D
+        points = []
+        original_3d = Axes3D.scatter
+
+        def recording(axis, xs, ys, zs, *args, **kwargs):
+            points.append((len(xs), min(kwargs["c"])))
+            return original_3d(axis, xs, ys, zs, *args, **kwargs)
+
+        with patch.object(Axes3D, "scatter", recording):
+            self.plotter.plot_3d_mesh(mesh, self.stackup, as_png=True)
+        count, lowest = points[0]
+        self.assertLessEqual(count, Plotter.MAX_3D_POINTS + 1)
+        self.assertEqual(lowest, min(mesh.results.values()))
+
     def test_plot_impedance_sweep(self):
         baseline = SimpleNamespace(
             frequencies_hz=[1e3, 1e4, 1e5],
@@ -169,12 +247,27 @@ class TestPlotter(unittest.TestCase):
         self.assertTrue(interactive.png_bytes.startswith(b"\x89PNG"))
         self.assertTrue(interactive.click_probe.points)
         popup = interactive.click_probe.points[0][2]
-        self.assertEqual(popup.confidence, "DETERMINISTIC")
+        # The finding is graded HIGH, which is an estimate, not a fact.
+        self.assertEqual(popup.confidence, "ESTIMATED")
         finding.confidence = "LOW"
         heuristic = self.plotter.plot_emc_risk_map(
             snapshot, result, as_png=True, with_click_probe=True,
         )
         self.assertEqual(heuristic.click_probe.points[0][2].confidence, "HEURISTIC")
+
+    def test_the_risk_map_draws_its_tracks_as_one_collection(self):
+        # P02 Rev E, 2026-09-29 18:31: 2,199 tracks drawn one line each kept
+        # the EMC plots 12 s behind Phase 10; the map alone took 6.2 s.
+        from unittest import mock
+        snapshot = SimpleNamespace(bounds_mm=(0.0, 0.0, 100.0, 80.0), tracks=[
+            SimpleNamespace(start=(5.0, y), end=(95.0, y), width_mm=0.2) for y in (10.0, 20.0, 30.0)
+        ])
+        with mock.patch.object(type(self.plotter), "_fig_to_png", lambda _self, fig: fig):
+            fig = self.plotter.plot_emc_risk_map(snapshot, SimpleNamespace(findings=[]), as_png=True)
+        axis = fig.axes[0]
+
+        self.assertEqual(len(axis.lines), 0)
+        self.assertEqual([len(item.get_segments()) for item in axis.collections], [3])
 
     def test_plot_em_near_field_with_hover_probe(self):
         result = SimpleNamespace(

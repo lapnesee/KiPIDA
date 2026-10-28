@@ -1,0 +1,764 @@
+"""Read KiCad PCB files (.kicad_pcb) offline.
+
+Extracts stackup, footprints, pads, segments, vias, zones, and board outline
+without any dependency on kipy or pcbnew.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+from .file_format import require_supported
+from .sexpr import parse, find, find_all, get_str
+
+
+@dataclass
+class CopperLayer:
+    layer_id: int
+    name: str
+    layer_type: str       # "signal", "power", "mixed", "jumper"
+    thickness_mm: float
+    epsilon_r: Optional[float] = None
+    loss_tangent: Optional[float] = None
+    # The name the designer gave the layer ("L2GND" for In1.Cu), empty when it
+    # was not renamed. KiCad's IPC stackup reports this name, not the canonical
+    # one, so matching the file's layers to the live board needs both.
+    user_name: str = ""
+
+
+@dataclass
+class Stackup:
+    layers: list[CopperLayer]
+    total_thickness_mm: float
+    copper_layer_count: int
+    # "stackup" when the copper layers come from the board's (stackup) block,
+    # "layers" when the board has none and they come from its layer table --
+    # thicknesses are then unknown (0.0) rather than read.
+    source: str = "stackup"
+    # Depth of each copper layer's centre below the top copper surface, in
+    # mm, counting copper and dielectrics only (not mask or silk): what a
+    # via barrel actually spans between two layers. Empty without a stackup.
+    copper_depth_mm: dict = field(default_factory=dict)
+
+
+@dataclass
+class Pad:
+    number: str
+    net_name: str
+    pintype: str
+    position: tuple[float, float]  # absolute (x, y)
+    # "thru_hole", "smd", "connect" or "np_thru_hole" as written by KiCad.
+    # A through-hole pad is a vertical conductor: it shorts every copper layer
+    # it passes, exactly as a via does. Without this the mesher cannot tell one
+    # from a surface pad, and a track ending on a THT pad has no path to the
+    # plane below it -- which stranded loads on four of seven rails of the
+    # reference board.
+    pad_type: str = "smd"
+    # Copper layer names the pad occupies, as declared. "*.Cu" means every
+    # copper layer, which KiCad writes for through-hole pads.
+    layers: tuple[str, ...] = ()
+    # Finished hole diameter in mm, 0.0 for a surface pad. Parsed rather than
+    # assumed: the barrel resistance depends on it, and a guessed drill would
+    # put an invented number into a voltage-drop result.
+    drill_mm: float = 0.0
+    # The pad's copper outline: KiCad shape name ("rect", "roundrect",
+    # "circle", "oval", "trapezoid", "custom"), size before rotation, and the
+    # orientation on the board. The file writes a pad's angle in board
+    # coordinates, footprint rotation included (314 of 314 rotated passives on
+    # three boards). A track may end anywhere on a pad, so locating one by its
+    # centre alone left tracks and pour spokes touching the pad unjoined.
+    shape: str = ""
+    size_mm: tuple[float, float] = (0.0, 0.0)
+    angle_deg: float = 0.0
+    # The symbol pin's name as KiCad copies it onto the pad ("SW_1", "VIN_10",
+    # "G_4"), empty for a pad no symbol pin names. It is what ties a pad to a
+    # SPICE subcircuit pin of the same name.
+    pinfunction: str = ""
+
+    @property
+    def is_through_hole(self) -> bool:
+        return str(self.pad_type).lower() in {"thru_hole", "np_thru_hole"}
+
+
+def pad_copper_layers(stackup, pad) -> list:
+    """The stackup's copper layers a pad occupies, top to bottom.
+
+    ``*.Cu`` is KiCad's shorthand for every copper layer and ``F&B.Cu`` for
+    both outer ones; a through-hole pad reaches every layer it is drilled
+    through. Returns an empty list when the stackup or the pad does not say,
+    which callers take as "unknown", not as "none".
+    """
+    layers = list(getattr(stackup, "layers", ()) or ())
+    declared = {str(name) for name in (getattr(pad, "layers", ()) or ())}
+    through = str(getattr(pad, "pad_type", "")).lower() in {"thru_hole", "np_thru_hole"}
+    if not layers or not (declared or through):
+        return []
+    if through or "*.Cu" in declared:
+        return layers
+    if "F&B.Cu" in declared:
+        declared |= {"F.Cu", "B.Cu"}
+    return [layer for layer in layers if layer.name in declared]
+
+
+@dataclass
+class Footprint:
+    reference: str
+    value: str
+    lib_id: str
+    position: tuple[float, float]
+    rotation: float
+    layer: str
+    sch_path: str
+    sch_sheet_file: str
+    pads: list[Pad] = field(default_factory=list)
+    # (attr ... dnp): placed on the board but not fitted, as P02 Rev E's
+    # snubbers R57/R58 and its ISNS filter C53.
+    dnp: bool = False
+
+
+@dataclass
+class Segment:
+    net_name: str
+    width_mm: float
+    layer: str
+    start: tuple[float, float]
+    end: tuple[float, float]
+
+
+@dataclass
+class Via:
+    net_name: str
+    position: tuple[float, float]
+    size_mm: float
+    drill_mm: float
+    layers: list[str]
+
+
+@dataclass
+class Zone:
+    net_name: str
+    layer: str
+    # Filled copper polygon vertices [(x, y), ...], empty list if zones not filled
+    filled_polygon: list[tuple[float, float]] = field(default_factory=list)
+    # Design-rule outline polygon [(x, y), ...], used as fallback
+    outline_polygon: list[tuple[float, float]] = field(default_factory=list)
+
+
+@dataclass
+class BoardBounds:
+    x_min: float
+    y_min: float
+    x_max: float
+    y_max: float
+
+    @property
+    def width_mm(self) -> float:
+        return self.x_max - self.x_min
+
+    @property
+    def height_mm(self) -> float:
+        return self.y_max - self.y_min
+
+    @property
+    def area_mm2(self) -> float:
+        return self.width_mm * self.height_mm
+
+
+@dataclass
+class ParsedBoard:
+    pcb_path: Path
+    stackup: Stackup
+    bounds: BoardBounds
+    footprints: list[Footprint]
+    segments: list[Segment]
+    vias: list[Via]
+    zones: list[Zone]
+
+    @property
+    def all_net_names(self) -> set[str]:
+        nets: set[str] = set()
+        for fp in self.footprints:
+            for p in fp.pads:
+                if p.net_name:
+                    nets.add(p.net_name)
+        for s in self.segments:
+            if s.net_name:
+                nets.add(s.net_name)
+        for v in self.vias:
+            if v.net_name:
+                nets.add(v.net_name)
+        for z in self.zones:
+            if z.net_name:
+                nets.add(z.net_name)
+        return nets
+
+
+def read_board(pcb_path: Path, text: str | None = None) -> ParsedBoard:
+    """Parse a .kicad_pcb file and return a ParsedBoard.
+
+    *text* is the file's content when the caller read it earlier, so that a
+    board saved again since is not the one parsed.
+
+    Raises :class:`~ingest.file_format.UnsupportedFileFormat` (a ValueError)
+    for a board saved by KiCad 7 or earlier.
+    """
+    pcb_path = Path(pcb_path)
+    if text is None:
+        text = pcb_path.read_text(encoding="utf-8")
+    roots = parse(text)
+    if not roots or not isinstance(roots[0], list):
+        raise ValueError(f"Cannot parse {pcb_path}: no root node found")
+    root = roots[0]
+    require_supported(root, pcb_path, "board")
+
+    # Build net-code → net-name map for legacy integer net references
+    net_name_map = _build_net_name_map(root)
+
+    stackup = _parse_stackup(root)
+    bounds = _parse_bounds(root)
+    footprints = _parse_footprints(root, net_name_map)
+    segments = _parse_segments(root, net_name_map)
+    vias = _parse_vias(root, net_name_map)
+    zones = _parse_zones(root, net_name_map)
+
+    return ParsedBoard(
+        pcb_path=pcb_path,
+        stackup=stackup,
+        bounds=bounds,
+        footprints=footprints,
+        segments=segments,
+        vias=vias,
+        zones=zones,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Internal parsers
+# ---------------------------------------------------------------------------
+
+def _build_net_name_map(root: list) -> dict[str, str]:
+    """Build {net_code_str: net_name} from top-level (net N "name") declarations."""
+    result: dict[str, str] = {}
+    for node in find_all(root, "net"):
+        if len(node) >= 3:
+            code = str(node[1])
+            name = node[2]
+            if isinstance(name, str):
+                result[code] = name
+    return result
+
+
+def _resolve_net(net_val: str, net_map: dict[str, str]) -> str:
+    """Resolve a net value that may be a name string or an integer code."""
+    if not net_val:
+        return ""
+    # If it's a pure integer code, look up in map
+    if net_val.lstrip("-").isdigit():
+        return net_map.get(net_val, "")
+    return net_val
+
+
+def _parse_stackup(root: list) -> Stackup:
+    setup = find(root, "setup")
+    stackup_node = find(setup, "stackup") if setup else None
+    copper_layers: list[CopperLayer] = []
+    total_thickness = 0.0
+
+    # Top-level layer declarations give us layer_id and type
+    layer_id_map: dict[str, int] = {}  # name → id
+    layer_type_map: dict[str, str] = {}  # name → signal/power
+    user_name_map: dict[str, str] = {}  # name → designer's name
+    for layer_decl in find_all(root, "layers"):
+        for entry in layer_decl[1:]:
+            if isinstance(entry, list) and len(entry) >= 3:
+                try:
+                    lid = int(entry[0])
+                    lname = entry[1]
+                    ltype = entry[2]
+                    if isinstance(lname, str) and isinstance(ltype, str):
+                        layer_id_map[lname] = lid
+                        layer_type_map[lname] = ltype
+                        if len(entry) >= 4 and isinstance(entry[3], str):
+                            user_name_map[lname] = entry[3]
+                except (ValueError, IndexError):
+                    pass
+
+    # Stackup gives us thickness and dielectric properties
+    copper_depth = {}
+    depth = 0.0
+    if stackup_node:
+        for layer_node in find_all(stackup_node, "layer"):
+            if not layer_node or len(layer_node) < 2:
+                continue
+            lname = layer_node[1] if isinstance(layer_node[1], str) else ""
+            ltype_node = find(layer_node, "type")
+            ltype_str = ltype_node[1] if ltype_node and len(ltype_node) > 1 else ""
+
+            thick_node = find(layer_node, "thickness")
+            thick = float(thick_node[1]) if thick_node and len(thick_node) > 1 else 0.0
+            total_thickness += thick
+
+            eps_node = find(layer_node, "epsilon_r")
+            eps = float(eps_node[1]) if eps_node and len(eps_node) > 1 else None
+            loss_node = find(layer_node, "loss_tangent")
+            loss = float(loss_node[1]) if loss_node and len(loss_node) > 1 else None
+
+            if ltype_str in ("core", "prepreg"):
+                depth += thick
+            if ltype_str == "copper":
+                copper_depth[lname] = depth + 0.5 * thick
+                depth += thick
+                layer_id = layer_id_map.get(lname, -1)
+                layer_type = layer_type_map.get(lname, "signal")
+                copper_layers.append(CopperLayer(
+                    layer_id=layer_id,
+                    name=lname,
+                    layer_type=layer_type,
+                    thickness_mm=thick,
+                    epsilon_r=eps,
+                    loss_tangent=loss,
+                    user_name=user_name_map.get(lname, ""),
+                ))
+
+    source = "stackup"
+    if not copper_layers:
+        # KiCad writes a (stackup) block only once the board setup has been
+        # edited; 4 of the 19 KiCad 10 demo boards have none. Their copper
+        # layers are still declared in the layer table, and without them every
+        # layer lookup failed: vias and through-hole pads were dropped from the
+        # mesh, leaving each layer's copper unconnected to the others.
+        source = "layers"
+        declared = [name for name in layer_id_map if _copper_order(name) is not None]
+        for lname in sorted(declared, key=_copper_order):
+            copper_layers.append(CopperLayer(
+                layer_id=layer_id_map[lname],
+                name=lname,
+                layer_type=layer_type_map.get(lname, "signal"),
+                thickness_mm=0.0,
+                user_name=user_name_map.get(lname, ""),
+            ))
+
+    # Fallback: parse (general (thickness T)) for total thickness
+    if total_thickness == 0.0:
+        general = find(root, "general")
+        if general:
+            thick_node = find(general, "thickness")
+            if thick_node and len(thick_node) > 1:
+                try:
+                    total_thickness = float(thick_node[1])
+                except ValueError:
+                    pass
+
+    return Stackup(
+        layers=copper_layers,
+        total_thickness_mm=total_thickness,
+        copper_layer_count=len(copper_layers),
+        source=source,
+        copper_depth_mm=copper_depth if source == "stackup" else {},
+    )
+
+
+def _copper_order(name: str) -> Optional[tuple[int, int]]:
+    """Physical position of a canonical copper layer name, or None.
+
+    The layer table lists copper by KiCad's internal id, which no longer
+    follows the board from top to bottom (B.Cu is 2, In1.Cu is 4), so the
+    order has to come from the names: F.Cu, In1.Cu .. InN.Cu, B.Cu.
+    """
+    if name == "F.Cu":
+        return (0, 0)
+    if name == "B.Cu":
+        return (2, 0)
+    if name.startswith("In") and name.endswith(".Cu") and name[2:-3].isdigit():
+        return (1, int(name[2:-3]))
+    return None
+
+
+def _parse_bounds(root: list) -> BoardBounds:
+    """Extract board outline from Edge.Cuts shapes."""
+    xs: list[float] = []
+    ys: list[float] = []
+
+    def _add_xy(node: list, tag: str) -> None:
+        sub = find(node, tag)
+        if sub and len(sub) >= 3:
+            try:
+                xs.append(float(sub[1]))
+                ys.append(float(sub[2]))
+            except (ValueError, IndexError):
+                pass
+
+    for shape_type in ("gr_rect", "gr_line", "gr_arc", "gr_poly"):
+        for node in find_all(root, shape_type):
+            layer_node = find(node, "layer")
+            if not layer_node or len(layer_node) < 2:
+                continue
+            if layer_node[1] != "Edge.Cuts":
+                continue
+            _add_xy(node, "start")
+            _add_xy(node, "end")
+            _add_xy(node, "mid")
+
+    if not xs or not ys:
+        return BoardBounds(0.0, 0.0, 0.0, 0.0)
+
+    return BoardBounds(
+        x_min=min(xs), y_min=min(ys), x_max=max(xs), y_max=max(ys)
+    )
+
+
+_PAD_SHAPES = frozenset({"circle", "rect", "oval", "trapezoid", "roundrect", "custom", "chamfered_rect"})
+
+
+def _parse_footprints(root: list, net_map: dict[str, str]) -> list[Footprint]:
+    footprints: list[Footprint] = []
+    for fp_node in find_all(root, "footprint"):
+        if not fp_node or len(fp_node) < 2:
+            continue
+        lib_id = fp_node[1] if isinstance(fp_node[1], str) else ""
+
+        at_node = find(fp_node, "at")
+        if at_node and len(at_node) >= 3:
+            try:
+                px, py = float(at_node[1]), float(at_node[2])
+                rotation = float(at_node[3]) if len(at_node) > 3 else 0.0
+            except (ValueError, IndexError):
+                px, py, rotation = 0.0, 0.0, 0.0
+        else:
+            px, py, rotation = 0.0, 0.0, 0.0
+
+        layer_node = find(fp_node, "layer")
+        layer = layer_node[1] if layer_node and len(layer_node) > 1 else ""
+
+        props = _fp_properties(fp_node)
+        reference = props.get("Reference", "")
+        value = props.get("Value", "")
+
+        path_node = find(fp_node, "path")
+        sch_path = path_node[1] if path_node and len(path_node) > 1 else ""
+        sheetfile_node = find(fp_node, "sheetfile")
+        sch_sheet_file = sheetfile_node[1] if sheetfile_node and len(sheetfile_node) > 1 else ""
+
+        pads: list[Pad] = []
+        for pad_node in find_all(fp_node, "pad"):
+            pad_num = pad_node[1] if len(pad_node) > 1 and isinstance(pad_node[1], str) else ""
+            # pad net — may be (net "name") or (net N)
+            net_node = find(pad_node, "net")
+            if net_node and len(net_node) >= 2:
+                raw_net = str(net_node[1])
+                net_name = _resolve_net(raw_net, net_map)
+            else:
+                net_name = ""
+            pintype_node = find(pad_node, "pintype")
+            pintype = pintype_node[1] if pintype_node and len(pintype_node) > 1 else "passive"
+            pinfunction_node = find(pad_node, "pinfunction")
+            pinfunction = (
+                str(pinfunction_node[1]) if pinfunction_node and len(pinfunction_node) > 1 else ""
+            )
+
+            pad_at = find(pad_node, "at")
+            pad_angle = rotation
+            if pad_at and len(pad_at) >= 3:
+                try:
+                    pad_dx, pad_dy = float(pad_at[1]), float(pad_at[2])
+                    pad_angle = float(pad_at[3]) if len(pad_at) > 3 else 0.0
+                    # Rotate the pad offset by the footprint rotation, in KiCad's
+                    # frame: Y points down, so a positive angle turns a pad at
+                    # local +X towards -Y. The textbook (Y-up) matrix used here
+                    # mirrored every pad of a footprint turned by anything but
+                    # 0 or 180 degrees. Checked against track ends, which KiCad
+                    # lands on pad centres: at 90 degrees it matched 3 of 69 pads
+                    # on the reference board and 42 with this sign; on StickHub
+                    # at 225 degrees, 0 of 86 against 74.
+                    rad = math.radians(rotation)
+                    abs_x = px + pad_dx * math.cos(rad) + pad_dy * math.sin(rad)
+                    abs_y = py - pad_dx * math.sin(rad) + pad_dy * math.cos(rad)
+                except (ValueError, IndexError):
+                    abs_x, abs_y = px, py
+            else:
+                abs_x, abs_y = px, py
+
+            # (pad "1" thru_hole circle (at ...) ... (layers "*.Cu" "*.Mask"))
+            # The type is the second positional token, before the shape.
+            pad_type = "smd"
+            for token in pad_node[2:4]:
+                if isinstance(token, str) and token in {
+                    "thru_hole", "smd", "connect", "np_thru_hole",
+                }:
+                    pad_type = token
+                    break
+            shape = next((
+                token for token in pad_node[2:5]
+                if isinstance(token, str) and token in _PAD_SHAPES
+            ), "")
+            size_node = find(pad_node, "size")
+            try:
+                size_mm = (
+                    (float(size_node[1]), float(size_node[2] if len(size_node) > 2 else size_node[1]))
+                    if size_node and len(size_node) > 1 else (0.0, 0.0)
+                )
+            except (TypeError, ValueError):
+                size_mm = (0.0, 0.0)
+            layers_node = find(pad_node, "layers")
+            pad_layers = tuple(
+                str(item) for item in (layers_node[1:] if layers_node else ())
+                if str(item).endswith(".Cu") or str(item) == "*.Cu"
+            )
+
+            # (drill 0.8) for a round hole, (drill oval 0.8 1.6) otherwise;
+            # the first numeric token is the diameter in both spellings.
+            drill_mm = 0.0
+            drill_node = find(pad_node, "drill")
+            for token in (drill_node[1:] if drill_node else ()):
+                try:
+                    drill_mm = float(token)
+                    break
+                except (TypeError, ValueError):
+                    continue
+
+            pads.append(Pad(
+                number=pad_num,
+                net_name=net_name,
+                pintype=pintype,
+                position=(abs_x, abs_y),
+                pad_type=pad_type,
+                layers=pad_layers,
+                drill_mm=drill_mm,
+                shape=shape,
+                size_mm=size_mm,
+                angle_deg=pad_angle,
+                pinfunction=pinfunction,
+            ))
+
+        attr_node = find(fp_node, "attr")
+        footprints.append(Footprint(
+            reference=reference,
+            value=value,
+            lib_id=lib_id,
+            position=(px, py),
+            rotation=rotation,
+            layer=layer,
+            sch_path=sch_path,
+            sch_sheet_file=sch_sheet_file,
+            pads=pads,
+            dnp=bool(attr_node) and "dnp" in attr_node[1:],
+        ))
+    return footprints
+
+
+def _fp_properties(fp_node: list) -> dict[str, str]:
+    props: dict[str, str] = {}
+    for prop in find_all(fp_node, "property"):
+        if len(prop) >= 3 and isinstance(prop[1], str) and isinstance(prop[2], str):
+            props[prop[1]] = prop[2]
+    return props
+
+
+def _parse_segments(root: list, net_map: dict[str, str]) -> list[Segment]:
+    segments: list[Segment] = []
+    for seg in find_all(root, "segment"):
+        start_node = find(seg, "start")
+        end_node = find(seg, "end")
+        width_node = find(seg, "width")
+        layer_node = find(seg, "layer")
+        net_node = find(seg, "net")
+
+        try:
+            sx, sy = float(start_node[1]), float(start_node[2])
+            ex, ey = float(end_node[1]), float(end_node[2])
+        except (TypeError, ValueError, IndexError):
+            continue
+
+        width = 0.0
+        if width_node and len(width_node) > 1:
+            try:
+                width = float(width_node[1])
+            except ValueError:
+                pass
+
+        layer = layer_node[1] if layer_node and len(layer_node) > 1 else ""
+        net_name = ""
+        if net_node and len(net_node) > 1:
+            net_name = _resolve_net(str(net_node[1]), net_map)
+
+        segments.append(Segment(
+            net_name=net_name,
+            width_mm=width,
+            layer=layer,
+            start=(sx, sy),
+            end=(ex, ey),
+        ))
+
+    # Arc tracks. The reader took only straight segments, and an arc left out
+    # is an open circuit to the DC mesh; 3 of 4 boards checked route with them
+    # (2,316 arcs on the Jetson baseboard demo, 200 on CM5 Minima). Each arc
+    # becomes chords of at most ARC_MAX_STEP_DEG, whose total length is within
+    # 0.13 % of the arc's.
+    for arc in find_all(root, "arc"):
+        try:
+            points = [
+                (float(node[1]), float(node[2]))
+                for node in (find(arc, "start"), find(arc, "mid"), find(arc, "end"))
+            ]
+        except (TypeError, ValueError, IndexError):
+            continue
+        width_node = find(arc, "width")
+        layer_node = find(arc, "layer")
+        net_node = find(arc, "net")
+        try:
+            width = float(width_node[1]) if width_node and len(width_node) > 1 else 0.0
+        except ValueError:
+            width = 0.0
+        layer = layer_node[1] if layer_node and len(layer_node) > 1 else ""
+        net_name = _resolve_net(str(net_node[1]), net_map) if net_node and len(net_node) > 1 else ""
+        chain = arc_polyline(*points)
+        for start, end in zip(chain, chain[1:]):
+            segments.append(Segment(net_name=net_name, width_mm=width, layer=layer, start=start, end=end))
+    return segments
+
+
+ARC_MAX_STEP_DEG = 10.0
+
+
+def arc_polyline(start, mid, end) -> list[tuple[float, float]]:
+    """Points along the circular arc from *start* through *mid* to *end*.
+
+    Ends are the file's own coordinates, so tracks and pads meeting the arc
+    still share its end nodes. Three collinear points are a straight track.
+    """
+    (ax, ay), (bx, by), (cx, cy) = start, mid, end
+    det = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by))
+    if abs(det) < 1e-12:
+        return [start, end]
+    a2, b2, c2 = ax * ax + ay * ay, bx * bx + by * by, cx * cx + cy * cy
+    ox = (a2 * (by - cy) + b2 * (cy - ay) + c2 * (ay - by)) / det
+    oy = (a2 * (cx - bx) + b2 * (ax - cx) + c2 * (bx - ax)) / det
+    radius = math.hypot(ax - ox, ay - oy)
+    t_start = math.atan2(ay - oy, ax - ox)
+    t_mid = math.atan2(by - oy, bx - ox)
+    t_end = math.atan2(cy - oy, cx - ox)
+    # Sweep from start to end in the direction that passes the midpoint.
+    sweep = (t_end - t_start) % (2.0 * math.pi)
+    if (t_mid - t_start) % (2.0 * math.pi) > sweep:
+        sweep -= 2.0 * math.pi
+    pieces = max(1, math.ceil(abs(math.degrees(sweep)) / ARC_MAX_STEP_DEG))
+    inner = [
+        (ox + radius * math.cos(t_start + sweep * k / pieces),
+         oy + radius * math.sin(t_start + sweep * k / pieces))
+        for k in range(1, pieces)
+    ]
+    return [start, *inner, end]
+
+
+def _parse_vias(root: list, net_map: dict[str, str]) -> list[Via]:
+    vias: list[Via] = []
+    for via_node in find_all(root, "via"):
+        at_node = find(via_node, "at")
+        if not at_node or len(at_node) < 3:
+            continue
+        try:
+            vx, vy = float(at_node[1]), float(at_node[2])
+        except (ValueError, IndexError):
+            continue
+
+        size_node = find(via_node, "size")
+        size = float(size_node[1]) if size_node and len(size_node) > 1 else 0.0
+        drill_node = find(via_node, "drill")
+        drill = float(drill_node[1]) if drill_node and len(drill_node) > 1 else 0.0
+
+        layers_node = find(via_node, "layers")
+        via_layers: list[str] = []
+        if layers_node:
+            via_layers = [x for x in layers_node[1:] if isinstance(x, str)]
+
+        net_node = find(via_node, "net")
+        net_name = ""
+        if net_node and len(net_node) > 1:
+            net_name = _resolve_net(str(net_node[1]), net_map)
+
+        vias.append(Via(
+            net_name=net_name,
+            position=(vx, vy),
+            size_mm=size,
+            drill_mm=drill,
+            layers=via_layers,
+        ))
+    return vias
+
+
+def _parse_polygon_pts(container: list) -> list[tuple[float, float]]:
+    """Extract [(x, y), ...] from a (pts (xy X Y) ...) sub-tree."""
+    pts_node = find(container, "pts")
+    if not pts_node:
+        return []
+    coords: list[tuple[float, float]] = []
+    for xy in find_all(pts_node, "xy"):
+        try:
+            coords.append((float(xy[1]), float(xy[2])))
+        except (IndexError, ValueError):
+            pass
+    return coords
+
+
+def _parse_zones(root: list, net_map: dict[str, str]) -> list[Zone]:
+    zones: list[Zone] = []
+    for zone_node in find_all(root, "zone"):
+        net_name_node = find(zone_node, "net_name")
+        if net_name_node and len(net_name_node) > 1:
+            net_name = str(net_name_node[1])
+        else:
+            net_node = find(zone_node, "net")
+            net_name = ""
+            if net_node and len(net_node) > 1:
+                net_name = _resolve_net(str(net_node[1]), net_map)
+
+        # A zone names one layer, (layer "F.Cu"), or several, (layers "F.Cu"
+        # "B.Cu"). Only the first form was read: a zone on several layers came
+        # back with no layer at all, and every one of its fills was dropped.
+        declared: list[str] = []
+        layer_node = find(zone_node, "layer")
+        if layer_node and len(layer_node) > 1:
+            declared = [str(layer_node[1])]
+        layers_node = find(zone_node, "layers")
+        if layers_node:
+            declared = [str(item) for item in layers_node[1:] if isinstance(item, str)]
+
+        # Design-rule outline polygon (always present in a zone definition)
+        outline: list[tuple[float, float]] = []
+        poly_node = find(zone_node, "polygon")
+        if poly_node:
+            outline = _parse_polygon_pts(poly_node)
+
+        # Filled copper -- KiCad writes one (filled_polygon (layer "...") (pts
+        # ...)) per island per layer. Only the largest island of the zone's
+        # single layer was kept, so a pour split by a slot or spread over two
+        # layers lost the rest of its copper: on the reference board 8 of 24
+        # zones vanished and 6 islands with them. Every island is kept now, each
+        # as a Zone on the layer its fill names.
+        islands: list[tuple[str, list[tuple[float, float]]]] = []
+        for fp_node in find_all(zone_node, "filled_polygon"):
+            fp_layer_node = find(fp_node, "layer")
+            fp_layer = str(fp_layer_node[1]) if fp_layer_node and len(fp_layer_node) > 1 else ""
+            if not fp_layer and len(declared) == 1:
+                fp_layer = declared[0]
+            pts = _parse_polygon_pts(fp_node)
+            if fp_layer and len(pts) >= 3:
+                islands.append((fp_layer, pts))
+
+        if islands:
+            for fp_layer, pts in islands:
+                zones.append(Zone(
+                    net_name=net_name, layer=fp_layer,
+                    filled_polygon=pts, outline_polygon=outline,
+                ))
+        else:
+            # Unfilled: the outline stands in for the copper, per layer.
+            for layer in declared or [""]:
+                zones.append(Zone(
+                    net_name=net_name, layer=layer,
+                    filled_polygon=[], outline_polygon=outline,
+                ))
+    return zones

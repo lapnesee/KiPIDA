@@ -61,6 +61,122 @@ class TestThermalSolver(unittest.TestCase):
             ),
         )
 
+    def test_a_package_heats_its_copper_not_the_bare_laminate(self):
+        # P02 Rev E: spread over every cell of its window, U14's 1.26 W heated
+        # the laminate between its pads to 128 C over copper at 98 C, at every
+        # grid step, and that was the board's reported hotspot.
+        model = self._model()
+        model.copper_by_layer[0] = box(3.0, 4.0, 4.0, 6.0).union(box(6.0, 4.0, 7.0, 6.0))
+        model.placements["U1"] = ThermalPlacement("U1", 5.0, 5.0, 4.0, 2.0, "TOP")
+        settings = self._settings()
+        settings.grid_size_mm = 1.0
+        mesh = ThermalMesher().generate_mesh(model, settings)
+        heated = {round(mesh.node_coords[node][0], 1) for node in mesh.heat_sources_w}
+        self.assertEqual(heated, {3.5, 6.5})
+        self.assertAlmostEqual(sum(mesh.heat_sources_w.values()), 1.0)
+
+    def test_component_board_temperature_is_the_hottest_cell_not_the_average(self):
+        # TH-5: P02 Rev E read Q10 Tj 110.64 C under its own 114.71 C board
+        # hotspot -- the window average sat below the part's own peak. A
+        # small pad concentrates its share of the heat more than a large one
+        # spreads it, so the part's cells are not at a uniform temperature;
+        # board_temperature_c must be the hottest of them, not their mean.
+        model = self._model()
+        model.copper_by_layer[0] = box(3.0, 4.0, 4.0, 6.0).union(box(6.0, 4.0, 9.0, 6.0))
+        model.placements["U1"] = ThermalPlacement("U1", 6.0, 5.0, 6.0, 2.0, "TOP")
+        settings = self._settings()
+        settings.grid_size_mm = 1.0
+        mesh = ThermalMesher().generate_mesh(model, settings)
+        result = ThermalSolver().solve(mesh, ambient_c=25.0)
+
+        component_nodes = mesh.component_nodes["U1"]
+        under_part = [
+            result.temperature_vector_c[index]
+            for index, node in enumerate(mesh.nodes) if node in component_nodes
+        ]
+        self.assertGreater(len(under_part), 1)
+        self.assertGreater(max(under_part), sum(under_part) / len(under_part))
+        self.assertAlmostEqual(
+            result.component_results[0].board_temperature_c, max(under_part), places=6,
+        )
+
+    def test_a_package_the_grid_barely_resolves_is_spread_over_nearby_copper(self):
+        # At 2 mm one sampled copper cell held all of U14 and read 158 C.
+        model = self._model()
+        model.copper_by_layer[0] = box(4.5, 4.5, 5.5, 5.5).union(
+            box(0.0, 0.0, 10.0, 3.9)).union(box(0.0, 6.1, 10.0, 10.0))
+        mesh = ThermalMesher().generate_mesh(model, self._settings())
+        self.assertGreaterEqual(len(mesh.heat_sources_w), ThermalMesher.COMPONENT_HEAT_MIN_CELLS)
+
+    def test_pads_no_cell_wholly_covers_still_take_their_package_heat(self):
+        # P02 Rev E's U15 at 0.4 mm: no cell lay wholly on its 0.5 mm pads,
+        # the window grew and its 0.35 W landed on pours up to 1.8 mm outside
+        # the package; its Tj read 103.8 C there against 119.8 C at 0.2 mm.
+        model = self._model()
+        model.copper_by_layer[0] = box(4.5, 4.5, 5.0, 5.0).union(
+            box(5.3, 5.3, 5.8, 5.8)).union(box(0.0, 0.0, 10.0, 3.4))
+        model.placements["U1"] = ThermalPlacement("U1", 5.0, 5.0, 2.0, 2.5, "TOP")
+        settings = self._settings()
+        settings.grid_size_mm = 0.4
+        mesh = ThermalMesher().generate_mesh(model, settings)
+        heated = [mesh.node_coords[node][:2] for node in mesh.heat_sources_w]
+        self.assertTrue(all(4.0 <= x <= 6.0 and 3.75 <= y <= 6.25 for x, y in heated))
+        self.assertAlmostEqual(sum(mesh.heat_sources_w.values()), 1.0)
+
+    def test_a_package_heats_its_heat_pads_not_the_pour_under_its_body(self):
+        # P02 Rev E's Q10 (CSD18540Q5B): spread over all copper under the part,
+        # its heat warmed the /SYS_5V_SW1 pour under its body, soldered to
+        # nothing, and that pour was the board's 115.2 C hotspot. Its drain
+        # pad is 17.4 mm2 against 0.97 mm2 for its gate.
+        from thermal_model import heat_pads
+
+        drain = box(5.5, 3.0, 9.0, 7.0)
+        gate = box(1.0, 6.0, 2.0, 7.0)
+        self.assertEqual(heat_pads([drain, gate]), [drain])
+        model = self._model()
+        model.copper_by_layer[0] = drain.union(gate).union(box(1.0, 3.0, 5.0, 5.5))
+        model.placements["U1"] = ThermalPlacement("U1", 5.0, 5.0, 8.0, 4.0, "TOP", heat_pads=[drain])
+        settings = self._settings()
+        settings.grid_size_mm = 0.5
+        mesh = ThermalMesher().generate_mesh(model, settings)
+        heated = [mesh.node_coords[node][:2] for node in mesh.heat_sources_w]
+        self.assertTrue(all(5.5 <= x <= 9.0 and 3.0 <= y <= 7.0 for x, y in heated))
+        self.assertAlmostEqual(sum(mesh.heat_sources_w.values()), 1.0)
+
+    def test_a_psijb_is_referred_to_the_board_1_mm_from_the_package(self):
+        # P02 Rev E's U15 states a psiJB (SLVSGT9D 6.4), which JEDEC JESD51-12
+        # refers to the board 1 mm from the package; added to the peak of its
+        # own pads, its Tj rose at every grid refinement.
+        model = self._model()
+        model.components[0].parameter_provenance = {
+            "theta_jb_c_per_w": "TPS25948 SLVSGT9D 6.4: psiJB 11.2 C/W",
+        }
+        settings = self._settings()
+        settings.grid_size_mm = 0.5
+        mesh = ThermalMesher().generate_mesh(model, settings)
+        result = ThermalSolver().solve(mesh, ambient_c=25.0)
+        (component,) = result.component_results
+        under = max(result.temperature_vector_c[mesh.nodes.index(node)] for node in mesh.component_nodes["U1"])
+        self.assertEqual(component.board_reference, "1 mm from the package")
+        self.assertLess(component.board_temperature_c, under)
+
+    def test_every_footprint_gets_the_board_temperature_under_its_pads(self):
+        # P02 Rev E: C37 (22 uF X5R, rated to 85 C) has its supply pad 4.4 mm
+        # from Q10's drain pad, under the 2026-10-01 run's 118.99 C hotspot;
+        # only heat sources had a temperature.
+        model = self._model()
+        model.placements["C1"] = ThermalPlacement(
+            "C1", 7.5, 5.0, 1.0, 0.5, "TOP", heat_pads=[box(7.0, 4.75, 7.3, 5.25), box(7.7, 4.75, 8.0, 5.25)],
+        )
+        model.placements["C2"] = ThermalPlacement("C2", 9.5, 9.5, 1.0, 0.5, "TOP")
+        settings = self._settings()
+        settings.grid_size_mm = 0.5
+        result = ThermalSolver().solve(ThermalMesher().generate_mesh(model, settings), ambient_c=25.0)
+        temperatures = result.placement_temperatures_c
+        self.assertEqual(set(temperatures), {"U1", "C1", "C2"})
+        self.assertGreater(temperatures["C1"], temperatures["C2"])
+        self.assertGreater(temperatures["C2"], 25.0)
+
     def test_zero_heat_settles_at_ambient(self):
         mesh = ThermalMesher().generate_mesh(self._model(power_w=0.0), self._settings())
         result = ThermalSolver().solve(mesh, ambient_c=25.0)
@@ -82,6 +198,44 @@ class TestThermalSolver(unittest.TestCase):
             result.component_results[0].junction_temperature_c,
             result.component_results[0].board_temperature_c + 5.0,
         )
+
+    def test_refine_surface_exchange_moves_h_toward_the_solved_temperature(self):
+        # TH-2: _refine_surface_exchange had 0 calls in the suite. The nominal
+        # mesh guess (ambient + 30 K) disagrees with this board's actual
+        # solved rise, so a first pass must report a correction (updated,
+        # worst_change beyond the 2% tolerance); repeating it after
+        # re-solving with the corrected h must shrink that mismatch.
+        model = self._model()
+        settings = self._settings()
+        mesh = ThermalMesher().generate_mesh(model, settings)
+        solver = ThermalSolver()
+        plain = solver.solve(mesh, ambient_c=settings.ambient_c)
+
+        before_updated, before_change = solver._refine_surface_exchange(mesh, settings, plain)
+        self.assertTrue(before_updated)
+        self.assertGreater(before_change, ThermalSolver.SURFACE_H_TOLERANCE)
+
+        resolved = solver.solve(mesh, ambient_c=settings.ambient_c)
+        _, after_change = solver._refine_surface_exchange(mesh, settings, resolved)
+        self.assertLess(after_change, before_change)
+
+    def test_plain_solve_does_not_claim_surface_refinement(self):
+        mesh = ThermalMesher().generate_mesh(self._model(), self._settings())
+        result = ThermalSolver().solve(mesh, ambient_c=25.0)
+        self.assertFalse(result.surface_refined)
+
+    def test_out_of_range_correlation_is_flagged_not_silent(self):
+        # TH-8: natural_convection_in_range existed but nothing called it.
+        # P02 Rev E's own Ra ~ 8.0e3 sits below the 1e4 laminar-correlation
+        # lower bound (Incropera); this 10x10 mm test board's is smaller
+        # still (L = A/P = 2.5 mm), so it is naturally the same case.
+        model = self._model()
+        settings = self._settings()
+        mesh = ThermalMesher().generate_mesh(model, settings)
+        result = ThermalSolver().solve_with_surface_refinement(mesh, settings)
+
+        self.assertIn("top", result.surface_correlation_in_range)
+        self.assertFalse(result.surface_correlation_in_range["top"])
 
     def test_reuses_same_host_csr_matrix_between_coupled_iterations(self):
         mesh = ThermalMesher().generate_mesh(self._model(), self._settings())
@@ -131,10 +285,22 @@ class TestThermalSolver(unittest.TestCase):
         self.assertEqual(cuda._node_limit(), (1250000, True))
 
     def test_explicit_ram_ceiling_can_extend_cuda_mesh_budget(self):
+        # A declared budget raises the limit above the 1.25 M default, and the
+        # hard ceiling still caps it. Briefly the cap was removed on the
+        # reasoning that an explicit declaration should govern; a 12.3 M-node
+        # mesh then consumed over 44 GB without finishing, so the cap is back.
         mesher = ThermalMesher(compute_settings=RuntimeComputeSettings(
             backend="CUDA", cuda_enabled=True, memory_limit_gib=32.0,
         ))
         self.assertEqual(mesher._node_limit(), (4000000, True))
+
+    def test_a_budget_below_the_ceiling_still_binds(self):
+        mesher = ThermalMesher(compute_settings=RuntimeComputeSettings(
+            backend="CUDA", cuda_enabled=True, memory_limit_gib=2.0,
+        ))
+        self.assertEqual(
+            mesher._node_limit(), (int(2.0 * (1024 ** 3) // 1280), True),
+        )
 
 
 if __name__ == "__main__":

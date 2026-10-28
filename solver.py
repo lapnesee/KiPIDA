@@ -85,7 +85,7 @@ class Solver:
     ):
         """
         Solves the DC circuit Mesh: [G][V] = [I]
-        
+
         Args:
             mesh: Mesh object with .nodes (list) and .edges (list of u,v,g)
             sources: list of dicts { 'node_id': int, 'voltage': float } (Dirichlet)
@@ -319,6 +319,7 @@ class Solver:
                 initial_guess = np.full(N, float(np.median(source_voltages)), dtype=float)
                 for idx, value in constrained_values.items():
                     initial_guess[idx] = value
+
             solved = self.compute_backend.solve(
                 G_csr, I, system_kind="SPD",
                 cache_key=("dc", id(mesh)), matrix_values_static=static_values,
@@ -326,7 +327,7 @@ class Solver:
             )
             self.last_compute = solved.metadata
             V_solution = solved.values
-            
+
             if np.any(np.isnan(V_solution)):
                 self._log("Warning: Solution contains NaN values.")
         except Exception as e:
@@ -358,6 +359,16 @@ class Solver:
                 if load.get("node_id") in excluded_load_nodes and load.get("ref_des")
             }),
             "floating_island_count": len(floating_representatives),
+            # Current, not node count, is what an excluded load costs the
+            # rail: P02 Rev E's "81 load node(s)" on /VBUS_SYS were one load,
+            # U14's input, drawing 0.848 A of the rail's 2.04 A (DC-7).
+            "excluded_load_current_a": float(sum(
+                abs(float(load.get("current", 0.0) or 0.0)) for load in loads
+                if load.get("node_id") in excluded_load_nodes
+            )),
+            "total_load_current_a": float(sum(
+                abs(float(load.get("current", 0.0) or 0.0)) for load in loads
+            )),
         }
         return results
 
@@ -429,6 +440,8 @@ class Solver:
             valid=excluded_count == 0,
             excluded_load_node_count=excluded_count,
             excluded_load_references=excluded_references,
+            excluded_load_current_a=float(self.last_diagnostics.get("excluded_load_current_a", 0.0)),
+            total_load_current_a=float(self.last_diagnostics.get("total_load_current_a", 0.0)),
             warnings=warnings,
         )
 

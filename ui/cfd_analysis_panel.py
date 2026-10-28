@@ -3,13 +3,14 @@
 import math
 
 import wx
+from ui.number_input import parse_number
 
 from i18n import _
 
 try:
-    from models import CFDBoundaryPatch, EnclosureCFDSettings
+    from models import CFDBoundaryPatch, CFDSolverSettings, EnclosureCFDSettings
 except (ImportError, ValueError):
-    from models import CFDBoundaryPatch, EnclosureCFDSettings
+    from models import CFDBoundaryPatch, CFDSolverSettings, EnclosureCFDSettings
 
 
 class CFDBoundaryDialog(wx.Dialog):
@@ -49,11 +50,11 @@ class CFDBoundaryDialog(wx.Dialog):
             name=self.name.GetValue().strip() or "Patch",
             kind=self.kind.GetStringSelection() or "VENT",
             face=self.face.GetStringSelection() or "XMIN",
-            center_u=float(self.center_u.GetValue()), center_v=float(self.center_v.GetValue()),
-            size_u=float(self.size_u.GetValue()), size_v=float(self.size_v.GetValue()),
-            velocity_m_s=float(self.velocity.GetValue()),
-            temperature_c=float(self.temperature.GetValue()),
-            pressure_pa=float(self.pressure.GetValue()),
+            center_u=parse_number(self.center_u.GetValue()), center_v=parse_number(self.center_v.GetValue()),
+            size_u=parse_number(self.size_u.GetValue()), size_v=parse_number(self.size_v.GetValue()),
+            velocity_m_s=parse_number(self.velocity.GetValue()),
+            temperature_c=parse_number(self.temperature.GetValue()),
+            pressure_pa=parse_number(self.pressure.GetValue()),
         )
         if any(value < 0 or value > 1 for value in (
             patch.center_u, patch.center_v, patch.size_u, patch.size_v
@@ -87,6 +88,10 @@ class CFDAnalysisPanel(wx.Panel):
         self.offset_y = wx.TextCtrl(parent, value="0")
         self.offset_z = wx.TextCtrl(parent, value="15")
         self.wall_h = wx.TextCtrl(parent, value="5")
+        self.wall_h.SetToolTip(_(
+            "From the enclosure's walls to the room around it: the wall's conduction, its outer "
+            "convection and radiation. The air's film against the walls inside is computed."
+        ))
         rows = [
             ("Width (mm):", self.width, "Depth (mm):", self.depth, "Height (mm):", self.height),
             ("Orientation:", self.orientation, "Offset X (mm):", self.offset_x, "Offset Y (mm):", self.offset_y),
@@ -104,13 +109,21 @@ class CFDAnalysisPanel(wx.Panel):
         solver_grid = wx.FlexGridSizer(cols=6, hgap=6, vgap=6)
         for column in (1, 3, 5):
             solver_grid.AddGrowableCol(column, 1)
-        self.ambient = wx.TextCtrl(solver_parent, value="25")
-        self.cell = wx.TextCtrl(solver_parent, value="5")
-        self.iterations = wx.TextCtrl(solver_parent, value="250")
-        self.tolerance = wx.TextCtrl(solver_parent, value="1e-4")
-        self.relaxation = wx.TextCtrl(solver_parent, value="0.45")
-        self.time_step = wx.TextCtrl(solver_parent, value="0.02")
-        self.pressure_iterations = wx.TextCtrl(solver_parent, value="60")
+        # Widget values come from the dataclass, never typed here.
+        #
+        # These literals were a third source of truth for the solver defaults,
+        # after models.py and config_manager. Raising max_iterations to 1000
+        # changed nothing visible because get_settings() reads the widgets, and
+        # this box still said 250 -- which read exactly like a stale
+        # deployment and was investigated as one across several runs.
+        _solver = CFDSolverSettings()
+        _enclosure = EnclosureCFDSettings()
+        self.ambient = wx.TextCtrl(solver_parent, value=f"{_enclosure.ambient_c:g}")
+        self.cell = wx.TextCtrl(solver_parent, value=f"{_solver.cell_size_mm:g}")
+        self.iterations = wx.TextCtrl(solver_parent, value=str(_solver.max_iterations))
+        self.tolerance = wx.TextCtrl(solver_parent, value=f"{_solver.tolerance:g}")
+        self.relaxation = wx.TextCtrl(solver_parent, value=f"{_solver.relaxation:g}")
+        self.time_step = wx.TextCtrl(solver_parent, value=f"{_solver.pseudo_time_step_s:g}")
         self.buoyancy = wx.CheckBox(solver_parent, label="Boussinesq buoyancy")
         self.buoyancy.SetValue(True)
         self.phase3_heat = wx.CheckBox(solver_parent, label="Use Phase 3 heat sources")
@@ -120,7 +133,7 @@ class CFDAnalysisPanel(wx.Panel):
         for row in (
             ("Ambient (C):", self.ambient, "Cell (mm):", self.cell, "Iterations:", self.iterations),
             ("Tolerance:", self.tolerance, "Relaxation:", self.relaxation, "Pseudo dt (s):", self.time_step),
-            ("Pressure iterations:", self.pressure_iterations, "", self.buoyancy, "", self.phase3_heat),
+            ("", self.buoyancy, "", self.phase3_heat, "", wx.StaticText(solver_parent, label="")),
         ):
             for index in range(0, 6, 2):
                 solver_grid.Add(wx.StaticText(solver_parent, label=row[index]), 0, wx.ALIGN_CENTER_VERTICAL)
@@ -166,8 +179,8 @@ class CFDAnalysisPanel(wx.Panel):
 
     def _update_estimate(self, event=None):
         try:
-            width, depth, height = float(self.width.GetValue()), float(self.depth.GetValue()), float(self.height.GetValue())
-            cell = max(0.001, float(self.cell.GetValue()))
+            width, depth, height = parse_number(self.width.GetValue()), parse_number(self.depth.GetValue()), parse_number(self.height.GetValue())
+            cell = max(0.001, parse_number(self.cell.GetValue()))
             count = (max(3, math.ceil(width / cell)) *
                      max(3, math.ceil(depth / cell)) *
                      max(3, math.ceil(height / cell)))
@@ -212,7 +225,7 @@ class CFDAnalysisPanel(wx.Panel):
             self._refresh_patches()
 
     def _on_default_pair(self, event):
-        ambient = float(self.ambient.GetValue())
+        ambient = parse_number(self.ambient.GetValue())
         self.settings.patches.extend([
             CFDBoundaryPatch("Fan Inlet", "FAN", "XMIN", 0.5, 0.5, 0.35, 0.35, 1.0, ambient),
             CFDBoundaryPatch("Outlet", "OUTLET", "XMAX", 0.5, 0.5, 0.35, 0.35, 0.0, ambient),
@@ -232,29 +245,28 @@ class CFDAnalysisPanel(wx.Panel):
 
     def get_settings(self):
         result = self.settings
-        result.ambient_c = float(self.ambient.GetValue())
+        result.ambient_c = parse_number(self.ambient.GetValue())
         geometry = result.geometry
         geometry.width_mm, geometry.depth_mm, geometry.height_mm = (
-            float(self.width.GetValue()), float(self.depth.GetValue()), float(self.height.GetValue())
+            parse_number(self.width.GetValue()), parse_number(self.depth.GetValue()), parse_number(self.height.GetValue())
         )
         geometry.board_orientation = self.orientation.GetStringSelection() or "XY"
-        geometry.board_offset_x_mm = float(self.offset_x.GetValue())
-        geometry.board_offset_y_mm = float(self.offset_y.GetValue())
-        geometry.board_offset_z_mm = float(self.offset_z.GetValue())
-        geometry.wall_heat_transfer_w_m2k = float(self.wall_h.GetValue())
+        geometry.board_offset_x_mm = parse_number(self.offset_x.GetValue())
+        geometry.board_offset_y_mm = parse_number(self.offset_y.GetValue())
+        geometry.board_offset_z_mm = parse_number(self.offset_z.GetValue())
+        geometry.wall_heat_transfer_w_m2k = parse_number(self.wall_h.GetValue())
         solver = result.solver
-        solver.cell_size_mm = float(self.cell.GetValue())
+        solver.cell_size_mm = parse_number(self.cell.GetValue())
         solver.max_iterations = int(self.iterations.GetValue())
-        solver.tolerance = float(self.tolerance.GetValue())
-        solver.relaxation = float(self.relaxation.GetValue())
-        solver.pseudo_time_step_s = float(self.time_step.GetValue())
-        solver.pressure_iterations = int(self.pressure_iterations.GetValue())
+        solver.tolerance = parse_number(self.tolerance.GetValue())
+        solver.relaxation = parse_number(self.relaxation.GetValue())
+        solver.pseudo_time_step_s = parse_number(self.time_step.GetValue())
         solver.include_buoyancy = self.buoyancy.GetValue()
         result.use_phase3_heat_sources = self.phase3_heat.GetValue()
         result.include_dc_copper_losses = self.dc_losses.GetValue()
         if min(geometry.width_mm, geometry.depth_mm, geometry.height_mm, solver.cell_size_mm) <= 0:
             raise ValueError("Enclosure dimensions and CFD cell size must be greater than zero.")
-        if solver.max_iterations < 1 or solver.pressure_iterations < 1:
+        if solver.max_iterations < 1:
             raise ValueError("CFD iteration limits must be greater than zero.")
         return result
 
@@ -269,7 +281,6 @@ class CFDAnalysisPanel(wx.Panel):
             (self.cell, solver.cell_size_mm), (self.iterations, solver.max_iterations),
             (self.tolerance, solver.tolerance), (self.relaxation, solver.relaxation),
             (self.time_step, solver.pseudo_time_step_s),
-            (self.pressure_iterations, solver.pressure_iterations),
         ):
             control.SetValue(f"{value:g}")
         index = self.orientation.FindString(geometry.board_orientation)

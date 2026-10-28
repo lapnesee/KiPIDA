@@ -148,9 +148,31 @@ def _model_temperature(model: Dict[str, Any], component_temperatures_c: Dict[str
 
 
 def _mosfet_losses(models: Iterable[Dict[str, Any]], current_rms_a: float,
-                    component_temperatures_c: Dict[str, float] | None = None
-                    ) -> List[LossContribution]:
+                    component_temperatures_c: Dict[str, float] | None = None,
+                    duty: float | None = None,
+                    ) -> Tuple[List[LossContribution], List[str]]:
+    """I2R of a MOSFET list, with an optional buck conduction weighting.
+
+    TH-7: a buck's two switches never conduct the full inductor RMS current
+    at once -- the high side only for D of the switching period, the low
+    side for 1-D -- but this list credited every entry the whole current_rms_a
+    regardless. P02 Rev E's sidecar worked around it by pre-multiplying
+    RDS(on) by D (0.00066 ohm = 2.6 mOhm x 0.254); a user who instead enters
+    the datasheet RDS(on) directly gets conduction loss overstated by 1/D
+    (x3.9 for Q10's 0.254 duty).
+
+    ``duty`` is None outside a buck stage (a discrete MOSFET pass device has
+    no switching duty cycle), in which case ``role`` is ignored and every
+    entry keeps the prior full-current behaviour with no warning: there is
+    nothing to weight against. Inside a buck stage, an entry without a
+    declared "high"/"low" ``role`` also keeps that behaviour, but a warning
+    is returned so the gap is visible instead of silently overstating loss.
+    A "continuous" role is a switch held on through the whole period -- P02
+    Rev E's U4 boost-leg high side in buck mode -- and takes the full current
+    without a warning: "high" there would understate its loss by D.
+    """
     losses = []
+    warnings = []
     for model in models:
         ref_des = str(model.get("ref_des", "")).strip()
         if not ref_des:
@@ -159,15 +181,156 @@ def _mosfet_losses(models: Iterable[Dict[str, Any]], current_rms_a: float,
         temperature_c = _model_temperature(model, component_temperatures_c, ref_des)
         paths = max(1, int(_number(model.get("parallel_paths"), 1)))
         effective_rds = _number(rds) * _temperature_multiplier(model, temperature_c) / paths
+        role = str(model.get("role", "")).strip().lower()
+        if duty is not None and role in ("high", "low"):
+            weight = duty if role == "high" else (1.0 - duty)
+        else:
+            weight = 1.0
+            if duty is not None and role not in ("high", "low", "continuous"):
+                warnings.append(
+                    f"{ref_des}: no conduction role (\"high\", \"low\" or \"continuous\") "
+                    "declared for this buck MOSFET, so it is credited the full inductor RMS "
+                    "current instead of its duty-weighted share; a datasheet RDS(on) will "
+                    "overstate conduction loss by up to 1/D. Set loss_model.mosfets[].role."
+                )
         losses.append(LossContribution(
             ref_des=ref_des,
             mechanism="mosfet-conduction-i2r",
-            power_w=current_rms_a * current_rms_a * effective_rds,
+            power_w=current_rms_a * current_rms_a * effective_rds * weight,
             provenance={**_provenance(rds), "temperature_c": temperature_c,
                         "parallel_paths": paths, "effective_rds_on_ohm": effective_rds,
+                        "role": role or "undeclared", "duty_weight": weight,
                         "temperature_model": _provenance(
                             model.get("temperature_model_provenance", {}), "estimate"
                         )},
+        ))
+    return losses, warnings
+
+
+def _buck_switching_losses(model: Dict[str, Any], vin: float, iout: float, ripple: float,
+                           fsw: float) -> List[LossContribution]:
+    """Switching losses of a buck leg from its MOSFETs' datasheet charges.
+
+    Needs the high-side MOSFET (role "high") to state its gate-drain and
+    gate-source charges; the low-side one (role "low") and the stage's
+    driver fields refine it. P02 Rev E's U4 drives an external CSD18540Q5B
+    pair, and its whole 1.36 W of unitemised loss went onto Q10 as an
+    efficiency residual, L1's core loss included.
+
+    - Hard-switched transitions on the high side, turning on at the valley
+      and off at the peak inductor current: 1/2 Vin fsw (Iv t_on + Ip t_off),
+      each time Qgd + Qgs - Qg(th) over the gate current the driver can push
+      through its resistance and the gate's.
+    - Both output charges, dissipated in the high side as it turns on:
+      1/2 (Qoss_hs + Qoss_ls) Vin fsw, each Qoss scaled from its datasheet
+      voltage by sqrt(V), a junction capacitance's charge law.
+    - The low-side body diode's recovery, also in the high side: Qrr Vin
+      fsw, Qrr scaled from its datasheet current to the valley current in
+      proportion (charge control), a low-confidence estimate.
+    - Dead-time body-diode conduction in the low side: Vsd (Iv + Ip) t_dead fsw.
+    - Gate charge, Qg Vdrive fsw per MOSFET, split between the driver and
+      the gate resistance in proportion to their resistances.
+    """
+    if fsw <= 0.0 or vin <= 0.0:
+        return []
+    mosfets = [item for item in (model.get("mosfets") or ()) if isinstance(item, dict)]
+    high = next((item for item in mosfets if str(item.get("role", "")).lower() == "high"), None)
+    low = next((item for item in mosfets if str(item.get("role", "")).lower() == "low"), None)
+    if high is None or high.get("gate_drain_charge_c") is None or high.get("gate_source_charge_c") is None:
+        return []
+    losses: List[LossContribution] = []
+    valley, peak = max(0.0, iout - ripple / 2.0), iout + ripple / 2.0
+    drive_v = _number(model.get("gate_drive_v"))
+    source_ohm = max(1e-3, _number(model.get("driver_source_ohm"), 1.0))
+    sink_ohm = max(1e-3, _number(model.get("driver_sink_ohm"), 1.0))
+    gate_ohm = max(0.0, _number(high.get("gate_resistance_ohm")))
+    threshold_v = _number(high.get("threshold_v"))
+    transconductance = max(1e-6, _number(high.get("transconductance_s"), 1e6))
+    switched_charge = (
+        _number(high.get("gate_drain_charge_c"))
+        + max(0.0, _number(high.get("gate_source_charge_c")) - _number(high.get("gate_threshold_charge_c")))
+    )
+    on_current = (drive_v - (threshold_v + valley / transconductance)) / (source_ohm + gate_ohm)
+    off_current = (threshold_v + peak / transconductance) / (sink_ohm + gate_ohm)
+    if model.get("driver_source_peak_a") is not None:
+        on_current = min(on_current, _number(model.get("driver_source_peak_a")))
+    if model.get("driver_sink_peak_a") is not None:
+        off_current = min(off_current, _number(model.get("driver_sink_peak_a")))
+    high_ref = str(high.get("ref_des", ""))
+    if on_current > 0.0 and off_current > 0.0:
+        t_on, t_off = switched_charge / on_current, switched_charge / off_current
+        losses.append(LossContribution(
+            high_ref, "buck-switching-overlap",
+            0.5 * vin * fsw * (valley * t_on + peak * t_off),
+            {**_provenance(high.get("gate_drain_charge_c"), "datasheet"),
+             "turn_on_s": t_on, "turn_off_s": t_off, "gate_on_a": on_current,
+             "gate_off_a": off_current},
+        ))
+
+    def output_charge(item):
+        charge = item.get("output_charge_c") if item else None
+        if charge is None:
+            return 0.0
+        reference_v = _number(item.get("output_charge_reference_v"), vin)
+        return _number(charge) * math.sqrt(vin / reference_v) if reference_v > 0.0 else _number(charge)
+
+    qoss = output_charge(high) + output_charge(low)
+    if qoss > 0.0:
+        losses.append(LossContribution(
+            high_ref, "buck-output-charge", 0.5 * qoss * vin * fsw,
+            {**_provenance(high.get("output_charge_c"), "datasheet"),
+             "scaling": "Qoss x sqrt(Vin / datasheet V)", "qoss_total_c": qoss},
+        ))
+    if low is not None and low.get("reverse_recovery_charge_c") is not None:
+        reference_a = _number(low.get("reverse_recovery_reference_a"), valley) or valley
+        qrr = _number(low.get("reverse_recovery_charge_c")) * (valley / reference_a if reference_a > 0.0 else 1.0)
+        losses.append(LossContribution(
+            high_ref, "buck-reverse-recovery", qrr * vin * fsw,
+            {**_provenance(low.get("reverse_recovery_charge_c"), "datasheet"),
+             "confidence": "low", "scaling": "Qrr x I_valley / datasheet I", "qrr_c": qrr},
+        ))
+    dead_time = model.get("dead_time_s")
+    if low is not None and dead_time is not None:
+        losses.append(LossContribution(
+            str(low.get("ref_des", "")), "buck-dead-time-diode",
+            _number(low.get("body_diode_v"), 0.8) * (valley + peak) * _number(dead_time) * fsw,
+            _provenance(dead_time, "estimate"),
+        ))
+    driver_ref = str(model.get("gate_driver_ref_des") or "")
+    driver_share = 0.5 * (source_ohm / (source_ohm + gate_ohm) + sink_ohm / (sink_ohm + gate_ohm))
+    for item in (high, low):
+        if item is None or item.get("gate_charge_c") is None or drive_v <= 0.0:
+            continue
+        power = _number(item.get("gate_charge_c")) * drive_v * fsw
+        share = driver_share if driver_ref else 0.0
+        if share > 0.0:
+            losses.append(LossContribution(driver_ref, "buck-gate-charge", power * share,
+                                           _provenance(item.get("gate_charge_c"), "datasheet")))
+        if share < 1.0:
+            losses.append(LossContribution(str(item.get("ref_des", "")), "buck-gate-charge",
+                                           power * (1.0 - share),
+                                           _provenance(item.get("gate_charge_c"), "datasheet")))
+    return losses
+
+
+def _resistive_losses(models: Iterable[Dict[str, Any]], current_a: float,
+                      component_temperatures_c: Dict[str, float] | None = None
+                      ) -> List[LossContribution]:
+    """I2R of the parts a pass stage's current crosses: shunts, fuses, net ties."""
+    losses = []
+    for model in models:
+        ref_des = str(model.get("ref_des", "")).strip()
+        if not ref_des:
+            continue
+        resistance = model.get("resistance_ohm", 0.0)
+        temperature_c = _model_temperature(model, component_temperatures_c, ref_des)
+        effective = _number(resistance) * _temperature_multiplier(model, temperature_c)
+        losses.append(LossContribution(
+            ref_des=ref_des,
+            mechanism="resistive-i2r",
+            power_w=current_a * current_a * effective,
+            provenance={**_provenance(resistance), "temperature_c": temperature_c,
+                        "effective_resistance_ohm": effective},
         ))
     return losses
 
@@ -216,8 +379,14 @@ def estimate_stage(regulator: VoltageRegulator, vin_v: float, vout_v: float,
     efficiency_provenance = "analytic physical-loss model"
 
     if kind == "mosfet":
-        losses.extend(_mosfet_losses(
+        mosfet_losses, mosfet_warnings = _mosfet_losses(
             model.get("mosfets", []), iout, component_temperatures_c
+        )
+        losses.extend(mosfet_losses)
+        warnings.extend(mosfet_warnings)
+    elif kind == "resistive":
+        losses.extend(_resistive_losses(
+            model.get("resistors", []), iout, component_temperatures_c
         ))
     elif kind == "buck":
         ripple = max(0.0, _number(model.get("inductor_ripple_a")))
@@ -285,9 +454,12 @@ def estimate_stage(regulator: VoltageRegulator, vin_v: float, vout_v: float,
         losses.extend(_inductor_losses(
             model.get("inductors", []), irms, component_temperatures_c
         ))
-        losses.extend(_mosfet_losses(
-            model.get("mosfets", []), irms, component_temperatures_c
-        ))
+        buck_mosfet_losses, buck_mosfet_warnings = _mosfet_losses(
+            model.get("mosfets", []), irms, component_temperatures_c, duty=duty,
+        )
+        losses.extend(buck_mosfet_losses)
+        warnings.extend(buck_mosfet_warnings)
+        losses.extend(_buck_switching_losses(model, vin, iout, ripple, fsw))
     elif str(regulator.reg_type).upper() == "LINEAR":
         # Legacy LDO/pass-device behaviour stays intact when no physical model exists.
         losses.append(LossContribution(
@@ -321,20 +493,59 @@ def estimate_stage(regulator: VoltageRegulator, vin_v: float, vout_v: float,
         )
 
     if selected_efficiency is not None and output_power > 0.0:
-        target_loss = output_power * (1.0 / selected_efficiency - 1.0)
+        default_residual_ref = str(
+            model.get("controller_ref_des") or regulator.thermal_ref_des or regulator.input_ref_des
+        )
+        # TH-6: a fixed efficiency target held this stage's total loss
+        # constant no matter how hot its parts ran, so as the physical
+        # mechanisms above grew with temperature, the residual just shrank
+        # to compensate -- "temperature dependence" only moved heat between
+        # parts, never added any. The target is only as good as the
+        # temperature it was characterised at; scaled by the same
+        # temperature-multiplier mechanism the physical mechanisms already
+        # use (residual_temperature_multiplier_table / residual_tempco_per_c,
+        # evaluated at the default residual component -- undeclared, this is
+        # 1.0 and the target stays fixed, unchanged from before), the total
+        # can grow with temperature too, a real coupling instead of a
+        # reshuffle.
+        residual_temperature_c = _model_temperature(
+            model, component_temperatures_c, default_residual_ref,
+        )
+        target_multiplier = _prefixed_temperature_multiplier(
+            model, "residual", residual_temperature_c,
+        )
+        target_loss = output_power * (1.0 / selected_efficiency - 1.0) * target_multiplier
         residual = target_loss - known_loss
         if residual > 1e-15:
-            losses.append(LossContribution(
-                str(model.get("controller_ref_des") or regulator.thermal_ref_des or regulator.input_ref_des),
-                str(model.get("residual_mechanism") or "unmodelled-conversion-residual"), residual,
-                {"source": "efficiency fallback" if table_efficiency is None else "efficiency table residual",
-                 "confidence": "low" if table_efficiency is None else "medium",
-                 "reference": str(model.get("residual_reference", ""))},
-            ))
+            # residual_split sends the residual -- gate drive, core loss,
+            # dead-time conduction, whatever this stage's physical model
+            # does not itemise -- to more than one component instead of
+            # always the controller. Undeclared, it keeps the old
+            # behaviour: the whole residual on default_residual_ref.
+            split = dict(model.get("residual_split") or {default_residual_ref: 1.0})
+            mechanism = str(model.get("residual_mechanism") or "unmodelled-conversion-residual")
+            source = "efficiency fallback" if table_efficiency is None else "efficiency table residual"
+            confidence = "low" if table_efficiency is None else "medium"
+            reference = str(model.get("residual_reference", ""))
+            for ref_des, fraction in split.items():
+                piece = residual * float(fraction)
+                if piece <= 0.0:
+                    continue
+                losses.append(LossContribution(
+                    str(ref_des), mechanism, piece,
+                    {"source": source, "confidence": confidence, "reference": reference,
+                     "residual_fraction": float(fraction)},
+                ))
             target_source = "efficiency-table" if table_efficiency is not None else "efficiency-fallback"
+            # Named from the split itself: a one-part split onto L1 read
+            # "placed on Q10", the controller default it replaced.
+            placement = (
+                f"across {', '.join(str(ref) for ref in split)}" if len(split) > 1
+                else f"on {next(iter(split))}"
+            )
             warnings.append(
                 f"Switching/core losses are incomplete; the {target_source} residual closes "
-                "the stage power target."
+                f"the stage power target, placed {placement}."
             )
         elif residual < -max(1e-12, target_loss * 0.01):
             efficiency_provenance = (
@@ -348,7 +559,20 @@ def estimate_stage(regulator: VoltageRegulator, vin_v: float, vout_v: float,
 
     total_loss = sum(item.power_w for item in losses)
     input_power = output_power + total_loss
-    iin = input_power / vin if vin > 0.0 else 0.0
+    if kind == "resistive":
+        # A series element -- shunt, fuse, eFuse, net tie -- passes the same
+        # current in as out (KCL on a two-terminal part); its loss is a
+        # voltage drop, not extra input current. The general Pin/Vin formula
+        # below assumes a voltage-transforming stage, and for a series
+        # element (vin here is the nominal rail voltage, not vout + I*R) it
+        # inflated Iin by the loss itself: on P02 Rev E, /SYS_5V_PRE_SENSE's
+        # DC-solved Iin = Iout = 4.363 A while this formula gave 4.447 A
+        # (+1.9%, R49); /VBUS_SYS 2.040 -> 2.084 A (+2.2%); /J1_VBUS_RAW
+        # 2.043 -> 2.103 A (F1, +2.9%) (COH-8, thermal_model.py:129 calls
+        # this for every power-tree current AC and EMC also read).
+        iin = iout
+    else:
+        iin = input_power / vin if vin > 0.0 else 0.0
     actual_efficiency = output_power / input_power if input_power > 0.0 else 1.0
     balance_error = abs(input_power - output_power - total_loss) / max(input_power, 1e-12) * 100.0
     if balance_error > 1.0:
@@ -384,6 +608,8 @@ def format_power_stage_report(stage: PowerStageResult) -> List[str]:
             details.append(f"DCR(T)={float(loss.provenance['effective_dcr_ohm']):.5g} ohm")
         if "effective_rds_on_ohm" in loss.provenance:
             details.append(f"RDS(on,T)={float(loss.provenance['effective_rds_on_ohm']):.5g} ohm")
+        if "effective_resistance_ohm" in loss.provenance:
+            details.append(f"R(T)={float(loss.provenance['effective_resistance_ohm']):.5g} ohm")
         if "parallel_paths" in loss.provenance:
             details.append(f"parallel paths={int(loss.provenance['parallel_paths'])}")
         temperature_model = loss.provenance.get("temperature_model")

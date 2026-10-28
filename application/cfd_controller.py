@@ -1,10 +1,10 @@
 """Background orchestration for enclosure CFD analysis."""
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Tuple
 
-from application.dc_controller import DCSolverEngine
-from application.thermal_controller import dc_copper_loss_points
+from application.dc_controller import DefaultDCSolverEngine
+from application.thermal_controller import dc_copper_loss_points, describe_dc_source
 from conjugate_heat_transfer import ConjugateHeatTransferSolver
 from application.background_controller import BackgroundAnalysisController
 
@@ -21,6 +21,10 @@ class CFDRunRequest:
     debug: bool = False
     dc_request: Any = None
     plot_lock: Any = None
+    # As on ThermalRunRequest: a DC result to take copper losses from, and
+    # what it is, which the campaign cache digest leaves to the DC's run_id.
+    _dc_results: Any = field(default=None, metadata={"digest": False})
+    _dc_results_source: str = field(default="", metadata={"digest": False})
 
 
 @dataclass(frozen=True)
@@ -29,6 +33,8 @@ class CFDRunOutcome:
     result: Any
     plots: Tuple[Tuple[str, Any], ...]
     system_results: Any = None
+    # Where the copper-loss heat sources came from; empty when there were none.
+    copper_loss_source: str = ""
 
 
 @dataclass(frozen=True)
@@ -40,7 +46,7 @@ class CFDControllerCallbacks:
 
 
 class CFDSolverEngine:
-    def __init__(self, solver_factory=ConjugateHeatTransferSolver, dc_engine_factory=DCSolverEngine,
+    def __init__(self, solver_factory=ConjugateHeatTransferSolver, dc_engine_factory=DefaultDCSolverEngine,
                  plotter_factory=None):
         self._solver_factory = solver_factory
         self._dc_engine_factory = dc_engine_factory
@@ -54,13 +60,23 @@ class CFDSolverEngine:
 
         system_results = {}
         copper_losses = []
+        copper_loss_source = ""
         if request.settings.include_dc_copper_losses:
-            if request.dc_request is None:
-                raise ValueError("The CFD run is missing its captured DC request.")
-            emit("Running fresh DC analysis for enclosure copper-loss heat sources.")
-            system_results = self._dc_engine_factory().solve(
-                request.dc_request, emit, checked_progress, cancelled,
-            )
+            handed_over = getattr(request, "_dc_results", None)
+            if handed_over is not None:
+                system_results = handed_over
+                copper_loss_source = describe_dc_source(
+                    system_results, request._dc_results_source or "a DC result handed to this run",
+                )
+                emit(f"Copper losses taken from {copper_loss_source}; the DC is not solved again.")
+            else:
+                if request.dc_request is None:
+                    raise ValueError("The CFD run is missing its captured DC request.")
+                emit("Running fresh DC analysis for enclosure copper-loss heat sources.")
+                system_results = self._dc_engine_factory().solve(
+                    request.dc_request, emit, checked_progress, cancelled,
+                )
+                copper_loss_source = describe_dc_source(system_results, "a DC solve run for this analysis")
             copper_losses = dc_copper_loss_points(system_results)
         board_model = replace(request.board_model, copper_losses=list(copper_losses))
         if not request.settings.use_phase3_heat_sources:
@@ -102,7 +118,7 @@ class CFDSolverEngine:
                 plots = render()
         if cancelled():
             raise CFDAnalysisCancelled("Enclosure CFD analysis cancelled.")
-        return CFDRunOutcome(mesh, result, plots, system_results)
+        return CFDRunOutcome(mesh, result, plots, system_results, copper_loss_source)
 
 
 class CFDAnalysisController(BackgroundAnalysisController):

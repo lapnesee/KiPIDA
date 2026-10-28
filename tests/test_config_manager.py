@@ -298,7 +298,7 @@ class TestConfigManager(unittest.TestCase):
             components=[ThermalComponentModel(
                 ref_des="U2", power_w=1.25, width_mm=4.0, depth_mm=4.0,
                 theta_jb_c_per_w=8.0, max_junction_c=150.0,
-                model_source="user",
+                model_source="user", body_exchange=True, body_area_mm2=3880.0,
             )],
         )
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
@@ -321,6 +321,8 @@ class TestConfigManager(unittest.TestCase):
             self.assertFalse(loaded.show_internal_copper_layers)
             self.assertEqual(loaded.components[0].ref_des, "U2")
             self.assertAlmostEqual(loaded.components[0].power_w, 1.25)
+            self.assertTrue(loaded.components[0].body_exchange)
+            self.assertEqual(loaded.components[0].body_area_mm2, 3880.0)
         finally:
             if Path(filepath).exists():
                 os.unlink(filepath)
@@ -449,6 +451,35 @@ class TestConfigManager(unittest.TestCase):
             self.assertEqual(loaded.patches[0].kind, "FAN")
             self.assertAlmostEqual(loaded.patches[0].velocity_m_s, 1.4)
             self.assertFalse(loaded.include_dc_copper_losses)
+        finally:
+            if Path(filepath).exists():
+                os.unlink(filepath)
+
+    def test_a_saved_pressure_iterations_key_is_ignored_on_load(self):
+        # pressure_iterations (the old Jacobi sweep count) was removed from
+        # CFDSolverSettings once the pressure Poisson system moved to a
+        # direct sparse solve with no sweep count to tune
+        # (docs/audit-2026-09-23.md triage). A project saved before that
+        # still has the key in its JSON; loading it must not fail, and the
+        # loaded settings must not carry it either.
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
+            filepath = f.name
+            json.dump({
+                "version": "1.3", "rails": [], "ac_profiles": {},
+                "thermal_profile": None,
+                "cfd_profile": {
+                    "ambient_c": 25.0,
+                    "geometry": {}, "fluid": {},
+                    "solver": {"cell_size_mm": 5.0, "pressure_iterations": 240},
+                    "patches": [],
+                },
+            }, f)
+
+        try:
+            loaded = load_project_config(filepath).cfd_profile
+            self.assertIsNotNone(loaded)
+            self.assertAlmostEqual(loaded.solver.cell_size_mm, 5.0)
+            self.assertFalse(hasattr(loaded.solver, "pressure_iterations"))
         finally:
             if Path(filepath).exists():
                 os.unlink(filepath)
@@ -605,6 +636,75 @@ class TestConfigManager(unittest.TestCase):
         finally:
             if Path(filepath).exists():
                 os.unlink(filepath)
+
+    def test_a_new_project_gets_no_one_elses_folder(self):
+        # Review of 2026-10-02: every new project's SPICE library was
+        # C:\Users\jbc66\Documents\DAW CONTROLEUR\Lib\SPICE.
+        self.assertEqual(EMCPhase10Settings().spice_library_path, "")
+        self.assertNotIn("Users", repr(EMCPhase10Settings()))
+
+    def test_a_save_replaces_the_file_whole_and_keeps_the_old_one(self):
+        # Review of 2026-10-02: the sidecar was rewritten in place, so a save
+        # cut short left it truncated. P02 Rev E keeps its own
+        # p02_revision_e.kipida.json.bak, which a save must not touch.
+        from unittest import mock
+        import config_manager
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "p02.kipida.json"
+            own = Path(directory) / "p02.kipida.json.bak"
+            own.write_text("mine", encoding="utf-8")
+            self.assertTrue(config_manager.write_config_text(path, '{"version": "1"}'))
+            self.assertFalse(config_manager.write_config_text(path, '{"version": "1"}'))
+            stamps = iter(f"20261002-1000{second:02d}" for second in range(10))
+            with mock.patch("config_manager.time.strftime", side_effect=lambda _f: next(stamps)):
+                for revision in range(2, 9):
+                    config_manager.write_config_text(path, f'{{"version": "{revision}"}}')
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {"version": "8"})
+            backups = sorted(item.name for item in Path(directory).glob("p02.kipida.json.*.bak"))
+            self.assertEqual(len(backups), config_manager.CONFIG_BACKUPS_KEPT)
+            self.assertEqual(backups[-1], "p02.kipida.json.20261002-100006.bak")
+            self.assertEqual(own.read_text(encoding="utf-8"), "mine")
+            self.assertFalse(Path(directory, "p02.kipida.json.tmp").exists())
+
+    def test_an_automatic_save_leaves_a_file_changed_elsewhere_alone(self):
+        # The L1 current of P02 Rev E was corrected in the sidecar while
+        # Ki-PIDA was open (2026-10-01); a save on close would have put back
+        # the 4.36 A it held in memory.
+        from types import SimpleNamespace
+        from ui.power_tree_panel import PowerTreePanel, _file_signature
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "p02.kipida.json"
+            path.write_text("{}", encoding="utf-8")
+            saved, logged = [], []
+            panel = SimpleNamespace(
+                _get_config_path=lambda: path, _config_signature=_file_signature(path),
+                save_configuration=saved.append, log=logged.append,
+            )
+            panel.config_changed_on_disk = lambda: PowerTreePanel.config_changed_on_disk(panel)
+            self.assertTrue(PowerTreePanel.auto_save(panel, "on close"))
+            path.write_text('{"edited": true}', encoding="utf-8")
+            self.assertFalse(PowerTreePanel.auto_save(panel, "on close"))
+            self.assertEqual(saved, [path])
+            self.assertIn("changed on disk since Ki-PIDA loaded it", logged[-1])
+
+    def test_a_rescan_offers_only_the_rails_not_configured(self):
+        # P02 Rev E's sidecar holds 17 rails; the board also has
+        # /Eclairage chassis protege/+5V_LED_EDGE, which only a missing
+        # sidecar would have scanned for.
+        from models import PowerRail
+        from ui.power_tree_panel import rescan_changes
+
+        rails = [PowerRail(net_name=name) for name in ("/+5V_RAIL", "/VBUS_SYS", "/OLD_RAIL")]
+        scanned = [PowerRail(net_name=name) for name in
+                   ("/+5V_RAIL", "/Eclairage chassis protege/+5V_LED_EDGE")]
+        board_nets = {"/+5V_RAIL", "/VBUS_SYS", "/Eclairage chassis protege/+5V_LED_EDGE"}
+        new, gone = rescan_changes(rails, scanned, board_nets)
+        self.assertEqual([rail.net_name for rail in new], ["/Eclairage chassis protege/+5V_LED_EDGE"])
+        self.assertEqual(gone, ["/OLD_RAIL"])
+        self.assertEqual(len(rails), 3)
+
 
 if __name__ == '__main__':
     unittest.main()

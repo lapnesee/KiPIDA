@@ -108,5 +108,151 @@ class ThermalControllerTests(unittest.TestCase):
         self.assertNotEqual(first, second)
 
 
+class UncoupledCopperLossTests(unittest.TestCase):
+    def test_losses_follow_the_copper_to_the_ambient(self):
+        # TH-10: the DC is solved at 20 C; an uncoupled run at P02 Rev E's
+        # 45 C took its losses unchanged, about 10 % low.
+        from application.thermal_controller import dc_copper_loss_points
+        from mesh import Mesh
+        mesh = Mesh()
+        mesh.nodes = [0, 1]
+        mesh.node_coords = {0: (0.0, 0.0, 0), 1: (1.0, 0.0, 0)}
+        mesh.add_edge_direct(0, 1, g=1.0)
+        results = {"VCC": {"mesh": mesh, "detailed_result": SimpleNamespace(branch_losses_w=[0.4])}}
+        scale = 1.0 + 0.00393 * (45.0 - 20.0)
+        points = dc_copper_loss_points(results, scale)
+        self.assertAlmostEqual(points[0].power_w, 0.4 * 1.09825)
+
+
+class EnclosureAirRiseTests(unittest.TestCase):
+    def test_matches_p02_rev_e_measured_rise(self):
+        # P02 Rev E sidecar: sealed 165 x 100 x 50 mm box, walls 5 W/m2K,
+        # 4.9186 W total board heat (THERMAL.md): 16.53 K through the walls,
+        # 4.9186/(5*0.0595), the audit's measured wall-cell rise (CFD-4),
+        # plus the air-to-wall film, 31.67 K in all at the default 25 C.
+        from application.thermal_controller import enclosure_internal_air_rise_k
+        from models import EnclosureCFDSettings, EnclosureGeometrySettings
+
+        enclosure = EnclosureCFDSettings(geometry=EnclosureGeometrySettings(
+            width_mm=165.0, depth_mm=100.0, height_mm=50.0,
+            wall_heat_transfer_w_m2k=5.0,
+        ))
+        self.assertAlmostEqual(
+            enclosure_internal_air_rise_k(enclosure, 4.9186), 31.67, places=1,
+        )
+
+    def test_no_heat_means_no_rise(self):
+        from application.thermal_controller import enclosure_internal_air_rise_k
+        from models import EnclosureCFDSettings
+
+        self.assertEqual(enclosure_internal_air_rise_k(EnclosureCFDSettings(), 0.0), 0.0)
+
+
+class EnclosureAmbientReachesTheSolve(unittest.TestCase):
+    """COH-4: thermal used to ignore an enclosure entirely and solve at the
+    bare outside ambient; a configured enclosure now shifts the ambient the
+    mesh and solver actually see."""
+
+    def _request(self, enclosure, apply_it=True):
+        from dataclasses import dataclass, field
+
+        from application.thermal_controller import ThermalRunRequest
+        from models import ThermalAnalysisSettings, ThermalComponentModel
+
+        @dataclass
+        class Model:
+            copper_losses: list = field(default_factory=list)
+            components: list = field(default_factory=lambda: [
+                ThermalComponentModel(ref_des="U1", power_w=4.9186, enabled=True),
+            ])
+
+        settings = ThermalAnalysisSettings(
+            ambient_c=45.0, include_dc_copper_losses=False,
+            apply_enclosure_ambient=apply_it,
+        )
+        return ThermalRunRequest(settings=settings, board_model=Model(), enclosure=enclosure)
+
+    def _engine(self, seen):
+        from application.thermal_controller import ThermalSolverEngine
+
+        class Mesher:
+            def __init__(self, **_kwargs):
+                pass
+
+            def generate_mesh(self, model, settings, progress_callback=None, air_velocity_m_s=None):
+                seen["ambient_c"] = settings.ambient_c
+                return SimpleNamespace(nodes=[0])
+
+        class Solver:
+            def __init__(self, **_kwargs):
+                pass
+
+            def solve_with_surface_refinement(self, mesh, settings, progress_callback=None):
+                return SimpleNamespace(hotspot=None)
+
+        return ThermalSolverEngine(mesher_factory=Mesher, solver_factory=Solver)
+
+    def _enclosure(self):
+        from models import EnclosureCFDSettings, EnclosureGeometrySettings
+
+        return EnclosureCFDSettings(geometry=EnclosureGeometrySettings(
+            width_mm=165.0, depth_mm=100.0, height_mm=50.0,
+            wall_heat_transfer_w_m2k=5.0,
+        ))
+
+    def test_solves_at_ambient_plus_the_enclosure_rise(self):
+        seen = {}
+        outcome = self._engine(seen).solve(
+            self._request(self._enclosure()), lambda _m: None, lambda *_: None, lambda: False,
+        )
+        # P02 Rev E, 2026-09-22: 45 C ambient + 31.7 K from 4.9186 W in a
+        # 165x100x50 mm, 5 W/m2K box: 16.5 K through the walls (CFD-4's ~16 K
+        # measurement) and the film from the air to them.
+        self.assertAlmostEqual(seen["ambient_c"], 45.0 + 31.67, places=1)
+        self.assertAlmostEqual(outcome.enclosure_air_rise_k, 31.67, places=1)
+        self.assertTrue(outcome.enclosure_ambient_applied)
+
+    def test_disabled_keeps_ambient_but_still_reports_the_rise(self):
+        seen = {}
+        outcome = self._engine(seen).solve(
+            self._request(self._enclosure(), apply_it=False),
+            lambda _m: None, lambda *_: None, lambda: False,
+        )
+        self.assertAlmostEqual(seen["ambient_c"], 45.0)
+        self.assertAlmostEqual(outcome.enclosure_air_rise_k, 31.67, places=1)
+        self.assertFalse(outcome.enclosure_ambient_applied)
+
+    def test_no_enclosure_means_no_rise_at_all(self):
+        seen = {}
+        outcome = self._engine(seen).solve(
+            self._request(None), lambda _m: None, lambda *_: None, lambda: False,
+        )
+        self.assertAlmostEqual(seen["ambient_c"], 45.0)
+        self.assertIsNone(outcome.enclosure_air_rise_k)
+        self.assertFalse(outcome.enclosure_ambient_applied)
+
+    def test_coupled_run_says_why_no_rail_was_solved(self):
+        # The P02 Rev E power tree came from a board scan and was never filled
+        # in; the run only said it "requires a successful DC analysis".
+        from application.thermal_controller import ThermalSolverEngine
+        from models import PowerRail
+
+        class NoRailSolved:
+            def solve(self, request, emit, progress, cancelled):
+                return {}
+
+        request = SimpleNamespace(
+            coupled=True, _dc_results=None,
+            settings=SimpleNamespace(include_dc_copper_losses=True),
+            dc_request=SimpleNamespace(rails=(PowerRail("/+5V_U4", 5.0), PowerRail("/+5V_RAIL", 5.0))),
+        )
+        with self.assertRaisesRegex(
+            ValueError, r"None of the 2 rails has a source or a regulator output .*/\+5V_U4, /\+5V_RAIL",
+        ):
+            ThermalSolverEngine(dc_engine_factory=NoRailSolved).solve(
+                request, lambda _message: None, lambda *_args: None, lambda: False,
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

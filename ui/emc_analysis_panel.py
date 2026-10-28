@@ -2,18 +2,19 @@
 
 import threading
 import wx
+from ui.number_input import parse_number
 
 from i18n import _
 
 try:
-    from emc_analyzer import EMCSourceDiscoverer
+    from emc_analyzer import EMCSourceDiscoverer, supply_voltages_by_net, switch_node_evidence
     from extractor import GeometryExtractor
     from models import EMCAnalysisSettings, EMCSignalSource
     from palace_remote import (
         PalaceRemoteClient, PalaceRemoteConnection, bundled_palace_smoke_config,
     )
 except (ImportError, ValueError):
-    from ..emc_analyzer import EMCSourceDiscoverer
+    from ..emc_analyzer import EMCSourceDiscoverer, supply_voltages_by_net, switch_node_evidence
     from ..extractor import GeometryExtractor
     from ..models import EMCAnalysisSettings, EMCSignalSource
     from ..palace_remote import (
@@ -39,6 +40,78 @@ CATEGORIES = [
     (_("Shielding"), "SHIELDING"), (_("Via stitching"), "STITCHING"),
     (_("Thermal interaction"), "THERMAL"), (_("Emission estimates"), "EMISSIONS"),
 ]
+def edited_inductor_model(model, values):
+    """*model* with the operating point the dialog holds, as text fields:
+    inductance_uh, vin_v, vout_v, frequency_khz, current_a, ripple_a and
+    attenuation_db (empty: not quantified). A decimal comma reads as a
+    point. SW-004 named L1's current, 4.36 A against U4's 4.73 A, and the
+    table that shows it could not change it (P02 Rev E, 2026-10-01).
+    """
+    from dataclasses import replace
+
+    def number(key):
+        text = str(values.get(key, "") or "").strip().replace(",", ".")
+        try:
+            return float(text)
+        except ValueError:
+            raise ValueError(f"'{text}' is not a number.") from None
+
+    inductance_uh, frequency_khz = number("inductance_uh"), number("frequency_khz")
+    others = {key: number(key) for key in ("vin_v", "vout_v", "current_a", "ripple_a")}
+    if inductance_uh <= 0.0 or frequency_khz <= 0.0 or any(value < 0.0 for value in others.values()):
+        raise ValueError("Inductance and frequency must be positive, voltages and currents "
+                         "not negative.")
+    attenuation = str(values.get("attenuation_db", "") or "").strip()
+    return replace(
+        model,
+        inductance_h=inductance_uh * 1e-6,
+        vin_v=others["vin_v"], vout_v=others["vout_v"],
+        switching_frequency_hz=frequency_khz * 1e3,
+        output_current_a=others["current_a"], ripple_current_pp_a=others["ripple_a"],
+        shielding_attenuation_db=number("attenuation_db") if attenuation else None,
+    )
+
+
+class EMCInductorDialog(wx.Dialog):
+    """The operating point of one switching inductor's field model."""
+
+    FIELDS = (
+        ("inductance_uh", "Inductance (uH):"), ("vin_v", "Input voltage (V):"),
+        ("vout_v", "Output voltage (V):"), ("frequency_khz", "Switching frequency (kHz):"),
+        ("current_a", "Output current (A):"), ("ripple_a", "Ripple current p-p (A):"),
+        ("attenuation_db", "Shield attenuation (dB, empty if unknown):"),
+    )
+
+    def __init__(self, parent, model):
+        super().__init__(parent, title=f"Edit Inductor Model {model.ref_des}")
+        self.model = model
+        current = {
+            "inductance_uh": f"{model.inductance_h * 1e6:g}", "vin_v": f"{model.vin_v:g}",
+            "vout_v": f"{model.vout_v:g}", "frequency_khz": f"{model.switching_frequency_hz / 1e3:g}",
+            "current_a": f"{model.output_current_a:g}", "ripple_a": f"{model.ripple_current_pp_a:g}",
+            "attenuation_db": (f"{model.shielding_attenuation_db:g}"
+                               if model.shielding_attenuation_db is not None else ""),
+        }
+        grid = wx.FlexGridSizer(cols=2, hgap=8, vgap=8)
+        grid.AddGrowableCol(1, 1)
+        self.controls = {}
+        for key, label in self.FIELDS:
+            control = wx.TextCtrl(self, value=current[key])
+            grid.Add(wx.StaticText(self, label=label), 0, wx.ALIGN_CENTER_VERTICAL)
+            grid.Add(control, 1, wx.EXPAND)
+            self.controls[key] = control
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(wx.StaticText(self, label=f"{model.ref_des} {model.mpn}".strip()), 0, wx.ALL, 10)
+        sizer.Add(grid, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+        sizer.Add(self.CreateButtonSizer(wx.OK | wx.CANCEL), 0, wx.EXPAND | wx.ALL, 10)
+        self.SetSizerAndFit(sizer)
+
+    def get_model(self):
+        return edited_inductor_model(
+            self.model, {key: control.GetValue() for key, control in self.controls.items()},
+        )
+
+
 class EMCSourceDialog(wx.Dialog):
     def __init__(self, parent, source=None):
         super().__init__(parent, title="Edit EMI/EMC Source" if source else "Add EMI/EMC Source")
@@ -80,21 +153,49 @@ class EMCSourceDialog(wx.Dialog):
             self.voltage.SetValue(f"{source.voltage_swing_v:g}")
             self.current.SetValue(f"{source.current_a:g}")
             self.negative_net.SetValue(source.negative_net_name)
+        self._source = source
+        # What the user found in the electrical fields, to tell a value
+        # entered from one left as it was.
+        self._initial = {key: control.GetValue() for key, control, _label in self._electrical()}
+
+    def _electrical(self):
+        return (
+            ("frequency", self.frequency, "fundamental {} MHz"),
+            ("rise", self.rise, "rise time {} ns"),
+            ("voltage", self.voltage, "swing {} V"),
+            ("current", self.current, "current {} A"),
+        )
+
+    def _confidence(self):
+        """(confidence, notes): HIGH only for values the user set. Every
+        manual source read HIGH, even one left at the dialog's 25 MHz, 2 ns,
+        3.3 V and 0.1 A, and the AC target quoted its edge as such."""
+        kept = [label.format(control.GetValue().strip())
+                for key, control, label in self._electrical()
+                if control.GetValue() == self._initial[key]]
+        if self._source is None:
+            if kept:
+                return "LOW", "Defaults kept: " + ", ".join(kept) + "."
+            return "HIGH", "User-configured source parameters."
+        if len(kept) == len(self._electrical()):
+            return self._source.parameter_confidence, self._source.parameter_notes
+        return "HIGH", "User-configured source parameters."
 
     def get_source(self):
         net_name = self.net.GetValue().strip()
         if not net_name:
             raise ValueError("Enter a source net name.")
-        frequency = float(self.frequency.GetValue()) * 1e6
-        rise_time = float(self.rise.GetValue())
-        cable = float(self.cable.GetValue())
-        voltage = float(self.voltage.GetValue())
-        current = float(self.current.GetValue())
+        frequency = parse_number(self.frequency.GetValue()) * 1e6
+        rise_time = parse_number(self.rise.GetValue())
+        cable = parse_number(self.cable.GetValue())
+        voltage = parse_number(self.voltage.GetValue())
+        current = parse_number(self.current.GetValue())
         if frequency < 0 or rise_time <= 0 or cable < 0 or voltage < 0 or current < 0:
             raise ValueError(
                 "Frequency, cable length, voltage and current must be non-negative; "
                 "rise time must be positive."
             )
+        confidence, notes = self._confidence()
         return EMCSignalSource(
             name=self.name.GetValue().strip() or net_name,
             net_name=net_name,
@@ -108,19 +209,22 @@ class EMCSourceDialog(wx.Dialog):
             voltage_swing_v=voltage,
             current_a=current,
             negative_net_name=self.negative_net.GetValue().strip(),
-            parameter_confidence="HIGH",
-            parameter_notes="User-configured source parameters.",
+            parameter_confidence=confidence,
+            parameter_notes=notes,
         )
 
 
 class EMCAnalysisPanel(wx.ScrolledWindow):
     def __init__(self, parent, board, differential_pairs_provider=None,
-                 rails_provider=None, log_callback=None):
+                 rails_provider=None, log_callback=None, design_provider=None):
         super().__init__(parent, style=wx.VSCROLL | wx.BORDER_NONE)
         self.SetScrollRate(0, 10)
         self.board = board
         self.differential_pairs_provider = differential_pairs_provider or (lambda: [])
         self.rails_provider = rails_provider or (lambda: [])
+        # The project's saved board fused with its schematic (a BoardNetlist),
+        # read when a scan asks; None without a project.
+        self.design_provider = design_provider
         self.log_callback = log_callback
         self.settings = EMCAnalysisSettings()
         self.results = None
@@ -202,10 +306,8 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
         )
         self.phase10_backend.SetSelection(0)
         self.phase10_ngspice = wx.TextCtrl(phase10_parent, value=r"C:\Spice64\bin\ngspice_con.exe")
-        self.phase10_spice_library = wx.TextCtrl(
-            phase10_parent,
-            value=r"C:\Users\jbc66\Documents\DAW CONTROLEUR\Lib\SPICE",
-        )
+        self.phase10_spice_library = wx.TextCtrl(phase10_parent, value="")
+        self.phase10_spice_library.SetHint("Folder holding MODEL_CATALOG.csv")
         self.phase10_openems = wx.TextCtrl(phase10_parent, value=r"C:\openEMS")
         self.phase10_regions = wx.TextCtrl(phase10_parent, value="3")
         self.phase10_mesh = wx.TextCtrl(phase10_parent, value="0.25")
@@ -327,14 +429,17 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
 
         inductor_box = wx.StaticBoxSizer(wx.VERTICAL, self, "Switching Inductor Models")
         inductor_parent = inductor_box.GetStaticBox()
-        self.inductor_list = wx.ListCtrl(inductor_parent, style=wx.LC_REPORT)
+        self.inductor_list = wx.ListCtrl(inductor_parent, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
         self.inductor_list.SetMinSize((-1, 125))
         for index, (title, width) in enumerate((
             ("Ref", 55), ("MPN", 165), ("Shield", 85), ("L (uH)", 75),
             ("Size mm", 120), ("Shield attenuation", 135), ("Confidence", 90),
+            ("Iout A", 70), ("kHz", 70),
         )):
             self.inductor_list.InsertColumn(index, title, width=width)
         inductor_box.Add(self.inductor_list, 1, wx.EXPAND | wx.ALL, 5)
+        self.btn_edit_inductor = wx.Button(inductor_parent, label="Edit Selected Model")
+        inductor_box.Add(self.btn_edit_inductor, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
         inductor_box.Add(wx.StaticText(
             inductor_parent,
             label=(
@@ -368,6 +473,8 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
         self.btn_edit.Bind(wx.EVT_BUTTON, self._on_edit)
         self.btn_toggle.Bind(wx.EVT_BUTTON, self._on_toggle)
         self.source_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit)
+        self.btn_edit_inductor.Bind(wx.EVT_BUTTON, self._on_edit_inductor)
+        self.inductor_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_edit_inductor)
         self._update_backend_controls()
 
     def _on_phase10_changed(self, event):
@@ -410,8 +517,8 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
             host_key_policy=(
                 "ACCEPT_NEW" if self.palace_host_key_policy.GetSelection() == 1 else "STRICT"
             ),
-            connect_timeout_s=float(self.palace_connect_timeout.GetValue()),
-            run_timeout_s=float(self.phase10_timeout.GetValue()),
+            connect_timeout_s=parse_number(self.palace_connect_timeout.GetValue()),
+            run_timeout_s=parse_number(self.phase10_timeout.GetValue()),
             keep_remote_files=self.palace_keep_remote.GetValue(),
         ).validate()
 
@@ -484,6 +591,7 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
                 f"{model.inductance_h * 1e6:g}" if model.inductance_h else "-",
                 f"{model.width_mm:g} x {model.depth_mm:g} x {model.height_mm:g}",
                 attenuation, model.parameter_confidence,
+                f"{model.output_current_a:g}", f"{model.switching_frequency_hz / 1e3:g}",
             )
             for column, value in enumerate(values, start=1):
                 self.inductor_list.SetItem(row, column, str(value))
@@ -532,9 +640,49 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
                         "voltage_swing_v": float(getattr(rail, "nominal_voltage", 0.0) or 0.0),
                         "current_a": rail_current(regulator.output_rail_name),
                     }
+        footprints = ()
+        try:
+            from application.dc_controller import capture_dc_board
+
+            footprints = capture_dc_board(self.board).footprints
+            supply_voltages = supply_voltages_by_net(footprints, rails)
+        except Exception as exc:
+            self.log(f"EMI/EMC sources keep the default swing: the board's parts could not be read ({exc}).")
+            supply_voltages = {}
+        net_frequencies, part_frequencies = {}, {}
+        declared_rails = set()
+        if self.design_provider is not None:
+            try:
+                from emc_analyzer import declared_frequencies
+
+                design = self.design_provider()
+                declared_rails = {net.name for net in design.nets if net.is_power_rail}
+                net_frequencies, part_frequencies = declared_frequencies(design.components, declared_rails)
+                from ingest.declarations import with_declared_grounds
+
+                grounds = with_declared_grounds(self.settings.reference_net_names, design)
+                if grounds != list(self.settings.reference_net_names):
+                    added = [name for name in grounds if name not in self.settings.reference_net_names]
+                    self.settings.reference_net_names = grounds
+                    self.ground_nets.SetValue(", ".join(grounds))
+                    self.log(f"EMI/EMC: ground nets declared by ground symbols added: {', '.join(added)}.")
+            except Exception as exc:
+                self.log(
+                    "EMI/EMC sources take no frequency from the project's parts: its saved "
+                    f"files could not be read ({exc})."
+                )
         self.settings.sources = EMCSourceDiscoverer.discover(
             self._net_names(), self.settings.sources, pairs, switching_frequencies,
+            supply_voltages=supply_voltages,
+            net_frequencies=net_frequencies, part_frequencies=part_frequencies,
+            switch_nodes=switch_node_evidence(footprints, set(rails_by_name) | declared_rails),
         )
+        unknown = [source.name for source in self.settings.sources if source.enabled and source.frequency_hz <= 0.0]
+        if unknown:
+            self.log(
+                f"EMI/EMC: {len(unknown)} source(s) have no frequency stated by the project; "
+                "enter them for harmonic and field estimates: " + ", ".join(unknown[:10])
+            )
         self._update_sources()
         self._update_inductors()
         self.log(f"EMI/EMC source scan complete: {len(self.settings.sources)} candidate(s).")
@@ -573,6 +721,23 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
         except ValueError as exc:
             wx.MessageBox(str(exc), "EMI/EMC source", wx.OK | wx.ICON_ERROR)
 
+    def _on_edit_inductor(self, _event):
+        index = self.inductor_list.GetFirstSelected()
+        if not 0 <= index < len(self.settings.inductor_models):
+            return
+        dialog = EMCInductorDialog(self, self.settings.inductor_models[index])
+        try:
+            while dialog.ShowModal() == wx.ID_OK:
+                try:
+                    self.settings.inductor_models[index] = dialog.get_model()
+                except ValueError as exc:
+                    wx.MessageBox(str(exc), "Inductor model", wx.OK | wx.ICON_ERROR)
+                    continue
+                self._update_inductors()
+                break
+        finally:
+            dialog.Destroy()
+
     def _on_toggle(self, _event):
         index = self._selected_index()
         if index is not None:
@@ -580,8 +745,8 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
             self._update_sources()
 
     def get_settings(self):
-        start = float(self.frequency_start.GetValue()) * 1e6
-        stop = float(self.frequency_stop.GetValue()) * 1e6
+        start = parse_number(self.frequency_start.GetValue()) * 1e6
+        stop = parse_number(self.frequency_stop.GetValue()) * 1e6
         if start <= 0 or stop <= start:
             raise ValueError("EMI/EMC stop frequency must be greater than the positive start frequency.")
         self.settings.frequency_start_hz = start
@@ -591,9 +756,9 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
         self.settings.reference_net_names = [item.strip() for item in self.ground_nets.GetValue().split(",") if item.strip()]
         self.settings.external_connector_prefixes = [item.strip() for item in self.connector_prefixes.GetValue().split(",") if item.strip()]
         self.settings.enabled_categories = [key for key, check in self._category_checks.items() if check.GetValue()]
-        height = float(self.field_height.GetValue())
-        grid_size = float(self.field_grid_size.GetValue())
-        frequency = float(self.field_frequency.GetValue()) * 1e6
+        height = parse_number(self.field_height.GetValue())
+        grid_size = parse_number(self.field_grid_size.GetValue())
+        frequency = parse_number(self.field_frequency.GetValue()) * 1e6
         if height <= 0 or grid_size <= 0 or frequency < 0:
             raise ValueError(
                 "Near-field height/grid size must be positive and its frequency must be non-negative."
@@ -629,10 +794,10 @@ class EMCAnalysisPanel(wx.ScrolledWindow):
         )
         phase10.palace_remote_keep_files = self.palace_keep_remote.GetValue()
         phase10.maximum_regions = max(0, int(self.phase10_regions.GetValue()))
-        phase10.mesh_resolution_mm = float(self.phase10_mesh.GetValue())
+        phase10.mesh_resolution_mm = parse_number(self.phase10_mesh.GetValue())
         phase10.maximum_cells = int(self.phase10_cells.GetValue())
         phase10.openems_max_timesteps = int(self.phase10_timesteps.GetValue())
-        phase10.solver_timeout_s = float(self.phase10_timeout.GetValue())
+        phase10.solver_timeout_s = parse_number(self.phase10_timeout.GetValue())
         phase10.differential_excitation_mode = (
             self.phase10_diff_mode.GetStringSelection() or "DIFFERENTIAL"
         )

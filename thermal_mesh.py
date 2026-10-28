@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from array import array
 import math
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
@@ -11,10 +12,10 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 try:
-    from shapely.geometry import Point, box
+    from shapely.geometry import Point, Polygon, box
     from shapely.prepared import prep
 except ImportError:
-    Point = prep = box = None
+    Point = Polygon = prep = box = None
 
 try:
     from shapely import from_wkb
@@ -31,8 +32,54 @@ except ImportError:
 
 try:
     from .models import ThermalAnalysisSettings
+    from . import surface_convection
+    from .layer_labels import copper_layer_label
+    from .physical_constants import (
+        COPPER_THERMAL_CONDUCTIVITY_W_MK, DEFAULT_BOARD_THICKNESS_MM,
+        DEFAULT_COPPER_THICKNESS_MM, PLATING_THICKNESS_FALLBACK_MM,
+    )
 except (ImportError, ValueError):
     from models import ThermalAnalysisSettings
+    import surface_convection
+    from layer_labels import copper_layer_label
+    from physical_constants import (
+        COPPER_THERMAL_CONDUCTIVITY_W_MK, DEFAULT_BOARD_THICKNESS_MM,
+        DEFAULT_COPPER_THICKNESS_MM, PLATING_THICKNESS_FALLBACK_MM,
+    )
+
+# Dielectric of a board whose stackup states nothing: the finished default
+# thickness less its two outer copper layers.
+_DEFAULT_DIELECTRIC_MM = DEFAULT_BOARD_THICKNESS_MM - 2 * DEFAULT_COPPER_THICKNESS_MM
+
+
+# JEDEC JESD51-8 and -12 take a psiJB's or thetaJB's board temperature this
+# far from the package edge.
+BOARD_REFERENCE_MM = 1.0
+_BOARD_METRIC = re.compile(r"(?i)(psi|ψ|theta|θ)\s*_?jb\b")
+
+
+def theta_reference(component):
+    """``"BOARD"`` or ``"CASE"``: where *component*'s thetaJB is referred to.
+
+    Its theta_reference when set, else the metric its provenance names: a
+    psiJB or (R)thetaJB is referred to the board 1 mm from the package, and
+    anything else (a thetaJC, a thetaJL, a default estimate) to the copper
+    under the part, as before.
+    """
+    explicit = str(getattr(component, "theta_reference", "") or "").upper()
+    if explicit in {"BOARD", "CASE"}:
+        return explicit
+    provenance = (getattr(component, "parameter_provenance", None) or {}).get("theta_jb_c_per_w", "")
+    return "BOARD" if _BOARD_METRIC.search(str(provenance or "")) else "CASE"
+
+
+def component_reference_nodes(mesh, ref_des):
+    """``(nodes, label)``: the cells a component's board temperature is read on."""
+    component = mesh.component_models.get(ref_des)
+    ring = mesh.component_board_nodes.get(ref_des) or []
+    if ring and theta_reference(component) == "BOARD":
+        return ring, f"{BOARD_REFERENCE_MM:g} mm from the package"
+    return mesh.component_nodes.get(ref_des, []), "under the part"
 
 
 @dataclass
@@ -138,8 +185,8 @@ class PackedThermalBranches:
 class PackedThermalBoundaries:
     """Compact convective-boundary storage matching ``PackedThermalBranches``."""
 
-    _KIND_CODES = {"convection": 0, "top": 1, "bottom": 2, "edge": 3}
-    _KIND_NAMES = ("convection", "top", "bottom", "edge")
+    _KIND_CODES = {"convection": 0, "top": 1, "bottom": 2, "edge": 3, "body": 4, "heatsink": 5}
+    _KIND_NAMES = ("convection", "top", "bottom", "edge", "body", "heatsink")
 
     def __init__(self):
         self.node_id = array("i")
@@ -199,6 +246,58 @@ class PackedThermalBoundaries:
             np.frombuffer(self.conductance, dtype=np.float64),
         )
 
+    def kind_mask(self, kind):
+        """Boolean mask selecting the boundaries of one kind."""
+        code = self._KIND_CODES.get(str(kind))
+        if code is None:
+            return np.zeros(len(self), dtype=bool)
+        return np.frombuffer(bytes(self.kind), dtype=np.uint8) == code
+
+    def set_conductance(self, index, conductance_w_k):
+        """Replace one boundary's conductance: a component body's, refined on its own temperature."""
+        self.conductance[int(index)] = float(conductance_w_k)
+
+    def scale_nodes(self, kind, factors):
+        """Multiply one kind's conductance at each node of *factors* ({node: factor}).
+
+        A heatsink's base covers part of a board face: the cells under it keep
+        only the share of their face it leaves to the air.
+        """
+        if not len(self) or not factors:
+            return
+        nodes = np.fromiter(factors.keys(), dtype=np.int64, count=len(factors))
+        scale = np.fromiter(factors.values(), dtype=np.float64, count=len(factors))
+        order = np.argsort(nodes)
+        nodes, scale = nodes[order], scale[order]
+        ids = np.frombuffer(self.node_id, dtype=np.int32).astype(np.int64)
+        position = np.clip(np.searchsorted(nodes, ids), 0, nodes.size - 1)
+        mask = self.kind_mask(kind) & (nodes[position] == ids)
+        if not mask.any():
+            return
+        values = np.frombuffer(self.conductance, dtype=np.float64).copy()
+        values[mask] *= scale[position[mask]]
+        self.conductance = array("d")
+        self.conductance.frombytes(values.tobytes())
+
+    def scale_kind(self, kind, factor):
+        """Multiply the conductances of one boundary kind in place.
+
+        Surface conductance is h times area, and only h changes when the
+        coefficient is refined against a solved temperature.  Scaling avoids
+        rebuilding a multi-million-boundary mesh for what is a single factor
+        per face.
+        """
+        factor = float(factor)
+        if not len(self) or factor == 1.0 or factor <= 0.0:
+            return
+        mask = self.kind_mask(kind)
+        if not mask.any():
+            return
+        values = np.frombuffer(self.conductance, dtype=np.float64).copy()
+        values[mask] *= factor
+        self.conductance = array("d")
+        self.conductance.frombytes(values.tobytes())
+
 
 @dataclass
 class ThermalMesh:
@@ -214,12 +313,49 @@ class ThermalMesh:
     heat_vector_w: object = None
     component_nodes: Dict[str, List[int]] = field(default_factory=dict)
     component_models: Dict[str, object] = field(default_factory=dict)
+    # The outer-slice cells 1 mm from each package's edge, all around it:
+    # the board point a psiJB or thetaJB is referred to (theta_reference).
+    component_board_nodes: Dict[str, List[int]] = field(default_factory=dict)
+    # Every footprint's outer-slice cells under its pads, heat source or not:
+    # the board temperature a capacitor's dielectric sees (placement_nodes).
+    placement_nodes: Dict[str, List[int]] = field(default_factory=dict)
+    # Where each component's own heat is deposited: its body node for a part
+    # with body_exchange, else the same cells as component_nodes. body_nodes
+    # keeps, per such part, its node, its air boundary's index and the
+    # geometry the solver refines that boundary's coefficient with.
+    component_heat_nodes: Dict[str, List[int]] = field(default_factory=dict)
+    body_nodes: Dict[str, dict] = field(default_factory=dict)
+    # One entry per heatsink bonded (ThermalAnalysisSettings.heatsinks): its
+    # node, its air boundary's index, the [(node, weight)] it is bonded to,
+    # and what the solver and the report need of it. A part under a COMPONENT
+    # heatsink has a body node whose "boundary" is None unless it also has
+    # body_exchange. heatsink_skipped says why a configured one was not.
+    heatsink_nodes: List[dict] = field(default_factory=list)
+    heatsink_skipped: List[str] = field(default_factory=list)
     grid_size_mm: float = 1.0
     bounds_mm: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
     layer_specs: List[ThermalLayerSpec] = field(default_factory=list)
     convection_coefficient_w_m2k: float = 0.0
     requested_grid_size_mm: float = 1.0
     adaptive_grid: bool = False
+    # Surface exchange as it was actually applied, so the solver can refine it
+    # against the solved temperature and the report can state what was used.
+    # ``surface_h_w_m2k`` maps a boundary kind ("top"/"bottom"/"edge") to the
+    # coefficient baked into its conductances; ``surface_area_m2`` maps the
+    # same kinds to their exposed area, which is what lets the solver rescale
+    # a boundary without rebuilding the mesh.
+    surface_h_w_m2k: Dict[str, float] = field(default_factory=dict)
+    surface_area_m2: Dict[str, float] = field(default_factory=dict)
+    characteristic_length_m: float = 0.0
+    convection_basis: str = ""
+    # TH-9: total power the model actually asked for (enabled components
+    # plus copper losses), tallied independently of whether each one found a
+    # mesh cell to deposit into. heat_sources_w can fall short of this when
+    # a component has no placement or its window/nearest-node fallback both
+    # come up empty, or a copper-loss point's nearest cell is not found --
+    # none of which the row-sum energy balance below can see, since it only
+    # checks what was deposited against what left through the boundaries.
+    intended_input_power_w: float = 0.0
 
     def add_heat(self, node_id, power_w):
         self.heat_sources_w[node_id] = self.heat_sources_w.get(node_id, 0.0) + float(power_w)
@@ -235,6 +371,60 @@ class ThermalMesh:
 
     def add_boundary_batch(self, node_id, conductance_w_k, kind="convection"):
         self.boundaries.extend_arrays(node_id, conductance_w_k, kind)
+
+    def nearest_nodes(self, x_mm, y_mm, layer_ids):
+        """:meth:`nearest_node` over arrays of points, one layer id each.
+
+        A point whose own cell holds a node on the single slice of its layer
+        takes that node, which is what nearest_node returns at radius 0; only
+        the rest go through nearest_node. Mapping P02 Rev E's 2,641,865
+        electrical branches one nearest_node call at a time took 13.5 s.
+        """
+        x = np.asarray(x_mm, dtype=float)
+        y = np.asarray(y_mm, dtype=float)
+        layers = np.asarray(layer_ids)
+        result = np.full(x.size, -1, dtype=np.int64)
+        if not self.nodes or not x.size:
+            return result
+        cells, slice_of_layer = self._cell_lookup()
+        min_x, min_y, _, _ = self.bounds_mm
+        # int() truncates toward zero, as nearest_node does.
+        ix = np.trunc((x - min_x) / self.grid_size_mm).astype(np.int64)
+        iy = np.trunc((y - min_y) / self.grid_size_mm).astype(np.int64)
+        iz = np.array([slice_of_layer.get(layer, -1) for layer in layers.tolist()], dtype=np.int64)
+        inside = (
+            (iz >= 0) & (ix >= 0) & (iy >= 0)
+            & (ix < cells.shape[1]) & (iy < cells.shape[2])
+        )
+        result[inside] = cells[iz[inside], ix[inside], iy[inside]]
+        for index in np.flatnonzero(result < 0):
+            node = self.nearest_node(float(x[index]), float(y[index]), layers[index].item())
+            result[index] = -1 if node is None else int(node)
+        return result
+
+    def _cell_lookup(self):
+        """``(cells[iz, ix, iy] -> node or -1, {layer id: iz})``, built once."""
+        cached = getattr(self, "_cells_cache", None)
+        if cached is not None and cached[0] == len(self.node_map):
+            return cached[1], cached[2]
+        keys = np.array(list(self.node_map.keys()), dtype=np.int64).reshape(-1, 3)
+        values = np.fromiter(self.node_map.values(), dtype=np.int64, count=len(self.node_map))
+        shape = (
+            len(self.layer_specs),
+            int(keys[:, 0].max()) + 1 if keys.size else 0,
+            int(keys[:, 1].max()) + 1 if keys.size else 0,
+        )
+        cells = np.full(shape, -1, dtype=np.int64)
+        valid = (keys[:, 0] >= 0) & (keys[:, 1] >= 0) & (keys[:, 2] >= 0) & (keys[:, 2] < shape[0])
+        cells[keys[valid, 2], keys[valid, 0], keys[valid, 1]] = values[valid]
+        slices = {}
+        for index, spec in enumerate(self.layer_specs):
+            slices.setdefault(spec.layer_id, []).append(index)
+        # A layer with several slices is left to nearest_node, which picks
+        # the nearest of them.
+        slice_of_layer = {layer: found[0] for layer, found in slices.items() if len(found) == 1}
+        self._cells_cache = (len(self.node_map), cells, slice_of_layer)
+        return cells, slice_of_layer
 
     def nearest_node(self, x_mm, y_mm, layer_id=None):
         """Return the closest cell without scanning the full 3D mesh in normal use."""
@@ -309,7 +499,7 @@ def estimate_thermal_mesh_cost(context, grid_size_mm):
 
 
 class ThermalMesher:
-    COPPER_K = 385.0
+    COPPER_K = COPPER_THERMAL_CONDUCTIVITY_W_MK
     FR4_K_XY = 0.8
     FR4_K_Z = 0.3
     SIGMA = 5.670374419e-8
@@ -317,6 +507,15 @@ class ThermalMesher:
     CUDA_NODE_LIMIT = 1250000
     HARD_CPU_NODE_LIMIT = 2000000
     HARD_CUDA_NODE_LIMIT = 4000000
+    # Surface rise assumed when first building boundaries, before any solution
+    # exists to measure one from.  ThermalSolver refines it; this only has to
+    # be close enough to start the iteration in the right basin.
+    NOMINAL_SURFACE_RISE_K = 30.0
+    # A component's heat goes into at least this many copper cells of its
+    # outer slice, the placement window growing a cell a side at most this
+    # many times to find them (see generate_mesh).
+    COMPONENT_HEAT_MIN_CELLS = 4
+    COMPONENT_HEAT_MAX_GROWTH = 2
     HOST_PEAK_BYTES_PER_NODE = 1280
 
     def __init__(self, debug=False, log_callback=None, compute_settings=None):
@@ -349,7 +548,41 @@ class ThermalMesher:
         if configured_gib <= 0.0:
             return base_limit, cuda_requested
         memory_nodes = int(configured_gib * (1024 ** 3) // self.HOST_PEAK_BYTES_PER_NODE)
+        # The ceiling is reinstated, and it was not the conservative figure it
+        # looked like. Letting a declared 16 GiB budget reach 12.3 M nodes drove
+        # the process past 44 GB -- roughly 3,600 bytes per node against the
+        # 1,280 assumed here -- without finishing, and it had to be killed.
+        #
+        # HOST_PEAK_BYTES_PER_NODE covers the mesh containers, packed branches,
+        # assembled matrix and iterative vectors, and it is about right for
+        # those. What it cannot cover is the working set of everything the mesh
+        # then feeds, which is not proportional to node count and not ours to
+        # predict. The ceiling is the backstop for that gap, so an explicit
+        # budget lowers the limit but never raises it past what the machine was
+        # shown to survive.
         return max(10000, min(hard_limit, memory_nodes)), cuda_requested
+
+    # Edge cells are measured against the copper of a square of this many
+    # cells a side.
+    _EDGE_TILE_CELLS = 16
+
+    @staticmethod
+    def _polygonal(geometry):
+        """The area-bearing part of an overlay result, as one polygonal geometry.
+
+        A clip whose edge runs along a copper edge comes back as a
+        GeometryCollection of polygons, lines and points. Its ``boundary`` is
+        None, so the outline walk marked no edge cell, and every later
+        overlay against it took GEOS's slow mixed-dimension path.
+        """
+        import shapely
+        if geometry is None or geometry.is_empty or geometry.geom_type in ("Polygon", "MultiPolygon"):
+            return geometry
+        parts = shapely.get_parts(geometry)
+        nested = [ThermalMesher._polygonal(part) for part in parts if part.geom_type == "GeometryCollection"]
+        keep = [part for part in parts if part.geom_type in ("Polygon", "MultiPolygon")]
+        keep += [part for part in nested if part is not None and not part.is_empty]
+        return shapely.union_all(keep) if keep else shapely.Polygon()
 
     @staticmethod
     def _sample_layer_band(outline, copper, min_x, min_y, nx, row_start, row_stop, grid,
@@ -377,16 +610,78 @@ class ThermalMesher:
             else:
                 inside = np.asarray(intersects_xy(outline, x_grid, y_grid), dtype=bool)
             if copper is None or copper.is_empty:
-                copper_mask = np.zeros(x_grid.size, dtype=bool)
+                fraction = np.zeros(x_grid.size, dtype=np.float64)
             else:
                 copper_mask = np.asarray(intersects_xy(copper, x_grid, y_grid), dtype=bool)
+                fraction = copper_mask.astype(np.float64)
+                # A cell was copper or laminate by its centre alone, so a
+                # trace narrower than a cell was all copper or none of it and
+                # a pour edge moved by up to half a cell (open since the
+                # 2026-09-04 thermal audit). Cells on a copper edge -- a
+                # neighbour differs, or the copper's outline crosses them --
+                # carry the exact fraction of their area the copper covers.
+                mask = copper_mask.reshape(row_count, int(nx))
+                edge = np.zeros_like(mask)
+                edge[:, 1:] |= mask[:, 1:] != mask[:, :-1]
+                edge[:, :-1] |= mask[:, 1:] != mask[:, :-1]
+                edge[1:, :] |= mask[1:, :] != mask[:-1, :]
+                edge[:-1, :] |= mask[1:, :] != mask[:-1, :]
+                # A trace narrower than a cell can pass between cell centres
+                # and leave no mask edge at all, so the copper's own outline,
+                # walked every third of a cell, marks the cells it crosses.
+                try:
+                    import shapely
+                    # The band's copper only, cut once: walking and
+                    # intersecting the whole layer per band cost 3.2 s a
+                    # layer on P02 Rev E's In1.Cu at 0.2 mm, 0.09 s before.
+                    band_copper = ThermalMesher._polygonal(shapely.intersection(copper, shapely.box(
+                        min_x - grid, min_y + (int(row_start) - 1) * grid,
+                        min_x + (int(nx) + 1) * grid, min_y + (int(row_stop) + 1) * grid,
+                    )))
+                    walk = shapely.segmentize(band_copper.boundary, grid / 3.0)
+                    points = shapely.get_coordinates(walk)
+                except (ImportError, AttributeError):
+                    band_copper = copper
+                    points = np.empty((0, 2))
+                if len(points):
+                    cols = np.floor((points[:, 0] - min_x) / grid).astype(np.int64)
+                    rows = np.floor((points[:, 1] - min_y) / grid).astype(np.int64) - int(row_start)
+                    keep = (cols >= 0) & (cols < int(nx)) & (rows >= 0) & (rows < row_count)
+                    edge[rows[keep], cols[keep]] = True
+                candidates = np.flatnonzero(edge.ravel() & inside)
+                if candidates.size:
+                    import shapely
+                    half = grid / 2.0
+                    cells = shapely.box(
+                        x_grid[candidates] - half, y_grid[candidates] - half,
+                        x_grid[candidates] + half, y_grid[candidates] + half,
+                    )
+                    # Each cell meets the copper of its own tile, not the
+                    # whole band: one overlay per cell against a band of a
+                    # 6-layer board's outer copper (~60,000 vertices) ran for
+                    # hours on P02 Rev F at 0.2 mm.
+                    tile = ThermalMesher._EDGE_TILE_CELLS
+                    tiles_x = (int(nx) + tile - 1) // tile
+                    cols = candidates % int(nx)
+                    rows = candidates // int(nx)
+                    keys, owner = np.unique((rows // tile) * tiles_x + cols // tile, return_inverse=True)
+                    tile_x0 = min_x + (keys % tiles_x) * tile * grid
+                    tile_y0 = min_y + (int(row_start) + (keys // tiles_x) * tile) * grid
+                    # A hair wider than the cells they hold, so a cell edge
+                    # rounded a femtometre outward still meets its copper.
+                    pad = grid * 1.0e-6
+                    pieces = shapely.intersection(band_copper, shapely.box(
+                        tile_x0 - pad, tile_y0 - pad,
+                        tile_x0 + tile * grid + pad, tile_y0 + tile * grid + pad,
+                    ))
+                    pieces = np.array([ThermalMesher._polygonal(piece) for piece in pieces], dtype=object)
+                    covered = shapely.area(shapely.intersection(pieces[owner.ravel()], cells))
+                    fraction[candidates] = np.clip(covered / (grid * grid), 0.0, 1.0)
             active = np.flatnonzero(inside)
             # Return the same compact, deterministic cell tuples consumed by
-            # the finite-volume builder.  Geometry classification is now done
-            # in bulk; the remaining tuple creation is unavoidable because the
-            # existing mesh API stores sparse board cells explicitly.
+            # the finite-volume builder, with each cell's copper fraction.
             return [
-                (int(index % nx), int(row_start + index // nx), bool(copper_mask[index]))
+                (int(index % nx), int(row_start + index // nx), float(fraction[index]))
                 for index in active
             ]
 
@@ -399,7 +694,7 @@ class ThermalMesher:
                 x = min_x + (ix + 0.5) * grid
                 point = Point(x, y)
                 if prepared_outline.covers(point):
-                    cells.append((ix, iy, bool(prepared_copper and prepared_copper.covers(point))))
+                    cells.append((ix, iy, 1.0 if prepared_copper and prepared_copper.covers(point) else 0.0))
         return cells
 
     @classmethod
@@ -411,6 +706,13 @@ class ThermalMesher:
 
     @staticmethod
     def convection_coefficient(settings: ThermalAnalysisSettings):
+        """Legacy scalar coefficient, retained for callers that predate orientation.
+
+        Kept so existing behaviour and tests still have a single number to ask
+        for.  New code should use :meth:`surface_coefficient`, which knows
+        whether the face points up or down and how hot it is -- a distinction
+        worth a factor of two on the top face.
+        """
         airflow = settings.airflow
         mode = str(airflow.mode or "NATURAL").upper()
         if mode == "CUSTOM":
@@ -418,6 +720,214 @@ class ThermalMesher:
         if mode == "FORCED":
             return max(5.0, 5.7 + 3.8 * max(0.0, float(airflow.velocity_m_s)))
         return 5.0
+
+    @staticmethod
+    def surface_coefficient(settings: ThermalAnalysisSettings, kind, delta_t_k,
+                            length_m, air_velocity_m_s=None):
+        """Convective coefficient for one exposed face, W/m^2K.
+
+        Replaces the flat 5.0 with the horizontal-plate Rayleigh correlation,
+        which depends on how far the face sits above ambient, how large the
+        board is, and -- by a factor of two -- whether the face points up or
+        down.  ``kind`` is a boundary kind: "top", "bottom" or "edge".
+
+        A CUSTOM airflow setting is the user overriding the physics, so it wins
+        unchanged.  FORCED blends the natural branch with the flat-plate forced
+        correlation rather than replacing it, so a slow fan cannot report less
+        cooling than still air.
+
+        ``air_velocity_m_s`` overrides the configured velocity; the CFD
+        coupling uses it to pass the speed it actually resolved over the board.
+        """
+        airflow = settings.airflow
+        mode = str(airflow.mode or "NATURAL").upper()
+        if mode == "CUSTOM":
+            return max(0.1, float(airflow.custom_h_w_m2k))
+
+        facing = "up" if str(kind) == "top" else "down"
+        natural = surface_convection.natural_convection_h(
+            delta_t_k, length_m, facing=facing, ambient_c=float(settings.ambient_c),
+        )
+        velocity = (
+            float(airflow.velocity_m_s) if air_velocity_m_s is None
+            else float(air_velocity_m_s)
+        )
+        if mode != "FORCED" and air_velocity_m_s is None:
+            return natural
+        forced = surface_convection.forced_convection_h(
+            velocity, length_m, ambient_c=float(settings.ambient_c),
+            delta_t_k=delta_t_k,
+        )
+        return surface_convection.combined_h(natural, forced)
+
+    @staticmethod
+    def body_geometry(component, placement_side):
+        """A body node's exposed faces: ``{"top_m2", "side_m2", "top_length_m", "height_m", "facing"}``.
+
+        The top is width x depth, the sides the four faces of height_mm; the
+        face against the board exchanges with the board, not the air, and is
+        left out. A stated body_area_mm2 rescales both to it. A part on the
+        bottom side has its top face pointing down.
+        """
+        width = max(1.0e-4, float(component.width_mm) * 1.0e-3)
+        depth = max(1.0e-4, float(component.depth_mm) * 1.0e-3)
+        height = max(1.0e-4, float(component.height_mm) * 1.0e-3)
+        top, sides = width * depth, 2.0 * (width + depth) * height
+        stated = float(getattr(component, "body_area_mm2", 0.0) or 0.0) * 1.0e-6
+        if stated > 0.0:
+            scale = stated / (top + sides)
+            top, sides = top * scale, sides * scale
+        return {
+            "top_m2": top, "side_m2": sides,
+            "top_length_m": width * depth / (2.0 * (width + depth)),
+            "height_m": height,
+            "facing": "down" if str(placement_side).upper() == "BOTTOM" else "up",
+        }
+
+    @staticmethod
+    def body_air_conductance(settings: ThermalAnalysisSettings, geometry, body_c,
+                             air_velocity_m_s=None):
+        """W/K from a body node at *body_c* to the air: convection on its top and sides plus radiation.
+
+        The top face takes the horizontal-plate correlation on its own length
+        and facing, the sides the vertical-plate one on the body height, both
+        at the body's rise over ambient; FORCED airflow blends in the forced
+        correlation as for the board, a CUSTOM coefficient wins unchanged.
+        """
+        ambient = float(settings.ambient_c)
+        rise = max(0.0, float(body_c) - ambient)
+        mode = str(settings.airflow.mode or "NATURAL").upper()
+        if mode == "CUSTOM":
+            top_h = side_h = max(0.1, float(settings.airflow.custom_h_w_m2k))
+        else:
+            top_h = surface_convection.natural_convection_h(
+                rise, geometry["top_length_m"], facing=geometry["facing"], ambient_c=ambient,
+            )
+            side_h = surface_convection.vertical_plate_h(
+                rise, geometry["height_m"], ambient_c=ambient, minimum_h=2.0,
+            )
+            if mode == "FORCED" or air_velocity_m_s is not None:
+                velocity = (float(settings.airflow.velocity_m_s) if air_velocity_m_s is None
+                            else float(air_velocity_m_s))
+                length = max(geometry["top_length_m"], geometry["height_m"])
+                forced = surface_convection.forced_convection_h(
+                    velocity, length, ambient_c=ambient, delta_t_k=rise,
+                )
+                top_h = surface_convection.combined_h(top_h, forced)
+                side_h = surface_convection.combined_h(side_h, forced)
+        radiative = (
+            surface_convection.radiation_h(settings.emissivity, ambient + rise, ambient)
+            if settings.include_radiation else 0.0
+        )
+        return (top_h + radiative) * geometry["top_m2"] + (side_h + radiative) * geometry["side_m2"]
+
+    # A heatsink bonded with no interface stated: 0.01 K cm2/W, a solder or
+    # sintered joint, which keeps the matrix finite without a resistance of
+    # its own worth reporting.
+    BONDED_INTERFACE_M2K_W = 1.0e-6
+
+    @classmethod
+    def heatsink_interface_m2k_w(cls, heatsink):
+        """The interface's area-specific resistance, m2K/W: a gap pad's t/k plus a stated contact resistance."""
+        thickness = max(0.0, float(heatsink.interface_thickness_mm or 0.0)) * 1.0e-3
+        conductivity = float(heatsink.interface_k_w_mk or 0.0)
+        bulk = thickness / conductivity if thickness > 0.0 and conductivity > 0.0 else 0.0
+        contact = max(0.0, float(heatsink.interface_resistance_k_cm2_w or 0.0)) * 1.0e-4
+        return max(cls.BONDED_INTERFACE_M2K_W, bulk + contact)
+
+    @staticmethod
+    def heatsink_problem(heatsink):
+        """Why *heatsink* cannot be modelled as entered, or "" when it can."""
+        if float(heatsink.theta_sa_c_per_w or 0.0) <= 0.0 and float(heatsink.fin_area_mm2 or 0.0) <= 0.0:
+            return "neither theta_sa_c_per_w nor fin_area_mm2 is stated"
+        if float(heatsink.interface_thickness_mm or 0.0) > 0.0 and float(heatsink.interface_k_w_mk or 0.0) <= 0.0:
+            return "an interface thickness is stated without its conductivity"
+        if str(heatsink.mount or "BOARD").upper() == "COMPONENT":
+            return "" if str(heatsink.ref_des or "").strip() else "no ref_des for a COMPONENT mount"
+        if len(heatsink.polygon_mm or []) < 3 and not (
+            float(heatsink.x_max_mm) > float(heatsink.x_min_mm)
+            and float(heatsink.y_max_mm) > float(heatsink.y_min_mm)
+        ):
+            return "its zone is empty (x_max_mm <= x_min_mm or y_max_mm <= y_min_mm, and no polygon_mm)"
+        return ""
+
+    @staticmethod
+    def heatsink_geometry(heatsink, base_area_m2):
+        """The air side of a heatsink stated by its fins: ``{"area_m2", "length_m", "orientation"}``."""
+        length = float(heatsink.fin_length_mm or 0.0) * 1.0e-3
+        return {
+            "area_m2": max(0.0, float(heatsink.fin_area_mm2 or 0.0)) * 1.0e-6,
+            "length_m": length if length > 0.0 else max(1.0e-3, math.sqrt(max(0.0, base_area_m2))),
+            "orientation": str(heatsink.orientation or "VERTICAL").upper(),
+        }
+
+    @staticmethod
+    def heatsink_air_conductance(settings: ThermalAnalysisSettings, heatsink, geometry, heatsink_c,
+                                 air_velocity_m_s=None):
+        """W/K from a heatsink at *heatsink_c* to the air.
+
+        A stated theta_sa_c_per_w is taken as it is, at any temperature and
+        airflow: it is the datasheet's figure at its own condition. Fins are
+        a vertical plate on their length (VERTICAL) or a horizontal one
+        facing UP or DOWN, at the heatsink's rise, blended with the forced
+        correlation when the board's airflow is FORCED, a CUSTOM coefficient
+        winning unchanged, plus radiation at the heatsink's own emissivity.
+        The fin area is the effective one, fin efficiency included.
+        """
+        theta = float(heatsink.theta_sa_c_per_w or 0.0)
+        if theta > 0.0:
+            return 1.0 / theta
+        ambient = float(settings.ambient_c)
+        rise = max(0.0, float(heatsink_c) - ambient)
+        mode = str(settings.airflow.mode or "NATURAL").upper()
+        if mode == "CUSTOM":
+            convective = max(0.1, float(settings.airflow.custom_h_w_m2k))
+        else:
+            if geometry["orientation"] in ("UP", "DOWN"):
+                convective = surface_convection.natural_convection_h(
+                    rise, geometry["length_m"], facing=geometry["orientation"].lower(), ambient_c=ambient,
+                )
+            else:
+                convective = surface_convection.vertical_plate_h(
+                    rise, geometry["length_m"], ambient_c=ambient, minimum_h=2.0,
+                )
+            if mode == "FORCED" or air_velocity_m_s is not None:
+                velocity = (float(settings.airflow.velocity_m_s) if air_velocity_m_s is None
+                            else float(air_velocity_m_s))
+                forced = surface_convection.forced_convection_h(
+                    velocity, geometry["length_m"], ambient_c=ambient, delta_t_k=rise,
+                )
+                convective = surface_convection.combined_h(convective, forced)
+        emissivity = float(heatsink.emissivity or 0.0)
+        radiative = (
+            surface_convection.radiation_h(emissivity, ambient + rise, ambient)
+            if settings.include_radiation and emissivity > 0.0 else 0.0
+        )
+        return (convective + radiative) * geometry["area_m2"]
+
+    def _add_heatsink(self, mesh, settings, heatsink, base, contact_m2, interface_c_per_w,
+                      coords, nominal_rise_k):
+        """One heatsink node bonded to *base* ([(node, conductance W/K)]) and to the air."""
+        node = len(mesh.nodes)
+        mesh.nodes.append(node)
+        mesh.node_coords[node] = coords
+        mesh.node_layers[node] = None
+        for candidate, conductance in base:
+            mesh.add_branch(node, candidate, conductance)
+        geometry = self.heatsink_geometry(heatsink, contact_m2)
+        air = self.heatsink_air_conductance(
+            settings, heatsink, geometry, float(settings.ambient_c) + nominal_rise_k,
+            air_velocity_m_s=mesh.air_velocity_m_s,
+        )
+        total = sum(conductance for _candidate, conductance in base)
+        mesh.heatsink_nodes.append({
+            "node": node, "boundary": len(mesh.boundaries), "heatsink": heatsink,
+            "geometry": geometry, "contact_m2": contact_m2,
+            "interface_c_per_w": interface_c_per_w,
+            "base": [(candidate, conductance / total) for candidate, conductance in base],
+        })
+        mesh.add_boundary(node, air, "heatsink")
+        return node
 
     def _layer_specs(self, stackup):
         copper = stackup.get("copper", {})
@@ -427,8 +937,8 @@ class ThermalMesher:
         for index, layer_id in enumerate(order):
             info = copper.get(layer_id, {})
             specs.append(ThermalLayerSpec(
-                name=info.get("name", str(layer_id)),
-                thickness_mm=max(0.005, float(info.get("thickness_mm", 0.035))),
+                name=copper_layer_label(info, layer_id),
+                thickness_mm=max(0.005, float(info.get("thickness_mm", DEFAULT_COPPER_THICKNESS_MM))),
                 layer_id=layer_id,
                 material="copper-layer",
             ))
@@ -442,7 +952,7 @@ class ThermalMesher:
                                   if set(item.get("between", [])) == {layer_id, next_id}), None)
             thickness = float(substrate.get("thickness_mm", 0.0)) if substrate else 0.0
             if thickness <= 0:
-                thickness = 1.53 / max(1, len(order) - 1)
+                thickness = _DEFAULT_DIELECTRIC_MM / max(1, len(order) - 1)
             specs.append(ThermalLayerSpec(
                 name=(substrate or {}).get("material", "FR4"),
                 thickness_mm=thickness,
@@ -451,9 +961,9 @@ class ThermalMesher:
             ))
         if not specs:
             specs = [
-                ThermalLayerSpec("F.Cu", 0.035, 0, "copper-layer"),
-                ThermalLayerSpec("FR4", 1.53, None, "dielectric"),
-                ThermalLayerSpec("B.Cu", 0.035, 31, "copper-layer"),
+                ThermalLayerSpec("F.Cu", DEFAULT_COPPER_THICKNESS_MM, 0, "copper-layer"),
+                ThermalLayerSpec("FR4", _DEFAULT_DIELECTRIC_MM, None, "dielectric"),
+                ThermalLayerSpec("B.Cu", DEFAULT_COPPER_THICKNESS_MM, 31, "copper-layer"),
             ]
         return specs
 
@@ -461,7 +971,8 @@ class ThermalMesher:
     def _harmonic(k_a, k_b):
         return 2.0 * k_a * k_b / max(k_a + k_b, 1e-30)
 
-    def generate_mesh(self, model, settings: ThermalAnalysisSettings, progress_callback=None):
+    def generate_mesh(self, model, settings: ThermalAnalysisSettings, progress_callback=None,
+                      air_velocity_m_s=None):
         if Point is None or prep is None:
             raise ImportError("Shapely is required for thermal meshing.")
         requested_grid = max(0.01, float(settings.grid_size_mm))
@@ -597,11 +1108,15 @@ class ThermalMesher:
             node_grid = np.full((ny, nx), -1, dtype=np.int32)
             kxy_grid = np.zeros((ny, nx), dtype=np.float64)
             kz_grid = np.zeros((ny, nx), dtype=np.float64)
-            for ix, iy, is_copper in sampled_layers[iz]:
+            for ix, iy, copper_fraction in sampled_layers[iz]:
                 x = min_x + (ix + 0.5) * grid
                 y = min_y + (iy + 0.5) * grid
-                if spec.material == "copper-layer" and is_copper:
-                    kx = ky = kz = self.COPPER_K
+                if spec.material == "copper-layer" and copper_fraction > 0.0:
+                    # Copper and laminate side by side in the cell: parallel
+                    # mixing, in plane and through it.
+                    f = float(copper_fraction)
+                    kx = ky = f * self.COPPER_K + (1.0 - f) * self.FR4_K_XY
+                    kz = f * self.COPPER_K + (1.0 - f) * self.FR4_K_Z
                 else:
                     kx = ky = self.FR4_K_XY
                     kz = self.FR4_K_Z
@@ -657,31 +1172,100 @@ class ThermalMesher:
                 (dx * dy) / np.maximum(resistance, 1.0e-30), "vertical",
             )
 
-        board_thickness_m = max(z_cursor * 1e-3, 1e-6)
+        # A via barrel is one continuous copper tube from the top to the
+        # bottom copper layer, so a single top-to-bottom branch (the previous
+        # model) bypasses every inner plane it actually passes through: 685
+        # vias on P02 Rev E all landed as bare top<->bottom shortcuts with no
+        # contact to the two inner planes. Chained per layer hop -- exactly
+        # like the generic vertical branches above -- the via's node at each
+        # inner layer is the *same* finite-volume node used for that layer's
+        # lateral conduction, so heat reaching a plane the via actually
+        # touches can spread into it. On a 9-via/1.5 W synthetic board with
+        # two inner planes this brings the hotspot from 84.6 C (single
+        # branch, 0.6 mm default drill) to 77.3 C (chained, 0.3 mm drill).
         for via in model.vias:
             ix = int((via.x_mm - min_x) / grid)
             iy = int((via.y_mm - min_y) / grid)
             if not (0 <= ix < nx and 0 <= iy < ny):
                 continue
-            bottom = int(layer_grids[0][0][iy, ix])
-            top = int(layer_grids[-1][0][iy, ix])
-            if bottom < 0 or top < 0 or bottom == top:
-                continue
-            plating_mm = 0.025
+            plating_mm = PLATING_THICKNESS_FALLBACK_MM
             area_mm2 = math.pi * max(via.diameter_mm * plating_mm - plating_mm ** 2, 1e-6)
-            conductance = self.COPPER_K * area_mm2 * 1e-6 / board_thickness_m
-            mesh.add_branch(bottom, top, conductance, "via")
+            for (lower_nodes, _, _, lower_thickness), (upper_nodes, _, _, upper_thickness) in zip(
+                layer_grids[:-1], layer_grids[1:]
+            ):
+                bottom = int(lower_nodes[iy, ix])
+                top = int(upper_nodes[iy, ix])
+                if bottom < 0 or top < 0:
+                    continue
+                hop_m = max((lower_thickness / 2.0 + upper_thickness / 2.0) * 1e-3, 1e-9)
+                conductance = self.COPPER_K * area_mm2 * 1e-6 / hop_m
+                mesh.add_branch(bottom, top, conductance, "via")
 
-        convective_h = self.convection_coefficient(settings)
-        radiative_h = 0.0
-        if settings.include_radiation:
-            ambient_k = float(settings.ambient_c) + 273.15
-            radiative_h = (
-                4.0 * max(0.0, min(1.0, float(settings.emissivity))) *
-                self.SIGMA * ambient_k ** 3
+        # The plate correlations need a length scale and a temperature rise.
+        # The rise is not known before solving, so the mesh is built with a
+        # nominal one and ThermalSolver refines it against the solution --
+        # see ThermalSolver._refine_surface_exchange.
+        board_area_mm2 = max(1.0e-9, (max_x - min_x) * (max_y - min_y))
+        board_perimeter_mm = max(
+            1.0e-9, 2.0 * ((max_x - min_x) + (max_y - min_y)),
+        )
+        characteristic_length = surface_convection.characteristic_length_m(
+            board_area_mm2, board_perimeter_mm,
+        )
+        mesh.characteristic_length_m = characteristic_length
+        nominal_rise_k = self.NOMINAL_SURFACE_RISE_K
+
+        mode = str(settings.airflow.mode or "NATURAL").upper()
+        # A CFD-resolved free-stream speed, when one was handed over, stands in
+        # for the configured airflow. Kept on the mesh so the solver's surface
+        # refinement sees the same number without threading it through every
+        # signature in between.
+        mesh.air_velocity_m_s = (
+            None if air_velocity_m_s is None else max(0.0, float(air_velocity_m_s))
+        )
+        if mesh.air_velocity_m_s is not None and mesh.air_velocity_m_s <= 0.0:
+            mesh.air_velocity_m_s = None
+        if mode == "CUSTOM":
+            mesh.convection_basis = "custom (user-specified h)"
+        elif mesh.air_velocity_m_s is not None:
+            mesh.convection_basis = (
+                "Rayleigh plate correlation blended with laminar flat-plate forced "
+                f"convection at the CFD free-stream speed ({mesh.air_velocity_m_s:.4g} m/s)"
             )
-        h = convective_h + radiative_h
+        elif mode == "FORCED":
+            mesh.convection_basis = (
+                "Rayleigh plate correlation blended with laminar flat-plate forced convection"
+            )
+        else:
+            mesh.convection_basis = "Rayleigh horizontal-plate correlation (Nu = 0.54/0.27 Ra^0.25)"
+
+        def surface_h(kind):
+            convective = self.surface_coefficient(
+                settings, kind, nominal_rise_k, characteristic_length,
+                air_velocity_m_s=mesh.air_velocity_m_s,
+            )
+            radiative = 0.0
+            if settings.include_radiation:
+                radiative = surface_convection.radiation_h(
+                    settings.emissivity,
+                    float(settings.ambient_c) + nominal_rise_k,
+                    float(settings.ambient_c),
+                )
+            return convective + radiative
+
+        top_h = surface_h("top")
+        bottom_h = surface_h("bottom")
+        edge_h = surface_h("edge")
+        mesh.surface_h_w_m2k = {"top": top_h, "bottom": bottom_h, "edge": edge_h}
+        # Reported coefficient is the top face, which dominates the exchange
+        # and is the one a reader will compare against a handbook figure.
+        convective_h = self.surface_coefficient(
+            settings, "top", nominal_rise_k, characteristic_length,
+            air_velocity_m_s=mesh.air_velocity_m_s,
+        )
+        h = top_h
         mesh.convection_coefficient_w_m2k = h
+        radiative_h = top_h - convective_h
         area_xy = dx * dy
         angle_rad = math.radians(float(settings.airflow.direction_deg))
         flow_x, flow_y = math.cos(angle_rad), math.sin(angle_rad)
@@ -692,37 +1276,44 @@ class ThermalMesher:
         flow_min, flow_max = min(projected_corners), max(projected_corners)
         flow_span = max(flow_max - flow_min, 1e-12)
 
-        if str(settings.airflow.mode or "").upper() == "FORCED":
+        def face_conductance(face_h):
+            """Conductance map for one face, with the forced-flow profile applied."""
+            if str(settings.airflow.mode or "").upper() != "FORCED":
+                return face_h * area_xy
             x_values = min_x + (np.arange(nx, dtype=np.float64) + 0.5) * grid
             y_values = min_y + (np.arange(ny, dtype=np.float64) + 0.5) * grid
             stream_fraction = np.clip(
                 ((x_values[None, :] * flow_x + y_values[:, None] * flow_y) - flow_min) / flow_span,
                 0.0, 1.0,
             )
-            surface_conductance = (
-                convective_h * (1.25 - 0.5 * stream_fraction) + radiative_h
-            ) * area_xy
-        else:
-            surface_conductance = h * area_xy
+            # The leading edge sees a thinner boundary layer and so a higher
+            # coefficient.  The 1.25 -> 0.75 ramp is a shape factor, not a
+            # correlation; it preserves the face average while biasing the
+            # exchange upstream.
+            return face_h * (1.25 - 0.5 * stream_fraction) * area_xy
 
         # ``layer_order`` is physically F.Cu -> B.Cu.  Thus the first thermal
         # slice is the PCB Top and the final slice is the PCB Bottom.
         if settings.airflow.expose_top:
             top_nodes = layer_grids[0][0]
             valid = top_nodes >= 0
+            conductance = face_conductance(top_h)
             mesh.add_boundary_batch(
                 top_nodes[valid],
-                surface_conductance[valid] if isinstance(surface_conductance, np.ndarray) else surface_conductance,
+                conductance[valid] if isinstance(conductance, np.ndarray) else conductance,
                 "top",
             )
+            mesh.surface_area_m2["top"] = float(np.count_nonzero(valid)) * area_xy
         if settings.airflow.expose_bottom:
             bottom_nodes = layer_grids[-1][0]
             valid = bottom_nodes >= 0
+            conductance = face_conductance(bottom_h)
             mesh.add_boundary_batch(
                 bottom_nodes[valid],
-                surface_conductance[valid] if isinstance(surface_conductance, np.ndarray) else surface_conductance,
+                conductance[valid] if isinstance(conductance, np.ndarray) else conductance,
                 "bottom",
             )
+            mesh.surface_area_m2["bottom"] = float(np.count_nonzero(valid)) * area_xy
         if settings.airflow.expose_edges:
             for node_grid, _, _, thickness_mm in layer_grids:
                 valid = node_grid >= 0
@@ -742,30 +1333,41 @@ class ThermalMesher:
                     (valid & bottom_missing, edge_area_y),
                     (valid & top_missing, edge_area_y),
                 ):
-                    mesh.add_boundary_batch(node_grid[edge_mask], h * edge_area, "edge")
+                    mesh.add_boundary_batch(
+                        node_grid[edge_mask], edge_h * edge_area, "edge",
+                    )
+                    mesh.surface_area_m2["edge"] = (
+                        mesh.surface_area_m2.get("edge", 0.0)
+                        + float(np.count_nonzero(edge_mask)) * edge_area
+                    )
         self._log(
             f"Built {len(mesh.branches):,} branches and {len(mesh.boundaries):,} boundaries "
             f"in {time.perf_counter() - connectivity_started:.3f} s using vectorized arrays."
         )
 
-        for component in model.components:
-            if not component.enabled or component.power_w <= 0:
-                continue
-            placement = model.placements.get(component.ref_des)
-            if placement is None:
-                continue
-            # Stackup order is F.Cu -> B.Cu; component heat must therefore be
-            # injected into the first slice for Top and the last for Bottom.
-            iz = len(specs) - 1 if placement.side == "BOTTOM" else 0
-            nodes = []
+        # Each outer slice's copper share per cell, where a package's heat
+        # enters: 1 inside copper, the covered fraction on a copper edge.
+        copper_share = {
+            iz: np.clip(
+                (layer_grids[iz][1] - self.FR4_K_XY) / (self.COPPER_K - self.FR4_K_XY), 0.0, 1.0,
+            )
+            for iz in {0, len(specs) - 1} if specs[iz].material == "copper-layer"
+        }
+
+        def window_cells(placement, iz, copper, margin_mm):
+            """The slice's cells centred in the placement, grown by *margin_mm*.
+
+            ``(all, on_copper)``, *on_copper* as ``(node, copper share)``.
+            """
+            nodes, on_copper = [], []
             # The former implementation scanned every node in the complete
             # 3D mesh for every component.  On a 0.01 mm 11-layer board that
             # is millions of dictionary entries per component.  Restrict the
             # exact same centre-point test to the component's grid window.
-            left = float(placement.x_mm) - float(placement.width_mm) / 2.0
-            right = float(placement.x_mm) + float(placement.width_mm) / 2.0
-            bottom = float(placement.y_mm) - float(placement.depth_mm) / 2.0
-            top = float(placement.y_mm) + float(placement.depth_mm) / 2.0
+            left = float(placement.x_mm) - float(placement.width_mm) / 2.0 - margin_mm
+            right = float(placement.x_mm) + float(placement.width_mm) / 2.0 + margin_mm
+            bottom = float(placement.y_mm) - float(placement.depth_mm) / 2.0 - margin_mm
+            top = float(placement.y_mm) + float(placement.depth_mm) / 2.0 + margin_mm
             ix_start = max(0, int(math.ceil((left - min_x) / grid - 0.5)))
             ix_stop = min(nx - 1, int(math.floor((right - min_x) / grid - 0.5)))
             iy_start = max(0, int(math.ceil((bottom - min_y) / grid - 0.5)))
@@ -778,19 +1380,282 @@ class ThermalMesher:
                         candidate = mesh.node_map.get((ix, iy, iz))
                         if candidate is not None and left <= x <= right and bottom <= y <= top:
                             nodes.append(candidate)
+                            if copper is not None and copper[iy, ix] > 0.0:
+                                on_copper.append((candidate, float(copper[iy, ix])))
+            return nodes, on_copper
+
+        def pad_cells(pads, iz):
+            """``[(node, share)]``: the slice's cells under *pads*, each by the pad area it holds."""
+            weights = {}
+            for pad in pads:
+                pad_min_x, pad_min_y, pad_max_x, pad_max_y = pad.bounds
+                ix_start = max(0, int(math.floor((pad_min_x - min_x) / grid)))
+                ix_stop = min(nx - 1, int(math.floor((pad_max_x - min_x) / grid)))
+                iy_start = max(0, int(math.floor((pad_min_y - min_y) / grid)))
+                iy_stop = min(ny - 1, int(math.floor((pad_max_y - min_y) / grid)))
+                for iy in range(iy_start, iy_stop + 1):
+                    for ix in range(ix_start, ix_stop + 1):
+                        candidate = mesh.node_map.get((ix, iy, iz))
+                        if candidate is None:
+                            continue
+                        overlap = pad.intersection(box(
+                            min_x + ix * grid, min_y + iy * grid,
+                            min_x + (ix + 1) * grid, min_y + (iy + 1) * grid,
+                        )).area
+                        if overlap > 0.0:
+                            weights[candidate] = weights.get(candidate, 0.0) + overlap
+            return list(weights.items())
+
+        # TH-9: the energy-balance check thermal_solver.py publishes only
+        # compares what was deposited to what the linear solve's own row
+        # sums say left through the boundaries -- a component that never
+        # made it onto the mesh (no placement, or window_cells and the
+        # nearest-node fallback both empty) or a copper-loss point whose
+        # nearest cell was not found deposits nothing and that check cannot
+        # see it, because it never looks at what the model actually asked
+        # for. intended_input_power_w is that ask, tallied independently of
+        # whether the deposit below actually lands.
+        intended_power_w = 0.0
+        heatsinks = []
+        for heatsink in getattr(settings, "heatsinks", None) or []:
+            if not heatsink.enabled:
+                continue
+            problem = self.heatsink_problem(heatsink)
+            if problem:
+                mesh.heatsink_skipped.append(f"{heatsink.name}: {problem}")
+            else:
+                heatsinks.append(heatsink)
+        # A heatsink set on a part, by its reference; the first one wins.
+        mounted = {}
+        for heatsink in heatsinks:
+            if str(heatsink.mount or "BOARD").upper() != "COMPONENT":
+                continue
+            reference = str(heatsink.ref_des).strip()
+            if reference in mounted:
+                mesh.heatsink_skipped.append(
+                    f"{heatsink.name}: {reference} already carries {mounted[reference].name}"
+                )
+            else:
+                mounted[reference] = heatsink
+        bonded = set()
+        for component in model.components:
+            if not component.enabled or component.power_w <= 0:
+                continue
+            intended_power_w += component.power_w
+            placement = model.placements.get(component.ref_des)
+            if placement is None:
+                continue
+            # Stackup order is F.Cu -> B.Cu; component heat must therefore be
+            # injected into the first slice for Top and the last for Bottom.
+            iz = len(specs) - 1 if placement.side == "BOTTOM" else 0
+            # A package's heat enters the board through its solder joints: the
+            # cells under its heat pads, each by the pad area it holds. Spread
+            # over all copper under the package instead, Q10's 1.06 W on P02 Rev
+            # E heated the /SYS_5V_SW1 pour under its body, soldered to
+            # nothing, and that pour cell was the board's 115.2 C hotspot.
+            shares = pad_cells(getattr(placement, "heat_pads", None) or [], iz)
+            if not shares:
+                # A placement without pads: the copper of its window. Spread
+                # over every cell of it, U14 heated laminate cells to 128 C over
+                # copper at 98 C, at any grid step. Each cell takes a share in
+                # proportion to the copper it holds: counting only cells wholly
+                # copper, a pad no larger than a cell had none, and at 0.4 mm
+                # U15's 0.5 mm pads all went uncounted and its heat landed on
+                # pours up to 1.8 mm outside the package, 16 K cooler than at
+                # 0.2 mm. A window whose copper the grid samples in fewer than
+                # COMPONENT_HEAT_MIN_CELLS cells grows by a cell a side, twice
+                # at most: at 2 mm one cell held all of U14 and read 158 C.
+                copper = copper_share.get(iz)
+                nodes, on_copper = window_cells(placement, iz, copper, 0.0)
+                growth = 0
+                while (copper is not None and len(on_copper) < self.COMPONENT_HEAT_MIN_CELLS
+                       and growth < self.COMPONENT_HEAT_MAX_GROWTH):
+                    growth += 1
+                    _grown, on_copper = window_cells(placement, iz, copper, growth * grid)
+                shares = on_copper or [(candidate, 1.0) for candidate in nodes]
+            if not shares:
+                nearest = mesh.nearest_node(placement.x_mm, placement.y_mm, specs[iz].layer_id)
+                shares = [(nearest, 1.0)] if nearest is not None else []
+            total_share = sum(share for _candidate, share in shares)
+            mesh.component_nodes[component.ref_des] = [candidate for candidate, _share in shares]
+            mesh.component_models[component.ref_des] = component
+            # The board point of a psiJB or thetaJB: the cells centred 1 mm,
+            # within half a cell, outside the package.
+            outer, _outer_copper = window_cells(placement, iz, None, BOARD_REFERENCE_MM + grid / 2.0)
+            inner, _inner_copper = window_cells(
+                placement, iz, None, max(0.0, BOARD_REFERENCE_MM - grid / 2.0),
+            )
+            inside = set(inner)
+            mesh.component_board_nodes[component.ref_des] = [node for node in outer if node not in inside]
+            theta = float(getattr(component, "theta_jb_c_per_w", 0.0) or 0.0)
+            exchanges = bool(getattr(component, "body_exchange", False))
+            heatsink = mounted.get(component.ref_des)
+            if (exchanges or heatsink is not None) and theta > 0.0 and shares and total_share > 0.0:
+                # The body node: its heat reaches the board through thetaJB,
+                # spread over the cells the direct deposit would have heated,
+                # the air through its own faces (body_air_conductance) when it
+                # has body_exchange, and a heatsink set on its top.
+                body = len(mesh.nodes)
+                mesh.nodes.append(body)
+                outer_z = mesh.node_coords[shares[0][0]][2]
+                lift = float(component.height_mm) / 2.0
+                mesh.node_coords[body] = (
+                    float(placement.x_mm), float(placement.y_mm),
+                    outer_z - lift if placement.side == "BOTTOM" else outer_z + lift,
+                )
+                mesh.node_layers[body] = None
+                for candidate, share in shares:
+                    mesh.add_branch(body, candidate, (share / total_share) / theta)
+                geometry = self.body_geometry(component, placement.side)
+                if heatsink is not None:
+                    # The heatsink's base covers the top face.
+                    geometry["top_m2"] = 0.0
+                mesh.body_nodes[component.ref_des] = {
+                    "node": body, "boundary": None, "geometry": geometry,
+                }
+                if exchanges:
+                    air = self.body_air_conductance(
+                        settings, geometry, float(settings.ambient_c) + nominal_rise_k,
+                        air_velocity_m_s=mesh.air_velocity_m_s,
+                    )
+                    mesh.body_nodes[component.ref_des]["boundary"] = len(mesh.boundaries)
+                    mesh.add_boundary(body, air, "body")
+                if heatsink is not None:
+                    # Junction to case top, then the interface over the top.
+                    contact = max(1.0e-8, float(placement.width_mm) * float(placement.depth_mm) * 1.0e-6)
+                    interface = self.heatsink_interface_m2k_w(heatsink) / contact
+                    path = max(0.0, float(heatsink.theta_jc_c_per_w or 0.0)) + interface
+                    x, y, z = mesh.node_coords[body]
+                    lift = float(component.height_mm) / 2.0 + 1.0
+                    self._add_heatsink(
+                        mesh, settings, heatsink, [(body, 1.0 / path)], contact, interface,
+                        (x, y, z - lift if placement.side == "BOTTOM" else z + lift), nominal_rise_k,
+                    )
+                    bonded.add(component.ref_des)
+                mesh.add_heat(body, component.power_w)
+                mesh.component_heat_nodes[component.ref_des] = [body]
+                continue
+            mesh.component_heat_nodes[component.ref_des] = list(mesh.component_nodes[component.ref_des])
+            for candidate, share in shares:
+                mesh.add_heat(candidate, component.power_w * share / total_share)
+
+        for reference, heatsink in mounted.items():
+            if reference in bonded:
+                continue
+            component = next((item for item in model.components if item.ref_des == reference), None)
+            if component is None or reference not in model.placements:
+                reason = f"{reference} is not on the board"
+            elif not component.enabled or component.power_w <= 0:
+                reason = f"{reference} is not an enabled heat source"
+            elif float(component.theta_jb_c_per_w or 0.0) <= 0.0:
+                reason = f"{reference} has no thetaJB to reach the board through"
+            else:
+                reason = f"{reference} found no cell to deposit on"
+            mesh.heatsink_skipped.append(f"{heatsink.name}: {reason}")
+
+        # A heatsink on a zone of a board face: each outer cell under it
+        # reaches the heatsink through the interface over the area it holds,
+        # and leaves only the rest of its face to the air.
+        cell_area_mm2 = grid * grid
+        for heatsink in heatsinks:
+            if str(heatsink.mount or "BOARD").upper() == "COMPONENT":
+                continue
+            bottom = str(heatsink.side or "BOTTOM").upper().startswith("B")
+            iz = len(specs) - 1 if bottom else 0
+            points = [(float(x), float(y)) for x, y in (heatsink.polygon_mm or [])]
+            zone = Polygon(points) if len(points) >= 3 else box(
+                float(heatsink.x_min_mm), float(heatsink.y_min_mm),
+                float(heatsink.x_max_mm), float(heatsink.y_max_mm),
+            )
+            if not zone.is_valid:
+                zone = zone.buffer(0)
+            weights = {}
+            zone_min_x, zone_min_y, zone_max_x, zone_max_y = zone.bounds
+            for iy in range(max(0, int(math.floor((zone_min_y - min_y) / grid))),
+                            min(ny - 1, int(math.floor((zone_max_y - min_y) / grid))) + 1):
+                for ix in range(max(0, int(math.floor((zone_min_x - min_x) / grid))),
+                                min(nx - 1, int(math.floor((zone_max_x - min_x) / grid))) + 1):
+                    candidate = mesh.node_map.get((ix, iy, iz))
+                    if candidate is None:
+                        continue
+                    overlap = zone.intersection(box(
+                        min_x + ix * grid, min_y + iy * grid,
+                        min_x + (ix + 1) * grid, min_y + (iy + 1) * grid,
+                    )).area
+                    if overlap > 0.0:
+                        weights[candidate] = min(cell_area_mm2, overlap)
+            if not weights:
+                mesh.heatsink_skipped.append(f"{heatsink.name}: its zone covers no board cell")
+                continue
+            contact = sum(weights.values()) * 1.0e-6
+            per_area = self.heatsink_interface_m2k_w(heatsink)
+            face = "bottom" if bottom else "top"
+            mesh.boundaries.scale_nodes(face, {
+                candidate: max(0.0, 1.0 - area / cell_area_mm2) for candidate, area in weights.items()
+            })
+            if face in mesh.surface_area_m2:
+                mesh.surface_area_m2[face] = max(0.0, mesh.surface_area_m2[face] - contact)
+            outer_z = mesh.node_coords[next(iter(weights))][2]
+            lift = max(0.0, float(heatsink.interface_thickness_mm or 0.0)) + 1.0
+            centroid = zone.centroid
+            self._add_heatsink(
+                mesh, settings, heatsink,
+                [(candidate, area * 1.0e-6 / per_area) for candidate, area in weights.items()],
+                contact, per_area / contact,
+                (float(centroid.x), float(centroid.y), outer_z - lift if bottom else outer_z + lift),
+                nominal_rise_k,
+            )
+        if mesh.heatsink_skipped:
+            self._log("Heatsinks left out: " + "; ".join(mesh.heatsink_skipped) + ".")
+
+        def pad_nodes(pads, iz):
+            """The slice's cells centred on *pads*; for a pad smaller than a
+            cell, the cell holding its centre."""
+            found = []
+            for pad in pads:
+                pad_min_x, pad_min_y, pad_max_x, pad_max_y = pad.bounds
+                ix_start = max(0, int(math.ceil((pad_min_x - min_x) / grid - 0.5)))
+                ix_stop = min(nx - 1, int(math.floor((pad_max_x - min_x) / grid - 0.5)))
+                iy_start = max(0, int(math.ceil((pad_min_y - min_y) / grid - 0.5)))
+                iy_stop = min(ny - 1, int(math.floor((pad_max_y - min_y) / grid - 0.5)))
+                cells = [
+                    mesh.node_map.get((ix, iy, iz))
+                    for iy in range(iy_start, iy_stop + 1) for ix in range(ix_start, ix_stop + 1)
+                ]
+                cells = [cell for cell in cells if cell is not None]
+                if not cells:
+                    ix = min(nx - 1, max(0, int((0.5 * (pad_min_x + pad_max_x) - min_x) // grid)))
+                    iy = min(ny - 1, max(0, int((0.5 * (pad_min_y + pad_max_y) - min_y) // grid)))
+                    cell = mesh.node_map.get((ix, iy, iz))
+                    cells = [cell] if cell is not None else []
+                found.extend(cells)
+            return found
+
+        # The board temperature under every footprint, not only the heat
+        # sources: a capacitor's dielectric is rated to a temperature (X5R
+        # 85 C) that its terminations set. On P02 Rev E, C37 (22 uF X5R) has
+        # its supply pad 4.4 mm from Q10's drain pad, where the 2026-10-01
+        # run read its 118.99 C hotspot, and nothing reported C37's own.
+        for ref_des, placement in model.placements.items():
+            iz = len(specs) - 1 if placement.side == "BOTTOM" else 0
+            nodes = pad_nodes(getattr(placement, "heat_pads", None) or [], iz)
+            if not nodes:
+                nodes, _on_copper = window_cells(placement, iz, None, 0.0)
             if not nodes:
                 nearest = mesh.nearest_node(placement.x_mm, placement.y_mm, specs[iz].layer_id)
                 nodes = [nearest] if nearest is not None else []
-            mesh.component_nodes[component.ref_des] = nodes
-            mesh.component_models[component.ref_des] = component
-            for candidate in nodes:
-                mesh.add_heat(candidate, component.power_w / len(nodes))
+            if nodes:
+                mesh.placement_nodes[ref_des] = nodes
 
         for loss in model.copper_losses:
+            if loss.power_w <= 0:
+                continue
+            intended_power_w += loss.power_w
             candidate = mesh.nearest_node(loss.x_mm, loss.y_mm, loss.layer_id)
-            if candidate is not None and loss.power_w > 0:
+            if candidate is not None:
                 mesh.add_heat(candidate, loss.power_w)
 
+        mesh.intended_input_power_w = intended_power_w
         self._log(
             f"Generated {len(mesh.nodes):,} nodes, {len(mesh.branches):,} branches, "
             f"{sum(mesh.heat_sources_w.values()):.4g} W heat."

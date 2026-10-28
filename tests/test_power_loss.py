@@ -63,6 +63,30 @@ class PowerLossTests(unittest.TestCase):
         stage = estimate_stage(reg, 5.0, 5.0, 2.0)
         self.assertAlmostEqual(stage.losses[0].power_w, 2.0 ** 2 * 0.01 * 1.5 / 2)
 
+    def test_resistive_pass_stage_is_i2r_of_its_resistance(self):
+        # The P02 Rev E current shunt R49, 7.5 mOhm, at the 4.4 A of the Main
+        # 5 V path; it had to be declared as a MOSFET to get a loss at all.
+        reg = VoltageRegulator(
+            name="shunt", input_rail_name="PRE", input_ref_des="R49", input_pad_names=["1"],
+            output_rail_name="5V", output_ref_des="R49", output_pad_names=["2"], reg_type="LINEAR",
+            loss_model={"kind": "resistive", "resistors": [{
+                "ref_des": "R49", "resistance_ohm": parameter(0.0075),
+                "tempco_per_c": 0.0001, "temperature_c": 125,
+            }]},
+        )
+        stage = estimate_stage(reg, 5.08, 5.08, 4.4)
+        self.assertEqual([loss.mechanism for loss in stage.losses], ["resistive-i2r"])
+        self.assertAlmostEqual(stage.total_loss_w, 4.4 * 4.4 * 0.0075 * 1.01)
+        self.assertIn("R(T)=", "\n".join(format_power_stage_report(stage)))
+        # COH-8: a series element carries the same current in as out (KCL);
+        # its loss is a voltage drop, not extra input current. The general
+        # Pin/Vin formula used to inflate this to Pin/Vin = (Pout + I^2R)/Vin
+        # > Iout. On P02 Rev E, /SYS_5V_PRE_SENSE (this same R49 shunt) read
+        # DC Iin=Iout=4.363 A while thermal's formula gave 4.447 A (+1.9%);
+        # /VBUS_SYS 2.040 -> 2.084 A (+2.2%); /J1_VBUS_RAW 2.043 -> 2.103 A
+        # (F1, +2.9%).
+        self.assertEqual(stage.iin_a, stage.iout_a)
+
     def test_efficiency_table_interpolation_is_deterministic(self):
         table = [
             {"vin_v": 12, "vout_v": 5, "iout_a": 1, "efficiency": 0.90},
@@ -146,6 +170,186 @@ class PowerLossTests(unittest.TestCase):
         self.assertIn("buck-high-side-conduction", report)
         self.assertIn("confidence=high", report)
         self.assertIn("balance error=", report)
+
+    def test_buck_mosfet_role_applies_duty_weighting(self):
+        # TH-7: P02 Rev E's sidecar worked around this by pre-multiplying
+        # RDS(on) by D (0.00066 ohm = 2.6 mOhm x 0.254 for Q10); a role lets
+        # the datasheet value be entered directly instead.
+        reg = VoltageRegulator(
+            name="buck", input_rail_name="12V", input_ref_des="U4", input_pad_names=[],
+            output_rail_name="6V", output_ref_des="L1", output_pad_names=[], reg_type="SWITCHING",
+            loss_model={"kind": "buck", "mosfets": [
+                {"ref_des": "Q10", "rds_on_ohm": parameter(0.0026), "role": "high"},
+                {"ref_des": "Q11", "rds_on_ohm": parameter(0.0026), "role": "low"},
+            ]},
+        )
+        stage = estimate_stage(reg, 12.0, 6.0, 2.0)  # duty = 6/12 = 0.5
+        high = next(loss for loss in stage.losses if loss.ref_des == "Q10")
+        low = next(loss for loss in stage.losses if loss.ref_des == "Q11")
+        self.assertAlmostEqual(high.power_w, 2.0 ** 2 * 0.0026 * 0.5)
+        self.assertAlmostEqual(low.power_w, 2.0 ** 2 * 0.0026 * 0.5)
+        self.assertFalse(any("role" in warning for warning in stage.warnings))
+
+    def test_buck_mosfet_without_a_role_keeps_full_current_and_warns(self):
+        # A user entering the datasheet RDS(on) with no role gets the old
+        # (full-inductor-RMS) behaviour, unchanged, but told about it: the
+        # x1/D overstatement (x3.9 for Q10's 0.254 duty) must not be silent.
+        reg = VoltageRegulator(
+            name="buck", input_rail_name="12V", input_ref_des="U4", input_pad_names=[],
+            output_rail_name="6V", output_ref_des="L1", output_pad_names=[], reg_type="SWITCHING",
+            loss_model={"kind": "buck", "mosfets": [
+                {"ref_des": "Q10", "rds_on_ohm": parameter(0.0026)},
+            ]},
+        )
+        stage = estimate_stage(reg, 12.0, 6.0, 2.0)
+        loss = next(loss for loss in stage.losses if loss.ref_des == "Q10")
+        self.assertAlmostEqual(loss.power_w, 2.0 ** 2 * 0.0026)
+        self.assertTrue(any("role" in warning for warning in stage.warnings))
+
+    def test_a_switch_held_on_takes_the_full_current_without_a_warning(self):
+        # P02 Rev E, 2026-09-29 18:51: U4's boost-leg high side conducts the
+        # whole period in buck mode (0.151 W on its 7.6 mOhm), and the
+        # warning told the user to declare "high", which would cut it by D.
+        reg = VoltageRegulator(
+            name="buck", input_rail_name="20V", input_ref_des="Q10", input_pad_names=[],
+            output_rail_name="5V", output_ref_des="U4", output_pad_names=[], reg_type="SWITCHING",
+            loss_model={"kind": "buck", "mosfets": [
+                {"ref_des": "U4", "rds_on_ohm": parameter(0.0076), "role": "continuous"},
+            ]},
+        )
+        stage = estimate_stage(reg, 20.0, 5.08, 4.42)
+        loss = next(loss for loss in stage.losses if loss.ref_des == "U4")
+        self.assertAlmostEqual(loss.power_w, 4.42 ** 2 * 0.0076)
+        self.assertFalse(any("role" in warning for warning in stage.warnings))
+
+    def test_a_buck_legs_switching_losses_come_from_its_mosfet_charges(self):
+        # P02 Rev E's U4 buck leg, 20 V -> 5.08 V, 4.42 A, 400 kHz, two
+        # CSD18540Q5B (SLPS488B: Qgd 6.7 nC, Qgs 8.8 nC, Qg(th) 6.3 nC,
+        # Qg 20 nC at 4.5 V, Qoss 83 nC at 30 V, Qrr 145 nC at 28 A, RG 0.8
+        # ohm) on TPS552882 drivers (1 A source, 1.8 A sink, 2 / 1 ohm). Its
+        # whole 1.36 W of unitemised loss used to land on Q10.
+        fet = lambda ref, role: {
+            "ref_des": ref, "role": role, "rds_on_ohm": parameter(0.0026),
+            "gate_charge_c": parameter(20e-9), "gate_drain_charge_c": parameter(6.7e-9),
+            "gate_source_charge_c": parameter(8.8e-9), "gate_threshold_charge_c": parameter(6.3e-9),
+            "threshold_v": 1.9, "transconductance_s": 116, "gate_resistance_ohm": 0.8,
+            "output_charge_c": parameter(83e-9), "output_charge_reference_v": 30,
+            "reverse_recovery_charge_c": parameter(145e-9), "reverse_recovery_reference_a": 28,
+            "body_diode_v": 0.8,
+        }
+        reg = VoltageRegulator(
+            name="U4", input_rail_name="20V", input_ref_des="Q10", input_pad_names=[],
+            output_rail_name="5V", output_ref_des="U4", output_pad_names=[], reg_type="SWITCHING",
+            loss_model={
+                "kind": "buck", "controller_ref_des": "Q10", "switching_frequency_hz": 400e3,
+                "inductor_ripple_a": 2.016, "gate_drive_v": 5.2, "driver_source_ohm": 2.0,
+                "driver_sink_ohm": 1.0, "driver_source_peak_a": 1.0, "driver_sink_peak_a": 1.8,
+                "dead_time_s": parameter(20e-9), "gate_driver_ref_des": "U4",
+                "mosfets": [fet("Q10", "high"), fet("Q11", "low")],
+            },
+        )
+        stage = estimate_stage(reg, 20.0, 5.08, 4.42)
+        by = {(loss.ref_des, loss.mechanism): loss.power_w for loss in stage.losses}
+
+        self.assertAlmostEqual(by[("Q10", "buck-switching-overlap")], 0.3103, places=3)
+        self.assertAlmostEqual(by[("Q10", "buck-output-charge")], 0.5422, places=3)
+        self.assertAlmostEqual(by[("Q10", "buck-reverse-recovery")], 0.1414, places=3)
+        self.assertAlmostEqual(by[("Q11", "buck-dead-time-diode")], 0.0566, places=3)
+        self.assertAlmostEqual(
+            sum(loss.power_w for loss in stage.losses if loss.mechanism == "buck-gate-charge"),
+            2 * 20e-9 * 5.2 * 400e3,
+        )
+
+    def test_the_residual_warning_names_where_the_split_put_it(self):
+        # P02 Rev E's U4: the residual split onto L1 was reported "placed on Q10".
+        reg = VoltageRegulator(
+            name="U4", input_rail_name="20V", input_ref_des="Q10", input_pad_names=[],
+            output_rail_name="5V", output_ref_des="U4", output_pad_names=[], reg_type="SWITCHING",
+            loss_model={"kind": "buck", "controller_ref_des": "Q10",
+                        "fallback_efficiency": parameter(0.93), "residual_split": {"L1": 1.0}},
+        )
+        stage = estimate_stage(reg, 20.0, 5.08, 4.42)
+        self.assertTrue(any("placed on L1" in warning for warning in stage.warnings))
+
+    def test_discrete_mosfet_stage_ignores_role_and_warns_nothing(self):
+        # kind="mosfet" is a pass device, not a switching duty cycle: role
+        # must not change its behaviour or trigger the buck-only warning.
+        reg = VoltageRegulator(
+            name="pass", input_rail_name="5V", input_ref_des="Q1", input_pad_names=[],
+            output_rail_name="5V_SW", output_ref_des="Q1", output_pad_names=[], reg_type="LINEAR",
+            loss_model={"kind": "mosfet", "mosfets": [
+                {"ref_des": "Q1", "rds_on_ohm": parameter(0.01)},
+            ]},
+        )
+        stage = estimate_stage(reg, 5.0, 5.0, 2.0)
+        self.assertAlmostEqual(stage.losses[0].power_w, 2.0 ** 2 * 0.01)
+        self.assertEqual(stage.warnings, [])
+
+    def test_residual_split_distributes_across_declared_components(self):
+        # TH-6: P02 Rev E's residual bundles gate drive (dissipated in the
+        # controller's driver), inductor core loss and dead-time diode
+        # conduction, but all of it landed on one ref_des
+        # (controller_ref_des) regardless. residual_split lets it name where
+        # each share actually goes.
+        reg = VoltageRegulator(
+            name="buck", input_rail_name="12V", input_ref_des="U4", input_pad_names=[],
+            output_rail_name="5V", output_ref_des="L1", output_pad_names=[], reg_type="SWITCHING",
+            efficiency=0.9, thermal_ref_des="U4",
+            loss_model={
+                "kind": "buck", "controller_ref_des": "Q10", "fallback_efficiency": 0.9,
+                "high_side_rds_on_ohm": parameter(0.02), "low_side_rds_on_ohm": parameter(0.01),
+                "inductors": [{"ref_des": "L1", "dcr_ohm": parameter(0.03)}],
+                "residual_split": {"Q10": 0.5, "U4": 0.3, "L1": 0.2},
+            },
+        )
+        stage = estimate_stage(reg, 12.0, 5.0, 2.0)
+        residual = {
+            loss.ref_des: loss.power_w
+            for loss in stage.losses if loss.mechanism == "unmodelled-conversion-residual"
+        }
+        self.assertEqual(set(residual), {"Q10", "U4", "L1"})
+        total = sum(residual.values())
+        self.assertAlmostEqual(residual["Q10"] / total, 0.5, places=6)
+        self.assertAlmostEqual(residual["U4"] / total, 0.3, places=6)
+        self.assertAlmostEqual(residual["L1"] / total, 0.2, places=6)
+        self.assertAlmostEqual(stage.iin_a * stage.vin_v, stage.iout_a * stage.vout_v + stage.total_loss_w)
+
+    def test_residual_target_grows_with_temperature_when_declared(self):
+        # TH-6: a fixed efficiency target held this stage's total loss
+        # constant no matter how hot its parts ran -- the residual just
+        # shrank as the physical mechanisms grew, so "temperature
+        # dependence" only moved heat between parts, never added any.
+        # residual_temperature_multiplier_table lets the target scale too.
+        def stage_at(temperature_c):
+            reg = VoltageRegulator(
+                name="buck", input_rail_name="12V", input_ref_des="U4", input_pad_names=[],
+                output_rail_name="5V", output_ref_des="L1", output_pad_names=[], reg_type="SWITCHING",
+                efficiency=0.9, thermal_ref_des="U4",
+                loss_model={
+                    "kind": "buck", "controller_ref_des": "Q10", "fallback_efficiency": 0.9,
+                    "high_side_rds_on_ohm": parameter(0.02), "low_side_rds_on_ohm": parameter(0.01),
+                    "inductors": [{"ref_des": "L1", "dcr_ohm": parameter(0.03)}],
+                    "residual_temperature_multiplier_table": [
+                        {"temperature_c": 25, "multiplier": 1.0},
+                        {"temperature_c": 125, "multiplier": 1.5},
+                    ],
+                },
+            )
+            return estimate_stage(reg, 12.0, 5.0, 2.0, {"Q10": temperature_c})
+
+        cold, hot = stage_at(25.0), stage_at(125.0)
+        cold_residual = next(
+            item for item in cold.losses if item.mechanism == "unmodelled-conversion-residual"
+        ).power_w
+        hot_residual = next(
+            item for item in hot.losses if item.mechanism == "unmodelled-conversion-residual"
+        ).power_w
+        # Rds(on)/DCR are not temperature-corrected in this fixture (no
+        # tempco given), so the entire increase must be the residual's.
+        output_power = 5.0 * 2.0
+        expected_target_delta = output_power * (1.0 / 0.9 - 1.0) * (1.5 - 1.0)
+        self.assertAlmostEqual(hot_residual - cold_residual, expected_target_delta, places=6)
+        self.assertAlmostEqual(hot.total_loss_w - cold.total_loss_w, expected_target_delta, places=6)
 
     def test_incomplete_datasheet_uses_explicit_fallback(self):
         reg = VoltageRegulator(

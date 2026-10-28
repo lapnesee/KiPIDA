@@ -15,11 +15,15 @@ from i18n import _, SYSTEM_LANGUAGE, available_languages
 try:
     from compute_backend import SparseComputeBackend, cuda_diagnostics
     from runtime_config import load_runtime_settings, save_runtime_settings, system_memory_info
-    from runtime_environment import install_cuda_environment, plugin_version, runtime_summary
+    from runtime_environment import (
+        install_cuda_environment, plugin_version, runtime_summary, source_fingerprint,
+    )
 except (ImportError, ValueError):
     from ..compute_backend import SparseComputeBackend, cuda_diagnostics
     from ..runtime_config import load_runtime_settings, save_runtime_settings, system_memory_info
-    from ..runtime_environment import install_cuda_environment, plugin_version, runtime_summary
+    from ..runtime_environment import (
+        install_cuda_environment, plugin_version, runtime_summary, source_fingerprint,
+    )
 
 
 class RuntimeSettingsPanel(wx.Panel):
@@ -57,6 +61,10 @@ class RuntimeSettingsPanel(wx.Panel):
 
         root = Path(__file__).resolve().parent.parent
         self._plugin_version = plugin_version(root)
+        # The release number alone cannot tell one build from another between
+        # releases, which is exactly what matters when checking whether the
+        # copy in the plugin folder is the one just built.
+        self._source_fingerprint = source_fingerprint(root)
 
         compute = wx.StaticBoxSizer(wx.VERTICAL, self, "Compute Backend")
         parent = compute.GetStaticBox()
@@ -186,7 +194,10 @@ class RuntimeSettingsPanel(wx.Panel):
             selected = min(self.settings.cuda_device, len(self._devices) - 1)
             self.choice_device.SetSelection(selected)
         lines = [
-            _("Ki-PIDA version: {version}").format(version=self._plugin_version),
+            _("Ki-PIDA version: {version} (build {build})").format(
+                version=self._plugin_version,
+                build=self._source_fingerprint or _("unknown"),
+            ),
             _("Python: {version} — {executable}").format(
                 version=summary['python'], executable=summary['executable'],
             ),

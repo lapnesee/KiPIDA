@@ -72,8 +72,9 @@ class AnalysisResultContractTests(unittest.TestCase):
             result.validate()
 
     def test_legacy_confidence_labels_have_one_shared_mapping(self):
+        # HIGH is no longer a fact: see analysis_contract.EvidenceConfidence.
         self.assertEqual(
-            normalize_evidence_confidence("HIGH"), EvidenceConfidence.DETERMINISTIC,
+            normalize_evidence_confidence("HIGH"), EvidenceConfidence.ESTIMATED,
         )
         self.assertEqual(
             normalize_evidence_confidence("MEDIUM"), EvidenceConfidence.ESTIMATED,

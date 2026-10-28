@@ -6,12 +6,16 @@ import numpy as np
 
 try:
     from .models import ElectroThermalResult
+    from .physical_constants import COPPER_RESISTIVITY_REFERENCE_C
     from .solver import Solver
+    from .thermal_mesh import component_reference_nodes
     from .thermal_model import PowerLossEstimator
     from .thermal_solver import ThermalSolver
 except (ImportError, ValueError):
     from models import ElectroThermalResult
+    from physical_constants import COPPER_RESISTIVITY_REFERENCE_C
     from solver import Solver
+    from thermal_mesh import component_reference_nodes
     from thermal_model import PowerLossEstimator
     from thermal_solver import ThermalSolver
 
@@ -64,22 +68,34 @@ class ElectroThermalSolver:
         branch_count = 0
         for rail_name, context in rail_contexts.items():
             electrical_mesh = context["mesh"]
-            indices = np.full(len(electrical_mesh.branches), -1, dtype=np.int32)
-            for index, branch in enumerate(electrical_mesh.branches):
-                coord_a = electrical_mesh.node_coords.get(branch.node_a)
-                coord_b = electrical_mesh.node_coords.get(branch.node_b)
-                if coord_a is None or coord_b is None:
-                    continue
-                node = thermal_mesh.nearest_node(
-                    (coord_a[0] + coord_b[0]) / 2.0,
-                    (coord_a[1] + coord_b[1]) / 2.0,
-                    coord_a[2],
+            branches = electrical_mesh.branches
+            count = len(branches)
+            indices = np.full(count, -1, dtype=np.int32)
+            coords = electrical_mesh.node_coords
+            if count and coords:
+                ids = np.fromiter(coords.keys(), dtype=np.int64, count=len(coords))
+                table = np.full((int(ids.max()) + 1, 3), np.nan)
+                table[ids] = np.array(list(coords.values()), dtype=float)
+                end_a = np.fromiter((branch.node_a for branch in branches), dtype=np.int64, count=count)
+                end_b = np.fromiter((branch.node_b for branch in branches), dtype=np.int64, count=count)
+                known = (
+                    (end_a >= 0) & (end_a < len(table)) & (end_b >= 0) & (end_b < len(table))
                 )
-                indices[index] = self._thermal_node_index(
-                    thermal_mesh, node, identity_nodes, node_to_index
+                known[known] &= ~(np.isnan(table[end_a[known], 0]) | np.isnan(table[end_b[known], 0]))
+                a, b = table[end_a[known]], table[end_b[known]]
+                nodes_found = thermal_mesh.nearest_nodes(
+                    (a[:, 0] + b[:, 0]) / 2.0, (a[:, 1] + b[:, 1]) / 2.0, a[:, 2].astype(np.int64),
                 )
+                if identity_nodes:
+                    mapped = nodes_found
+                else:
+                    mapped = np.array([
+                        int(node_to_index.get(int(node), -1)) if node >= 0 else -1
+                        for node in nodes_found
+                    ], dtype=np.int64)
+                indices[known] = mapped
             mappings[rail_name] = indices
-            branch_count += len(indices)
+            branch_count += count
         self._log(
             f"Cached {branch_count:,} electrical-branch to thermal-cell mappings in "
             f"{time.perf_counter() - started:.3f} s."
@@ -101,15 +117,28 @@ class ElectroThermalSolver:
     def _component_temperatures(thermal_mesh, temperatures, ambient_c,
                                 identity_nodes, node_to_index):
         result = {}
-        for ref_des, nodes in thermal_mesh.component_nodes.items():
+        for ref_des in thermal_mesh.component_nodes:
+            # The same board point as thermal_solver.py's junction estimate.
+            nodes, _reference = component_reference_nodes(thermal_mesh, ref_des)
             indices = [
                 int(node) if identity_nodes else int(node_to_index.get(node, -1))
                 for node in nodes
             ]
             indices = [index for index in indices if index >= 0]
+            # TH-5: same fix as thermal_solver.py's component_results -- the
+            # coupling's own junction estimate (feeding the dynamic stage
+            # power that follows temperature) must not average away the
+            # part's own hotspot under it either.
             board_temperature = (
-                float(np.mean(temperatures[indices])) if indices else float(ambient_c)
+                float(np.max(temperatures[indices])) if indices else float(ambient_c)
             )
+            body = (getattr(thermal_mesh, "body_nodes", None) or {}).get(ref_des)
+            if body is not None:
+                # A body node is the part's own temperature (thermal_solver.py).
+                index = int(body["node"]) if identity_nodes else int(node_to_index.get(body["node"], -1))
+                if 0 <= index < len(temperatures):
+                    result[ref_des] = float(temperatures[index])
+                    continue
             component = thermal_mesh.component_models.get(ref_des)
             junction_rise = 0.0
             if component is not None:
@@ -119,8 +148,21 @@ class ElectroThermalSolver:
             result[ref_des] = board_temperature + junction_rise
         return result
 
+    @staticmethod
+    def _heat_nodes(thermal_mesh, ref_des):
+        """The nodes a component's own heat is deposited on: its body node, or the cells under it."""
+        heat_nodes = (getattr(thermal_mesh, "component_heat_nodes", None) or {}).get(ref_des)
+        return heat_nodes if heat_nodes else thermal_mesh.component_nodes.get(ref_des, [])
+
     def solve(self, thermal_mesh, settings, rail_contexts, progress_callback=None,
-              rails=None):
+              rails=None, ambient_for_heat_w=None):
+        """Iterate DC and thermal to a consistent field.
+
+        *ambient_for_heat_w*, when given, maps the heat an iteration deposits
+        to the air the board sits in, and each iteration solves at that air:
+        a sealed enclosure's internal air rises with the heat, which the
+        coupling itself raises (ohmic loss with temperature).
+        """
         if not rail_contexts:
             raise ValueError("Run a DC analysis before coupled electro-thermal analysis.")
         thermal_solver = self.thermal_solver or ThermalSolver(
@@ -149,12 +191,30 @@ class ElectroThermalSolver:
         # The mesh already contains the room-temperature stage estimate.  Strip
         # only that portion, retain loads/manual heat, then replace it from the
         # temperature-coupled model on every iteration.
+        # Each coupled iteration writes the temperature-dependent power back
+        # onto the mesh's component models. A mesh reused from the session
+        # cache then started its next run from the last run's hot values, so
+        # the stage power stripped below was not the one deposited and every
+        # junction drifted by the hot-cold difference (< 0.5 K on P02 Rev E,
+        # TH-11). The first solve records the models' own power; later
+        # solves on the same mesh restore it.
+        pristine = getattr(thermal_mesh, "pristine_component_power_w", None)
+        if pristine is None:
+            thermal_mesh.pristine_component_power_w = {
+                ref_des: float(component.power_w)
+                for ref_des, component in thermal_mesh.component_models.items()
+            }
+        else:
+            for ref_des, power in pristine.items():
+                component = thermal_mesh.component_models.get(ref_des)
+                if component is not None:
+                    component.power_w = power
         initial_stages = list(getattr(settings, "power_stage_reports", []) or [])
         initial_stage_power = self._stage_power_by_component(initial_stages)
         component_nonstage_power = {}
         if rails:
             for ref_des, stage_power in initial_stage_power.items():
-                nodes = thermal_mesh.component_nodes.get(ref_des, [])
+                nodes = self._heat_nodes(thermal_mesh, ref_des)
                 component = thermal_mesh.component_models.get(ref_des)
                 if not nodes or getattr(component, "model_source", "") == "user":
                     continue
@@ -171,6 +231,7 @@ class ElectroThermalSolver:
                     )
         branch_mappings, _, _ = self._prepare_branch_thermal_indices(thermal_mesh, rail_contexts)
         previous_temperatures = np.full(node_count, float(settings.ambient_c), dtype=float)
+        last_solved = None
         dc_results = {}
         converged = False
         thermal_result = None
@@ -196,7 +257,7 @@ class ElectroThermalSolver:
                 dynamic_stages = dynamic.stages
                 dynamic_power = self._stage_power_by_component(dynamic_stages)
                 for ref_des, stage_power in dynamic_power.items():
-                    nodes = thermal_mesh.component_nodes.get(ref_des, [])
+                    nodes = self._heat_nodes(thermal_mesh, ref_des)
                     component = thermal_mesh.component_models.get(ref_des)
                     if not nodes or getattr(component, "model_source", "") == "user":
                         continue
@@ -223,7 +284,7 @@ class ElectroThermalSolver:
                 ]
                 scales = np.clip(
                     1.0 + float(settings.copper_temp_coefficient_per_c) *
-                    (branch_temperatures - 20.0),
+                    (branch_temperatures - COPPER_RESISTIVITY_REFERENCE_C),
                     0.2, 3.0,
                 )
                 detailed = dc_solver.solve_detailed(
@@ -240,17 +301,57 @@ class ElectroThermalSolver:
                     np.add.at(heat_vector, thermal_indices[deposit], losses[deposit])
 
             dc_phase_seconds = time.perf_counter() - iteration_started
+            total_heat_w = float(np.sum(heat_vector))
+            if ambient_for_heat_w is not None:
+                settings.ambient_c = float(ambient_for_heat_w(total_heat_w))
             thermal_result = thermal_solver.solve(
                 thermal_mesh, settings.ambient_c, materialize_temperatures=False
             )
+            # Natural convection and radiation depend on the surface
+            # temperature just solved for -- the same reason the uncoupled
+            # path uses solve_with_surface_refinement instead of solve().
+            # This loop already re-solves every iteration, so refining here
+            # costs nothing extra: the rescaled boundaries are simply what
+            # the next iteration's solve() sees (its CSR cache is dropped by
+            # the refinement itself). Skipped in CUSTOM airflow, where h is
+            # user-specified, matching solve_with_surface_refinement's guard.
+            surface_base = dict(getattr(thermal_mesh, "surface_h_w_m2k", {}) or {})
+            own_nodes = (getattr(thermal_mesh, "body_nodes", None)
+                         or getattr(thermal_mesh, "heatsink_nodes", None))
+            if (surface_base or own_nodes) and str(settings.airflow.mode or "").upper() != "CUSTOM":
+                thermal_solver._refine_surface_exchange(thermal_mesh, settings, thermal_result)
+                thermal_result.surface_refined = True
+                # TH-8: this result was already built by the solve() a few
+                # lines up, before the refine call above evaluated in-range.
+                thermal_result.surface_correlation_in_range = dict(
+                    getattr(thermal_mesh, "surface_correlation_in_range", {}) or {}
+                )
             current_temperatures = thermal_result.temperature_vector_c
             if current_temperatures is None:
                 current_temperatures = np.fromiter(
                     (thermal_result.temperatures_c[node] for node in thermal_mesh.nodes),
                     dtype=float, count=node_count,
                 )
-            max_delta = float(np.max(np.abs(current_temperatures - previous_temperatures)))
-            relaxation = max(0.05, min(1.0, float(settings.relaxation)))
+            # The ambient field the loop starts from is a guess, not an iterate:
+            # blending the first solution with it only makes every later delta
+            # measure the relaxation's own lag (0.4**k of the first rise at the
+            # default 0.6) instead of the coupling, so take the first one whole.
+            relaxation = (
+                1.0 if iteration == 0
+                else max(0.05, min(1.0, float(settings.relaxation)))
+            )
+            # Converge on how far the solved field moved, not on its gap to the
+            # relaxed input: that gap shrinks by (1 - relaxation) per iteration
+            # even when the coupling has long settled.  The input only moves by
+            # `relaxation` of the gap, so the solved change understates what is
+            # left by that factor and is scaled back up before the test.
+            if last_solved is None:
+                max_delta = float(np.max(np.abs(current_temperatures - previous_temperatures)))
+                convergence_delta = max_delta
+            else:
+                max_delta = float(np.max(np.abs(current_temperatures - last_solved)))
+                convergence_delta = max_delta / relaxation
+            last_solved = current_temperatures.copy()
             previous_temperatures += relaxation * (current_temperatures - previous_temperatures)
             self._log(
                 f"Iteration {iteration + 1}/{iterations}: max delta {max_delta:.4g} C, "
@@ -259,7 +360,7 @@ class ElectroThermalSolver:
             )
             if progress_callback:
                 progress_callback(iteration + 1, iterations, f"delta={max_delta:.3g} C")
-            if max_delta <= max(1e-6, float(settings.convergence_c)):
+            if convergence_delta <= max(1e-6, float(settings.convergence_c)):
                 converged = True
                 break
 
@@ -276,4 +377,5 @@ class ElectroThermalSolver:
             dc_results=dc_results,
             iterations=iteration + 1,
             converged=converged,
+            total_heat_w=total_heat_w,
         )

@@ -1,19 +1,67 @@
 import wx
+from ui.number_input import parse_number
 import wx.dataview
+from i18n import _
 
 try:
     from models import PowerRail, UnifiedSource, UnifiedLoad, ComponentRef, VoltageRegulator
     from ui.component_selector import ComponentSelectorDialog
-    from ui.regulator_dialog import RegulatorDialog
-    from discovery import NetDiscoverer
+    from ui.regulator_dialog import RegulatorDialog, apply_efficiency_curve
+    from discovery import NetDiscoverer, rail_label
     from config_manager import get_project_config_path, load_project_config, save_config
 except (ImportError, ValueError):
     # Fallback or just re-raise if absolute fails (shouldn't happen with sys.path set)
     from models import PowerRail, UnifiedSource, UnifiedLoad, ComponentRef, VoltageRegulator
     from ui.component_selector import ComponentSelectorDialog
-    from ui.regulator_dialog import RegulatorDialog
-    from discovery import NetDiscoverer
+    from ui.regulator_dialog import RegulatorDialog, apply_efficiency_curve
+    from discovery import NetDiscoverer, rail_label
     from config_manager import get_project_config_path, load_project_config, save_config
+
+def _file_signature(path):
+    """(mtime_ns, size) of *path*, or None when it does not exist."""
+    try:
+        stat = path.stat()
+    except (OSError, AttributeError):
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+def voltage_entry(text, current):
+    """(value, problem) for a rail's voltage field: the value to keep and,
+    when *text* is not a number, why it was not taken. The field dropped
+    such text without a word, the rail staying on its previous voltage."""
+    try:
+        return parse_number(text), ""
+    except ValueError:
+        return current, _("Not a number: the rail stays at {voltage} V.").format(
+            voltage=f"{float(current or 0):g}")
+
+
+def rescan_changes(rails, scanned, board_nets):
+    """(new, gone): the scanned rail candidates no configured rail names,
+    and the configured nets the board no longer has. Only a missing sidecar
+    ran the scan, so a rail drawn after the configuration was made -- P02
+    Rev E's /Eclairage chassis protege/+5V_LED_EDGE beside its 17 rails --
+    could only be added by hand."""
+    known = {rail.net_name for rail in rails}
+    new = [rail for rail in scanned if rail.net_name not in known]
+    gone = [rail.net_name for rail in rails if board_nets and rail.net_name not in board_nets]
+    return new, gone
+
+
+def _declared_rails_provider(project_context):
+    """The rails the project's saved files declare, read when the scan asks; None without a project."""
+    project = getattr(project_context, "project", None)
+    if project is None:
+        return None
+
+    def read():
+        from ingest.declarations import rail_declarations
+
+        return rail_declarations(project)
+
+    return read
+
 
 class NetSelectionDialog(wx.Dialog):
     def __init__(self, parent, nets):
@@ -35,12 +83,14 @@ class NetSelectionDialog(wx.Dialog):
         return self.lb.GetString(sel)
 
 class PowerTreePanel(wx.Panel):
-    def __init__(self, parent, board, project=None, log_callback=None):
+    def __init__(self, parent, board, project=None, log_callback=None, project_context=None):
         super().__init__(parent)
         self.board = board
         self.project = project
         self.log_callback = log_callback
-        self.discoverer = NetDiscoverer(board, log_callback=log_callback)
+        self.discoverer = NetDiscoverer(
+            board, log_callback=log_callback, declared_rails=_declared_rails_provider(project_context),
+        )
         
         # Data
         self.rails = [] # List of PowerRail objects
@@ -55,7 +105,11 @@ class PowerTreePanel(wx.Panel):
         self.differential_profile_consumer = None
         self.emc_profile_provider = None
         self.emc_profile_consumer = None
-        
+        # The configuration file as this session last loaded or saved it, so
+        # a save that is not asked for never overwrites changes made to it
+        # elsewhere meanwhile.
+        self._config_signature = None
+
         self._init_ui()
 
     def log(self, msg):
@@ -85,6 +139,8 @@ class PowerTreePanel(wx.Panel):
         
         self.btn_add_rail = wx.Button(left_panel, label="Add Manual Net")
         left_sizer.Add(self.btn_add_rail, 0, wx.EXPAND | wx.ALL, 2)
+        self.btn_rescan = wx.Button(left_panel, label="Rescan Board...")
+        left_sizer.Add(self.btn_rescan, 0, wx.EXPAND | wx.ALL, 2)
         
         # Config buttons
         config_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -109,6 +165,9 @@ class PowerTreePanel(wx.Panel):
         h_volt.Add(self.txt_voltage, 1, wx.EXPAND)
         
         prop_sizer.Add(h_volt, 0, wx.EXPAND | wx.ALL, 5)
+        self.lbl_voltage_state = wx.StaticText(prop_sizer.GetStaticBox(), label="")
+        self.lbl_voltage_state.SetForegroundColour(wx.Colour(160, 30, 30))
+        prop_sizer.Add(self.lbl_voltage_state, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
         self.detail_sizer.Add(prop_sizer, 0, wx.EXPAND | wx.ALL, 5)
         
         # Components List (Sources/Loads)
@@ -144,6 +203,7 @@ class PowerTreePanel(wx.Panel):
         self.SetSizer(main_sizer)
         
         self.btn_add_rail.Bind(wx.EVT_BUTTON, self.on_add_rail)
+        self.btn_rescan.Bind(wx.EVT_BUTTON, self.on_rescan)
         self.btn_save_config.Bind(wx.EVT_BUTTON, self.on_save_config)
         self.btn_load_config.Bind(wx.EVT_BUTTON, self.on_load_config)
         self.rail_list.Bind(wx.EVT_LISTBOX, self.on_rail_select)
@@ -173,6 +233,7 @@ class PowerTreePanel(wx.Panel):
                     self.differential_profile_consumer(project_config.differential_profile)
                 if self.emc_profile_consumer:
                     self.emc_profile_consumer(project_config.emc_profile)
+                self._config_signature = _file_signature(config_path)
                 self.log(f"Loaded configuration from {config_path.name} ({len(self.rails)} rails)")
             except Exception as e:
                 self.log(f"Failed to load config: {e}. Running auto-scan instead.")
@@ -184,14 +245,35 @@ class PowerTreePanel(wx.Panel):
         
         self.rail_list.Clear()
         for r in self.rails:
-            lbl = f"{r.net_name}"
-            if r.nominal_voltage:
-                lbl += f" ({r.nominal_voltage}V)"
-            self.rail_list.Append(lbl)
+            self.rail_list.Append(rail_label(r))
             
         if self.rails:
             self.rail_list.SetSelection(0)
             self.on_rail_select(None)
+
+    def on_rescan(self, event):
+        """Offer the rail candidates the board gained since the configuration
+        was made; the configured rails stay as they are."""
+        scanned = self.discoverer.discover_power_nets()
+        new, gone = rescan_changes(self.rails, scanned, set(self.discoverer.get_all_net_names()))
+        if gone:
+            self.log(f"Rescan: {len(gone)} configured rail(s) no longer on the board, kept: "
+                     f"{', '.join(gone)}.")
+        if not new:
+            self.log(f"Rescan: the {len(scanned)} rail candidate(s) on the board are all configured.")
+            return
+        dlg = wx.MultiChoiceDialog(
+            self, _("Rail candidates the configuration does not have yet. Add:"),
+            _("Rescan Board"), [rail_label(rail) for rail in new],
+        )
+        if dlg.ShowModal() == wx.ID_OK:
+            chosen = [new[index] for index in dlg.GetSelections()]
+            for rail in chosen:
+                self.rails.append(rail)
+                self.rail_list.Append(rail_label(rail))
+            names = ", ".join(rail.net_name for rail in chosen) or "none"
+            self.log(f"Rescan: {len(chosen)} of {len(new)} new rail candidate(s) added: {names}.")
+        dlg.Destroy()
 
     def on_add_rail(self, event):
         # Find all nets not already in self.rails
@@ -211,10 +293,7 @@ class PowerTreePanel(wx.Panel):
                 if v: rail.nominal_voltage = v
                 
                 self.rails.append(rail)
-                lbl = f"{rail.net_name}"
-                if rail.nominal_voltage:
-                    lbl += f" ({rail.nominal_voltage}V)"
-                self.rail_list.Append(lbl)
+                self.rail_list.Append(rail_label(rail))
                 self.rail_list.SetSelection(self.rail_list.GetCount() - 1)
                 self.on_rail_select(None)
         dlg.Destroy()
@@ -231,6 +310,7 @@ class PowerTreePanel(wx.Panel):
         
         # Populate Details
         self.txt_voltage.ChangeValue(str(self.active_rail.nominal_voltage) if self.active_rail.nominal_voltage else "0.0")
+        self.lbl_voltage_state.SetLabel("")
         
         self.refresh_comp_list()
         
@@ -271,10 +351,10 @@ class PowerTreePanel(wx.Panel):
 
     def on_voltage_change(self, event):
         if not self.active_rail: return
-        try:
-            val = float(self.txt_voltage.GetValue())
-            self.active_rail.nominal_voltage = val
-        except: pass
+        value, problem = voltage_entry(self.txt_voltage.GetValue(), self.active_rail.nominal_voltage)
+        self.active_rail.nominal_voltage = value
+        self.lbl_voltage_state.SetLabel(problem)
+        self.detail_panel.Layout()
 
     def on_add_component(self, mode):
         if not self.active_rail: return
@@ -483,6 +563,7 @@ class PowerTreePanel(wx.Panel):
             reg.reg_type = data['type']
             reg.efficiency = data['efficiency']
             reg.thermal_ref_des = data['thermal_ref_des']
+            apply_efficiency_curve(reg, data)
             
             # If input rail changed, move regulator to new rail
             if data['input_rail'] != self.active_rail.net_name:
@@ -547,6 +628,7 @@ class PowerTreePanel(wx.Panel):
             reg.reg_type = data['type']
             reg.efficiency = data['efficiency']
             reg.thermal_ref_des = data['thermal_ref_des']
+            apply_efficiency_curve(reg, data)
             
             # If input rail changed, move regulator
             if data['input_rail'] != source_rail.net_name:
@@ -583,6 +665,7 @@ class PowerTreePanel(wx.Panel):
                 efficiency=data['efficiency'],
                 thermal_ref_des=data['thermal_ref_des'],
             )
+            apply_efficiency_curve(reg, data)
             
             # Add to the INPUT rail (which is self.active_rail)
             # Actually, the user might have changed input_rail in the dialog!
@@ -656,33 +739,70 @@ class PowerTreePanel(wx.Panel):
             self.log(f"Error getting config path: {e}")
             return None
     
+    def save_configuration(self, config_path):
+        """Write the power tree and every analysis profile to *config_path*."""
+        ac_profiles = self.ac_profiles_provider() if self.ac_profiles_provider else {}
+        thermal_profile = (
+            self.thermal_profile_provider() if self.thermal_profile_provider else None
+        )
+        cfd_profile = self.cfd_profile_provider() if self.cfd_profile_provider else None
+        differential_profile = (
+            self.differential_profile_provider()
+            if self.differential_profile_provider else None
+        )
+        emc_profile = self.emc_profile_provider() if self.emc_profile_provider else None
+        save_config(
+            self.rails,
+            str(config_path),
+            ac_profiles=ac_profiles,
+            thermal_profile=thermal_profile,
+            cfd_profile=cfd_profile,
+            differential_profile=differential_profile,
+            emc_profile=emc_profile,
+        )
+        self._config_signature = _file_signature(config_path)
+
+    def config_changed_on_disk(self):
+        """True when the configuration file is not the one this session
+        loaded or saved: edited elsewhere, or unreadable at launch."""
+        config_path = self._get_config_path()
+        return bool(config_path and config_path.exists()
+                    and _file_signature(config_path) != self._config_signature)
+
+    def auto_save(self, reason, create=False):
+        """Save without being asked, unless the file changed on disk.
+
+        Closing the window used to lose every setting not saved by hand, and
+        only the Save Config button on this page wrote them. A file edited
+        elsewhere since it was loaded is left alone, and the log says so.
+        Without *create*, a project with no configuration file gets none.
+        """
+        config_path = self._get_config_path()
+        if not config_path or (not create and not config_path.exists()):
+            return False
+        if self.config_changed_on_disk():
+            self.log(
+                f"Configuration not saved {reason}: {config_path.name} changed on disk since "
+                "Ki-PIDA loaded it. Save Config overwrites it."
+            )
+            return False
+        try:
+            self.save_configuration(config_path)
+        except Exception as e:
+            self.log(f"Failed to save config {reason}: {e}")
+            return False
+        self.log(f"Configuration saved to {config_path.name} {reason}.")
+        return True
+
     def on_save_config(self, event):
         """Save current configuration to JSON file."""
         config_path = self._get_config_path()
         if not config_path:
             wx.MessageBox("Unable to determine project path. Cannot save config.", "Error", wx.OK | wx.ICON_ERROR)
             return
-        
+
         try:
-            ac_profiles = self.ac_profiles_provider() if self.ac_profiles_provider else {}
-            thermal_profile = (
-                self.thermal_profile_provider() if self.thermal_profile_provider else None
-            )
-            cfd_profile = self.cfd_profile_provider() if self.cfd_profile_provider else None
-            differential_profile = (
-                self.differential_profile_provider()
-                if self.differential_profile_provider else None
-            )
-            emc_profile = self.emc_profile_provider() if self.emc_profile_provider else None
-            save_config(
-                self.rails,
-                str(config_path),
-                ac_profiles=ac_profiles,
-                thermal_profile=thermal_profile,
-                cfd_profile=cfd_profile,
-                differential_profile=differential_profile,
-                emc_profile=emc_profile,
-            )
+            self.save_configuration(config_path)
             self.log(f"Configuration saved to {config_path.name}")
             wx.MessageBox(f"Configuration saved successfully to:\n{config_path}", "Success", wx.OK | wx.ICON_INFORMATION)
         except Exception as e:
@@ -713,15 +833,13 @@ class PowerTreePanel(wx.Panel):
                 self.differential_profile_consumer(project_config.differential_profile)
             if self.emc_profile_consumer:
                 self.emc_profile_consumer(project_config.emc_profile)
+            self._config_signature = _file_signature(config_path)
             self.log(f"Loaded configuration from {config_path.name} ({len(self.rails)} rails)")
-            
+
             # Refresh UI
             self.rail_list.Clear()
             for r in self.rails:
-                lbl = f"{r.net_name}"
-                if r.nominal_voltage:
-                    lbl += f" ({r.nominal_voltage}V)"
-                self.rail_list.Append(lbl)
+                self.rail_list.Append(rail_label(r))
             
             if self.rails:
                 self.rail_list.SetSelection(0)

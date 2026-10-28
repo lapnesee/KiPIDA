@@ -8,12 +8,53 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 try:
     from .models import MeshBranch
+    from .physical_constants import (
+        COPPER_RESISTIVITY_OHM_MM, DEFAULT_COPPER_THICKNESS_MM, PLATING_THICKNESS_FALLBACK_MM,
+    )
 except (ImportError, ValueError):
     from models import MeshBranch
+    from physical_constants import (
+        COPPER_RESISTIVITY_OHM_MM, DEFAULT_COPPER_THICKNESS_MM, PLATING_THICKNESS_FALLBACK_MM,
+    )
+
+# How a barrel section was obtained, for the current-density report.
+_PLATING_LABEL = f"ESTIMATED_PLATING_{PLATING_THICKNESS_FALLBACK_MM:.3f}MM"
 
 # Use explicit check if needed, but we assume kipy objects are passed
 def to_mm(val):
     return val / 1e6
+
+
+def scalar_dimension(value, default=None):
+    """Reduce a board dimension to one number, tolerating a Vector2.
+
+    kipy models a drill as ``DrillProperties.diameter -> Vector2`` because a
+    hole may be a milled slot with different X and Y dimensions.  Callers that
+    want a single diameter previously did ``float(value)`` or ``value / 1e6``
+    on it, which raises ``TypeError`` on every real board that has vias --
+    the round case is a Vector2 with x == y, not a scalar.
+
+    Round holes return their diameter unchanged.  A slot returns the mean of
+    its two axes: the barrel-area and spreading models downstream assume a
+    circular barrel, so the mean is the honest single-number stand-in rather
+    than silently picking one axis.
+    """
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    x = getattr(value, "x", None)
+    y = getattr(value, "y", None)
+    if x is None and y is None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+    if x is None:
+        return float(y)
+    if y is None:
+        return float(x)
+    return 0.5 * (float(x) + float(y))
 
 try:
     import numpy as np
@@ -112,7 +153,10 @@ class Mesher:
                 try:
                     val = getattr(obj, method_name)()
                     if val is not None: return val
-                except: pass
+                except Exception:
+                    # A getter this kipy version lacks or refuses: the next
+                    # spelling is tried, then the default.
+                    pass
         return default
 
     def _get_board_items(self, attr_name):
@@ -122,7 +166,8 @@ class Mesher:
         method_name = f"get_{attr_name}"
         if hasattr(self.board, method_name):
             try: return getattr(self.board, method_name)()
-            except: pass
+            except Exception as exc:
+                self._status(f"Board {attr_name} could not be read ({exc}); none are meshed.")
         return []
 
     def _log(self, msg):
@@ -327,10 +372,17 @@ class Mesher:
 
     def generate_mesh(
         self, net_name, geometry_by_layer, stackup, grid_size_mm=0.5,
+        return_layers=None,
         _adaptive_pass=0, _requested_grid_size=None, _raster_prepared=False,
     ):
         """
         Generates a resistive mesh from the geometry using vectorized operations.
+
+        `return_layers`, when given, is the set of copper layer ids that carry
+        the OTHER net of this rail/ground pair (e.g. the ground layers when
+        meshing the rail, or vice versa). It lets the lateral-branch
+        inductance be measured to the actual return path instead of the
+        nearest dielectric of any kind (AC-3).
         """
         mesh = Mesh()
         mesh.grid_step = grid_size_mm
@@ -357,6 +409,7 @@ class Mesher:
                 )
                 adapted = self.generate_mesh(
                     net_name, geometry_by_layer, stackup, preflight_grid,
+                    return_layers=return_layers,
                     _adaptive_pass=1, _requested_grid_size=mesh.requested_grid_step,
                     _raster_prepared=True,
                 )
@@ -456,6 +509,7 @@ class Mesher:
                 )
             adapted = self.generate_mesh(
                 net_name, geometry_by_layer, stackup, safer_grid,
+                return_layers=return_layers,
                 _adaptive_pass=_adaptive_pass + 1,
                 _requested_grid_size=mesh.requested_grid_step,
                 _raster_prepared=True,
@@ -507,10 +561,10 @@ class Mesher:
                 # 4. Generate Lateral Edges (Vectorized)
                 # Physical props
                 copper_info = stackup.get('copper', {}).get(lid, {})
-                thick = copper_info.get('thickness_mm', 0.035)
-                rho = stackup.get('resistivity', 1.7e-5)
+                thick = copper_info.get('thickness_mm', DEFAULT_COPPER_THICKNESS_MM)
+                rho = stackup.get('resistivity', COPPER_RESISTIVITY_OHM_MM)
                 g_lat_val = thick / rho
-                l_lat_val = self._estimate_lateral_l(lid, stackup)
+                l_lat_val = self._estimate_lateral_l(lid, stackup, return_layers)
                 
                 # Horizontal Neighbors (x, y) <-> (x+1, y)
                 # Check where node and right-neighbor both exist
@@ -626,12 +680,19 @@ class Mesher:
         mesh.G_coo_col.extend(np.concatenate(cols))
         mesh.G_coo_data.extend(np.concatenate(data))
 
-    def _calculate_vertical_g(self, layer_a, layer_b, stackup, diameter_mm):
+    def _calculate_vertical_g(self, layer_a, layer_b, stackup, drill_mm):
+        """Barrel conductance between two layers of a plated hole.
+
+        *drill_mm* is the finished hole, and the plating wall lies outside it:
+        the same section the branch records as its cross-section, and the one
+        ``ingest.track_resistance.via_resistance`` uses. Vias used to pass their
+        pad diameter here, which nearly doubled every via barrel's conductance.
+        """
         if layer_a == layer_b: return 1.0e9
-        plating_thick = 0.025 
-        area = math.pi * (diameter_mm * plating_thick - plating_thick**2)
-        if area <= 0: return 1000.0 
-        rho = stackup.get('resistivity', 1.68e-5)
+        plating_thick = PLATING_THICKNESS_FALLBACK_MM
+        area = math.pi * (drill_mm * plating_thick + plating_thick**2)
+        if area <= 0: return 1000.0
+        rho = stackup.get('resistivity', COPPER_RESISTIVITY_OHM_MM)
         h = 0
         l_min, l_max = min(layer_a, layer_b), max(layer_a, layer_b)
         for sub in stackup.get('substrate', []):
@@ -642,25 +703,299 @@ class Mesher:
         if h <= 0: h = 0.5 
         return area / (rho * h)
 
-    def _estimate_lateral_l(self, layer, stackup):
-        """Estimate per-square spreading inductance to the nearest return plane.
+    def _nearest_layer_and_distance_mm(self, layer, target_layers, stackup):
+        """(nearest layer in `target_layers`, cumulative dielectric thickness
+        mm to it), walking the stackup's substrate list as a 1-D graph of
+        copper layers linked by their dielectrics. (None, None) if no path
+        is found (e.g. missing substrate data)."""
+        if layer in target_layers:
+            return layer, 0.0
 
-        This quasi-static approximation intentionally avoids claiming full-wave
-        accuracy.  It gives the AC solver a stackup-sensitive loop inductance
-        while keeping the existing 2.5D mesh topology.
-        """
-        distances_mm = []
+        adjacency = {}
         for sub in stackup.get('substrate', []):
             between = sub.get('between', [])
-            if layer in between:
-                thickness = float(sub.get('thickness_mm', 0.0) or 0.0)
-                if thickness > 0:
-                    distances_mm.append(thickness)
+            if len(between) != 2 or between[0] is None or between[1] is None:
+                continue
+            a, b = between
+            thickness = float(sub.get('thickness_mm', 0.0) or 0.0)
+            if thickness <= 0:
+                continue
+            adjacency.setdefault(a, []).append((b, thickness))
+            adjacency.setdefault(b, []).append((a, thickness))
 
-        return 4.0e-7 * math.pi * (min(distances_mm) if distances_mm else 0.2) * 1.0e-3
+        import heapq
+        seen = set()
+        heap = [(0.0, layer)]
+        while heap:
+            dist, node = heapq.heappop(heap)
+            if node in seen:
+                continue
+            seen.add(node)
+            if node in target_layers:
+                return node, dist
+            for neighbour, thickness in adjacency.get(node, []):
+                if neighbour not in seen:
+                    heapq.heappush(heap, (dist + thickness, neighbour))
+        return None, None
+
+    def _distance_to_layers_mm(self, layer, target_layers, stackup):
+        """Shortest cumulative dielectric thickness (mm) from `layer` to any
+        layer in `target_layers`, or None if no path is found."""
+        _nearest, dist = self._nearest_layer_and_distance_mm(layer, target_layers, stackup)
+        return dist
+
+    def _layer_distances_mm(self, stackup):
+        """Every copper layer's other layers, nearest first, by dielectric height.
+
+        ``{layer: [(distance_mm, other_layer), ...]}`` over the substrate list
+        walked as a 1-D graph of copper layers; a layer never lists itself.
+        """
+        layers = set()
+        for sub in stackup.get('substrate', []):
+            between = sub.get('between', [])
+            if len(between) == 2 and None not in between:
+                layers.update(between)
+        return {
+            layer: sorted(
+                (distance, other)
+                for other in layers if other != layer
+                for _nearest, distance in [
+                    self._nearest_layer_and_distance_mm(layer, {other}, stackup)
+                ] if distance is not None
+            )
+            for layer in layers
+        }
+
+    def return_paths(self, mesh, other_mesh, stackup):
+        """Each node's return: ``{node: (height_mm, layer)}``.
+
+        The return of a node is the nearest OTHER copper layer on which
+        *other_mesh* has copper beneath it (within one cell of its grid).
+        Choosing it per layer, as "the nearest layer carrying the other net
+        anywhere", let a return net's via lands count: on P02 Rev E, GND has
+        via lands on every layer, In2.Cu included, so /VBUS_SYS's In2.Cu pour
+        found its return at 0 mm on its own layer and every rail and ground
+        branch lost its plane inductance, and every rail cell its cavity
+        capacitance. A node with no return copper beneath it has no entry.
+        """
+        order = self._layer_distances_mm(stackup)
+        step = float(other_mesh.grid_step or 0.0) or 1.0
+        origin_x, origin_y = other_mesh.grid_origin
+        beneath = {}
+        for ix, iy, layer in other_mesh.node_map:
+            cells = beneath.setdefault(layer, set())
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    cells.add((ix + dx, iy + dy))
+        paths = {}
+        for node, (x_mm, y_mm, layer) in mesh.node_coords.items():
+            key = (int(round((x_mm - origin_x) / step)), int(round((y_mm - origin_y) / step)))
+            for distance, other in order.get(layer, ()):
+                if key in beneath.get(other, ()):
+                    paths[node] = (distance, other)
+                    break
+        return paths
+
+    def assign_loop_inductance(self, mesh, other_mesh, stackup):
+        """Give every lateral branch of *mesh* its share of the loop inductance.
+
+        mu0*h per square belongs to the loop, half of it to each of the two
+        meshes (AC-3), with h the height of each node's own return
+        (:meth:`return_paths`), averaged over the branch's two ends. A node
+        with no return beneath it takes its layer's nearest other layer that
+        carries return copper at all; a branch's number of squares is
+        R * t / rho, one on the raster grid.
+        """
+        paths = self.return_paths(mesh, other_mesh, stackup)
+        order = self._layer_distances_mm(stackup)
+        other_layers = {layer for _ix, _iy, layer in other_mesh.node_map}
+        fallback = {
+            layer: next((distance for distance, other in ranked if other in other_layers), None)
+            for layer, ranked in order.items()
+        }
+        rho = stackup.get('resistivity', COPPER_RESISTIVITY_OHM_MM)
+        copper = stackup.get('copper', {})
+        mu0 = 4.0e-7 * math.pi
+        for branch in mesh.branches:
+            if branch.kind != "lateral":
+                continue
+            layer = mesh.node_coords[branch.node_a][2]
+            heights = [
+                paths[node][0] if node in paths else fallback.get(layer)
+                for node in (branch.node_a, branch.node_b)
+            ]
+            if any(height is None for height in heights):
+                continue
+            thickness = (copper.get(layer) or {}).get('thickness_mm', DEFAULT_COPPER_THICKNESS_MM)
+            squares = branch.resistance_ohm * thickness / rho
+            branch.inductance_h = squares * mu0 * (sum(heights) / 4.0) * 1.0e-3
+
+    # Barrels further apart than this are not taken as each other's return.
+    VIA_PAIR_MAX_SPACING_MM = 5.0
+    VERTICAL_KINDS = ("via", "pth", "vertical")
+
+    def _barrels(self, mesh, stackup):
+        """``[(branch, x, y, low layer, high layer, height mm, radius mm)]``."""
+        plating = PLATING_THICKNESS_FALLBACK_MM
+        barrels = []
+        for branch in mesh.branches:
+            if branch.kind not in self.VERTICAL_KINDS:
+                continue
+            x_mm, y_mm, layer_a = mesh.node_coords[branch.node_a]
+            layer_b = mesh.node_coords[branch.node_b][2]
+            low, high = min(layer_a, layer_b), max(layer_a, layer_b)
+            height = sum(
+                float(sub.get('thickness_mm', 0.0) or 0.0)
+                for sub in stackup.get('substrate', [])
+                if len(sub.get('between', [])) == 2 and None not in sub['between']
+                and min(sub['between']) >= low and max(sub['between']) <= high
+            )
+            # The barrel section is pi*(d*p + p^2): its outer radius d/2 + p.
+            drill = branch.cross_section_mm2 / (math.pi * plating) - plating
+            if height > 0.0 and drill > 0.0:
+                barrels.append((branch, x_mm, y_mm, low, high, height, drill / 2.0 + plating))
+        return barrels
+
+    def assign_via_pair_inductance(self, rail_mesh, ground_mesh, stackup):
+        """Give each barrel with a return barrel nearby half the pair's loop.
+
+        A barrel's inductance was a self inductance on each mesh, with no
+        mutual term against the return barrel beside it: a rail/ground pair
+        1 mm apart over 1 mm measured 2 x 1.0 nH against the two-wire loop
+        mu0*h/pi * ln(s/r) of about 0.76 nH (AC-8). Each barrel whose layer
+        span overlaps a barrel of the other net within
+        VIA_PAIR_MAX_SPACING_MM now carries half of that loop, h its own
+        dielectric span and r the geometric mean of the two radii. A barrel
+        with no return barrel that close keeps its self estimate.
+        """
+        if np is None:
+            return
+        from scipy.spatial import cKDTree
+
+        meshes = (self._barrels(rail_mesh, stackup), self._barrels(ground_mesh, stackup))
+        for own, other in (meshes, meshes[::-1]):
+            if not own or not other:
+                continue
+            tree = cKDTree([(x, y) for _b, x, y, *_rest in other])
+            count = min(8, len(other))
+            for branch, x, y, low, high, height, radius in own:
+                distances, indices = tree.query((x, y), k=count)
+                for distance, index in zip(np.atleast_1d(distances), np.atleast_1d(indices)):
+                    if not np.isfinite(distance) or distance > self.VIA_PAIR_MAX_SPACING_MM:
+                        break
+                    _b, _x, _y, other_low, other_high, _h, other_radius = other[int(index)]
+                    mean_radius = math.sqrt(radius * other_radius)
+                    if other_high <= low or other_low >= high or distance <= radius + other_radius:
+                        continue
+                    branch.inductance_h = (
+                        4.0e-7 * math.pi / (2.0 * math.pi) * height * 1.0e-3
+                        * math.log(distance / mean_radius)
+                    )
+                    break
+
+    def cavity_capacitor_pairs(self, rail_mesh, ground_mesh, stackup, rail_cell_share=None):
+        """Plane-pair (cavity) capacitance: C = eps0*er*A_cell/h between each
+        rail-mesh node and the return-mesh node directly beneath/above it.
+
+        The return is the node's own (:meth:`return_paths`). Only a return on
+        a DIRECTLY adjacent layer (one stackup substrate entry) is stamped: a
+        path through an intervening copper layer would need a series
+        combination across each segment's own epsilon_r, which this does not
+        attempt -- those nodes are skipped rather than stamped with a wrong
+        epsilon_r. A_cell is the rail mesh's own grid cell area.
+
+        ``rail_cell_share`` maps the rail nodes that stand for a cell to the
+        fraction of that cell their copper covers: on the hybrid mesh only
+        the pour lattice does, a track or pad node being no cell of the grid,
+        and a lattice node on a pour's edge covers part of one. Without it,
+        every rail node stands for a whole cell, as on the raster grid.
+
+        Returns a list of (rail_node_id, ground_node_id, capacitance_f)
+        using each mesh's OWN node ids -- the caller offsets the ground id
+        the same way _translate_mesh does for branches.
+        """
+        epsilon0 = 8.8541878128e-12
+        substrate_by_pair = {}
+        for sub in stackup.get('substrate', []):
+            between = sub.get('between', [])
+            if len(between) != 2 or between[0] is None or between[1] is None:
+                continue
+            substrate_by_pair[frozenset(between)] = (
+                float(sub.get('thickness_mm', 0.0) or 0.0),
+                float(sub.get('epsilon_r', 4.4) or 4.4),
+            )
+
+        radius_mm = max(rail_mesh.grid_step, ground_mesh.grid_step, 1e-6) * 1.5
+        cell_area_m2 = (float(rail_mesh.grid_step) ** 2) * 1.0e-6
+        pairs = []
+        for rail_node_id, (_height, return_layer) in self.return_paths(
+            rail_mesh, ground_mesh, stackup,
+        ).items():
+            share = 1.0 if rail_cell_share is None else rail_cell_share.get(rail_node_id, 0.0)
+            if share <= 0.0:
+                continue
+            x_mm, y_mm, layer = rail_mesh.node_coords[rail_node_id]
+            thickness_mm, epsilon_r = substrate_by_pair.get(
+                frozenset((layer, return_layer)), (0.0, 0.0),
+            )
+            if thickness_mm <= 0:
+                continue
+            ground_node_id = self._get_best_node_in_radius(
+                ground_mesh, x_mm, y_mm, return_layer, radius_mm,
+            )
+            if ground_node_id is None:
+                continue
+            capacitance_f = share * epsilon0 * epsilon_r * cell_area_m2 / (thickness_mm * 1.0e-3)
+            if capacitance_f > 0:
+                pairs.append((rail_node_id, ground_node_id, capacitance_f))
+        return pairs
+
+    def _estimate_lateral_l(self, layer, stackup, return_layers=None):
+        """Estimate this layer's share of the plane-pair loop inductance.
+
+        Loop (plane-pair) inductance is mu0*h per square, where h is the
+        dielectric height between the forward and return conductors (Novak;
+        Smith & Bogatin) -- it belongs to the LOOP, not to either plane. The
+        rail mesh and the ground mesh are built independently, so each one
+        only owns HALF of mu0*h; giving the full mu0*h to both (as before)
+        double counted the loop (audit AC-3: 0.999 nH modelled vs 0.500 nH
+        analytic for a d=0.0994 mm, l/w=4 plane pair -- factor 2.00).
+
+        `h` is measured to the nearest copper layer that actually carries the
+        return net (`return_layers`), not merely the thinnest neighbouring
+        dielectric: on P02, /VBUS_SYS pours on In2.Cu while ground pours on
+        F/In1/In4/B.Cu, so the relevant return layer for In2.Cu is In1.Cu,
+        not whichever dielectric happens to be thinnest.
+        """
+        height_mm = None
+        # The layer itself is no return: coplanar copper of the other net
+        # (a via land) would give it a height of zero.
+        if return_layers and set(return_layers) - {layer}:
+            height_mm = self._distance_to_layers_mm(layer, set(return_layers) - {layer}, stackup)
+
+        if height_mm is None:
+            # No known return layer (legacy caller, e.g. the DC mesh which
+            # never uses this inductance): fall back to the thinnest
+            # neighbouring dielectric as a single-sided estimate.
+            distances_mm = []
+            for sub in stackup.get('substrate', []):
+                between = sub.get('between', [])
+                if layer in between:
+                    thickness = float(sub.get('thickness_mm', 0.0) or 0.0)
+                    if thickness > 0:
+                        distances_mm.append(thickness)
+            return 4.0e-7 * math.pi * (min(distances_mm) if distances_mm else 0.2) * 1.0e-3
+
+        return 4.0e-7 * math.pi * (height_mm / 2.0) * 1.0e-3
 
     def _calculate_vertical_l(self, layer_a, layer_b, stackup, diameter_mm):
-        """Estimate via/PTH inductance from traversed dielectric height."""
+        """Estimate one via/PTH's own inductance from traversed dielectric height.
+
+        This is a SELF inductance for one barrel, with no mutual term against
+        a nearby return via on the other net, which this call cannot see. On
+        the AC network, assign_via_pair_inductance replaces it with half the
+        pair's loop wherever a return barrel lies close (AC-8).
+        """
         l_min, l_max = min(layer_a, layer_b), max(layer_a, layer_b)
         height_mm = 0.0
         for sub in stackup.get('substrate', []):
@@ -741,15 +1076,15 @@ class Mesher:
         drill = self._get_val(via, 'drill_size')
         if drill is None and padstack is not None:
             drill = self._get_val(padstack, 'drill')
-        raw_drill = self._get_val(
+        raw_drill = scalar_dimension(self._get_val(
             drill, 'diameter', self._get_val(drill, 'x', self._get_val(via, 'drill', 0.0)),
-        )
+        ))
         drill_mm = to_mm(raw_drill) if raw_drill else max(0.05, dia_mm * 0.5)
         geometry_source = (
-            "PCB_DRILL+ESTIMATED_PLATING_0.025MM" if raw_drill
-            else "ESTIMATED_DRILL_FROM_VIA_DIAMETER+ESTIMATED_PLATING_0.025MM"
+            f"PCB_DRILL+{_PLATING_LABEL}" if raw_drill
+            else f"ESTIMATED_DRILL_FROM_VIA_DIAMETER+{_PLATING_LABEL}"
         )
-        plating_mm = 0.025
+        plating_mm = PLATING_THICKNESS_FALLBACK_MM
         barrel_area_mm2 = math.pi * (drill_mm * plating_mm + plating_mm ** 2)
         
         nodes_in_stack = []
@@ -768,7 +1103,7 @@ class Mesher:
             nid_b = nodes_in_stack[i+1]
             la = mesh.node_coords[nid_a][2]
             lb = mesh.node_coords[nid_b][2]
-            g_via = self._calculate_vertical_g(la, lb, stackup, dia_mm)
+            g_via = self._calculate_vertical_g(la, lb, stackup, drill_mm)
             l_via = self._calculate_vertical_l(la, lb, stackup, dia_mm)
             mesh.add_edge_direct(
                 nid_a, nid_b, g_via, l_via, "via",
@@ -784,7 +1119,7 @@ class Mesher:
              
         x_mm, y_mm = to_mm(pos.x), to_mm(pos.y)
         radius_mm = diameter / 2.0
-        plating_mm = 0.025
+        plating_mm = PLATING_THICKNESS_FALLBACK_MM
         barrel_area_mm2 = math.pi * (diameter * plating_mm + plating_mm ** 2)
         
         nodes_in_stack = []
@@ -803,7 +1138,7 @@ class Mesher:
             mesh.add_edge_direct(
                 nid_a, nid_b, g_via, l_via, "pth",
                 cross_section_mm2=barrel_area_mm2,
-                geometry_source="PCB_DRILL+ESTIMATED_PLATING_0.025MM",
+                geometry_source=f"PCB_DRILL+{_PLATING_LABEL}",
             )
 
 

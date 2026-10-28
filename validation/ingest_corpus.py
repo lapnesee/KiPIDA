@@ -1,0 +1,290 @@
+"""Measure the ingestion invariants over any set of KiCad projects.
+
+Correctness fixes proposed from the reference board alone did not survive
+other projects: a symbol UUID looked like a sufficient key until multi-instance
+sheets made it ambiguous, and the project name in a symbol's instance block
+looked reliable until renamed projects appeared. docs/plan-universalite.md
+therefore accepts each phase on invariants that must hold for *every* project,
+and this harness measures them.
+
+    python validation/ingest_corpus.py <project.kicad_pro | directory> [...]
+                                       [--max-pcb-mb N] [--json OUT]
+
+A directory is searched recursively for .kicad_pro files, skipping hidden
+directories. The KiCad demos installed with KiCad or Zeo are a ready corpus:
+``<install>/share/kicad/demos``. To include a real project without sweeping its
+backups or variants, pass its .kicad_pro files one by one.
+
+Nothing is written next to the projects; ``--json`` writes only where it is
+told to.
+
+The invariants, and what each one exposed when this harness was written:
+
+I1  every footprint that carries a schematic path resolves, by that path, to
+    exactly one symbol instance, through ``SymbolInstance.footprint_path``.
+    The baseline was 0 % everywhere: the reader walked files rather than sheet
+    instances and offered only the sheet's path. A footprint can still miss
+    when the board holds a symbol the schematic has since deleted.
+I2  SCH-005 never reports a footprint that has no schematic path: such a
+    footprint was placed on the PCB directly and never had a symbol.
+I3  no net is a power rail on open-collector/open-emitter pins alone.
+I4  every C-prefixed component whose value is written as a capacitance is
+    recognised as a capacitor by the rules.
+I5  SCH-002 never reports a pin the designer marked no-connect: a pad of the
+    finding's component, on the finding's net, whose pin sits under a
+    no-connect marker in the schematic.
+I6  every net carried by a power symbol is classified a rail. A global power
+    symbol names its net by its value; PWR_FLAG marks a net without naming it
+    and is left out. Nets the board does not have are not counted.
+I7  resolving a directory that holds more than one project fails loudly
+    instead of picking one.
+I8  no EMI/EMC source the scan discovers carries a frequency nothing in the
+    project states: each non-zero frequency names where it was read.
+"""
+
+import argparse
+import json
+import os
+import re
+import sys
+import time
+import traceback
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from ingest.board_reader import read_board  # noqa: E402
+from ingest.netlist_builder import build_netlist  # noqa: E402
+from ingest.project_resolver import resolve_project  # noqa: E402
+from ingest.schematic_reader import read_schematic  # noqa: E402
+from rules import schematic_rules  # noqa: E402
+from rules.registry import DEFAULT_REGISTRY  # noqa: E402
+
+_VERSION_RE = re.compile(rb"\(version\s+(\d+)\)")
+_CAPACITOR_REF_RE = re.compile(r"^C\d")
+# A capacitance written anywhere in the value: digits, a p/n/u/µ multiplier,
+# then an F, a digit or a non-letter ("100n", "4u7", "10uF", and part-number
+# values such as "CC1206_100NF_50V_10%_X7R"). "0", "DNP" or "10uH" is not a
+# capacitance the rules could have recognised.
+_CAPACITANCE_LIKE_RE = re.compile(r"(?<![\d.,])\d+(?:[.,]\d+)?\s*[pnuµ](?:f|\d|(?![a-z]))", re.IGNORECASE)
+
+
+def file_format_version(path):
+    """The ``(version N)`` stamp near the top of a KiCad S-expression file."""
+    try:
+        with open(path, "rb") as handle:
+            match = _VERSION_RE.search(handle.read(512))
+        return int(match.group(1)) if match else None
+    except OSError:
+        return None
+
+
+def find_projects(arguments):
+    projects = []
+    for argument in arguments:
+        path = Path(argument)
+        if path.is_file() and path.suffix == ".kicad_pro":
+            projects.append(path)
+            continue
+        for root, dirs, files in os.walk(path):
+            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+            projects.extend(Path(root) / name for name in sorted(files) if name.endswith(".kicad_pro"))
+    return projects
+
+
+def measure_project(pro, max_pcb_mb):
+    row = {"project": str(pro), "status": "", "errors": []}
+    sch_path = pro.with_suffix(".kicad_sch")
+    pcb_path = pro.with_suffix(".kicad_pcb")
+    has_sch, has_pcb = sch_path.is_file(), pcb_path.is_file()
+    row["status"] = (
+        "FULL" if has_sch and has_pcb else
+        "SCHEMATIC_ONLY" if has_sch else
+        "PCB_ONLY" if has_pcb else "NO_DESIGN_FILES"
+    )
+    row["sch_version"] = file_format_version(sch_path) if has_sch else None
+    row["pcb_version"] = file_format_version(pcb_path) if has_pcb else None
+    started = time.perf_counter()
+
+    schematic = None
+    if has_sch:
+        schematic = read_schematic(sch_path)
+        row["symbols"] = len(schematic.instances)
+        row["schematic_issues"] = [f"{issue.kind}: {issue.sheet_file}" for issue in schematic.issues]
+    if not has_pcb:
+        row["seconds"] = round(time.perf_counter() - started, 2)
+        return row
+    if pcb_path.stat().st_size > max_pcb_mb * 1e6:
+        row["status"] += f" (PCB over {max_pcb_mb} MB, board invariants skipped)"
+        row["seconds"] = round(time.perf_counter() - started, 2)
+        return row
+
+    board = read_board(pcb_path)
+    row["footprints"] = len(board.footprints)
+    netlist = build_netlist(board, schematic, board_uuid=pro.stem)
+
+    with_path = [fp for fp in board.footprints if fp.sch_path]
+    row["footprints_without_path"] = len(board.footprints) - len(with_path)
+    if schematic is not None:
+        keys = {}
+        for inst in schematic.instances:
+            keys[inst.footprint_path] = keys.get(inst.footprint_path, 0) + 1
+        exact = sum(1 for fp in with_path if keys.get(fp.sch_path) == 1)
+        row["I1_matched_by_path"] = f"{exact}/{len(with_path)}"
+        row["I1_ok"] = exact == len(with_path)
+        # What the netlist builder did with them: linked by path, or not at all.
+        links = {}
+        for component in netlist.components:
+            links[component.schematic_link] = links.get(component.schematic_link, 0) + 1
+        row["schematic_links"] = links
+        row["link_issues"] = [f"{issue.kind}: {' '.join(issue.references)}" for issue in netlist.link_issues]
+
+    findings = DEFAULT_REGISTRY.evaluate_domain(
+        "SCHEMATIC", schematic_rules.SchematicRuleContext(netlist=netlist, schematic=schematic),
+    )
+    by_rule = {}
+    for finding in findings:
+        by_rule[finding.rule_id] = by_rule.get(finding.rule_id, 0) + 1
+    row["rules"] = by_rule
+
+    pathless = {fp.reference for fp in board.footprints if not fp.sch_path}
+    sch005_pathless = sum(
+        1 for f in findings if f.rule_id == "SCH-005" and set(f.components) & pathless
+    )
+    row["I2_sch005_on_pathless"] = sch005_pathless
+    row["I2_ok"] = sch005_pathless == 0
+
+    power_pin_types = {"power_in", "power_out"}
+    # A rail no power symbol declares and no power pin supports: what open
+    # collector pins alone used to make.
+    oc_only = [
+        net.name for net in netlist.nets
+        if net.is_power_rail and getattr(net, "rail_source", "") != "power_symbol"
+        and not any(pin.electrical_type in power_pin_types for pin in net.pins)
+    ]
+    row["I3_open_collector_only_rails"] = len(oc_only)
+    row["I3_ok"] = not oc_only
+
+    classifier = getattr(schematic_rules, "_is_capacitor_value", None)
+    caps = [
+        c for c in netlist.components
+        if _CAPACITOR_REF_RE.match(c.reference or "") and _CAPACITANCE_LIKE_RE.search(c.value or "")
+    ]
+    if classifier is None:
+        row["I4_capacitors_unrecognised"] = "n/a"
+    else:
+        missed = sorted({c.value for c in caps if not classifier(c.value)})
+        row["I4_capacitors_unrecognised"] = f"{sum(1 for c in caps if not classifier(c.value))}/{len(caps)}"
+        row["I4_examples"] = missed[:5]
+        row["I4_ok"] = not missed
+
+    if schematic is not None:
+        _measure_no_connect_and_power_nets(row, schematic, netlist, findings)
+    _measure_source_frequencies(row, netlist)
+
+    row["seconds"] = round(time.perf_counter() - started, 2)
+    return row
+
+
+def _measure_source_frequencies(row, netlist):
+    from emc_analyzer import EMCSourceDiscoverer, declared_frequencies
+
+    by_net, by_part = declared_frequencies(netlist.components, {n.name for n in netlist.nets if n.is_power_rail})
+    sources = EMCSourceDiscoverer.discover(
+        {net.name for net in netlist.nets}, net_frequencies=by_net, part_frequencies=by_part,
+    )
+    stated = [s for s in sources if s.frequency_hz > 0]
+    unsourced = [s.name for s in stated if "Frequency from" not in s.parameter_notes
+                 and "fundamental of the" not in s.parameter_notes]
+    row["I8_source_frequencies"] = f"{len(stated)} stated, {len(sources) - len(stated)} unknown"
+    row["I8_ok"] = not unsourced
+    if unsourced:
+        row["I8_examples"] = unsourced[:5]
+
+
+def _measure_no_connect_and_power_nets(row, schematic, netlist, findings):
+    marked = {}
+    for inst in schematic.instances:
+        if inst.no_connect_pins:
+            marked.setdefault(inst.reference, set()).update(inst.no_connect_pins)
+    components = {c.reference: c for c in netlist.components}
+    sch002 = [f for f in findings if f.rule_id == "SCH-002"]
+    on_marker = 0
+    for finding in sch002:
+        for ref in finding.components:
+            component = components.get(ref)
+            pads = {pad for pad, net in (component.nets_by_pad.items() if component else ()) if net in finding.nets}
+            if pads & marked.get(ref, set()):
+                on_marker += 1
+                break
+    row["I5_sch002_on_no_connect"] = f"{on_marker}/{len(sch002)}"
+    row["I5_ok"] = on_marker == 0
+
+    power_names = {
+        inst.value for inst in schematic.instances
+        if inst.power == "global" and inst.value and inst.lib_id.split(":")[-1] != "PWR_FLAG"
+    }
+    nets = {net.name: net for net in netlist.nets}
+    present = sorted(name for name in power_names if name in nets)
+    unclassified = [name for name in present if not nets[name].is_power_rail]
+    row["I6_power_symbol_nets_classified"] = f"{len(present) - len(unclassified)}/{len(present)}"
+    row["I6_examples"] = unclassified[:5]
+    row["I6_ok"] = not unclassified
+
+
+def directory_resolution_invariant(arguments):
+    """I7: directories holding several projects must not resolve silently."""
+    silent = []
+    for argument in arguments:
+        path = Path(argument)
+        if not path.is_dir():
+            continue
+        for root, dirs, files in os.walk(path):
+            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+            if sum(1 for name in files if name.endswith(".kicad_pro")) < 2:
+                continue
+            try:
+                resolved = resolve_project(Path(root))
+            except (FileNotFoundError, ValueError):
+                continue
+            silent.append(f"{root} -> {getattr(resolved, 'pro_path', resolved)}")
+    return silent
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("paths", nargs="+")
+    parser.add_argument("--max-pcb-mb", type=float, default=25.0)
+    parser.add_argument("--json", dest="json_out")
+    args = parser.parse_args(argv[1:])
+
+    rows = []
+    for pro in find_projects(args.paths):
+        try:
+            row = measure_project(pro, args.max_pcb_mb)
+        except Exception as exc:  # a project that breaks ingestion is a result, not a crash
+            row = {"project": str(pro), "status": "ERROR", "errors": [f"{type(exc).__name__}: {exc}"],
+                   "traceback": traceback.format_exc().splitlines()[-4:]}
+        rows.append(row)
+        print(json.dumps(row, ensure_ascii=False), flush=True)
+
+    silent = directory_resolution_invariant(args.paths)
+    summary = {
+        "projects": len(rows),
+        "errors": sum(1 for r in rows if r["status"] == "ERROR"),
+        "I1_boards_failing": sum(1 for r in rows if r.get("I1_ok") is False),
+        "I2_boards_failing": sum(1 for r in rows if r.get("I2_ok") is False),
+        "I3_boards_failing": sum(1 for r in rows if r.get("I3_ok") is False),
+        "I4_boards_failing": sum(1 for r in rows if r.get("I4_ok") is False),
+        "I5_boards_failing": sum(1 for r in rows if r.get("I5_ok") is False),
+        "I6_boards_failing": sum(1 for r in rows if r.get("I6_ok") is False),
+        "I8_boards_failing": sum(1 for r in rows if r.get("I8_ok") is False),
+        "I7_silent_directory_picks": silent,
+    }
+    print(json.dumps({"summary": summary}, ensure_ascii=False, indent=1))
+    if args.json_out:
+        Path(args.json_out).write_text(json.dumps({"rows": rows, "summary": summary}, indent=1), encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main(sys.argv)

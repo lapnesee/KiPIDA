@@ -7,7 +7,9 @@ from runtime_config import (
     RUNTIME_CONFIG_VERSION, RuntimeComputeSettings, load_runtime_settings,
     save_runtime_settings,
 )
-from runtime_environment import plugin_version, recommended_cupy_package
+from runtime_environment import (
+    plugin_version, recommended_cupy_package, source_fingerprint,
+)
 from unittest.mock import Mock, patch
 
 
@@ -33,6 +35,19 @@ class RuntimeConfigTests(unittest.TestCase):
             self.assertEqual(loaded.memory_limit_gib, 48.0)
             self.assertEqual(json.loads(path.read_text())["version"], RUNTIME_CONFIG_VERSION)
 
+    def test_a_file_carrying_the_retired_sweep_threshold_still_loads(self):
+        # Files saved while AUTO sent AC sweeps to the GPU above
+        # cuda_min_nodes_sweep still carry that key; the setting is gone.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "runtime.json"
+            path.write_text(json.dumps({"version": "1.2", "compute": {
+                "backend": "AUTO", "cuda_enabled": True, "cuda_min_nodes": 1000,
+                "cuda_min_nodes_sweep": 10000,
+            }}), encoding="utf-8")
+            loaded = load_runtime_settings(path)
+        self.assertTrue(loaded.cuda_enabled)
+        self.assertEqual(loaded.cuda_min_nodes, 1000)
+
     def test_invalid_config_uses_defaults(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "runtime.json"
@@ -42,6 +57,88 @@ class RuntimeConfigTests(unittest.TestCase):
     def test_plugin_version_is_read_from_manifest(self):
         root = Path(__file__).resolve().parent.parent
         self.assertEqual(plugin_version(root), "0.19.0")
+
+    def test_the_build_fingerprint_follows_the_sources(self):
+        """The release number cannot tell two builds apart between releases.
+
+        plugin.json was last bumped at the 0.19.0 release, so every change
+        since reports the same string -- which is the one question that matters
+        when checking whether the copy in the plugin folder is the one just
+        built. Establishing that from behaviour instead cost cross-checking a
+        solver iteration count, a residual curve and one log line.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "solver.py").write_text("x = 1\n", encoding="utf-8")
+            before = source_fingerprint(root)
+
+            (root / "solver.py").write_text("x = 2\n", encoding="utf-8")
+            after = source_fingerprint(root)
+
+            self.assertTrue(before)
+            self.assertNotEqual(before, after)
+
+    def test_line_endings_do_not_change_the_fingerprint(self):
+        """Git converts to CRLF on checkout by default on Windows.
+
+        The first version hashed raw bytes, so the same commit checked out on
+        two machines reported two different builds. That is the false alarm the
+        fingerprint exists to prevent, and it caused one: a deployed copy was
+        called stale for several rounds while being byte-for-byte the same code
+        with different newlines.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "solver.py"
+            path.write_bytes(b"x = 1\ny = 2\n")
+            unix = source_fingerprint(root)
+            path.write_bytes(b"x = 1\r\ny = 2\r\n")
+            windows = source_fingerprint(root)
+
+        self.assertEqual(unix, windows)
+
+    def test_a_module_from_another_directory_is_reported(self):
+        # The plugin imports flat top-level names, so a second copy earlier on
+        # sys.path supplies modules while the entry point still reports its own
+        # folder. The fingerprint cannot see that; this can.
+        from runtime_environment import imported_module_origins
+
+        with tempfile.TemporaryDirectory() as directory:
+            # runtime_environment itself lives in the repo, not in this empty
+            # root, so it must be reported as a stranger.
+            strangers = imported_module_origins(
+                ("runtime_environment",), Path(directory),
+            )
+        self.assertEqual(len(strangers), 1)
+        self.assertIn("runtime_environment ->", strangers[0])
+
+    def test_modules_from_the_plugin_itself_are_not_reported(self):
+        from runtime_environment import imported_module_origins
+
+        root = Path(__file__).resolve().parent.parent
+        self.assertEqual(
+            imported_module_origins(("runtime_environment",), root), [],
+        )
+
+    def test_the_fingerprint_ignores_tests_and_vendored_runtimes(self):
+        # A deployed copy carries no tests and may carry a bundled venv; those
+        # must not change the identity of the code being run.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "solver.py").write_text("x = 1\n", encoding="utf-8")
+            baseline = source_fingerprint(root)
+
+            (root / "tests").mkdir()
+            (root / "tests" / "test_thing.py").write_text("y = 2\n", encoding="utf-8")
+            (root / ".runtime").mkdir()
+            (root / ".runtime" / "vendored.py").write_text("z = 3\n", encoding="utf-8")
+            # A development checkout carries its own virtual environment. It
+            # was hashed, so the checkout never matched the deployed copy of
+            # the same commit (7d26aae6 against 5ab26f72, 113 identical files).
+            (root / ".venv" / "Lib").mkdir(parents=True)
+            (root / ".venv" / "Lib" / "site.py").write_text("w = 4\n", encoding="utf-8")
+
+            self.assertEqual(source_fingerprint(root), baseline)
 
     @patch("runtime_environment.subprocess.run")
     def test_cuda_wheel_family_follows_driver_runtime(self, run):

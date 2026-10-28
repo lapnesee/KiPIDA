@@ -26,6 +26,16 @@ class CFDMesh:
     heat_sources_w: object
     patch_cells: list = field(default_factory=list)
     obstacle_names: object = None
+    # Names of obstacles thinner than one cell on *every* axis. Each adds its
+    # heat to the solid cell it sits on, named in collapsed_hosts, rather
+    # than occupying a cell of its own. See CFD-1 in docs/audit-2026-09-23.md.
+    collapsed_obstacles: list = field(default_factory=list)
+    collapsed_hosts: dict = field(default_factory=dict)
+    # Per solid cell, the plate length of its obstacle's faces, in metres:
+    # A/P of its x-y footprint for a face normal to z, its z extent for a
+    # face normal to x or y. None where the mesh predates them.
+    film_length_horizontal_m: object = None
+    film_length_vertical_m: object = None
 
     @property
     def cell_count(self):
@@ -93,28 +103,93 @@ class CFDMeshGenerator:
         heat = np.zeros(shape, dtype=float)
         names = np.empty(shape, dtype=object)
         names[:] = "AIR"
+        length_horizontal = np.zeros(shape, dtype=float)
+        length_vertical = np.zeros(shape, dtype=float)
 
         xs = (np.arange(shape[0]) + 0.5) * spacing[0] * 1000.0
         ys = (np.arange(shape[1]) + 0.5) * spacing[1] * 1000.0
         zs = (np.arange(shape[2]) + 0.5) * spacing[2] * 1000.0
+        centers = (xs, ys, zs)
+        collapsed = []
+        deferred = []
         for obstacle in model.obstacles:
-            x0, y0, z0, x1, y1, z1 = obstacle.bounds_mm
-            mask = (
-                (xs[:, None, None] >= x0) & (xs[:, None, None] <= x1) &
-                (ys[None, :, None] >= y0) & (ys[None, :, None] <= y1) &
-                (zs[None, None, :] >= z0) & (zs[None, None, :] <= z1)
-            )
-            if not np.any(mask):
-                center = ((x0 + x1) / 2.0, (y0 + y1) / 2.0, (z0 + z1) / 2.0)
-                index = tuple(min(shape[a] - 1, max(0, int(center[a] / dims_mm[a] * shape[a])))
-                              for a in range(3))
-                mask[index] = True
+            bounds = ((obstacle.bounds_mm[0], obstacle.bounds_mm[3]),
+                      (obstacle.bounds_mm[1], obstacle.bounds_mm[4]),
+                      (obstacle.bounds_mm[2], obstacle.bounds_mm[5]))
+            axis_indices = []
+            fell_back = []
+            for axis in range(3):
+                lo, hi = bounds[axis]
+                found = np.nonzero((centers[axis] >= lo) & (centers[axis] <= hi))[0]
+                if found.size:
+                    axis_indices.append(found)
+                    fell_back.append(False)
+                    continue
+                # No cell centre falls inside this axis's span -- the
+                # obstacle is thinner than one cell there. Snapping only
+                # *this* axis to its nearest cell, instead of collapsing
+                # every axis to the centroid's single cell, is what keeps a
+                # thin board a conductive sheet across its whole footprint:
+                # P02 Rev E's 125 x 45 x 1.29 mm board used to become one
+                # 5 mm cell (CFD-1); here only z falls back, x and y keep
+                # their full overlap.
+                nearest = int(np.argmin(np.abs(centers[axis] - (lo + hi) / 2.0)))
+                axis_indices.append(np.array([nearest]))
+                fell_back.append(True)
+            if all(fell_back):
+                # Smaller than a cell on every axis: placed once every larger
+                # obstacle, the board first, is in (below).
+                deferred.append((obstacle, tuple(int(item[0]) for item in axis_indices)))
+                continue
+            mask = np.zeros(shape, dtype=bool)
+            mask[np.ix_(*axis_indices)] = True
+            # Snapped into a cell thicker than itself, a sheet would conduct
+            # sideways as if it were a cell thick: P02 Rev E's 1.29 mm board
+            # in a 5 mm cell, 3.9 times its own conductance. Its conductivity
+            # is scaled by its thickness over the cell's, which keeps k * t.
+            # An obstacle collapsed on every axis is no sheet and keeps its own.
+            scale = 1.0
+            for axis in range(3):
+                if fell_back[axis]:
+                    extent = (bounds[axis][1] - bounds[axis][0]) * 1e-3
+                    scale *= min(1.0, max(extent, 0.0) / spacing[axis])
             solid |= mask
-            conductivity[mask] = max(0.05, float(obstacle.conductivity_w_mk))
+            conductivity[mask] = max(0.05, float(obstacle.conductivity_w_mk) * scale)
             names[mask] = obstacle.name
+            # The obstacle's own extents, not the cells it was snapped to.
+            width, depth, height = (max(hi - lo, 0.1) for lo, hi in bounds)
+            length_horizontal[mask] = width * depth / (2.0 * (width + depth)) * 1e-3
+            length_vertical[mask] = height * 1e-3
             cells = int(np.count_nonzero(mask))
             if obstacle.heat_w > 0 and cells:
                 heat[mask] += float(obstacle.heat_w) / cells
+        # An obstacle smaller than a cell on every axis became a whole cell of
+        # its own conductivity at its centroid's cell. P02 Rev E's U15 (3 x 3 x
+        # 1 mm) took a 5 mm board cell that way: renamed U15 and conducting
+        # at its bulk 8 W/mK where the board sheet conducts k * t / cell.
+        # It now adds its heat to the solid cell it sits on -- that cell if
+        # solid, else the nearest solid cell -- and leaves the cell as it was.
+        hosts = {}
+        solid_cells = np.argwhere(solid)
+        for obstacle, cell in deferred:
+            collapsed.append(obstacle.name)
+            if not solid[cell] and solid_cells.size:
+                offsets = (solid_cells - np.asarray(cell)) * np.asarray(spacing)
+                cell = tuple(int(value) for value in solid_cells[int(np.argmin((offsets ** 2).sum(axis=1)))])
+            if not solid[cell]:
+                # No solid anywhere to sit on: the old single-cell fallback.
+                solid[cell] = True
+                conductivity[cell] = max(0.05, float(obstacle.conductivity_w_mk))
+                names[cell] = obstacle.name
+            hosts[obstacle.name] = str(names[cell])
+            if obstacle.heat_w > 0:
+                heat[cell] += float(obstacle.heat_w)
+        if collapsed:
+            self._log(
+                f"{len(collapsed)} obstacle(s) smaller than one cell on every axis add their "
+                "heat to the solid cell they sit on: "
+                + ", ".join(f"{name} into {hosts[name]}" for name in collapsed) + "."
+            )
 
         fluid = ~solid
         patches = []
@@ -162,6 +237,10 @@ class CFDMeshGenerator:
             heat_sources_w=heat,
             patch_cells=patches,
             obstacle_names=names,
+            collapsed_obstacles=collapsed,
+            collapsed_hosts=hosts,
+            film_length_horizontal_m=length_horizontal,
+            film_length_vertical_m=length_vertical,
         )
         self._log(
             f"Generated {shape[0]} x {shape[1]} x {shape[2]} = {count:,} cells "

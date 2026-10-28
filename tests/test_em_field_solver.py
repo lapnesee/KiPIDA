@@ -99,6 +99,21 @@ class EMFieldSolverTests(unittest.TestCase):
         self.assertEqual(reading.unit, "V/m")
         self.assertGreater(reading.value, 0.0)
 
+    def test_a_source_of_unknown_frequency_is_left_out_of_the_map(self):
+        # P02 Rev E: the USB_HOST pair, frequency unknown, was solved at 0 Hz
+        # at full strength and made the map's strongest E field, 52 V/m.
+        snap = snapshot()
+        snap.tracks.append(EMCTrack("USB_D+", (2.0, 8.0), (18.0, 8.0), 0.2, 0, 16.0))
+        profile = settings()
+        profile.sources.append(EMCSignalSource(
+            "USB", "USB_D+", "DIFFERENTIAL", 0.0, 0.8, voltage_swing_v=0.4, current_a=0.008,
+        ))
+        result = EMNearFieldSolver(
+            snap, profile, runtime_settings=RuntimeComputeSettings(backend="CPU"),
+        ).solve()
+        self.assertEqual([item.source_name for item in result.source_contributions], ["Clock"])
+        self.assertTrue(any("USB" in warning for warning in result.warnings))
+
     def test_differential_pair_cancellation_reduces_far_field(self):
         snap = snapshot()
         snap.tracks.append(EMCTrack("CLK_N", (2.0, 5.3), (18.0, 5.3), 0.2, 0, 16.0))
@@ -128,6 +143,53 @@ class EMFieldSolverTests(unittest.TestCase):
         ).solve()
         self.assertLess(with_return.maximum_e_v_m, plain.maximum_e_v_m)
         self.assertLess(with_return.maximum_h_a_m, plain.maximum_h_a_m)
+
+    def test_a_plane_between_source_and_observer_drops_the_element(self):
+        # EMC-2, P02 Rev E: /MAIN_3V3_SW (U5) is entirely on B.Cu under two
+        # solid GND planes (L2, L5) on the way to the default top-side
+        # observation point. Mirroring it there gave 0.62x the field of the
+        # same trace on F.Cu -- the two planes together only cut it x15.4,
+        # when a continuous plane between source and observer should shield
+        # it (~0), not partially mirror it. The same element, observed from
+        # its own (bottom) side where nothing sits between it and the
+        # observer, must still be there in full.
+        snap = EMCGeometrySnapshot(
+            bounds_mm=(0.0, 0.0, 20.0, 10.0),
+            stackup=StackupProfile(layers=[
+                StackupLayerModel("F.Cu", "COPPER", 0.035, layer_id=0),
+                StackupLayerModel("Pre1", "DIELECTRIC", 0.2, epsilon_r=4.4),
+                StackupLayerModel("GND.In1", "COPPER", 0.035, layer_id=1),
+                StackupLayerModel("Core", "DIELECTRIC", 1.0, epsilon_r=4.4),
+                StackupLayerModel("B.Cu", "COPPER", 0.035, layer_id=31),
+            ]),
+            tracks=[EMCTrack("SW", (2.0, 5.0), (18.0, 5.0), 0.3, 31, 16.0)],
+            zones_by_net={"GND": {1: box(0.0, 0.0, 20.0, 10.0)}},
+        )
+        profile = settings(height=3.0)
+        profile.sources = [EMCSignalSource(
+            "Buck", "SW", "SWITCHING", 600e3, 5.0, voltage_swing_v=12.0, current_a=4.0,
+        )]
+        solver = EMNearFieldSolver(
+            snap, profile, runtime_settings=RuntimeComputeSettings(backend="CPU"),
+        )
+        layer_z = solver._layer_z_m()
+        reference_planes = solver._reference_planes(layer_z)
+        top_z = 3.0e-3
+        bottom_z = -(solver._stackup_thickness_mm() + 3.0) * 1.0e-3
+        top_elements, _segments, _source = solver._elements_for_source(
+            profile.sources[0], layer_z, reference_planes, 1.0, top_z,
+        )
+        bottom_elements, _segments, _source = solver._elements_for_source(
+            profile.sources[0], layer_z, reference_planes, 1.0, bottom_z,
+        )
+        self.assertEqual(top_elements, [])
+        self.assertTrue(bottom_elements)
+        # The full solve, which reports the worse of both sides, must still
+        # see this source through its own (bottom) face rather than reading
+        # zero because the default top-side plane shields it.
+        result = solver.solve()
+        self.assertGreater(result.maximum_h_a_m, 0.0)
+        self.assertEqual(result.source_contributions[0].source_name, "Buck")
 
     def test_switching_zone_without_track_uses_pad_to_pad_geometry(self):
         snap = snapshot()
@@ -193,6 +255,41 @@ class EMFieldSolverTests(unittest.TestCase):
         self.assertIsNone(contribution.attenuation_applied_db)
         self.assertEqual(contribution.model_confidence, "LOW")
 
+    def test_switching_trace_current_follows_the_inductor_ripple_not_current_a(self):
+        # EMC-5, P02 Rev E: the SW trace's current used to scale with
+        # source.current_a / n (square), unrelated to any inductor -- U4's
+        # 75th harmonic read 58 mA (4.36 A / 75) on the trace against
+        # 3.0e-5 A for the same harmonic of the same inductor's own
+        # triangular ripple model, 66 dB apart. The trace and the inductor
+        # dipole must now derive from the same ripple current, so doubling
+        # the modelled ripple (source.current_a held fixed) doubles the
+        # trace's own field too.
+        def build(ripple_pp_a):
+            snap = snapshot()
+            snap.tracks = [EMCTrack("SW", (2.0, 5.0), (8.0, 5.0), 0.5, 0, 6.0)]
+            snap.footprints = [
+                EMCFootprint("L1", "2.2uH", (8.0, 5.0), ("SW",), (("SW", 8.0, 5.0),)),
+            ]
+            snap.inductors = [EMCInductorModel(
+                "L1", source_name="Buck", switching_net="SW",
+                inductance_h=2.2e-6, vin_v=12.0, vout_v=5.0,
+                switching_frequency_hz=600e3, ripple_current_pp_a=ripple_pp_a,
+                width_mm=7.1, depth_mm=6.5, height_mm=3.0,
+            )]
+            profile = settings(height=4.0)
+            profile.sources = [EMCSignalSource(
+                "Buck", "SW", "SWITCHING", 600e3, 10.0,
+                voltage_swing_v=12.0, current_a=4.0,
+            )]
+            return EMNearFieldSolver(
+                snap, profile, runtime_settings=RuntimeComputeSettings(backend="CPU"),
+            ).solve()
+
+        low = build(1.0).source_contributions[0].maximum_h_a_m
+        high = build(2.0).source_contributions[0].maximum_h_a_m
+        self.assertGreater(low, 0.0)
+        self.assertAlmostEqual(high / low, 2.0, places=2)
+
     def test_verified_shield_attenuation_reduces_inductor_field(self):
         snap = snapshot()
         snap.tracks = []
@@ -215,6 +312,16 @@ class EMFieldSolverTests(unittest.TestCase):
         ).solve().inductor_contributions[0].maximum_h_a_m
         self.assertAlmostEqual(shielded / plain, 0.1, places=3)
 
+
+
+class LineCapacitanceTests(unittest.TestCase):
+    def test_trace_charge_uses_its_own_microstrip_capacitance(self):
+        # The E field used one nominal 100 pF/m for every trace (old audit
+        # item). A 50-ohm-class microstrip, 0.2 mm over 0.1 mm of er 4.1 as on
+        # P02 Rev E, is C = sqrt(e_eff)/(c Z0) ~ 117 pF/m; a 2 mm strip ~783.
+        from em_field_solver import microstrip_capacitance_f_m
+        self.assertAlmostEqual(microstrip_capacitance_f_m(0.2, 0.1, 4.1) * 1e12, 117.0, delta=1.0)
+        self.assertGreater(microstrip_capacitance_f_m(2.0, 0.1, 4.1), 6 * 100e-12)
 
 if __name__ == "__main__":
     unittest.main()

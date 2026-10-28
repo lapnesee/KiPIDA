@@ -1,6 +1,10 @@
 """Build frequency-domain PDN models from the existing Ki-PIDA mesh pipeline."""
 
+from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
+import math
+import os
+import pickle
 import re
 from typing import Dict, List, Optional, Tuple
 
@@ -8,10 +12,420 @@ try:
     from .extractor import GeometryExtractor
     from .mesh import Mesher
     from .models import ACAnalysisSettings, CapacitorModel, MeshBranch, PowerRail
+    from .power_tree import converter_input_current, rail_supplied_current
 except (ImportError, ValueError):
     from extractor import GeometryExtractor
     from mesh import Mesher
     from models import ACAnalysisSettings, CapacitorModel, MeshBranch, PowerRail
+    from power_tree import converter_input_current, rail_supplied_current
+
+
+# kiapi.common.types.ElectricalPinType, as carried by Pad.symbol_pin.type on a
+# live board.  A pin declared a power output is factually where energy enters a
+# net; a power input is factually a load.  Using them replaces guessing from a
+# reference designator prefix, which only works on boards named the way this
+# plugin happens to expect.
+EPT_UNKNOWN = 0
+EPT_POWER_INPUT = 8
+EPT_POWER_OUTPUT = 9
+
+# Defaults for the derived PDN target impedance.  A rail's ripple allowance is
+# a design decision rather than a property of the board, so 2 % is a starting
+# point and not a truth; the transient fraction expresses how much of the
+# configured DC draw is assumed to step at once, for which half is the usual
+# working figure.
+RIPPLE_FRACTION_DEFAULT = 0.02
+TRANSIENT_FRACTION_DEFAULT = 0.5
+
+
+def switching_converter_step(rail, all_rails):
+    """The largest single transient step a switching converter this rail
+    feeds puts on it, and that converter.
+
+    A buck/boost input current is chopped at its switching frequency between
+    (about) zero and its own output current, not a smooth average: every
+    edge is a step of roughly Iout, e.g. P02 Rev E's U4 (buck, Iout 4.36 A at
+    5.08 V, 400 kHz). That is a different, and larger, quantity than
+    converter_input_current's time-averaged Vout/(Vin*eff)-scaled figure,
+    which is what belongs in a DC or EMC-source current budget but is the
+    wrong basis for an AC transient step.
+
+    Only the converters *rail* feeds itself matter: whatever a converter
+    THEN feeds is already smoothed by that converter's own output
+    capacitor before the ripple could reach this rail. A pass element -- a
+    fuse, eFuse, shunt, switch or net tie, whose output rail keeps the
+    input's nominal voltage -- smooths nothing, so the converters behind it
+    count as fed directly: P02 Rev E's /+5V_U4 feeds U5 through the eFuse
+    U15 and /+5V_RAIL, and was judged without U5's step against a flat
+    target, 7.95x at 100 MHz. Among those, the single largest Iout is used
+    rather than their sum: converters switch asynchronously (independent
+    fsw and phase), so there is no shared instant at which every one of
+    them steps at once -- the credible worst edge is set by whichever
+    converter steps hardest on its own, not by all of them adding up.
+
+    Returns ``(0.0, None)`` when *rail* feeds no switching converter.
+    """
+    by_name = {item.net_name: item for item in (all_rails or ())}
+
+    def nominal(name):
+        return float(getattr(by_name.get(name), "nominal_voltage", 0.0) or 0.0)
+
+    def steps(item, visiting):
+        for regulator in (getattr(item, "child_regulators", ()) or ()):
+            output = regulator.output_rail_name
+            if str(getattr(regulator, "reg_type", "")).upper() == "SWITCHING":
+                # A converter's output current: its rail's loads and what the
+                # regulators it feeds draw at that rail's voltage. Summing
+                # their outputs instead gave P02 Rev E's U4 a 5 A step, U5's
+                # 1 A at 3.32 V counted for the 0.726 A it draws at 5.08 V;
+                # its output is 4.726 A.
+                yield rail_supplied_current(output, all_rails), regulator
+            elif (
+                output not in visiting and output in by_name
+                and nominal(output) > 0.0 and abs(nominal(output) - nominal(item.net_name)) < 1e-9
+            ):
+                yield from steps(by_name[output], visiting | {output})
+
+    best_current, best_regulator = 0.0, None
+    for iout, regulator in steps(rail, {rail.net_name}):
+        if iout > best_current:
+            best_current, best_regulator = iout, regulator
+    return best_current, best_regulator
+
+
+def governing_converter_step(rail, all_rails, transient_fraction=TRANSIENT_FRACTION_DEFAULT):
+    """The converter step that sets *rail*'s target, or ``(0.0, None)``.
+
+    A converter's chopped step replaces the transient fraction of the rail's
+    average only where it is the larger step. Where the loads step harder,
+    their step sets the target at every frequency: it has no switching
+    frequency to start from and no known edge to stop at. P02 Rev E's
+    /+5V_RAIL feeds U5 (0.5 A chopped) and J6 (4 A): it was held to U5's
+    0.2032 ohm from 650 kHz up and to 0.0466 ohm, 50 % of its 4.36 A
+    average, only below.
+    """
+    current, regulator = switching_converter_step(rail, all_rails)
+    if regulator is None:
+        return 0.0, None
+    average = sum(
+        float(getattr(load, "total_current", 0.0) or 0.0) for load in (getattr(rail, "loads", ()) or ())
+    ) + converter_input_current(rail, all_rails)
+    try:
+        averaged_step = float(transient_fraction) * average
+    except (TypeError, ValueError):
+        averaged_step = 0.0
+    if current <= averaged_step:
+        return 0.0, None
+    return current, regulator
+
+
+# The knee of a step with a 10-90 % rise time t_r sits at 0.35 / t_r.
+RISE_TIME_BANDWIDTH_FACTOR = 0.35
+
+
+def transient_bandwidth(rail, settings, all_rails=None, emc_sources=(), pad_nets_by_ref=None):
+    """``(bandwidth_hz, provenance)`` up to which *rail*'s target holds flat.
+
+    A target budgets a current step, and a step with rise time t_r carries
+    little current above 0.35 / t_r: its trapezoidal spectrum falls there by
+    40 dB per decade, and by 20 dB between the pulse-width and edge corners
+    below. A flat target judged to the stop frequency asks the rail to hold
+    a step that is not there. P02 Rev E's /VBUS_SYS failed only from
+    46 MHz, on the 4.5 A step of U4's buck leg, whose EMC source puts a
+    10 ns edge on it: about 35 MHz of bandwidth.
+
+    A configured rise time wins. Otherwise, a target derived from a
+    converter's chopped input current takes the fastest edge among the
+    enabled switching EMC sources on that converter's parts' nets. An
+    explicit target, or a step with no known edge, returns ``(0.0, "")``:
+    the target stays flat.
+    """
+    rise_ns = float(getattr(settings, "transient_rise_time_ns", 0.0) or 0.0)
+    if rise_ns > 0.0:
+        return (
+            RISE_TIME_BANDWIDTH_FACTOR / (rise_ns * 1e-9),
+            f"0.35 / the configured {rise_ns:g} ns rise time",
+        )
+    if float(getattr(settings, "target_impedance_ohm", 0.0) or 0.0) > 0.0:
+        return 0.0, ""
+    _current, regulator = governing_converter_step(
+        rail, all_rails, getattr(settings, "transient_fraction", TRANSIENT_FRACTION_DEFAULT),
+    ) if all_rails else (0.0, None)
+    if regulator is None:
+        return 0.0, ""
+    model = dict(getattr(regulator, "loss_model", {}) or {})
+    references = {
+        regulator.input_ref_des, regulator.output_ref_des,
+        getattr(regulator, "thermal_ref_des", ""), model.get("controller_ref_des", ""),
+    } | {
+        item.get("ref_des", "") for item in (model.get("mosfets") or ()) if isinstance(item, dict)
+    }
+    nets = {
+        net for reference in references if reference
+        for net in (pad_nets_by_ref or {}).get(reference, ())
+    }
+    edges = [
+        source for source in (emc_sources or ())
+        if getattr(source, "enabled", True)
+        and str(getattr(source, "kind", "")).upper() == "SWITCHING"
+        and getattr(source, "net_name", "") in nets
+        and float(getattr(source, "rise_time_ns", 0.0) or 0.0) > 0.0
+    ]
+    if not edges:
+        return 0.0, ""
+    source = min(edges, key=lambda item: float(item.rise_time_ns))
+    edge_ns = float(source.rise_time_ns)
+    confidence = str(getattr(source, "parameter_confidence", "") or "unstated").lower()
+    return (
+        RISE_TIME_BANDWIDTH_FACTOR / (edge_ns * 1e-9),
+        f"0.35 / the {edge_ns:g} ns edge of EMC source '{source.name}' ({confidence} "
+        f"confidence) switching '{regulator.name}'",
+    )
+
+
+def converter_band_floor(rail, settings, all_rails=None):
+    """``(floor_hz, below_ohm, provenance)`` under which a converter-step target does not apply.
+
+    A converter's chopped input current is its average plus harmonics of its
+    switching frequency: below f_sw it has no content, and the rail sees only
+    the average moving with the loads. There the step is the transient
+    fraction of the rail's average current, the budget of a rail that feeds
+    no converter. P02 Rev E's /VBUS_SYS was held to U4's 4.5 A chopped step
+    (0.0889 ohm) from 1 kHz, three decades below U4's 400 kHz; its 2.04 A
+    average gives 0.392 ohm there.
+
+    An explicit target, a rail with no converter step, or a converter with no
+    switching frequency returns ``(0.0, 0.0, "")``.
+    """
+    if float(getattr(settings, "target_impedance_ohm", 0.0) or 0.0) > 0.0:
+        return 0.0, 0.0, ""
+    _current, regulator = governing_converter_step(
+        rail, all_rails, getattr(settings, "transient_fraction", TRANSIENT_FRACTION_DEFAULT),
+    ) if all_rails else (0.0, None)
+    if regulator is None:
+        return 0.0, 0.0, ""
+    frequency = (getattr(regulator, "loss_model", None) or {}).get("switching_frequency_hz")
+    if isinstance(frequency, dict):
+        frequency = frequency.get("value")
+    try:
+        frequency = float(frequency or 0.0)
+        voltage = float(getattr(rail, "nominal_voltage", 0.0) or 0.0)
+        ripple = float(getattr(settings, "ripple_fraction", RIPPLE_FRACTION_DEFAULT))
+        transient = float(getattr(settings, "transient_fraction", TRANSIENT_FRACTION_DEFAULT))
+    except (TypeError, ValueError):
+        return 0.0, 0.0, ""
+    average = sum(
+        float(getattr(load, "total_current", 0.0) or 0.0) for load in (getattr(rail, "loads", ()) or ())
+    ) + converter_input_current(rail, all_rails)
+    if frequency <= 0.0 or voltage <= 0.0 or ripple <= 0.0 or transient <= 0.0 or average <= 0.0:
+        return 0.0, 0.0, ""
+    step = transient * average
+    return (
+        frequency, voltage * ripple / step,
+        f"below {frequency / 1e3:g} kHz, the switching frequency of '{regulator.name}': "
+        f"{voltage:.2f} V x {ripple * 100.0:.1f} % ripple / {step:.3g} A "
+        f"({transient * 100.0:.0f} % of the {average:.3g} A average)",
+    )
+
+
+def target_mask(target_ohm, bandwidth_hz, frequency_hz, floor_hz=0.0, below_floor_ohm=0.0):
+    """The impedance allowed at *frequency_hz*: *below_floor_ohm* under
+    *floor_hz*, then *target_ohm* flat to *bandwidth_hz*, then rising in
+    proportion to frequency -- the slowest the step's current can fall above
+    its knee, so the most demanding reading of it -- but never above
+    *below_floor_ohm*: the loads' averaged step, whose edge is not known,
+    stays present above the switching frequency too."""
+    if floor_hz > 0.0 and below_floor_ohm > 0.0 and frequency_hz < floor_hz:
+        return below_floor_ohm
+    if bandwidth_hz <= 0.0:
+        return target_ohm
+    rising = target_ohm * max(1.0, frequency_hz / bandwidth_hz)
+    if floor_hz > 0.0 and below_floor_ohm > 0.0:
+        return min(rising, max(below_floor_ohm, target_ohm))
+    return rising
+
+
+def derive_target_impedance(
+    rail, *, ripple_fraction=RIPPLE_FRACTION_DEFAULT,
+    transient_fraction=TRANSIENT_FRACTION_DEFAULT, all_rails=None,
+):
+    """Z_target = (V_rail * ripple) / I_transient, from the rail's own data.
+
+    A PDN target is not a universal constant: it follows from how much ripple
+    the rail tolerates and how much current steps at once.  Both are already
+    implied by the power tree -- the rail carries its nominal voltage and its
+    configured loads -- so the target can be computed instead of typed, which
+    is what stops an arbitrary default from silently deciding whether a board
+    passes.
+
+    Returns ``(value_ohm, provenance)`` on success, or ``(None, reason)`` when
+    the rail has no nominal voltage or no configured load.  In that case the
+    caller must not invent a target: an impedance budget without a current is
+    meaningless, and stating one would be worse than stating none.
+    """
+    try:
+        voltage = float(getattr(rail, "nominal_voltage", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        voltage = 0.0
+    if voltage <= 0.0:
+        return None, "the rail has no nominal voltage"
+
+    total_current = 0.0
+    for load in getattr(rail, "loads", ()) or ():
+        try:
+            total_current += float(getattr(load, "total_current", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+    # A rail that feeds converters supplies their input current too. P02 Rev
+    # E's /VBUS_SYS has no load of its own and feeds U4 and U14: its sweep ran
+    # with no target, though the tree says it supplies 2.04 A.
+    converters = converter_input_current(rail, all_rails) if all_rails else 0.0
+    total_current += converters
+    if total_current <= 0.0:
+        return None, "the rail has no configured load current"
+
+    try:
+        ripple = float(ripple_fraction)
+        transient = float(transient_fraction)
+    except (TypeError, ValueError):
+        return None, "the ripple and transient fractions must be numbers"
+    if ripple <= 0.0 or transient <= 0.0:
+        return None, "the ripple and transient fractions must both be positive"
+
+    # A rail that feeds a switching converter sees that converter's chopped
+    # input current, which steps by roughly its own Iout at every switching
+    # edge -- not by a configurable fraction of the rail's time-averaged
+    # load. Where that applies, it replaces the transient-fraction heuristic
+    # outright rather than adding to it (AC-5): the two are alternative
+    # models of the same step, not independent contributions. It does so
+    # only where it is the larger step (governing_converter_step).
+    step_current, step_regulator = (
+        governing_converter_step(rail, all_rails, transient) if all_rails else (0.0, None)
+    )
+    step_name = str(getattr(step_regulator, "name", "") or getattr(step_regulator, "output_rail_name", ""))
+    if step_current > 0.0:
+        transient_current = step_current
+        provenance = (
+            f"derived from {voltage:.2f} V x {ripple * 100.0:.1f} % ripple / "
+            f"{transient_current:.3g} A transient step (the chopped input current "
+            f"of switching converter '{step_name}' at its own switching frequency, "
+            "the largest such step this rail feeds, directly or through pass "
+            "elements -- not "
+            f"{transient * 100.0:.0f} % of the {total_current:.3g} A time-averaged "
+            "load current, which understates a converter's input ripple)"
+        )
+    else:
+        transient_current = total_current * transient
+        provenance = (
+            f"derived from {voltage:.2f} V x {ripple * 100.0:.1f} % ripple / "
+            f"{transient_current:.3g} A transient "
+            f"({transient * 100.0:.0f} % of {total_current:.3g} A configured load"
+            # "Converters" named P02 Rev E's eFuse U15 and net tie NT2, which
+            # /+5V_U4 feeds and which convert nothing.
+            + (f", {converters:.3g} A of it drawn by the regulators and pass elements the rail feeds"
+               if converters > 0.0 else "")
+            + ")"
+        )
+        chopped, regulator = switching_converter_step(rail, all_rails) if all_rails else (0.0, None)
+        if regulator is not None:
+            provenance += (
+                f", larger than the {chopped:.3g} A chopped input current of switching "
+                f"converter '{getattr(regulator, 'name', '') or regulator.output_rail_name}', "
+                "so it holds at every frequency"
+            )
+    value = (voltage * ripple) / transient_current
+    return value, provenance
+
+
+LIGHT_SPEED_M_S = 299792458.0
+
+
+def quasi_static_limit_hz(span_mm, epsilon_r=4.4):
+    """Rough upper frequency for which a lumped PDN mesh still means something.
+
+    The AC network is quasi-static: lumped resistances and inductances per
+    branch, lumped RLC capacitors, no plane-cavity modes and no distributed
+    propagation.  That holds while the structure is electrically small.  The
+    usual working threshold is a tenth of a wavelength in the dielectric,
+
+        f = c / (10 * L_max * sqrt(eps_r))
+
+    which for an 80 mm board in FR4 lands near 180 MHz.  This is an
+    order-of-magnitude indicator, not a hard cliff: accuracy degrades
+    gradually either side of it, and the plane resonances the model omits
+    start well before the geometry stops being electrically small.  Its
+    purpose is to stop a swept number being read with the same confidence
+    at 1 GHz as at 1 MHz.
+
+    Returns 0.0 when the span is unusable, meaning "no bound available"
+    rather than "no bound applies".
+    """
+    try:
+        span_m = float(span_mm) / 1000.0
+        epsilon = float(epsilon_r)
+    except (TypeError, ValueError):
+        return 0.0
+    if span_m <= 0.0 or epsilon < 1.0:
+        return 0.0
+    return LIGHT_SPEED_M_S / (10.0 * span_m * math.sqrt(epsilon))
+
+
+def network_span_mm(node_coords):
+    """Largest planar extent of the meshed copper, in mm."""
+    if not node_coords:
+        return 0.0
+    xs = [coord[0] for coord in node_coords.values()]
+    ys = [coord[1] for coord in node_coords.values()]
+    if not xs or not ys:
+        return 0.0
+    return max(max(xs) - min(xs), max(ys) - min(ys))
+
+
+def resolve_target_impedance(rail, settings, all_rails=None):
+    """Return ``(target_ohm, provenance)`` for *settings* applied to *rail*.
+
+    An explicitly configured target always wins: the user's number is a
+    decision, not an estimate, and must not be silently overridden.  Only a
+    zero or absent target triggers derivation.
+    """
+    try:
+        configured = float(getattr(settings, "target_impedance_ohm", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        configured = 0.0
+    if configured > 0.0:
+        return configured, f"{configured:.6g} ohm as configured"
+    value, detail = derive_target_impedance(
+        rail,
+        ripple_fraction=getattr(settings, "ripple_fraction", RIPPLE_FRACTION_DEFAULT),
+        transient_fraction=getattr(settings, "transient_fraction", TRANSIENT_FRACTION_DEFAULT),
+        all_rails=all_rails,
+    )
+    if value is None:
+        return 0.0, f"not determinable: {detail}"
+    # Four figures, as the band floor and PD findings print theirs: six gave
+    # P02 Rev E's /+5V_RAIL "0.0429947 ohm" beside "0.3741 ohm".
+    return value, f"{value:.4g} ohm {detail}"
+
+
+def pad_electrical_type(pad):
+    """The pad's schematic pin type, or None when the board does not carry one.
+
+    KiCad exposes it through ``Pad.proto.symbol_pin.type``.  Older files,
+    footprints with no schematic association, and the synthetic pads used in
+    tests have no such field, and an unset protobuf enum reads as
+    ``EPT_UNKNOWN`` rather than being absent -- both mean "no information",
+    so both return None and let the caller fall through to the next rule.
+    """
+    try:
+        symbol_pin = pad.proto.symbol_pin
+    except Exception:
+        return None
+    value = getattr(symbol_pin, "type", None)
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return None
+    return None if value == EPT_UNKNOWN else value
 
 
 @dataclass
@@ -30,6 +444,25 @@ class ACNetwork:
     node_coords: Dict[int, Tuple[float, float, int]] = field(default_factory=dict)
     requested_grid_size_mm: float = 0.0
     effective_grid_size_mm: float = 0.0
+    # Every candidate observation point, keyed by reference designator.
+    # ``measurement`` remains one of these and stays the single-port contract
+    # the existing UI and result adapter consume.
+    ports: Dict[str, ACNodeConnection] = field(default_factory=dict)
+    source_ref_des: str = ""
+    source_resolution: str = ""
+    # Above this frequency the lumped quasi-static model stops being trustworthy
+    # (see quasi_static_limit_hz). Zero means no bound could be established.
+    quasi_static_limit_hz: float = 0.0
+    # Rail and return tracks as the raster error depends on them (see
+    # raster_fidelity.track_limitation).
+    track_summary: Dict[str, float] = field(default_factory=dict)
+    # Plane-pair (cavity) capacitance: (rail_node, ground_node, farads) for
+    # every rail-mesh cell overlapping return copper, stamped by ACSolver as
+    # a vectorized jw*C admittance alongside the R+jwL branches above (see
+    # mesh.Mesher.cavity_capacitor_pairs).
+    cavity_capacitors: List[Tuple[int, int, float]] = field(default_factory=list)
+    # "hybrid": the saved board file's hybrid mesh; "raster": the open board's.
+    mesh_engine: str = "raster"
 
 
 def parse_capacitance(value) -> Optional[float]:
@@ -49,9 +482,15 @@ def parse_capacitance(value) -> Optional[float]:
         text,
     )
     if not match:
-        return None
+        # BOM values often go on after the rating ("47u 16V X5R",
+        # "4.7u 50V X7R; Ceff>=1u"). The value that opens the text still
+        # counts when a separator ends it and it names its unit, so a bare
+        # number or a part number reads as nothing.
+        match = re.match(r"(?i)(\d+(?:\.\d+)?)([pnum]?)(\d*)\s*(f?)(?=[\s/,;(])", text)
+        if not match or not (match.group(2) or match.group(4)):
+            return None
 
-    major, prefix, fractional = match.groups()
+    major, prefix, fractional = match.groups()[:3]
     if fractional and "." not in major:
         major = f"{major}.{fractional}"
 
@@ -63,11 +502,368 @@ def parse_capacitance(value) -> Optional[float]:
     return capacitance if capacitance > 0 else None
 
 
+def parse_part_quantity(value, unit) -> Optional[float]:
+    """A part field such as "5m", "5 mOhm", "0.4nH" or "400p" in base units.
+
+    *unit* is the symbol the field may end with ("ohm", "h"), which is
+    optional; an SI prefix scales the number. A field that is not a positive
+    number reads as None.
+    """
+    text = str(value or "").strip().replace("µ", "u").replace("μ", "u").replace("Ω", "ohm")
+    match = re.fullmatch(
+        rf"(?i)(\d+(?:\.\d+)?)\s*([pnumk]?)\s*(?:{unit}|r)?", text,
+    )
+    if not match:
+        return None
+    scale = {"": 1.0, "p": 1e-12, "n": 1e-9, "u": 1e-6, "m": 1e-3, "k": 1e3}
+    quantity = float(match.group(1)) * scale[match.group(2).lower()]
+    return quantity if quantity > 0 else None
+
+
+_RATED_VOLTAGE_RE = re.compile(r"(?i)(?<![\w.])(\d+(?:\.\d+)?)\s*V\b")
+# EIA class II ceramics (X5R, X7R, X6S, Y5V...) lose capacitance under DC
+# bias; class I (C0G/NP0) and non-ceramic parts do not, to first order.
+_CLASS_II_DIELECTRIC_RE = re.compile(r"(?i)(?<![A-Z0-9])([XYZ][4-9][P-V])(?![A-Z0-9])")
+# Generic class II retention under a DC bias at a fraction r of the rating:
+# 1 / (1 + (r / knee) ** exponent). The (0.6, 1.5) pair keeps 32 % at the
+# rated voltage, inside the 50-80 % loss docs/audit-si-pdn.md records, 52 %
+# at 0.57 and 71 % at a third -- and matches large-case, lower-CV parts.
+# Small-case, high-CV parts pack more active layers per mm3 for the same
+# rating and lose capacitance faster: Murata SimSurfing-type curves for
+# common high-CV X5R/X7R parts show 25-40 % retention at the rated voltage in
+# 0402/0603 against ~32 % from the generic pair, hence the steeper knee and
+# exponent below. This is still a generic case-size bucket, not a per-part
+# curve -- said so on each capacitor it changes (AC-7).
+_CLASS_II_BIAS_KNEE = 0.6
+_CLASS_II_BIAS_EXPONENT = 1.5
+_CASE_SIZE_BIAS_PARAMS = {
+    "0201": (0.30, 2.4),
+    "0402": (0.35, 2.2),
+    "0603": (0.40, 2.0),
+    "0805": (0.45, 1.8),
+    "1206": (0.55, 1.6),
+    "1210": (0.6, 1.5),
+}
+# Typical MLCC ESR by EIA case size at low frequency, in ohms -- a published,
+# documented package/value table rather than a fixed constant, since no MPN
+# data source exists to pull a real ESR from (the audit's "old open item").
+# Smaller cases carry more resistive termination and thinner electrodes per
+# unit capacitance, so their typical ESR is higher.
+_CASE_SIZE_ESR_OHM = {
+    "0201": 0.20,
+    "0402": 0.10,
+    "0603": 0.05,
+    "0805": 0.02,
+    "1206": 0.015,
+    "1210": 0.01,
+}
+_DEFAULT_ESR_OHM = 0.01
+
+
+def parse_capacitor_rating(value) -> Tuple[Optional[float], str]:
+    """``(rated voltage, class II dielectric)`` a BOM value states, each possibly absent.
+
+    Read after the capacitance: "47u 16V X5R" gives (16.0, "X5R"),
+    "15n 50V C0G" gives (50.0, "") since C0G is class I.
+    """
+    text = str(value or "")
+    voltage = _RATED_VOLTAGE_RE.search(text)
+    dielectric = _CLASS_II_DIELECTRIC_RE.search(text)
+    return (
+        float(voltage.group(1)) if voltage else None,
+        dielectric.group(1).upper() if dielectric else "",
+    )
+
+
+def dc_bias_retention(
+    dielectric: str, rated_voltage_v: Optional[float], bias_v: float, case_size: str = "",
+) -> float:
+    """The share of a capacitor's nominal value left at *bias_v*: 1.0 when nothing says it drops.
+
+    *case_size* selects the case-size-specific curve (AC-7) when it names a
+    known EIA package; any other value keeps the large-case/lower-CV default.
+    """
+    if not dielectric or not rated_voltage_v or rated_voltage_v <= 0.0 or bias_v <= 0.0:
+        return 1.0
+    knee, exponent = _CASE_SIZE_BIAS_PARAMS.get(
+        case_size, (_CLASS_II_BIAS_KNEE, _CLASS_II_BIAS_EXPONENT),
+    )
+    ratio = min(1.0, abs(float(bias_v)) / float(rated_voltage_v))
+    return 1.0 / (1.0 + (ratio / knee) ** exponent)
+
+
+def _case_size_from_footprint_name(footprint_name: str) -> str:
+    name = footprint_name.lower()
+    for package in ("0201", "0402", "0603", "0805", "1206", "1210"):
+        if package in name:
+            return package
+    return ""
+
+
 def format_capacitance(value_f: float) -> str:
     for scale, suffix in ((1e-3, "mF"), (1e-6, "uF"), (1e-9, "nF"), (1e-12, "pF")):
         if value_f >= scale:
             return f"{value_f / scale:g}{suffix}"
     return f"{value_f:g}F"
+
+
+# Every capacitor model Ki-PIDA's own discovery writes starts with this.
+DISCOVERY_ESTIMATE_SOURCE = "value-and-package-estimate"
+
+
+def is_discovery_estimate(model_source) -> bool:
+    """Whether a saved capacitor model is Ki-PIDA's own estimate, which a
+    rediscovery may replace. "estimated" is what a file without a source
+    loads as. Any other source (user, datasheet, a note written by hand or
+    by another tool) holds values the file chose."""
+    text = str(model_source or "").strip()
+    return text in ("", "estimated") or text.startswith(DISCOVERY_ESTIMATE_SOURCE)
+
+
+def merge_discovered_capacitors(discovered, saved, log=None):
+    """The board's rail-to-return capacitors, carrying a saved profile's state.
+
+    The board decides which capacitors there are and on which pads: new
+    ones come in, gone ones go, each named in *log* when a saved list
+    existed. Enabled always carries over. The modelled values carry over
+    unless the saved model is Ki-PIDA's own estimate (AC-7: a stale estimate
+    must not shadow a corrected derating). poe_bt's generator saved
+    "estimate: TDK ..." models with the datasheet's ESR and ESL; the case
+    size table replaced them before each batch, and three campaigns ran
+    on models nobody chose.
+
+    The saved order is kept, new capacitors after it, so loading and saving
+    gives the file back.
+    """
+    saved_by_ref = {}
+    for capacitor in saved or []:
+        saved_by_ref.setdefault(capacitor.ref_des, capacitor)
+    found = {capacitor.ref_des: capacitor for capacitor in discovered}
+    for capacitor in discovered:
+        prior = saved_by_ref.get(capacitor.ref_des)
+        if prior is None:
+            continue
+        capacitor.enabled = prior.enabled
+        if not is_discovery_estimate(prior.model_source):
+            capacitor.capacitance_f = prior.capacitance_f
+            capacitor.esr_ohm = prior.esr_ohm
+            capacitor.esl_h = prior.esl_h
+            capacitor.model_source = prior.model_source
+        moved = [
+            f"{label} {', '.join(before)} -> {', '.join(after)}"
+            for label, before, after in (
+                ("rail", prior.rail_pad_names, capacitor.rail_pad_names),
+                ("return", prior.ground_pad_names, capacitor.ground_pad_names),
+            )
+            if before and set(map(str, before)) != set(map(str, after))
+        ]
+        if moved and log:
+            log(f"AC: {capacitor.ref_des} pads realigned with the board ({'; '.join(moved)}).")
+    order = [ref for ref in saved_by_ref if ref in found]
+    added = [capacitor.ref_des for capacitor in discovered if capacitor.ref_des not in saved_by_ref]
+    if saved_by_ref and log:
+        gone = [ref for ref in saved_by_ref if ref not in found]
+        if gone:
+            log(f"AC: {', '.join(gone)} no longer bridge the rail and its return; left out of the profile.")
+        if added:
+            log(f"AC: {', '.join(added)} found across the rail and its return; added to the profile.")
+    return [found[ref] for ref in order + added]
+
+
+class _PlanarNodeIndex:
+    """Bucketed (x, y) index over mesh nodes for nearest-neighbour lookups.
+
+    A ground plane mesh routinely holds tens of thousands of nodes, so the
+    naive scan a port would otherwise do per rail node is O(N*M) and dominates
+    model build time. Bucketing by a cell close to the grid pitch keeps roughly
+    one node per bucket, so a lookup touches a handful of cells.
+    """
+
+    def __init__(self, node_coords: Dict[int, Tuple[float, float, int]], cell_mm: float = 0.0):
+        self._buckets = defaultdict(list)
+        cell = float(cell_mm or 0.0)
+        if cell <= 0.0:
+            cell = self._auto_cell(node_coords)
+        self._cell = cell
+        for node_id, coord in node_coords.items():
+            x, y = float(coord[0]), float(coord[1])
+            self._buckets[(int(math.floor(x / cell)), int(math.floor(y / cell)))].append(
+                (x, y, int(node_id))
+            )
+
+    @staticmethod
+    def _auto_cell(node_coords) -> float:
+        """Pick a cell size giving roughly one node per bucket."""
+        if not node_coords:
+            return 1.0
+        xs = [float(coord[0]) for coord in node_coords.values()]
+        ys = [float(coord[1]) for coord in node_coords.values()]
+        span = max(max(xs) - min(xs), max(ys) - min(ys))
+        if span <= 0.0:
+            return 1.0
+        return max(span / max(math.sqrt(len(node_coords)), 1.0), 1e-6)
+
+    def nearest(self, x: float, y: float, count: int = 1, max_distance_mm=None):
+        """Return up to *count* node ids closest to (x, y), nearest first."""
+        if not self._buckets or count <= 0:
+            return []
+        cell = self._cell
+        cx, cy = int(math.floor(x / cell)), int(math.floor(y / cell))
+        found = []
+        ring = 0
+        # Expand ring by ring. A node in ring r+1 can still beat a corner hit
+        # in ring r, so once enough candidates exist keep going until the ring's
+        # guaranteed minimum distance exceeds the worst kept candidate.
+        max_rings = max(len(self._buckets), 1)
+        while ring <= max_rings:
+            for bx in range(cx - ring, cx + ring + 1):
+                for by in range(cy - ring, cy + ring + 1):
+                    if ring and abs(bx - cx) != ring and abs(by - cy) != ring:
+                        continue
+                    for px, py, node_id in self._buckets.get((bx, by), ()):
+                        distance = math.hypot(px - x, py - y)
+                        if max_distance_mm is not None and distance > max_distance_mm:
+                            continue
+                        found.append((distance, node_id))
+            if len(found) >= count:
+                found.sort()
+                # Anything beyond this ring is at least ring*cell away.
+                if found[min(count, len(found)) - 1][0] <= ring * cell:
+                    break
+            ring += 1
+        found.sort()
+        return [node_id for _distance, node_id in found[:count]]
+
+
+def pad_outline_index(parsed_board):
+    """``{(reference, pad number): [(centre, outline)]}`` over the saved board's pads."""
+    try:
+        from .mesh_hybrid import _pad_outline
+    except ImportError:
+        from mesh_hybrid import _pad_outline
+    index = {}
+    for footprint in getattr(parsed_board, "footprints", ()) or ():
+        for pad in footprint.pads:
+            outline = _pad_outline(pad)
+            if outline is not None:
+                index.setdefault((footprint.reference, str(pad.number)), []).append(
+                    (tuple(pad.position), outline),
+                )
+    return index
+
+
+def nodes_under_outline(mesh, outline, layers):
+    """Nodes of *mesh* on *layers* whose (x, y) lies on *outline*."""
+    import shapely
+
+    step = float(getattr(mesh, "grid_step", 0.0) or 0.0)
+    if step <= 0.0:
+        return []
+    origin_x, origin_y = mesh.grid_origin
+    min_x, min_y, max_x, max_y = outline.bounds
+    candidates = [
+        int(node)
+        for ix in range(math.floor((min_x - origin_x) / step), math.ceil((max_x - origin_x) / step) + 1)
+        for iy in range(math.floor((min_y - origin_y) / step), math.ceil((max_y - origin_y) / step) + 1)
+        for layer in layers
+        for node in (mesh.node_map.get((ix, iy, layer)),)
+        if node is not None
+    ]
+    if not candidates:
+        return []
+    inside = shapely.intersects_xy(
+        outline,
+        [mesh.node_coords[node][0] for node in candidates],
+        [mesh.node_coords[node][1] for node in candidates],
+    )
+    return [node for node, hit in zip(candidates, inside) if hit]
+
+
+def nearest_ground_nodes(
+    ground_mesh, rail_mesh, rail_nodes, *, max_distance_mm=None, per_rail_node=1,
+    outlines=None,
+):
+    """Ground-side nodes for a port whose component carries no return pads.
+
+    A switching regulator reaches its rail through an output inductor with no
+    ground pad, so requiring the return on the same component makes every such
+    rail unanalysable. The physical return is the plane under the injection
+    point. Given the rail pads' *outlines* as ``(outline, layer)``, it is
+    every ground node under each pad on the ground layer nearest the pad's;
+    otherwise, or where no ground node lies under a pad, the ground node(s)
+    closest in (x, y) to each rail node, across all layers.
+
+    A return of one node per rail node shrinks as the grid is refined, and
+    its spreading inductance grows with it: P02 Rev E's /VBUS_SYS, ported
+    on Q10, read 0.1725 ohm at 0.5 mm and 0.2013 ohm at 0.25 mm at 100 MHz.
+
+    Returns ground-mesh node ids (NOT yet offset into the combined network).
+    """
+    ground_coords = getattr(ground_mesh, "node_coords", None) or {}
+    rail_coords = getattr(rail_mesh, "node_coords", None) or {}
+    if not ground_coords or not rail_nodes:
+        return []
+    if outlines:
+        ground_layers = sorted({coords[2] for coords in ground_coords.values()})
+        under = set()
+        for outline, pad_layer in outlines:
+            by_layer = {
+                layer: nodes
+                for layer in ground_layers
+                for nodes in (nodes_under_outline(ground_mesh, outline, (layer,)),)
+                if nodes
+            }
+            if by_layer:
+                under.update(by_layer[min(by_layer, key=lambda layer: abs(layer - pad_layer))])
+        if under:
+            return sorted(under)
+
+    index = _PlanarNodeIndex(ground_coords, getattr(ground_mesh, "grid_step", 0.0) or 0.0)
+    resolved = []
+    seen = set()
+    for rail_node in rail_nodes:
+        coord = rail_coords.get(int(rail_node))
+        if coord is None:
+            continue
+        for node_id in index.nearest(
+            float(coord[0]), float(coord[1]),
+            count=max(1, int(per_rail_node)), max_distance_mm=max_distance_mm,
+        ):
+            if node_id not in seen:
+                seen.add(node_id)
+                resolved.append(node_id)
+    return sorted(resolved)
+
+
+# The ground net's hybrid mesh, pickled, by (board file, net, grid step):
+# every AC profile of a campaign meshes the same GND, and on P02 Rev E that
+# took 8.3 s at 0.5 mm and 20.9 s at 0.25 mm (the grid check) each time,
+# where unpickling a copy takes 1.5 s and 3.7 s. A copy, since the network
+# build relabels the mesh and gives its branches their inductance.
+_GROUND_MESH_CACHE = OrderedDict()
+_GROUND_MESH_CACHE_SIZE = 2
+
+
+def _board_file_key(parsed_board):
+    path = getattr(parsed_board, "pcb_path", None)
+    try:
+        stat = os.stat(path)
+        return (os.path.abspath(str(path)), stat.st_mtime_ns, stat.st_size)
+    except (OSError, TypeError, ValueError):
+        return ("object", id(parsed_board))
+
+
+def _cached_ground_mesh(hybrid, parsed_board, net, grid_size_mm):
+    key = (_board_file_key(parsed_board), net, round(float(grid_size_mm), 9))
+    blob = _GROUND_MESH_CACHE.get(key)
+    if blob is not None:
+        _GROUND_MESH_CACHE.move_to_end(key)
+        return pickle.loads(blob)
+    mesh = hybrid.build_mesh(net)
+    _GROUND_MESH_CACHE[key] = pickle.dumps(mesh, protocol=pickle.HIGHEST_PROTOCOL)
+    while len(_GROUND_MESH_CACHE) > _GROUND_MESH_CACHE_SIZE:
+        _GROUND_MESH_CACHE.popitem(last=False)
+    return mesh
 
 
 class ACModelBuilder:
@@ -77,6 +873,8 @@ class ACModelBuilder:
         self.board = board
         self.debug = debug
         self.log_callback = log_callback
+        # The saved board's pad outlines, on a hybrid build (pad_outline_index).
+        self._pad_outlines = {}
 
     def _log(self, message):
         if self.log_callback:
@@ -96,6 +894,8 @@ class ACModelBuilder:
                     if value is not None:
                         return value
                 except Exception:
+                    # A getter this kipy version lacks or refuses: the next
+                    # spelling is tried, then the default.
                     pass
         return default
 
@@ -158,15 +958,39 @@ class ACModelBuilder:
                     names.add(name)
         return sorted(names)
 
-    def _default_esl(self, footprint_name):
-        name = footprint_name.lower()
-        for package, esl in (("0201", 0.25e-9), ("0402", 0.4e-9), ("0603", 0.6e-9),
-                             ("0805", 0.8e-9), ("1206", 1.0e-9), ("1210", 1.2e-9)):
-            if package in name:
-                return esl
-        return 0.8e-9
+    def _footprint_fields(self, footprint):
+        """``{name: text}`` of the footprint's fields, as the designer filled them in."""
+        fields = {}
+        for item in self._get_val(footprint, "texts_and_fields", []) or []:
+            name = str(self._get_val(item, "name", "") or "")
+            text = self._get_val(item, "text")
+            text = self._get_val(text, "value", text) if not isinstance(text, str) else text
+            if name and isinstance(text, str):
+                fields[name.strip().upper()] = text.strip()
+        return fields
 
-    def discover_capacitors(self, rail_name, ground_name):
+    def _default_esl(self, footprint_name):
+        esl_by_case = {
+            "0201": 0.25e-9, "0402": 0.4e-9, "0603": 0.6e-9,
+            "0805": 0.8e-9, "1206": 1.0e-9, "1210": 1.2e-9,
+        }
+        return esl_by_case.get(_case_size_from_footprint_name(footprint_name), 0.8e-9)
+
+    def _default_esr(self, footprint_name):
+        """Typical low-frequency MLCC ESR by EIA case size (AC-7): no MPN
+        data source exists to pull a real ESR from, so this is a documented
+        package/value table rather than a single fixed constant."""
+        return _CASE_SIZE_ESR_OHM.get(
+            _case_size_from_footprint_name(footprint_name), _DEFAULT_ESR_OHM,
+        )
+
+    def discover_capacitors(self, rail_name, ground_name, rail_voltage_v=0.0):
+        """The rail-to-return capacitors, at their value under the rail's DC bias.
+
+        A class II ceramic whose value states its rating is derated with the
+        generic curve of dc_bias_retention at *rail_voltage_v*, and its model
+        source says from what to what; any other keeps its nominal value.
+        """
         capacitors = []
         for footprint in self._get_board_items("footprints"):
             reference = self._get_footprint_reference(footprint)
@@ -189,18 +1013,52 @@ class ACModelBuilder:
 
             if not rail_pads or not ground_pads:
                 continue
+            # A pad number split over two pads (a thermal pad in halves)
+            # names one terminal, not two.
+            rail_pads = list(dict.fromkeys(rail_pads))
+            ground_pads = list(dict.fromkeys(ground_pads))
 
             candidate = self._is_dnp(footprint) or capacitance is None
+            footprint_name = self._get_footprint_name(footprint)
+            case_size = _case_size_from_footprint_name(footprint_name)
+            model_source = DISCOVERY_ESTIMATE_SOURCE
+            # ESR and ESL cannot be looked up from the part number offline,
+            # so a part that states them in "ESR"/"ESL" fields (from its
+            # datasheet) is taken at its word; otherwise the case-size table
+            # stands in, and the MPN is named so the reader knows what to
+            # look up.
+            fields = self._footprint_fields(footprint)
+            esr = parse_part_quantity(fields.get("ESR"), "ohm")
+            esl = parse_part_quantity(fields.get("ESL"), "h")
+            if esr is not None or esl is not None:
+                stated = " and ".join(
+                    name for name, value in (("ESR", esr), ("ESL", esl)) if value is not None
+                )
+                model_source += f"; {stated} from the part's fields"
+            elif fields.get("MPN"):
+                model_source += f"; ESR/ESL by case size, not from {fields['MPN']}"
+            if capacitance is not None:
+                rated_v, dielectric = parse_capacitor_rating(value_text)
+                retention = dc_bias_retention(
+                    dielectric, rated_v, float(rail_voltage_v or 0.0), case_size,
+                )
+                if retention < 1.0:
+                    model_source += (
+                        f"; DC bias {dielectric} {rated_v:g} V at {float(rail_voltage_v):g} V: "
+                        f"{format_capacitance(capacitance)} -> {format_capacitance(capacitance * retention)} "
+                        f"(generic class II curve{' for ' + case_size if case_size else ''}, estimate)"
+                    )
+                    capacitance *= retention
             capacitors.append(CapacitorModel(
                 ref_des=reference,
                 rail_pad_names=rail_pads,
                 ground_pad_names=ground_pads,
                 capacitance_f=capacitance or 100e-9,
-                esr_ohm=0.01,
-                esl_h=self._default_esl(self._get_footprint_name(footprint)),
+                esr_ohm=esr if esr is not None else self._default_esr(footprint_name),
+                esl_h=esl if esl is not None else self._default_esl(footprint_name),
                 enabled=not candidate,
                 candidate=candidate,
-                model_source="value-and-package-estimate",
+                model_source=model_source,
             ))
 
         capacitors.sort(key=lambda cap: cap.ref_des)
@@ -216,8 +1074,12 @@ class ACModelBuilder:
         footprint = self._find_footprint(ref_des)
         if not footprint:
             return []
-        return [self._pad_number(pad) for pad in self._get_pads(footprint)
-                if self._pad_net_name(pad) == net_name]
+        # Once each: poe_bt's U1 has two pads numbered 12, and the saved
+        # source's ground pads came back as 9, 11, 12, 12.
+        return list(dict.fromkeys(
+            self._pad_number(pad) for pad in self._get_pads(footprint)
+            if self._pad_net_name(pad) == net_name
+        ))
 
     def find_pad_nodes(self, mesh, ref_des, pad_names, net_name):
         footprint = self._find_footprint(ref_des)
@@ -262,9 +1124,239 @@ class ACModelBuilder:
                                 pad_nodes.append(int(node_id))
                 if pad_nodes:
                     break
+            # On a hybrid mesh, every node under the pad: a component
+            # terminal covers its pad, and one node at the centre is a
+            # contact that shrinks, and whose spreading inductance grows, as
+            # the grid is refined (nearest_ground_nodes).
+            outline = self._pad_outline(ref_des, self._pad_number(pad), x, y)
+            if outline is not None:
+                pad_nodes.extend(nodes_under_outline(mesh, outline, layers))
             found.extend(pad_nodes)
 
         return sorted(set(found))
+
+    def _pad_outline(self, ref_des, number, x, y):
+        """The saved board's outline of the pad at (*x*, *y*), or ``None``."""
+        candidates = [
+            outline for (cx, cy), outline in self._pad_outlines.get((ref_des, str(number)), ())
+            if abs(cx - x) < 0.05 and abs(cy - y) < 0.05
+        ]
+        return candidates[0] if candidates else None
+
+    def _rail_pad_outlines(self, ref_des, pad_names, net_name):
+        """``(outline, layer)`` of each of *ref_des*'s pads on *net_name*."""
+        footprint = self._find_footprint(ref_des) if self._pad_outlines else None
+        if not footprint:
+            return []
+        wanted = set(str(name) for name in (pad_names or []))
+        found = []
+        for pad in self._get_pads(footprint):
+            if self._pad_net_name(pad) != net_name:
+                continue
+            if wanted and self._pad_number(pad) not in wanted:
+                continue
+            position = self._get_val(pad, "position")
+            layers = list(self._get_val(pad, "layers") or [])
+            if position is None or not layers:
+                continue
+            x = float(self._get_val(position, "x", 0.0) or 0.0)
+            y = float(self._get_val(position, "y", 0.0) or 0.0)
+            if abs(x) > 10000 or abs(y) > 10000:
+                x /= 1e6
+                y /= 1e6
+            outline = self._pad_outline(ref_des, self._pad_number(pad), x, y)
+            if outline is not None:
+                found.append((outline, int(layers[0])))
+        return found
+
+    def components_on_net(self, net_name):
+        """Every (ref_des, pad_numbers) pair touching *net_name*, board order."""
+        found = []
+        for footprint in self._get_board_items("footprints"):
+            reference = self._get_footprint_reference(footprint)
+            if not reference:
+                continue
+            pads = [self._pad_number(pad) for pad in self._get_pads(footprint)
+                    if self._pad_net_name(pad) == net_name]
+            if pads:
+                found.append((reference, pads))
+        return found
+
+    def pads_on_net_by_type(self, net_name, electrical_type):
+        """(ref_des, pad_numbers) for pads on *net_name* declaring *electrical_type*.
+
+        Board order, and only pads whose schematic pin type is actually known
+        -- a board without pin metadata yields nothing here rather than a
+        misleading empty-versus-absent distinction.
+        """
+        found = []
+        for footprint in self._get_board_items("footprints"):
+            reference = self._get_footprint_reference(footprint)
+            if not reference:
+                continue
+            pads = [
+                self._pad_number(pad) for pad in self._get_pads(footprint)
+                if self._pad_net_name(pad) == net_name
+                and pad_electrical_type(pad) == electrical_type
+            ]
+            if pads:
+                found.append((reference, pads))
+        return found
+
+    @staticmethod
+    def _source_preference(ref_des):
+        """Rank a fallback source candidate. Lower sorts first.
+
+        An explicit heuristic, not a measurement: a rail is normally reached
+        through its regulator's output inductor or ferrite, so L/FB references
+        are the best guess for where energy enters the rail, then active parts,
+        then anything else. Recorded here so the ordering is reviewable rather
+        than buried in a sort key.
+        """
+        name = str(ref_des).upper()
+        if name.startswith("FB") or name.startswith("L"):
+            return 0
+        if name.startswith("U"):
+            return 1
+        return 2
+
+    def resolve_source(self, rail, settings, all_rails=None):
+        """Pick the component injecting energy into the rail.
+
+        Order: the explicit setting, a declared UnifiedSource, the output of a
+        regulator feeding this rail, then a heuristic pick among components on
+        the rail. Returns (ref_des, rail_pad_names, how) where *how* records
+        which rule fired, for logging and for the failure message.
+        """
+        if settings.source.ref_des:
+            return settings.source.ref_des, list(settings.source.rail_pad_names), "explicit"
+        if rail is not None and rail.sources:
+            source = rail.sources[0]
+            return source.component_ref.ref_des, list(source.pad_names), "power-tree source"
+
+        # PowerRail.child_regulators lists regulators this rail *feeds*, so the
+        # one that produces this rail lives on some other rail's list.
+        for candidate_rail in (all_rails or ([rail] if rail is not None else [])):
+            for regulator in getattr(candidate_rail, "child_regulators", ()) or ():
+                if getattr(regulator, "output_rail_name", "") == settings.rail_name:
+                    return (
+                        regulator.output_ref_des,
+                        list(regulator.output_pad_names or []),
+                        f"regulator '{getattr(regulator, 'name', '')}' output",
+                    )
+
+        # A pin the schematic declares a power output is where energy enters
+        # this net.  That is a fact off the board, not an inference from a
+        # reference designator, so it outranks the naming heuristic below.
+        power_outputs = self.pads_on_net_by_type(settings.rail_name, EPT_POWER_OUTPUT)
+        if power_outputs:
+            reference, pads = power_outputs[0]
+            return reference, list(pads), "pin-type:power_output"
+
+        candidates = self.components_on_net(settings.rail_name)
+        # A power input is a load by definition and can never be the source.
+        # Dropping those leaves the naming heuristic a smaller, saner pool.
+        power_inputs = {
+            reference for reference, _pads
+            in self.pads_on_net_by_type(settings.rail_name, EPT_POWER_INPUT)
+        }
+        remaining = [item for item in candidates if item[0] not in power_inputs]
+        if remaining:
+            reference, pads = min(
+                remaining, key=lambda item: (self._source_preference(item[0]), item[0]),
+            )
+            rule = "heuristic pick among rail components"
+            if power_inputs:
+                rule += f" (excluded {len(power_inputs)} power-input load(s))"
+            return reference, list(pads), rule
+        if candidates:
+            # Everything on the rail is a declared load.  Naming it explicitly
+            # beats silently returning a load as if it were a supply.
+            return "", [], "unresolved: every component on the rail is a power input"
+        return "", [], "unresolved"
+
+    def resolve_ports(self, rail, settings):
+        """Every candidate measurement port, as (ref_des, rail_pad_names).
+
+        An explicit port wins. Otherwise every declared load is a port, and
+        so is every child regulator's INPUT pin: a regulator draws current
+        from this rail exactly as a load does (converter_input_current
+        counts it into the target), but PowerRail.loads never lists it, so
+        it was never swept. P02 Rev E's /VBUS_SYS has no loads of its own --
+        only a user-forced port on Q10 was ever measured -- though the
+        target counts U14's input current (AC-4). The PDN is qualified by
+        its worst observation point, and which point that is cannot be
+        known before solving.
+        """
+        if settings.measurement_port.ref_des:
+            return [(
+                settings.measurement_port.ref_des,
+                list(settings.measurement_port.rail_pad_names),
+            )]
+        ports = []
+        for load in (getattr(rail, "loads", ()) or ()):
+            ports.append((load.component_ref.ref_des, list(load.pad_names)))
+        for regulator in (getattr(rail, "child_regulators", ()) or ()):
+            if regulator.input_ref_des:
+                ports.append((regulator.input_ref_des, list(regulator.input_pad_names or [])))
+        return ports
+
+    def _connection(
+        self, rail_mesh, ground_mesh, offset, ref_des,
+        rail_pad_names, ground_pad_names, settings, label="port",
+    ):
+        """Map one port to rail and return nodes, falling back to the plane.
+
+        Ground resolution order: the pads named on the component, then the
+        nearest ground-mesh nodes under the rail pads. The second path is what
+        makes a regulator output inductor -- which has no ground pad at all --
+        usable as a port.
+        """
+        rail_nodes = self.find_pad_nodes(
+            rail_mesh, ref_des, rail_pad_names, settings.rail_name,
+        )
+        ground_nodes = self.find_pad_nodes(
+            ground_mesh, ref_des, ground_pad_names, settings.ground_net_name,
+        )
+        if not ground_nodes and rail_nodes:
+            ground_nodes = nearest_ground_nodes(
+                ground_mesh, rail_mesh, rail_nodes,
+                outlines=self._rail_pad_outlines(ref_des, rail_pad_names, settings.rail_name),
+            )
+            if ground_nodes:
+                self._log(
+                    f"{label} '{ref_des}' has no {settings.ground_net_name} pad; "
+                    f"using the {len(ground_nodes)} return-plane node(s) "
+                    "under its rail pads as the AC return."
+                )
+        return ACNodeConnection(
+            rail_nodes=rail_nodes,
+            ground_nodes=[node + offset for node in ground_nodes],
+        )
+
+    def _unmapped_message(self, label, ref_des, settings):
+        """Explain a failed port mapping in terms the user can act on."""
+        if not ref_des:
+            return (
+                f"No {label} could be resolved automatically for rail "
+                f"'{settings.rail_name}'. Declare a source or a load on the rail in "
+                "the Power Tree, or pick a component explicitly in the AC Impedance tab."
+            )
+        available = self.pad_names_for_net(ref_des, settings.rail_name)
+        if not self._find_footprint(ref_des):
+            return (
+                f"The {label} component '{ref_des}' was not found on the board."
+            )
+        if not available:
+            return (
+                f"The {label} component '{ref_des}' has no pad on rail "
+                f"'{settings.rail_name}'. Pick a component that connects to the rail."
+            )
+        return (
+            f"The {label} pads of '{ref_des}' on '{settings.rail_name}' "
+            f"(pads {', '.join(available)}) could not be matched to the rail mesh. "
+            "Try a finer AC mesh resolution."
+        )
 
     def _translate_mesh(self, mesh, offset):
         branches = [MeshBranch(
@@ -279,60 +1371,170 @@ class ACModelBuilder:
         coords = {node_id + offset: coord for node_id, coord in mesh.node_coords.items()}
         return branches, coords
 
-    def build(self, rail: PowerRail, settings: ACAnalysisSettings, grid_size_mm=0.5):
-        extractor = GeometryExtractor(self.board, debug=self.debug, log_callback=self.log_callback)
-        stackup = extractor.get_board_stackup()
-        rail_geometry = extractor.get_net_geometry(settings.rail_name)
-        ground_geometry = extractor.get_net_geometry(settings.ground_net_name)
-        if not rail_geometry:
-            raise ValueError(f"No copper geometry found for rail '{settings.rail_name}'.")
-        if not ground_geometry:
-            raise ValueError(f"No copper geometry found for return net '{settings.ground_net_name}'.")
+    def _hybrid_meshes(self, parsed_board, layer_mapping, settings, stackup,
+                       grid_size_mm, mesher):
+        """Rail and return meshes from the saved board's hybrid mesher.
+
+        The raster mesh modelled a track as the grid rows its outline
+        happened to cover: x0.5 to x2.1 on its resistance at the AC grid, and
+        an oblique track one step wide could conduct nothing at all
+        (raster_fidelity). The hybrid mesh the DC report already uses gives
+        tracks and via barrels their analytic resistance and pours a
+        cut-cell lattice. It carries no inductance: a barrel gets the raster
+        mesh's _calculate_vertical_l here, and every lateral branch its loop
+        inductance in build(), as the raster mesh's do.
+
+        Returns ``(rail_mesh, ground_mesh, rail_cells)``, the meshes
+        relabelled to live layer ids and ``rail_cells`` the share of a grid
+        cell each of the rail's pour-lattice nodes covers, the only nodes
+        that stand for a cell of cavity: a quarter of the copper fraction of
+        each lattice edge it ends, whose section is that fraction of a cell
+        width times the copper thickness.
+        """
+        try:
+            from .mesh_hybrid import HybridMesher, relabel_layers
+            from .physical_constants import (
+                DEFAULT_COPPER_THICKNESS_MM, PLATING_THICKNESS_FALLBACK_MM,
+            )
+        except (ImportError, ValueError):
+            from mesh_hybrid import HybridMesher, relabel_layers
+            from physical_constants import (
+                DEFAULT_COPPER_THICKNESS_MM, PLATING_THICKNESS_FALLBACK_MM,
+            )
+
+        hybrid = HybridMesher(
+            parsed_board, grid_step_mm=grid_size_mm, log_callback=self.log_callback,
+        )
+        rail_mesh = hybrid.build_mesh(settings.rail_name)
+        ground_mesh = _cached_ground_mesh(hybrid, parsed_board, settings.ground_net_name, grid_size_mm)
+        for mesh in (rail_mesh, ground_mesh):
+            relabel_layers(mesh, layer_mapping)
+        plating = PLATING_THICKNESS_FALLBACK_MM
+        for mesh in (rail_mesh, ground_mesh):
+            for branch in mesh.branches:
+                if branch.kind != "vertical":
+                    continue
+                # The barrel section is pi*(d*p + p^2); d back from it.
+                drill = branch.cross_section_mm2 / (math.pi * plating) - plating
+                branch.inductance_h = mesher._calculate_vertical_l(
+                    mesh.node_coords[branch.node_a][2], mesh.node_coords[branch.node_b][2],
+                    stackup, max(drill, 0.05),
+                )
+        thickness = {
+            layer_mapping[layer.layer_id]: layer.thickness_mm or DEFAULT_COPPER_THICKNESS_MM
+            for layer in parsed_board.stackup.layers if layer.layer_id in layer_mapping
+        }
+        step = float(rail_mesh.grid_step)
+        rail_cells = defaultdict(float)
+        for branch in rail_mesh.branches:
+            if branch.geometry_source.endswith((":h", ":v")):
+                layer = rail_mesh.node_coords[branch.node_a][2]
+                fraction = branch.cross_section_mm2 / (
+                    step * thickness.get(layer, DEFAULT_COPPER_THICKNESS_MM)
+                )
+                for node in (branch.node_a, branch.node_b):
+                    rail_cells[node] += min(1.0, fraction) / 4.0
+        return rail_mesh, ground_mesh, dict(rail_cells)
+
+    def build(self, rail: PowerRail, settings: ACAnalysisSettings, grid_size_mm=0.5,
+              all_rails=None, parsed_board=None, layer_mapping=None, stackup=None):
+        """The rail's AC network.
+
+        With *parsed_board* (the saved board file) and *layer_mapping* (its
+        layer ids onto the live board's), the network is built on the hybrid
+        mesh; without them, on the raster mesh of the open board. Given
+        *stackup* as well, a hybrid build reads nothing from the live board
+        but its pads, so a detached snapshot of them serves as ``board``.
+        """
+        extractor = None
+        if stackup is None or parsed_board is None:
+            extractor = GeometryExtractor(self.board, debug=self.debug, log_callback=self.log_callback)
+        if stackup is None:
+            stackup = extractor.get_board_stackup()
+        rail_geometry = ground_geometry = None
+        if parsed_board is None:
+            rail_geometry = extractor.get_net_geometry(settings.rail_name)
+            ground_geometry = extractor.get_net_geometry(settings.ground_net_name)
+            if not rail_geometry:
+                raise ValueError(f"No copper geometry found for rail '{settings.rail_name}'.")
+            if not ground_geometry:
+                raise ValueError(f"No copper geometry found for return net '{settings.ground_net_name}'.")
 
         mesher = Mesher(self.board, debug=self.debug, log_callback=self.log_callback)
-        rail_mesh = mesher.generate_mesh(settings.rail_name, rail_geometry, stackup, grid_size_mm)
-        ground_mesh = mesher.generate_mesh(settings.ground_net_name, ground_geometry, stackup, grid_size_mm)
+        rail_cells = None
+        self._pad_outlines = pad_outline_index(parsed_board) if parsed_board is not None else {}
+        if parsed_board is not None:
+            rail_mesh, ground_mesh, rail_cells = self._hybrid_meshes(
+                parsed_board, dict(layer_mapping or {}), settings, stackup,
+                grid_size_mm, mesher,
+            )
+        else:
+            rail_mesh = mesher.generate_mesh(
+                settings.rail_name, rail_geometry, stackup, grid_size_mm,
+            )
+            ground_mesh = mesher.generate_mesh(
+                settings.ground_net_name, ground_geometry, stackup, grid_size_mm,
+            )
         if not rail_mesh.nodes or not ground_mesh.nodes:
             raise ValueError("The AC rail-to-ground mesh is empty.")
+        # Each node's loop inductance is measured to the return copper
+        # actually beneath it, not to the nearest layer carrying the other
+        # net anywhere (see Mesher.return_paths).
+        mesher.assign_loop_inductance(rail_mesh, ground_mesh, stackup)
+        mesher.assign_loop_inductance(ground_mesh, rail_mesh, stackup)
+        mesher.assign_via_pair_inductance(rail_mesh, ground_mesh, stackup)
 
         offset = len(rail_mesh.nodes)
         rail_branches, rail_coords = self._translate_mesh(rail_mesh, 0)
         ground_branches, ground_coords = self._translate_mesh(ground_mesh, offset)
+        # Plane-pair (cavity) capacitance, C = eps0*er*A_cell/h between each
+        # rail node and the return node directly beneath/above it (old open
+        # item: previously absent from the model entirely).
+        cavity_capacitors = [
+            (rail_node, ground_node + offset, capacitance_f)
+            for rail_node, ground_node, capacitance_f in
+            mesher.cavity_capacitor_pairs(
+                rail_mesh, ground_mesh, stackup, rail_cell_share=rail_cells,
+            )
+        ]
 
-        source_ref = settings.source.ref_des
-        source_rail_pads = settings.source.rail_pad_names
-        if not source_ref and rail.sources:
-            source_ref = rail.sources[0].component_ref.ref_des
-            source_rail_pads = rail.sources[0].pad_names
+        source_ref, source_rail_pads, source_rule = self.resolve_source(
+            rail, settings, all_rails=all_rails,
+        )
+        if source_rule != "explicit":
+            self._log(f"AC source resolved to '{source_ref or '(none)'}' via {source_rule}.")
         source_ground_pads = settings.source.ground_pad_names or self.pad_names_for_net(
             source_ref, settings.ground_net_name
         )
 
-        port_ref = settings.measurement_port.ref_des
-        port_rail_pads = settings.measurement_port.rail_pad_names
-        if not port_ref and rail.loads:
-            port_ref = rail.loads[0].component_ref.ref_des
-            port_rail_pads = rail.loads[0].pad_names
+        candidate_ports = self.resolve_ports(rail, settings)
+        port_ref, port_rail_pads = candidate_ports[0] if candidate_ports else ("", [])
         port_ground_pads = settings.measurement_port.ground_pad_names or self.pad_names_for_net(
             port_ref, settings.ground_net_name
         )
 
-        source = ACNodeConnection(
-            rail_nodes=self.find_pad_nodes(rail_mesh, source_ref, source_rail_pads, settings.rail_name),
-            ground_nodes=[node + offset for node in self.find_pad_nodes(
-                ground_mesh, source_ref, source_ground_pads, settings.ground_net_name
-            )],
+        source = self._connection(
+            rail_mesh, ground_mesh, offset, source_ref,
+            source_rail_pads, source_ground_pads, settings, label="AC source",
         )
-        measurement = ACNodeConnection(
-            rail_nodes=self.find_pad_nodes(rail_mesh, port_ref, port_rail_pads, settings.rail_name),
-            ground_nodes=[node + offset for node in self.find_pad_nodes(
-                ground_mesh, port_ref, port_ground_pads, settings.ground_net_name
-            )],
+        measurement = self._connection(
+            rail_mesh, ground_mesh, offset, port_ref,
+            port_rail_pads, port_ground_pads, settings, label="measurement port",
         )
-        if not source.rail_nodes or not source.ground_nodes:
-            raise ValueError("The AC source must map to pads on both the rail and the return net.")
-        if not measurement.rail_nodes or not measurement.ground_nodes:
-            raise ValueError("The measurement port must map to pads on both the rail and the return net.")
+        if not source.rail_nodes:
+            raise ValueError(self._unmapped_message("AC source", source_ref, settings))
+        if not source.ground_nodes:
+            raise ValueError(
+                f"No return-net copper was found beneath the AC source pads on "
+                f"'{settings.ground_net_name}'."
+            )
+        if not measurement.rail_nodes:
+            raise ValueError(self._unmapped_message("measurement port", port_ref, settings))
+        if not measurement.ground_nodes:
+            raise ValueError(
+                f"No return-net copper was found beneath the measurement port pads on "
+                f"'{settings.ground_net_name}'."
+            )
 
         capacitor_nodes = {}
         for capacitor in settings.capacitors:
@@ -347,15 +1549,69 @@ class ACModelBuilder:
             else:
                 self._log(f"Skipping {capacitor.ref_des}: pads could not be mapped to both meshes.")
 
+        # Map every remaining candidate port so the solver can sweep them all.
+        # The first is already mapped as `measurement`, which stays the
+        # single-port contract the existing UI and adapter consume.
+        ports = {}
+        for candidate_ref, candidate_pads in candidate_ports:
+            if candidate_ref in ports:
+                continue
+            connection = (
+                measurement if candidate_ref == port_ref
+                else self._connection(
+                    rail_mesh, ground_mesh, offset, candidate_ref, candidate_pads,
+                    self.pad_names_for_net(candidate_ref, settings.ground_net_name),
+                    settings, label=f"port '{candidate_ref}'",
+                )
+            )
+            if connection.rail_nodes and connection.ground_nodes:
+                ports[candidate_ref] = connection
+            else:
+                self._log(
+                    f"Skipping port '{candidate_ref}': pads could not be mapped to both meshes."
+                )
+
+        combined_coords = {**rail_coords, **ground_coords}
+        substrates = (stackup or {}).get("substrate") or ()
+        epsilon_values = [
+            float(entry.get("epsilon_r", 4.4)) for entry in substrates
+            if isinstance(entry, dict)
+        ]
+        # The largest permittivity gives the shortest wavelength and so the
+        # most conservative bound of the stack.
+        epsilon = max(epsilon_values) if epsilon_values else 4.4
+        limit_hz = quasi_static_limit_hz(network_span_mm(combined_coords), epsilon)
+
+        # The raster error depends on the tracks; the hybrid mesh has none.
+        track_summary = {}
+        if parsed_board is None:
+            summaries = [
+                extractor.get_track_summary(name)
+                for name in (settings.rail_name, settings.ground_net_name)
+            ]
+            widths = [item["finest_width_mm"] for item in summaries if item["track_count"]]
+            track_summary = {
+                "track_count": sum(item["track_count"] for item in summaries),
+                "finest_width_mm": min(widths) if widths else 0.0,
+                "oblique_count": sum(item["oblique_count"] for item in summaries),
+            }
+
         return ACNetwork(
+            track_summary=track_summary,
             node_count=len(rail_mesh.nodes) + len(ground_mesh.nodes),
             branches=rail_branches + ground_branches,
             source=source,
             measurement=measurement,
             capacitor_nodes=capacitor_nodes,
-            node_coords={**rail_coords, **ground_coords},
+            node_coords=combined_coords,
             requested_grid_size_mm=float(grid_size_mm),
             effective_grid_size_mm=max(
                 float(rail_mesh.grid_step), float(ground_mesh.grid_step),
             ),
+            ports=ports,
+            source_ref_des=source_ref,
+            source_resolution=source_rule,
+            quasi_static_limit_hz=limit_hz,
+            cavity_capacitors=cavity_capacitors,
+            mesh_engine="raster" if parsed_board is None else "hybrid",
         )

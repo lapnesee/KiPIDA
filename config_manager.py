@@ -1,4 +1,8 @@
+import glob
 import json
+import os
+import shutil
+import time
 from typing import List, Optional, Union
 from pathlib import Path
 
@@ -10,7 +14,7 @@ try:
         DifferentialAnalysisSettings, DifferentialPairCandidate,
         EMCAnalysisSettings, EMCInductorModel, EMCPhase10Settings, EMCSignalSource,
         PowerRail, ProjectConfig, StackupLayerModel, StackupProfile,
-        ThermalAnalysisSettings, ThermalComponentModel, UnifiedLoad,
+        ThermalAnalysisSettings, ThermalComponentModel, ThermalHeatsink, UnifiedLoad,
         UnifiedSource, VoltageRegulator,
     )
 except (ImportError, ValueError):
@@ -21,9 +25,13 @@ except (ImportError, ValueError):
         DifferentialAnalysisSettings, DifferentialPairCandidate,
         EMCAnalysisSettings, EMCInductorModel, EMCPhase10Settings, EMCSignalSource,
         PowerRail, ProjectConfig, StackupLayerModel, StackupProfile,
-        ThermalAnalysisSettings, ThermalComponentModel, UnifiedLoad,
+        ThermalAnalysisSettings, ThermalComponentModel, ThermalHeatsink, UnifiedLoad,
         UnifiedSource, VoltageRegulator,
     )
+
+# One instance, built once, so the loader's fallbacks are the dataclass's
+# defaults rather than a copy of them that can drift.
+_CFD_SOLVER_DEFAULTS = CFDSolverSettings()
 
 CONFIG_VERSION = "2.0"
 SUPPORTED_CONFIG_VERSIONS = {
@@ -76,16 +84,47 @@ def save_config(
         ),
         "emc_profile": _emc_settings_to_dict(emc_profile) if emc_profile is not None else None,
     }
-    
-    with open(filepath, 'w') as f:
-        json.dump(config, f, indent=2)
+    write_config_text(Path(filepath), json.dumps(config, indent=2))
+
+
+# Timestamped copies of the configuration a save replaced, kept beside it.
+CONFIG_BACKUPS_KEPT = 5
+
+
+def write_config_text(path: Path, text: str) -> bool:
+    """Replace *path* with *text* atomically, keeping the old file as a
+    timestamped backup. False when the file already holds *text*.
+
+    The file used to be rewritten in place: a save cut short left a
+    truncated sidecar, which the next launch set aside as unreadable and
+    the next save overwrote. P02 Rev E's held 83 kB of power tree and
+    profiles. A user's own ``.bak`` is never touched.
+    """
+    path = Path(path)
+    # The platform's line ending, as the text-mode write used to produce.
+    data = text.replace("\n", os.linesep).encode("utf-8")
+    if path.exists() and path.read_bytes() == data:
+        return False
+    temporary = path.with_name(path.name + ".tmp")
+    with open(temporary, "wb") as handle:
+        handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
+    if path.exists():
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        shutil.copy2(path, path.with_name(f"{path.name}.{stamp}.bak"))
+        backups = sorted(path.parent.glob(f"{glob.escape(path.name)}.????????-??????.bak"))
+        for old in backups[:-CONFIG_BACKUPS_KEPT]:
+            old.unlink()
+    os.replace(temporary, path)
+    return True
 
 def load_project_config(filepath: str) -> ProjectConfig:
     """Load the complete project configuration, including legacy v1.0 files."""
     if not Path(filepath).exists():
         raise FileNotFoundError(f"Config file not found: {filepath}")
     
-    with open(filepath, 'r') as f:
+    with open(filepath, 'r', encoding="utf-8") as f:
         config = json.load(f)
     
     # Validate version
@@ -221,6 +260,7 @@ def _regulator_to_dict(reg: VoltageRegulator) -> dict:
         "efficiency": reg.efficiency,
         "thermal_ref_des": reg.thermal_ref_des,
         "loss_model": reg.loss_model,
+        "r_pass_ohm": reg.r_pass_ohm,
     }
 
 def _dict_to_regulator(data: dict) -> VoltageRegulator:
@@ -237,6 +277,7 @@ def _dict_to_regulator(data: dict) -> VoltageRegulator:
         efficiency=data.get("efficiency", 0.85),
         thermal_ref_des=data.get("thermal_ref_des", ""),
         loss_model=dict(data.get("loss_model", {}) or {}),
+        r_pass_ohm=data.get("r_pass_ohm", 0.0),
     )
 
 
@@ -249,6 +290,9 @@ def _ac_settings_to_dict(settings: ACAnalysisSettings) -> dict:
         "frequency_points": settings.frequency_points,
         "mesh_resolution_mm": settings.mesh_resolution_mm,
         "target_impedance_ohm": settings.target_impedance_ohm,
+        "ripple_fraction": settings.ripple_fraction,
+        "transient_fraction": settings.transient_fraction,
+        "transient_rise_time_ns": settings.transient_rise_time_ns,
         "source": {
             "ref_des": settings.source.ref_des,
             "rail_pad_names": settings.source.rail_pad_names,
@@ -287,7 +331,12 @@ def _dict_to_ac_settings(data: dict) -> ACAnalysisSettings:
         frequency_stop_hz=float(data.get("frequency_stop_hz", 1e8)),
         frequency_points=int(data.get("frequency_points", 121)),
         mesh_resolution_mm=max(0.1, float(data.get("mesh_resolution_mm", 0.5))),
-        target_impedance_ohm=float(data.get("target_impedance_ohm", 0.05)),
+        # Absent means "derive from the rail", matching the dataclass default.
+        # A file that stored a target keeps it: a saved number is a decision.
+        target_impedance_ohm=float(data.get("target_impedance_ohm", 0.0)),
+        ripple_fraction=float(data.get("ripple_fraction", 0.02)),
+        transient_fraction=float(data.get("transient_fraction", 0.5)),
+        transient_rise_time_ns=float(data.get("transient_rise_time_ns", 0.0) or 0.0),
         source=ACSourceModel(
             ref_des=source_data.get("ref_des", ""),
             rail_pad_names=source_data.get("rail_pad_names", []),
@@ -379,9 +428,6 @@ def _differential_settings_to_dict(settings: DifferentialAnalysisSettings) -> di
         "fabrication_profile": settings.fabrication_profile,
         "geometry_mode": settings.geometry_mode,
         "coplanar_ground_gap_mm": settings.coplanar_ground_gap_mm,
-        "enable_targeted_3d_refinement": settings.enable_targeted_3d_refinement,
-        "targeted_3d_max_sections": settings.targeted_3d_max_sections,
-        "targeted_3d_error_threshold_pct": settings.targeted_3d_error_threshold_pct,
         "minimum_width_mm": settings.minimum_width_mm,
         "minimum_gap_mm": settings.minimum_gap_mm,
         "minimum_ground_clearance_mm": settings.minimum_ground_clearance_mm,
@@ -415,9 +461,6 @@ def _dict_to_differential_settings(data: dict) -> DifferentialAnalysisSettings:
         fabrication_profile=data.get("fabrication_profile", "GENERIC"),
         geometry_mode=data.get("geometry_mode", "AUTO"),
         coplanar_ground_gap_mm=float(data.get("coplanar_ground_gap_mm", 0.15)),
-        enable_targeted_3d_refinement=bool(data.get("enable_targeted_3d_refinement", True)),
-        targeted_3d_max_sections=max(0, int(data.get("targeted_3d_max_sections", 4))),
-        targeted_3d_error_threshold_pct=max(0.0, float(data.get("targeted_3d_error_threshold_pct", 10.0))),
         minimum_width_mm=float(data.get("minimum_width_mm", 0.10)),
         minimum_gap_mm=float(data.get("minimum_gap_mm", 0.10)),
         minimum_ground_clearance_mm=float(data.get("minimum_ground_clearance_mm", 0.15)),
@@ -447,6 +490,7 @@ def _emc_settings_to_dict(settings: EMCAnalysisSettings) -> dict:
             "auto_run_full_wave": phase10.auto_run_full_wave,
             "full_wave_backend": phase10.full_wave_backend,
             "ngspice_path": phase10.ngspice_path,
+            "pspice_path": phase10.pspice_path,
             "spice_library_path": phase10.spice_library_path,
             "openems_root": phase10.openems_root,
             "openems_python_path": phase10.openems_python_path,
@@ -588,6 +632,9 @@ def _dict_to_emc_settings(data: dict) -> EMCAnalysisSettings:
             full_wave_backend=full_wave_backend,
             ngspice_path=str(phase10_data.get(
                 "ngspice_path", phase10_defaults.ngspice_path
+            )),
+            pspice_path=str(phase10_data.get(
+                "pspice_path", phase10_defaults.pspice_path
             )),
             spice_library_path=str(phase10_data.get(
                 "spice_library_path", phase10_defaults.spice_library_path
@@ -749,6 +796,8 @@ def _thermal_settings_to_dict(settings: ThermalAnalysisSettings) -> dict:
         "color_scale_maximum_mode": settings.color_scale_maximum_mode,
         "color_scale_maximum_c": settings.color_scale_maximum_c,
         "show_internal_copper_layers": settings.show_internal_copper_layers,
+        "mesh_sensitivity_check": settings.mesh_sensitivity_check,
+        "apply_enclosure_ambient": settings.apply_enclosure_ambient,
         "coupled_iterations": settings.coupled_iterations,
         "convergence_c": settings.convergence_c,
         "relaxation": settings.relaxation,
@@ -767,8 +816,51 @@ def _thermal_settings_to_dict(settings: ThermalAnalysisSettings) -> dict:
             "thermal_source": component.thermal_source,
             "thermal_condition": component.thermal_condition,
             "parameter_provenance": component.parameter_provenance,
+            "theta_reference": component.theta_reference,
+            "rated_current_a": component.rated_current_a,
+            "current_derating": [dict(row) for row in component.current_derating],
+            "current_derating_source": component.current_derating_source,
+            "body_exchange": component.body_exchange,
+            "body_area_mm2": component.body_area_mm2,
         } for component in settings.components],
+        "heatsinks": [_heatsink_to_dict(heatsink) for heatsink in settings.heatsinks],
     }
+
+
+_HEATSINK_NUMBERS = (
+    "x_min_mm", "y_min_mm", "x_max_mm", "y_max_mm", "theta_jc_c_per_w",
+    "interface_thickness_mm", "interface_k_w_mk", "interface_resistance_k_cm2_w",
+    "theta_sa_c_per_w", "fin_area_mm2", "fin_length_mm", "emissivity",
+)
+
+
+def _heatsink_to_dict(heatsink: ThermalHeatsink) -> dict:
+    data = {
+        "name": heatsink.name, "enabled": heatsink.enabled,
+        "mount": heatsink.mount, "side": heatsink.side,
+        "polygon_mm": [[float(x), float(y)] for x, y in heatsink.polygon_mm],
+        "ref_des": heatsink.ref_des, "orientation": heatsink.orientation,
+    }
+    data.update((name, getattr(heatsink, name)) for name in _HEATSINK_NUMBERS)
+    return data
+
+
+def _dict_to_heatsink(data: dict) -> ThermalHeatsink:
+    default = ThermalHeatsink()
+    return ThermalHeatsink(
+        name=str(data.get("name", default.name) or default.name),
+        enabled=bool(data.get("enabled", True)),
+        mount=str(data.get("mount", default.mount) or default.mount).upper(),
+        side=str(data.get("side", default.side) or default.side).upper(),
+        polygon_mm=[
+            [float(point[0]), float(point[1])]
+            for point in data.get("polygon_mm", []) or []
+            if isinstance(point, (list, tuple)) and len(point) >= 2
+        ],
+        ref_des=str(data.get("ref_des", "") or ""),
+        orientation=str(data.get("orientation", default.orientation) or default.orientation).upper(),
+        **{name: float(data.get(name, getattr(default, name)) or 0.0) for name in _HEATSINK_NUMBERS},
+    )
 
 
 def _dict_to_thermal_settings(data: dict) -> ThermalAnalysisSettings:
@@ -800,10 +892,16 @@ def _dict_to_thermal_settings(data: dict) -> ThermalAnalysisSettings:
             if data.get("color_scale_maximum_c") is not None else None
         ),
         show_internal_copper_layers=bool(data.get("show_internal_copper_layers", True)),
+        mesh_sensitivity_check=bool(data.get(
+            "mesh_sensitivity_check", ThermalAnalysisSettings().mesh_sensitivity_check,
+        )),
+        apply_enclosure_ambient=bool(data.get(
+            "apply_enclosure_ambient", ThermalAnalysisSettings().apply_enclosure_ambient,
+        )),
         coupled_iterations=int(data.get("coupled_iterations", 10)),
         convergence_c=float(data.get("convergence_c", 0.1)),
         relaxation=float(data.get("relaxation", 0.6)),
-        copper_temp_coefficient_per_c=float(data.get("copper_temp_coefficient_per_c", 0.00393)),
+        copper_temp_coefficient_per_c=float(data.get("copper_temp_coefficient_per_c", ThermalAnalysisSettings().copper_temp_coefficient_per_c)),
         components=[ThermalComponentModel(
             ref_des=component["ref_des"],
             power_w=float(component.get("power_w", 0.0)),
@@ -818,7 +916,21 @@ def _dict_to_thermal_settings(data: dict) -> ThermalAnalysisSettings:
             thermal_source=component.get("thermal_source", "estimate"),
             thermal_condition=component.get("thermal_condition", ""),
             parameter_provenance=dict(component.get("parameter_provenance", {}) or {}),
+            theta_reference=str(component.get("theta_reference", "") or ""),
+            rated_current_a=float(component.get("rated_current_a", 0.0) or 0.0),
+            current_derating=[
+                {"temperature_c": float(row["temperature_c"]), "percent": float(row["percent"])}
+                for row in component.get("current_derating", []) or []
+                if isinstance(row, dict) and "temperature_c" in row and "percent" in row
+            ],
+            current_derating_source=str(component.get("current_derating_source", "") or ""),
+            body_exchange=bool(component.get("body_exchange", False)),
+            body_area_mm2=float(component.get("body_area_mm2", 0.0) or 0.0),
         ) for component in data.get("components", [])],
+        heatsinks=[
+            _dict_to_heatsink(heatsink) for heatsink in data.get("heatsinks", []) or []
+            if isinstance(heatsink, dict)
+        ],
     )
 
 
@@ -837,6 +949,7 @@ def _cfd_settings_to_dict(settings: EnclosureCFDSettings) -> dict:
             "board_offset_y_mm": geometry.board_offset_y_mm,
             "board_offset_z_mm": geometry.board_offset_z_mm,
             "wall_heat_transfer_w_m2k": geometry.wall_heat_transfer_w_m2k,
+            "emissivity": geometry.emissivity,
         },
         "fluid": {
             "density_kg_m3": fluid.density_kg_m3,
@@ -851,7 +964,6 @@ def _cfd_settings_to_dict(settings: EnclosureCFDSettings) -> dict:
             "tolerance": solver.tolerance,
             "relaxation": solver.relaxation,
             "pseudo_time_step_s": solver.pseudo_time_step_s,
-            "pressure_iterations": solver.pressure_iterations,
             "include_buoyancy": solver.include_buoyancy,
             "gravity_x_m_s2": solver.gravity_x_m_s2,
             "gravity_y_m_s2": solver.gravity_y_m_s2,
@@ -892,6 +1004,7 @@ def _dict_to_cfd_settings(data: dict) -> EnclosureCFDSettings:
             wall_heat_transfer_w_m2k=float(
                 geometry.get("wall_heat_transfer_w_m2k", 5.0)
             ),
+            emissivity=float(geometry.get("emissivity", 0.0)),
         ),
         fluid=FluidProperties(
             density_kg_m3=float(fluid.get("density_kg_m3", 1.184)),
@@ -900,18 +1013,31 @@ def _dict_to_cfd_settings(data: dict) -> EnclosureCFDSettings:
             conductivity_w_mk=float(fluid.get("conductivity_w_mk", 0.0262)),
             thermal_expansion_per_k=float(fluid.get("thermal_expansion_per_k", 0.00335)),
         ),
+        # Fallbacks come from the dataclass, never restated here.
+        #
+        # They used to be literals, which made this a second source of truth
+        # for every solver default. Raising max_iterations from 250 to 1000 in
+        # models.py therefore changed nothing: this loader kept substituting
+        # its own 250 for any project without a saved CFD section -- which is
+        # every project that has not opened the CFD panel. The behaviour looked
+        # exactly like a stale deployment, and was chased as one.
         solver=CFDSolverSettings(
-            cell_size_mm=float(solver.get("cell_size_mm", 5.0)),
-            max_iterations=int(solver.get("max_iterations", 250)),
-            tolerance=float(solver.get("tolerance", 1e-4)),
-            relaxation=float(solver.get("relaxation", 0.45)),
-            pseudo_time_step_s=float(solver.get("pseudo_time_step_s", 0.02)),
-            pressure_iterations=int(solver.get("pressure_iterations", 60)),
-            include_buoyancy=bool(solver.get("include_buoyancy", True)),
-            gravity_x_m_s2=float(solver.get("gravity_x_m_s2", 0.0)),
-            gravity_y_m_s2=float(solver.get("gravity_y_m_s2", 0.0)),
-            gravity_z_m_s2=float(solver.get("gravity_z_m_s2", -9.81)),
-            max_cells=int(solver.get("max_cells", 250000)),
+            cell_size_mm=float(solver.get("cell_size_mm", _CFD_SOLVER_DEFAULTS.cell_size_mm)),
+            max_iterations=int(solver.get("max_iterations", _CFD_SOLVER_DEFAULTS.max_iterations)),
+            tolerance=float(solver.get("tolerance", _CFD_SOLVER_DEFAULTS.tolerance)),
+            relaxation=float(solver.get("relaxation", _CFD_SOLVER_DEFAULTS.relaxation)),
+            pseudo_time_step_s=float(solver.get(
+                "pseudo_time_step_s", _CFD_SOLVER_DEFAULTS.pseudo_time_step_s,
+            )),
+            # A project saved before this field was removed still has a
+            # "pressure_iterations" key here; it is simply never read.
+            include_buoyancy=bool(solver.get(
+                "include_buoyancy", _CFD_SOLVER_DEFAULTS.include_buoyancy,
+            )),
+            gravity_x_m_s2=float(solver.get("gravity_x_m_s2", _CFD_SOLVER_DEFAULTS.gravity_x_m_s2)),
+            gravity_y_m_s2=float(solver.get("gravity_y_m_s2", _CFD_SOLVER_DEFAULTS.gravity_y_m_s2)),
+            gravity_z_m_s2=float(solver.get("gravity_z_m_s2", _CFD_SOLVER_DEFAULTS.gravity_z_m_s2)),
+            max_cells=int(solver.get("max_cells", _CFD_SOLVER_DEFAULTS.max_cells)),
         ),
         patches=[CFDBoundaryPatch(
             name=patch.get("name", "Patch"),

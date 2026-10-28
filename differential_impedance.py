@@ -1,6 +1,8 @@
 """Stackup-aware quasi-static differential transmission-line analysis."""
 
+from dataclasses import dataclass
 import math
+from typing import Any, Dict, Optional
 
 try:
     from shapely.geometry import LineString, Point
@@ -9,31 +11,42 @@ except ImportError:
     LineString = Point = unary_union = None
 
 try:
-    from .differential_3d import Targeted3DRefiner
+    from .physical_constants import DEFAULT_COPPER_THICKNESS_MM
     from .differential_length import assess_length_symmetry
     from .differential_geometry import (
-        COPLANAR_GEOMETRIES, GEOMETRY_MICROSTRIP, GEOMETRY_STRIPLINE,
-        GroundedCoplanarDifferentialSolver, normalize_geometry,
+        COPLANAR_GEOMETRIES, GEOMETRY_AUTO, GEOMETRY_MICROSTRIP, GEOMETRY_STRIPLINE,
+        EdgeCoupledDifferentialSolver, GroundedCoplanarDifferentialSolver,
+        normalize_geometry,
     )
     from .models import DifferentialPairResult, DifferentialSectionResult
     from .reference_plane_analyzer import ReferencePlaneAnalyzer
 except (ImportError, ValueError):
-    from differential_3d import Targeted3DRefiner
+    from physical_constants import DEFAULT_COPPER_THICKNESS_MM
     from differential_length import assess_length_symmetry
     from differential_geometry import (
-        COPLANAR_GEOMETRIES, GEOMETRY_MICROSTRIP, GEOMETRY_STRIPLINE,
-        GroundedCoplanarDifferentialSolver, normalize_geometry,
+        COPLANAR_GEOMETRIES, GEOMETRY_AUTO, GEOMETRY_MICROSTRIP, GEOMETRY_STRIPLINE,
+        EdgeCoupledDifferentialSolver, GroundedCoplanarDifferentialSolver,
+        normalize_geometry,
     )
     from models import DifferentialPairResult, DifferentialSectionResult
     from reference_plane_analyzer import ReferencePlaneAnalyzer
 
 
+@dataclass
 class DifferentialGeometrySnapshot:
-    """Immutable board geometry captured before entering a worker thread."""
+    """Immutable board geometry captured before entering a worker thread.
 
-    def __init__(self, tracks_by_net=None, zones_by_net=None):
-        self.tracks_by_net = dict(tracks_by_net or {})
-        self.zones_by_net = dict(zones_by_net or {})
+    A dataclass, so the campaign cache can read it: as a plain class it
+    made P02 Rev E's differential request uncomparable ("holds a
+    DifferentialGeometrySnapshot", 22:11:06), solved again every batch.
+    """
+
+    tracks_by_net: Optional[Dict[str, Any]] = None
+    zones_by_net: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self):
+        self.tracks_by_net = dict(self.tracks_by_net or {})
+        self.zones_by_net = dict(self.zones_by_net or {})
 
     @classmethod
     def capture(cls, extractor, pairs, reference_net_names):
@@ -55,6 +68,14 @@ class DifferentialGeometrySnapshot:
 
     def get_zone_geometry(self, net_name):
         return dict(self.zones_by_net.get(net_name, {}))
+
+
+# Share of a pair's solved length that must have a qualified reference for
+# the pair to be judged rather than reported as an estimate.
+QUALIFIED_LENGTH_PCT = 90.0
+# Same-layer ground coverage along a pair above which AUTO solves it as
+# coplanar rather than plain microstrip/stripline.
+COPLANAR_AUTO_COVERAGE_PCT = 90.0
 
 
 class DifferentialImpedanceSolver:
@@ -209,13 +230,29 @@ class DifferentialImpedanceSolver:
                 best_net, best_coverage = net_name, coverage
         return best_net, best_coverage
 
-    def _mask_adjusted_epsilon(self, epsilon_r, height_mm):
-        if not self.settings.include_solder_mask or height_mm <= 0:
-            return epsilon_r
-        ratio = min(0.25, self.settings.solder_mask_thickness_mm / height_mm)
-        return epsilon_r + ratio * 0.15 * (
-            self.settings.solder_mask_epsilon_r - 1.0
-        )
+    def _solder_mask(self, layer_id):
+        """Mask thickness and er over an outer copper layer.
+
+        The stackup's own F.Mask / B.Mask wins over the settings default
+        (0.02 mm / er 3.3); P02 Rev E's file says 0.01 mm (SI-6). A mask whose
+        er the file does not state keeps the configured er.
+        """
+        thickness = float(self.settings.solder_mask_thickness_mm)
+        epsilon = float(self.settings.solder_mask_epsilon_r)
+        layers = list(getattr(self.stackup, "layers", []) or [])
+        copper = [layer.layer_id for layer in layers if layer.kind.upper() == "COPPER"]
+        masks = [layer for layer in layers if layer.kind.upper() == "SOLDER_MASK"]
+        side = None
+        if copper and layer_id == copper[0]:
+            side = "F.Mask"
+        elif copper and layer_id == copper[-1]:
+            side = "B.Mask"
+        mask = next((layer for layer in masks if layer.name == side), None)
+        if mask is not None and mask.thickness_mm > 0.0:
+            thickness = float(mask.thickness_mm)
+            if mask.epsilon_r > 1.0:
+                epsilon = float(mask.epsilon_r)
+        return thickness, epsilon
 
     @staticmethod
     def _microstrip(width, gap, thickness, height, epsilon_r):
@@ -249,7 +286,7 @@ class DifferentialImpedanceSolver:
         layer_id = positive["layer_id"]
         copper = self._copper_layer(layer_id)
         layer_name = copper.name if copper else str(layer_id)
-        thickness = copper.thickness_mm if copper else 0.035
+        thickness = copper.thickness_mm if copper else DEFAULT_COPPER_THICKNESS_MM
         width = 0.5 * (positive["width_mm"] + negative["width_mm"])
         context = self.plane_analyzer.analyze(
             layer_id, positive, negative, gap_mm
@@ -260,6 +297,7 @@ class DifferentialImpedanceSolver:
         reference_epsilon = 4.4
         effective_epsilon = 0.0
         requested_geometry = normalize_geometry(self.settings.geometry_mode)
+        mask_thickness, mask_epsilon = self._solder_mask(layer_id)
         solved_topology = context.topology
         ground_clearance = 0.0
         reported_coverage = context.coverage_pct
@@ -296,8 +334,17 @@ class DifferentialImpedanceSolver:
                 reference_below_epsilon_r=context.epsilon_r_below,
                 trustworthy=False, warnings=warnings,
             )
+        use_coplanar = requested_geometry in COPLANAR_GEOMETRIES
+        if requested_geometry == GEOMETRY_AUTO:
+            # A same-layer ground running alongside the pair is part of the
+            # cross-section: AUTO ignored it and solved plain microstrip. On
+            # P02 Rev E a GND pour runs 0.2 mm from the USB pairs along ~90 %
+            # of their length (-0.8 % on Zdiff, SI-8).
+            if self._measured_coplanar_ground_gap(layer_id, positive, negative) is not None:
+                _net, coverage = self._coplanar_ground_coverage(layer_id, positive, negative)
+                use_coplanar = coverage >= COPLANAR_AUTO_COVERAGE_PCT
         try:
-            if requested_geometry in COPLANAR_GEOMETRIES:
+            if use_coplanar:
                 configured_ground_gap = max(
                     0.001, float(self.settings.coplanar_ground_gap_mm)
                 )
@@ -342,7 +389,7 @@ class DifferentialImpedanceSolver:
                         warnings.append("No same-layer ground pour was detected; the configured coplanar ground gap is used as design intent.")
                     else:
                         ground_clearance = measured_ground_gap
-                    if measured_ground_gap is not None and abs(measured_ground_gap - configured_ground_gap) > max(
+                    if requested_geometry != GEOMETRY_AUTO and measured_ground_gap is not None and abs(measured_ground_gap - configured_ground_gap) > max(
                         0.02, 0.2 * configured_ground_gap
                     ):
                         warnings.append(
@@ -354,8 +401,8 @@ class DifferentialImpedanceSolver:
                         copper_thickness_mm=thickness, height_above_mm=height_above,
                         epsilon_above=epsilon_above,
                         include_solder_mask=self.settings.include_solder_mask,
-                        solder_mask_thickness_mm=self.settings.solder_mask_thickness_mm,
-                        solder_mask_epsilon_r=self.settings.solder_mask_epsilon_r,
+                        solder_mask_thickness_mm=mask_thickness,
+                        solder_mask_epsilon_r=mask_epsilon,
                         backing_plane=not coplanar_without_backing,
                     )
                     z0, zdiff = coplanar.odd_mode_impedance_ohm, coplanar.differential_impedance_ohm
@@ -387,10 +434,26 @@ class DifferentialImpedanceSolver:
                     height = context.distance_below_mm
                     epsilon = context.epsilon_r_below
                 reference_distance = height
-                if context.topology == "MICROSTRIP":
-                    epsilon = self._mask_adjusted_epsilon(epsilon, height)
+                # The 2-D solve models the mask explicitly; raising the
+                # substrate er for it as well counted it twice (-0.7 % on
+                # P02 Rev E, SI-6).
                 reference_epsilon = epsilon
-                z0, zdiff = self._microstrip(width, gap_mm, thickness, height, epsilon)
+                try:
+                    solved = EdgeCoupledDifferentialSolver.solve_microstrip(
+                        width, gap_mm, thickness, height, epsilon,
+                        include_solder_mask=self.settings.include_solder_mask,
+                        solder_mask_thickness_mm=mask_thickness,
+                        solder_mask_epsilon_r=mask_epsilon,
+                    )
+                    z0 = solved.odd_mode_impedance_ohm
+                    zdiff = solved.differential_impedance_ohm
+                    effective_epsilon = solved.effective_epsilon_r
+                except ValueError:
+                    z0, zdiff = self._microstrip(width, gap_mm, thickness, height, epsilon)
+                    warnings.append(
+                        "2-D field solve failed for this geometry; falling back to the "
+                        "IPC-D-317A closed-form approximation (±10-25% typical error)."
+                    )
             elif context.topology in {"STRIPLINE", "ASYMMETRIC_STRIPLINE"}:
                 total = context.distance_above_mm + context.distance_below_mm
                 epsilon = (
@@ -399,10 +462,24 @@ class DifferentialImpedanceSolver:
                 ) / max(total, 1e-12)
                 reference_distance = min(context.distance_above_mm, context.distance_below_mm)
                 reference_epsilon = epsilon
-                z0, zdiff = self._stripline(
-                    width, gap_mm, thickness,
-                    context.distance_above_mm, context.distance_below_mm, epsilon,
-                )
+                try:
+                    solved = EdgeCoupledDifferentialSolver.solve_stripline(
+                        width, gap_mm, thickness,
+                        context.distance_above_mm, context.epsilon_r_above,
+                        context.distance_below_mm, context.epsilon_r_below,
+                    )
+                    z0 = solved.odd_mode_impedance_ohm
+                    zdiff = solved.differential_impedance_ohm
+                    effective_epsilon = solved.effective_epsilon_r
+                except ValueError:
+                    z0, zdiff = self._stripline(
+                        width, gap_mm, thickness,
+                        context.distance_above_mm, context.distance_below_mm, epsilon,
+                    )
+                    warnings.append(
+                        "2-D field solve failed for this geometry; falling back to the "
+                        "IPC-D-317A closed-form approximation (±10-25% typical error)."
+                    )
             else:
                 warnings.append("Impedance was not calculated without a reference plane.")
         except ValueError as exc:
@@ -432,6 +509,8 @@ class DifferentialImpedanceSolver:
             effective_epsilon_r=effective_epsilon,
             two_d_impedance_ohm=zdiff,
             three_d_impedance_ohm=zdiff,
+            solder_mask_thickness_mm=mask_thickness,
+            solder_mask_epsilon_r=mask_epsilon,
             trustworthy=bool((context.trustworthy or coplanar_without_backing) and zdiff > 0),
             warnings=warnings,
         )
@@ -524,6 +603,19 @@ class DifferentialImpedanceSolver:
             section.differential_impedance_ohm * max(section.length_mm, 1e-12)
             for section in solved
         ) / total_length
+        # The verdict rests on the routed length whose reference is
+        # qualified. A short connector escape with a partial plane made the
+        # whole pair "ESTIMATE" while an identical pair without one was
+        # judged: on P02 Rev E two USB pairs read FAIL/HIGH and three
+        # ESTIMATE/MEDIUM on the same geometry (audit-2026-09-23.md).
+        qualified = [section for section in solved if section.trustworthy]
+        qualified_length = sum(max(section.length_mm, 1e-12) for section in qualified)
+        result.qualified_length_pct = 100.0 * qualified_length / total_length
+        if qualified and result.qualified_length_pct >= QUALIFIED_LENGTH_PCT:
+            result.weighted_impedance_ohm = sum(
+                section.differential_impedance_ohm * max(section.length_mm, 1e-12)
+                for section in qualified
+            ) / qualified_length
         values = [section.differential_impedance_ohm for section in solved]
         result.minimum_impedance_ohm = min(values)
         result.maximum_impedance_ohm = max(values)
@@ -532,7 +624,7 @@ class DifferentialImpedanceSolver:
         result.trustworthy = bool(
             self.stackup.trustworthy
             and not unresolved
-            and all(section.trustworthy for section in result.sections)
+            and result.qualified_length_pct >= QUALIFIED_LENGTH_PCT
         )
         if unresolved:
             result.status = "FAIL"
@@ -551,38 +643,21 @@ class DifferentialImpedanceSolver:
         return result
 
     def _refine_problem_sections(self, result):
-        """Apply bounded 3-D refinement only to the highest-risk sections."""
+        """Record the 2-D solve as the section's only impedance.
+
+        A "targeted 3-D quasi-static refinement" used to rescale the sections
+        already more than 10 % off target by Z/(1+c), an empirical end-effect
+        factor applied at every bend as if the line ended there. It was not a
+        3-D solve and pushed the pairs it touched further off: P02 Rev E's
+        79.16 ohm sections read 76.48 (audit-2026-09-23.md SI-4). The 2-D
+        cross-section is the answer the tool can stand behind.
+        """
         for section in result.sections:
             section.two_d_impedance_ohm = section.differential_impedance_ohm
             section.three_d_impedance_ohm = section.differential_impedance_ohm
             section.refinement_status = (
                 "NOT_APPLICABLE" if section.topology == "BREAKOUT_TRANSITION"
                 else "2D_BASELINE"
-            )
-        if not self.settings.enable_targeted_3d_refinement:
-            return
-        refiner = Targeted3DRefiner(self.settings)
-        candidates = [
-            section for section in result.sections
-            if section.topology != "BREAKOUT_TRANSITION"
-            and refiner.select(section, result.pair.target_impedance_ohm)
-        ]
-        candidates.sort(key=lambda item: (
-            item.reference_coverage_pct,
-            -abs(item.differential_impedance_ohm - result.pair.target_impedance_ohm),
-            -item.length_mm,
-        ))
-        for section in candidates[:self.settings.targeted_3d_max_sections]:
-            refined = refiner.refine(section, result.pair.target_impedance_ohm)
-            if refined is None:
-                continue
-            section.refinement_status = refined.status
-            section.refinement_reason = refined.reason
-            section.three_d_impedance_ohm = refined.impedance_ohm
-            if refined.impedance_ohm > 0:
-                section.differential_impedance_ohm = refined.impedance_ohm
-            section.warnings.append(
-                f"Targeted 3-D quasi-static refinement: {refined.reason}."
             )
 
     def solve(self, pairs, progress_callback=None):

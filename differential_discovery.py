@@ -1,5 +1,20 @@
-"""Deterministic differential-pair discovery for KiCad IPC board objects."""
+"""Deterministic differential-pair discovery for KiCad IPC board objects.
 
+Two conventions carry a designer's intent (docs/plan-universalite.md, 5.4):
+
+* KiCad's own pairing of net names, which its differential-pair router
+  applies: past any trailing digits and underscores, a name ends in "+" or
+  "P" and its complement in "-" or "N" (``kicad_pair_complement``);
+* netclasses, the native declaration: a pair whose two nets share a netclass
+  other than Default was grouped by the designer, and a class named for an
+  impedance ("90ohm", "85Ohm-diff_PCIE") states its target.
+
+Other naming habits (USB_DP/USB_DM, _POS/_NEG) are still recognised, as
+suspicions KiCad itself would not route as a pair.
+"""
+
+import fnmatch
+import json
 import re
 from collections import defaultdict, deque
 
@@ -24,14 +39,103 @@ INTERFACE_DEFAULTS = {
 }
 
 
+_POLARITY_COMPLEMENTS = {"+": ("-", "P"), "-": ("+", "N"), "P": ("N", "P"), "N": ("P", "N")}
+_IMPEDANCE_IN_NAME_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*ohm", re.I)
+
+
+def kicad_pair_complement(net_name):
+    """``(complement, polarity)`` by KiCad's differential-pair naming rule, or None.
+
+    The rule of KiCad's router (PNS_KICAD_IFACE_BASE::matchDpSuffix): walking
+    back from the end past digits and underscores, the first other character
+    must be +, -, P or N; the complement swaps it for its opposite and keeps
+    everything else. "USB_D+" pairs with "USB_D-", "LANE0_P" with "LANE0_N",
+    "TX_P_1" with "TX_N_1", "CLKP" with "CLKN".
+    """
+    text = str(net_name or "")
+    index = len(text) - 1
+    while index >= 0 and (text[index].isdigit() or text[index] == "_"):
+        index -= 1
+    if index < 1 or text[index] not in _POLARITY_COMPLEMENTS:
+        return None
+    opposite, polarity = _POLARITY_COMPLEMENTS[text[index]]
+    return text[:index] + opposite + text[index + 1:], polarity
+
+
+def netclass_membership(project_path, net_names):
+    """``{net: netclass}`` for the named nets a .kicad_pro assigns to a netclass other than Default.
+
+    Explicit assignments first, then netclass patterns in order, matched as
+    KiCad's wildcards without regard to case.
+    """
+    try:
+        with open(project_path, encoding="utf-8") as handle:
+            settings = (json.load(handle) or {}).get("net_settings") or {}
+    except (OSError, ValueError):
+        return {}
+    membership = {}
+    for net, classes in (settings.get("netclass_assignments") or {}).items():
+        names = classes if isinstance(classes, list) else [classes]
+        chosen = next((name for name in names if name and name != "Default"), None)
+        if chosen:
+            membership[net] = chosen
+    patterns = [
+        (str(item.get("pattern", "")).upper(), str(item.get("netclass", "")))
+        for item in settings.get("netclass_patterns") or () if isinstance(item, dict)
+    ]
+    for net in net_names:
+        if net in membership:
+            continue
+        for pattern, netclass in patterns:
+            if pattern and netclass and netclass != "Default" and fnmatch.fnmatchcase(net.upper(), pattern):
+                membership[net] = netclass
+                break
+    return membership
+
+
+def pair_netclasses(project_path):
+    """The netclasses of a .kicad_pro that declare differential pairs, or None.
+
+    Every netclass carries a differential-pair width and gap, copied from the
+    Default class when it is made. A class whose designer set its own declares
+    pairs; one that kept the Default class's groups nets for another reason:
+    a power class holds both conductors of a supply, VIN_P beside VIN_N, and
+    its millimetre-wide tracks are no 100-ohm pair. A class named for an
+    impedance declares pairs whatever its dimensions. None when the file
+    defines no Default class to compare with.
+    """
+    try:
+        with open(project_path, encoding="utf-8") as handle:
+            classes = ((json.load(handle) or {}).get("net_settings") or {}).get("classes") or []
+    except (OSError, ValueError):
+        return None
+    classes = [item for item in classes if isinstance(item, dict)]
+    default = next((item for item in classes if item.get("name") == "Default"), None)
+    if default is None:
+        return None
+    inherited = (default.get("diff_pair_width"), default.get("diff_pair_gap"))
+    return {
+        str(item.get("name")) for item in classes
+        if item.get("name") and item.get("name") != "Default" and (
+            (item.get("diff_pair_width"), item.get("diff_pair_gap")) != inherited
+            or _IMPEDANCE_IN_NAME_RE.search(str(item.get("name")))
+        )
+    }
+
+
 class DifferentialPairDiscoverer:
     """Find likely differential pairs without mixing them with power rails."""
 
     _passive_prefixes = ("R", "C", "L", "FB")
 
-    def __init__(self, board, log_callback=None):
+    def __init__(self, board, log_callback=None, netclasses=None, pair_classes=None):
         self.board = board
         self.log_callback = log_callback
+        # A callable ``(net_names) -> {net: netclass}``, from the project file.
+        self.netclasses = netclasses
+        # A callable ``() -> set of netclass names`` declaring pairs
+        # (pair_netclasses), or None to take every shared netclass as one.
+        self.pair_classes = pair_classes
 
     def log(self, message):
         if self.log_callback:
@@ -52,6 +156,7 @@ class DifferentialPairDiscoverer:
                 if value is not None:
                     return value
             except Exception:
+                # A getter this kipy version lacks or refuses: the default.
                 pass
         return default
 
@@ -108,23 +213,42 @@ class DifferentialPairDiscoverer:
         return None
 
     @staticmethod
-    def _classify_interface(*labels):
+    def _has_token(text, token):
+        """*token* as a whole word: no letter immediately before or after.
+
+        Substring matching classified LED_DP / LED_DM as USB because "DP"
+        occurs in it (audit-2026-09-23.md SI-7). Digits may follow a token
+        (DDR3, ETH0) since interface names carry them.
+        """
+        return re.search(
+            r"(?<![A-Z])" + re.escape(token) + r"(?![A-Z])", text,
+        ) is not None
+
+    @classmethod
+    def _classify_interface(cls, *labels):
         text = " ".join(str(label).upper() for label in labels if label)
         rules = (
             ("PCIE", ("PCIE", "PCI_E", "PERST")),
             ("SATA", ("SATA",)),
             ("HDMI", ("HDMI", "TMDS")),
             ("MIPI", ("MIPI", "D-PHY", "DPHY")),
-            ("ETHERNET", ("ETH", "MDI", "TRD", "1000BASE")),
+            ("ETHERNET", ("ETH", "ETHERNET", "MDI", "TRD", "1000BASE")),
             ("LVDS", ("LVDS",)),
-            ("CAN", ("CANH", "CANL", "CAN_")),
+            ("CAN", ("CANH", "CANL", "CAN")),
             ("RS485", ("RS485", "RS422")),
             ("DDR", ("DDR", "DQS", "CK_T", "CK_C")),
-            ("USB", ("USB", "D+", "D-", "DP", "DM")),
+            ("USB", ("USB",)),
         )
         for interface, tokens in rules:
-            if any(token in text for token in tokens):
+            if any(cls._has_token(text, token) for token in tokens):
                 return interface
+        # A bare D+/D- or DP/DM names USB's data pair only when that is the
+        # whole name: LED_DP and LED_DM are a LED's drive pins.
+        base = str(labels[0] if labels else "").upper().strip("_-./ ")
+        if base.rsplit("/", 1)[-1] in {"D", ""} and any(
+            cls._has_token(text, token) for token in ("D+", "D-", "DP", "DM")
+        ):
+            return "USB"
         return "GENERIC"
 
     def _all_net_names(self):
@@ -178,13 +302,33 @@ class DifferentialPairDiscoverer:
         return found
 
     def _name_candidates(self):
+        names = self._all_net_names()
+        present = set(names)
+        candidates, paired = [], set()
+        for net_name in names:
+            match = kicad_pair_complement(net_name)
+            if match is None or match[1] != "P" or match[0] not in present:
+                continue
+            negative = match[0]
+            # Drop the polarity character to name the pair.
+            index = len(net_name) - 1
+            while net_name[index].isdigit() or net_name[index] == "_":
+                index -= 1
+            base = net_name[:index] + net_name[index + 1:]
+            candidates.append(self._make_candidate(
+                base, net_name, negative, confidence="LIKELY",
+                evidence=["kicad_pair_suffix"],
+            ))
+            paired.update((net_name, negative))
+
         grouped = defaultdict(dict)
-        for net_name in self._all_net_names():
+        for net_name in names:
+            if net_name in paired:
+                continue
             parsed = self._pair_key(net_name)
             if parsed:
                 base, polarity = parsed
                 grouped[base][polarity] = net_name
-        candidates = []
         for base, polarities in grouped.items():
             if "P" not in polarities or "N" not in polarities:
                 continue
@@ -194,6 +338,37 @@ class DifferentialPairDiscoverer:
                 evidence=["matching-net-names"],
             ))
         return candidates
+
+    def _apply_netclasses(self, candidates):
+        """Raise pairs whose nets share a declared netclass, and take a target its name states."""
+        if self.netclasses is None or not candidates:
+            return
+        try:
+            membership = self.netclasses(sorted({net for c in candidates for net in (c.positive_net, c.negative_net)}))
+        except Exception as exc:
+            self.log(f"Netclasses could not be read for the pair scan ({exc}); names alone were used.")
+            return
+        declaring = None
+        if self.pair_classes is not None:
+            try:
+                declaring = self.pair_classes()
+            except Exception as exc:
+                self.log(f"Netclass pair settings could not be read ({exc}); every shared netclass counts.")
+        for candidate in candidates:
+            netclass = membership.get(candidate.positive_net)
+            if not netclass or membership.get(candidate.negative_net) != netclass:
+                continue
+            if declaring is not None and netclass not in declaring:
+                # Shared, but a class that sets no pair geometry: a grouping.
+                candidate.evidence.append(f"netclass-group:{netclass}")
+                continue
+            candidate.evidence.append(f"netclass:{netclass}")
+            if candidate.confidence == "SUSPECTED":
+                candidate.confidence = "LIKELY"
+            impedance = _IMPEDANCE_IN_NAME_RE.search(netclass)
+            if impedance:
+                candidate.target_impedance_ohm = float(impedance.group(1).replace(",", "."))
+                candidate.evidence.append(f"target-from-netclass-name:{netclass}")
 
     def _pin_function_candidates(self):
         candidates = []
@@ -256,11 +431,34 @@ class DifferentialPairDiscoverer:
             polarity_swappable=swappable,
         )
 
+    @staticmethod
+    def _qualify(candidates):
+        """A pair named by suffix alone, on no interface, is only suspected.
+
+        KiCad's +/-/P/N suffix rule also matches BAT+/BAT-, CS+/CS-,
+        VREFP/VREFN, ISENSE_P/N, SPK_P/N and OUTP/OUTN, which then took a
+        GENERIC 100-ohm target and could fail as HIGH differential findings
+        on power and analogue nets (SI-7). Such a pair stays SUSPECTED and is
+        not analysed until a netclass, an identified interface or the user
+        confirms it.
+        """
+        for candidate in candidates:
+            if candidate.interface != "GENERIC":
+                continue
+            if any(item.startswith("netclass:") for item in candidate.evidence):
+                continue
+            if any(item.startswith("pin-functions:") for item in candidate.evidence):
+                continue
+            candidate.confidence = "SUSPECTED"
+            candidate.enabled = False
+
     def discover(self, existing_pairs=None, ignored_signatures=None):
         """Discover and merge candidates while preserving user decisions."""
         ignored = set(ignored_signatures or [])
         merged = {}
-        for candidate in self._name_candidates() + self._pin_function_candidates():
+        found = self._name_candidates() + self._pin_function_candidates()
+        self._apply_netclasses(found)
+        for candidate in found:
             if candidate.signature in ignored:
                 continue
             previous = merged.get(candidate.signature)
@@ -277,6 +475,7 @@ class DifferentialPairDiscoverer:
                 previous.target_impedance_ohm = candidate.target_impedance_ohm
                 previous.polarity_swappable = candidate.polarity_swappable
 
+        self._qualify(merged.values())
         existing = {pair.signature: pair for pair in (existing_pairs or [])}
         for signature, candidate in list(merged.items()):
             saved = existing.get(signature)

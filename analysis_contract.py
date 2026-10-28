@@ -17,6 +17,18 @@ import uuid
 SCHEMA_VERSION = "1.0.0"
 
 
+def _tool_identity() -> str:
+    """The running build, "0.19.0+2fb7b88c"; "" when it cannot be read."""
+    try:
+        try:
+            from .build_info import tool_identity
+        except (ImportError, ValueError):
+            from build_info import tool_identity
+        return tool_identity()
+    except Exception:
+        return ""
+
+
 class _StringEnum(str, Enum):
     def __str__(self) -> str:
         return self.value
@@ -40,6 +52,16 @@ class FindingSeverity(_StringEnum):
 
 
 class EvidenceConfidence(_StringEnum):
+    """What a finding's claim rests on -- not how serious it is.
+
+    DETERMINISTIC is a fact about the run or an exact count: a solve that did
+    not converge, a mesh coarser than a stated limit, a file that differs from
+    the open board. A model's verdict is never deterministic, however exact
+    its arithmetic, and neither is a comparison against a hard-coded
+    threshold: both are ESTIMATED (or HEURISTIC when the input itself is
+    guessed). DATASHEET_BACKED and MEASURED name where an input came from.
+    """
+
     DETERMINISTIC = "DETERMINISTIC"
     DATASHEET_BACKED = "DATASHEET_BACKED"
     MEASURED = "MEASURED"
@@ -48,7 +70,13 @@ class EvidenceConfidence(_StringEnum):
 
 
 def normalize_evidence_confidence(value: Any) -> EvidenceConfidence:
-    """Normalize legacy certainty labels at every UI/result boundary."""
+    """Normalize legacy certainty labels at every UI/result boundary.
+
+    HIGH used to become DETERMINISTIC. The analyzers that still grade
+    HIGH/MEDIUM/LOW -- the EMC rules above all -- give HIGH to findings whose
+    observation is exact geometry and whose verdict is a hard-coded distance
+    or ratio, so a HIGH is an estimate that rests on good data, not a fact.
+    """
     if isinstance(value, EvidenceConfidence):
         return value
     name = str(value or "LOW").upper().replace("-", "_")
@@ -56,7 +84,7 @@ def normalize_evidence_confidence(value: Any) -> EvidenceConfidence:
     if name in direct:
         return direct[name]
     return {
-        "HIGH": EvidenceConfidence.DETERMINISTIC,
+        "HIGH": EvidenceConfidence.ESTIMATED,
         "MEDIUM": EvidenceConfidence.ESTIMATED,
         "LOW": EvidenceConfidence.HEURISTIC,
     }.get(name, EvidenceConfidence.HEURISTIC)
@@ -109,6 +137,53 @@ class AnalysisEvidence:
         return cls(**{key: data[key] for key in cls.__dataclass_fields__ if key in data})
 
 
+class RemediationEffort(_StringEnum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
+@dataclass
+class Remediation:
+    """A structured, quantified corrective action attached to a finding.
+
+    The free-text ``AnalysisFinding.recommendation`` says *what* to consider;
+    this says *where*, *from what value to what value*, and *what it buys* --
+    the difference between an audit note and an actionable design change.
+
+    ``predicted_gain`` is a human-readable statement of the expected effect
+    ("drop 3.1% -> 1.8%").  Whether that prediction has actually been
+    re-simulated is carried by ``verified``: an unverified prediction is a
+    first-order estimate, a verified one has been re-solved with the change
+    applied.  Never present the former as the latter.
+    """
+    action: str                       # WIDEN_TRACK, ADD_STITCHING_VIAS, MOVE_CAPACITOR...
+    target: str = ""                  # refdes / net / segment identifier
+    current_value: Optional[float] = None
+    proposed_value: Optional[float] = None
+    unit: str = ""
+    predicted_gain: str = ""
+    effort: RemediationEffort = RemediationEffort.MEDIUM
+    verified: bool = False            # True only after what-if re-simulation
+    x_mm: Optional[float] = None
+    y_mm: Optional[float] = None
+    layer: str = ""
+    alternatives: List[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.action = str(self.action).strip().upper()
+        if not self.action:
+            raise ValueError("Remediation.action must not be empty")
+        if not isinstance(self.effort, RemediationEffort):
+            self.effort = RemediationEffort(str(self.effort).upper())
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Remediation":
+        payload = dict(data)
+        payload["effort"] = RemediationEffort(str(payload.get("effort", "MEDIUM")).upper())
+        return cls(**{key: payload[key] for key in cls.__dataclass_fields__ if key in payload})
+
+
 @dataclass
 class AnalysisFinding:
     rule_id: str
@@ -119,9 +194,19 @@ class AnalysisFinding:
     finding_id: str = ""
     recommendation: str = ""
     confidence: EvidenceConfidence = EvidenceConfidence.HEURISTIC
+    # True for a finding about the analysis itself -- a mesh too coarse, a
+    # solver limit, a self-diagnostic -- rather than a defect on the board.
+    # The adapters set it for every rule rule_guide marks CALCULATION (TH-004,
+    # DC-005, CFD-001...): real findings, but "the tool cannot resolve this"
+    # is not something the user's board did. Kept
+    # separate from severity (a calculation-quality finding can still be
+    # HIGH) so it can be excluded from the score and the action list without
+    # hiding it from its own domain's section.
+    calculation_quality: bool = False
     nets: List[str] = field(default_factory=list)
     components: List[str] = field(default_factory=list)
     evidence: List[AnalysisEvidence] = field(default_factory=list)
+    remediations: List[Remediation] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AnalysisFinding":
@@ -131,6 +216,9 @@ class AnalysisFinding:
             str(payload.get("confidence", "HEURISTIC")).upper().replace("-", "_")
         )
         payload["evidence"] = [AnalysisEvidence.from_dict(item) for item in payload.get("evidence", [])]
+        payload["remediations"] = [
+            Remediation.from_dict(item) for item in payload.get("remediations", [])
+        ]
         return cls(**{key: payload[key] for key in cls.__dataclass_fields__ if key in payload})
 
 
@@ -181,6 +269,9 @@ class AnalysisResult:
     limitations: List[str] = field(default_factory=list)
     compute_metadata: Dict[str, Any] = field(default_factory=dict)
     report_file: str = "report.txt"
+    # The build that produced it (build_info.tool_identity); "" for a result
+    # saved before builds were recorded.
+    tool_version: str = field(default_factory=lambda: _tool_identity())
 
     def __post_init__(self) -> None:
         self.analysis_type = str(self.analysis_type).strip().upper()
@@ -229,6 +320,8 @@ class AnalysisResult:
     def from_dict(cls, data: Dict[str, Any]) -> "AnalysisResult":
         payload = dict(data)
         payload.pop("severity_counts", None)
+        # A saved result without one was made by an older build, not this one.
+        payload.setdefault("tool_version", "")
         payload["status"] = AnalysisStatus(str(payload.get("status", "NO_DATA")).upper())
         payload["findings"] = [AnalysisFinding.from_dict(item) for item in payload.get("findings", [])]
         payload["metrics"] = [AnalysisMetric.from_dict(item) for item in payload.get("metrics", [])]

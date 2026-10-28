@@ -40,8 +40,11 @@ class AnalysisResultPage(wx.Panel):
             0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6,
         )
         self.finding_filter = wx.Choice(self.finding_tools)
-        for label in ("All", "Critical / High", "Actionable (Critical–Medium)", "Low / Info"):
-            self.finding_filter.Append(label)
+        # The filters are matched by their English name, so the choice
+        # shows a translation and keeps the name by position.
+        self._finding_filters = ("All", "Critical / High", "Actionable (Critical–Medium)", "Low / Info")
+        for label in self._finding_filters:
+            self.finding_filter.Append(_(label))
         self.finding_filter.SetSelection(0)
         finding_tools_sizer.Add(self.finding_filter, 0, wx.RIGHT, 8)
         finding_tools_sizer.Add(
@@ -74,7 +77,7 @@ class AnalysisResultPage(wx.Panel):
         )
         self.detail_view = wx.Choice(text_panel)
         for label in ("Report", "Selected finding", "Evidence and limits"):
-            self.detail_view.Append(label)
+            self.detail_view.Append(_(label))
         self.detail_view.SetSelection(0)
         detail_bar.Add(self.detail_view, 0)
         detail_bar.AddStretchSpacer()
@@ -121,6 +124,11 @@ class AnalysisResultPage(wx.Panel):
         self._finding_detail_text = format_finding_detail(None)
         self._basis_detail_text = format_result_basis(None)
         self._plot_views = []
+
+    @property
+    def result(self):
+        """The structured AnalysisResult currently shown, or None."""
+        return self._result
 
     def set_result(self, result):
         self._result = result
@@ -186,7 +194,7 @@ class AnalysisResultPage(wx.Panel):
 
     def _selected_severity_filter(self):
         selection = self.finding_filter.GetSelection()
-        return self.finding_filter.GetString(selection) if selection != wx.NOT_FOUND else "All"
+        return self._finding_filters[selection] if selection != wx.NOT_FOUND else "All"
 
     def _refresh_findings(self):
         self.findings.DeleteAllItems()
@@ -336,7 +344,7 @@ class ResultsWorkspace(wx.Panel):
             (item.title, item.analysis_id) for item in DEFAULT_ANALYSES.all()
         ]
         for label, _value in self._history_filters:
-            self.history_filter.Append(label)
+            self.history_filter.Append(_(label))
         self.history_filter.SetSelection(0)
         history_bar.Add(self.history_filter, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
         history_bar.Add(
@@ -350,8 +358,10 @@ class ResultsWorkspace(wx.Panel):
         self.history_choice = wx.Choice(self)
         history_bar.Add(self.history_choice, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         self.btn_delete = wx.Button(self, label="Delete selected")
+        self.btn_cleanup = wx.Button(self, label="Clean up...")
         self.btn_clear = wx.Button(self, label="Clear history")
         history_bar.Add(self.btn_delete, 0, wx.RIGHT, 4)
+        history_bar.Add(self.btn_cleanup, 0, wx.RIGHT, 4)
         history_bar.Add(self.btn_clear, 0)
 
         self.notebook = wx.Simplebook(self)
@@ -364,6 +374,7 @@ class ResultsWorkspace(wx.Panel):
         self.history_choice.Bind(wx.EVT_CHOICE, self._on_history_selected)
         self.btn_delete.Bind(wx.EVT_BUTTON, self._on_delete_selected)
         self.btn_clear.Bind(wx.EVT_BUTTON, self._on_clear_history)
+        self.btn_cleanup.Bind(wx.EVT_BUTTON, self._on_cleanup_history)
         self.refresh_history()
 
     def _log(self, message):
@@ -469,6 +480,24 @@ class ResultsWorkspace(wx.Panel):
             self._log("Deleted saved Ki-PIDA result.")
             self.refresh_history()
 
+    def _on_cleanup_history(self, _event):
+        from result_history import KEEP_CAMPAIGNS, KEEP_RUNS
+
+        doomed, size = self._history.cleanup_plan()
+        if not doomed:
+            wx.MessageBox("Nothing to clean up.", "Clean up result history", wx.OK | wx.ICON_INFORMATION)
+            return
+        answer = wx.MessageBox(
+            f"Delete {len(doomed)} saved runs and campaign files ({size / 1e6:.0f} MB)? "
+            f"The latest {KEEP_RUNS} runs of each analysis, the latest {KEEP_CAMPAIGNS} campaigns "
+            "and the runs those campaigns name are kept.",
+            "Clean up result history", wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
+        )
+        if answer == wx.YES:
+            deleted, freed = self._history.cleanup()
+            self._log(f"Deleted {deleted} saved run(s) and campaign file(s), {freed / 1e6:.0f} MB.")
+            self.refresh_history()
+
     def _on_clear_history(self, _event):
         answer = wx.MessageBox(
             "Delete every saved Ki-PIDA result for this PCB?", "Clear result history",
@@ -514,6 +543,33 @@ class ResultsWorkspace(wx.Panel):
             self.refresh_history(select_entry=entry)
             self._log(f"Saved {self.TITLES.get(analysis_id, analysis_id)} result history entry.")
         return page
+
+    def adopt_result(self, analysis_id, result):
+        """Show and file a batch's own result for *analysis_id* in place of
+        the one the tab adapted from the same run (same run_id), so the tab,
+        its history entry and the consolidate button all hold what the
+        campaign reported."""
+        page = self._pages.get(analysis_id)
+        shown = getattr(page, "result", None) if page is not None else None
+        if shown is not None and shown.run_id == result.run_id:
+            page.set_result(result)
+        return self._history.replace_result(result.run_id, result)
+
+    def session_results(self):
+        """Every structured result published in this session, in page order.
+
+        This is what the consolidated report aggregates: the user runs
+        whichever analyses their board and configuration support, and each one
+        leaves its AnalysisResult here. Domains never run are simply absent --
+        campaign scoring treats an absent domain as NO_DATA, never as passing.
+        """
+        results = []
+        for analysis_id in self._analysis_page_ids:
+            page = self._pages.get(analysis_id)
+            result = getattr(page, "result", None) if page is not None else None
+            if result is not None:
+                results.append(result)
+        return results
 
     def update_history_plots(self, analysis_id, plots):
         entry = self._active_entries.get(analysis_id)

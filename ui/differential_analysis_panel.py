@@ -1,12 +1,17 @@
 """wxPython configuration panel for Phase 5 differential-pair analysis."""
 
+from pathlib import Path
+
 import wx
+from ui.number_input import parse_number
 
 from i18n import _
 
 try:
     from differential_geometry import GEOMETRY_CHOICES, normalize_geometry
-    from differential_discovery import DifferentialPairDiscoverer, INTERFACE_DEFAULTS
+    from differential_discovery import (
+        DifferentialPairDiscoverer, INTERFACE_DEFAULTS, netclass_membership, pair_netclasses,
+    )
     from differential_recommender import DifferentialRecommendationEngine
     from design_rule_injector import DifferentialRuleInjector
     from extractor import GeometryExtractor
@@ -14,7 +19,9 @@ try:
     from stackup_io import load_stackup_profile
 except (ImportError, ValueError):
     from ..differential_geometry import GEOMETRY_CHOICES, normalize_geometry
-    from ..differential_discovery import DifferentialPairDiscoverer, INTERFACE_DEFAULTS
+    from ..differential_discovery import (
+        DifferentialPairDiscoverer, INTERFACE_DEFAULTS, netclass_membership, pair_netclasses,
+    )
     from ..differential_recommender import DifferentialRecommendationEngine
     from ..design_rule_injector import DifferentialRuleInjector
     from ..extractor import GeometryExtractor
@@ -59,7 +66,7 @@ class DifferentialPairDialog(wx.Dialog):
         negative = self.negative.GetValue().strip()
         if not positive or not negative or positive == negative:
             raise ValueError("Enter two different, non-empty net names.")
-        target = float(self.target.GetValue())
+        target = parse_number(self.target.GetValue())
         if target <= 0:
             raise ValueError("Target impedance must be positive.")
         interface = self.interface.GetStringSelection() or "GENERIC"
@@ -79,14 +86,27 @@ class DifferentialPairDialog(wx.Dialog):
 class DifferentialAnalysisPanel(wx.Panel):
     """Separate detected-pair and stackup configuration surface."""
 
-    def __init__(self, parent, board, project=None, log_callback=None):
+    def __init__(self, parent, board, project=None, log_callback=None, design_provider=None):
         super().__init__(parent)
         self.board = board
         self.project = project
         self.log_callback = log_callback
+        self.design_provider = design_provider
         self.settings = DifferentialAnalysisSettings()
-        self.discoverer = DifferentialPairDiscoverer(board, log_callback=log_callback)
-        self.extractor = GeometryExtractor(board, log_callback=log_callback)
+        project_path = getattr(project, "path", None)
+        self.discoverer = DifferentialPairDiscoverer(
+            board, log_callback=log_callback,
+            netclasses=(lambda nets: netclass_membership(project_path, nets)) if project_path else None,
+            pair_classes=(lambda: pair_netclasses(project_path)) if project_path else None,
+        )
+        # The saved board is the fallback for what IPC omits: its dielectric
+        # er. Without it P02 Rev E's pairs were solved at a default 4.4 and
+        # read 81.4 ohm (SI-STACKUP-001, campaign of 2026-09-29 14:19).
+        board_file = Path(project_path).with_suffix(".kicad_pcb") if project_path else None
+        self.extractor = GeometryExtractor(
+            board, log_callback=log_callback,
+            board_path=str(board_file) if board_file is not None and board_file.is_file() else None,
+        )
         self.stackup = None
         self.results = {}
         self.recommendations = {}
@@ -282,6 +302,22 @@ class DifferentialAnalysisPanel(wx.Panel):
             ), start=1):
                 self.stackup_list.SetItem(row, column, value)
 
+    def _add_declared_grounds(self):
+        """Reference nets gain the grounds the project's ground symbols declare; none is removed."""
+        if self.design_provider is None:
+            return
+        try:
+            from ingest.declarations import with_declared_grounds
+
+            grounds = with_declared_grounds(self.settings.reference_net_names, self.design_provider())
+        except Exception as exc:
+            self.log(f"Differential: the project's ground symbols could not be read ({exc}).")
+            return
+        added = [name for name in grounds if name not in self.settings.reference_net_names]
+        if added:
+            self.settings.reference_net_names = grounds
+            self.log(f"Differential: reference nets declared by ground symbols added: {', '.join(added)}.")
+
     def refresh(self, force_scan=False):
         if self.stackup is None:
             self.stackup = self.settings.stackup_override or self.extractor.get_stackup_profile()
@@ -293,6 +329,7 @@ class DifferentialAnalysisPanel(wx.Panel):
             )
             self.results = {}
             self.recommendations = {}
+            self._add_declared_grounds()
         self._update_pair_list()
         self._update_recommendation_list()
 
@@ -397,19 +434,19 @@ class DifferentialAnalysisPanel(wx.Panel):
             dialog.Destroy()
 
     def get_settings(self):
-        tolerance = float(self.txt_tolerance.GetValue())
+        tolerance = parse_number(self.txt_tolerance.GetValue())
         if tolerance <= 0:
             raise ValueError("Target tolerance must be positive.")
         self.settings.target_tolerance_pct = tolerance
         self.settings.geometry_mode = self._geometry_values[self.choice_geometry.GetSelection()]
         try:
-            self.settings.coplanar_ground_gap_mm = float(self.txt_coplanar_gap.GetValue())
+            self.settings.coplanar_ground_gap_mm = parse_number(self.txt_coplanar_gap.GetValue())
             if self.settings.coplanar_ground_gap_mm <= 0:
                 raise ValueError
         except ValueError:
             raise ValueError("Coplanar GND gap must be a positive mm value.")
         try:
-            minimums = [float(value.strip()) for value in self.txt_min_geometry.GetValue().split("/")]
+            minimums = [parse_number(value) for value in self.txt_min_geometry.GetValue().split("/")]
             if len(minimums) != 3 or min(minimums) <= 0:
                 raise ValueError
         except ValueError:

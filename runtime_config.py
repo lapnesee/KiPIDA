@@ -31,6 +31,12 @@ class RuntimeComputeSettings:
     memory_limit_gib: float = 0.0  # 0 = built-in conservative mesh limit
     solver_rtol: float = 1.0e-8
     solver_max_iterations: int = 5000
+    # The GPU path is iterative where the CPU path is a direct factorisation,
+    # so the two have different error profiles. Before trusting a GPU sweep,
+    # solve its first frequency both ways and compare. One extra point out of
+    # a hundred-odd costs nothing measurable and turns "as accurate as CPU"
+    # from an assertion into a checked property.
+    verify_gpu_accuracy: bool = True
 
     def normalized(self):
         requested_language = str(self.ui_language or SYSTEM_LANGUAGE).strip()
@@ -47,6 +53,7 @@ class RuntimeComputeSettings:
         self.memory_limit_gib = min(256.0, max(0.0, float(self.memory_limit_gib)))
         self.solver_rtol = min(1.0e-2, max(1.0e-12, float(self.solver_rtol)))
         self.solver_max_iterations = max(10, int(self.solver_max_iterations))
+        self.verify_gpu_accuracy = bool(self.verify_gpu_accuracy)
         return self
 
 

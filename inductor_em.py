@@ -82,6 +82,43 @@ def triangular_harmonic_peak(ripple_pp_a, harmonic_number, duty=0.5, samples=204
     return 2.0 * math.hypot(real, imag) / samples
 
 
+def trapezoid_envelope_db(harmonic_number, fundamental_hz, rise_time_s, duty=0.5):
+    """Trapezoidal-pulse spectral envelope, in dB relative to the n=1 line.
+
+    Paul, Introduction to Electromagnetic Compatibility, the trapezoidal
+    pulse-train bound: flat out to the pulse-width corner f1=1/(pi*tau),
+    -20 dB/decade from there to the rise-time corner f2=1/(pi*tr), then
+    -40 dB/decade beyond f2. EMC-3 (P02 Rev E audit, 2026-09-23): three
+    different, disagreeing envelopes existed for the same source before this
+    -- SW-001 knee'd at 1/(2*pi*tr) (-6.6 dB where this gives -37.5 dB for
+    U4's 75th harmonic at 30 MHz), and the near-field solver rolled off at
+    -60 dB/decade past its corner instead of -40 (-17.8 dB vs this model's
+    prediction at 300 MHz). This is the one formula all three now share.
+
+    For duty=0.5 (the default; no per-source duty is modeled) f1 sits below
+    the fundamental, so every harmonic already sees the -20 dB/decade term:
+    this reproduces the audited-correct EE-002 numbers exactly. A narrower
+    duty cycle pushes f1 above the fundamental and flattens the harmonics
+    below it instead.
+    """
+    n = max(1, int(round(harmonic_number)))
+    fundamental_hz = max(0.0, float(fundamental_hz))
+    if fundamental_hz <= 0.0:
+        return 0.0
+    duty = min(1.0 - 1e-6, max(1e-6, float(duty)))
+    frequency_hz = n * fundamental_hz
+    # f1 expressed as a harmonic number, clamped to at least n=1: the
+    # fundamental is the 0 dB reference by definition (the low-frequency
+    # square-wave envelope SW-001/EE-002 quote), so the flat shelf never
+    # ends before it even when Paul's own f1 falls below it (duty >= ~0.32).
+    n1 = max(1.0, 1.0 / (math.pi * duty))
+    level_db = 0.0 if n <= n1 else -20.0 * math.log10(n / n1)
+    corner_hz = 1.0 / (math.pi * max(rise_time_s, 1e-15))
+    if frequency_hz > corner_hz:
+        level_db -= 20.0 * math.log10(frequency_hz / corner_hz)
+    return level_db
+
+
 def apply_catalog(model):
     data = TDK_SPM6530_CATALOG.get(str(model.mpn).upper())
     if not data:

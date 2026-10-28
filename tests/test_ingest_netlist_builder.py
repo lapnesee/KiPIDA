@@ -1,0 +1,322 @@
+"""Tests for ingest.netlist_builder — PCB+schematic fusion."""
+
+import sys
+import os
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from ingest.board_reader import (
+    ParsedBoard, Stackup, BoardBounds, Footprint, Pad, Segment, Via, Zone,
+    CopperLayer,
+)
+from ingest.schematic_reader import ParsedSchematic, SymbolDef, SymbolInstance, PinDef
+from ingest.multiboard import CrossBoardNet
+from ingest.netlist_builder import build_netlist, _estimate_voltage
+
+
+def _minimal_stackup():
+    return Stackup(
+        layers=[CopperLayer(0, "F.Cu", "signal", 0.035)],
+        total_thickness_mm=1.6,
+        copper_layer_count=1,
+    )
+
+
+def _minimal_bounds():
+    return BoardBounds(x_min=0, y_min=0, x_max=50, y_max=30)
+
+
+def _make_board(footprints=None, segments=None, vias=None, zones=None):
+    return ParsedBoard(
+        pcb_path=Path("/fake/board.kicad_pcb"),
+        stackup=_minimal_stackup(),
+        bounds=_minimal_bounds(),
+        footprints=footprints or [],
+        segments=segments or [],
+        vias=vias or [],
+        zones=zones or [],
+    )
+
+
+def _make_schematic(instances=None, global_nets=None):
+    return ParsedSchematic(
+        root_sch_path=Path("/fake/board.kicad_sch"),
+        symbol_defs={},
+        instances=instances or [],
+        global_nets=global_nets or [],
+    )
+
+
+class TestBuildNetlistBasic(unittest.TestCase):
+    def test_empty_board(self):
+        board = _make_board()
+        nl = build_netlist(board, None, "uuid-test")
+        self.assertEqual(nl.board_uuid, "uuid-test")
+        self.assertEqual(nl.components, [])
+        self.assertEqual(nl.nets, [])
+
+    def test_single_footprint_pads_create_nets(self):
+        fp = Footprint(
+            reference="R1", value="10k", lib_id="Resistor_SMD:R_0603",
+            position=(10, 10), rotation=0, layer="F.Cu",
+            sch_path="", sch_sheet_file="",
+            pads=[
+                Pad("1", "+3V3_MAIN", "passive", (9.5, 10)),
+                Pad("2", "GND", "passive", (10.5, 10)),
+            ],
+        )
+        board = _make_board(footprints=[fp])
+        nl = build_netlist(board, None, "test-uuid")
+        net_names = {n.name for n in nl.nets}
+        self.assertIn("+3V3_MAIN", net_names)
+        self.assertIn("GND", net_names)
+
+    def test_component_in_components_list(self):
+        fp = Footprint(
+            reference="C1", value="100nF", lib_id="Device:C",
+            position=(5, 5), rotation=0, layer="F.Cu",
+            sch_path="", sch_sheet_file="",
+            pads=[Pad("1", "+5V", "passive", (5, 5))],
+        )
+        board = _make_board(footprints=[fp])
+        nl = build_netlist(board, None, "uuid-x")
+        self.assertEqual(len(nl.components), 1)
+        self.assertEqual(nl.components[0].reference, "C1")
+
+
+class TestPowerRailClassification(unittest.TestCase):
+    def _board_with_sch(self):
+        # Footprint with sch_path linking to regulator: a root-sheet symbol's
+        # footprint records "/<symbol uuid>", without the root sheet's uuid.
+        fp = Footprint(
+            reference="U1", value="LM7805", lib_id="Regulator_Linear:LM7805",
+            position=(10, 10), rotation=0, layer="F.Cu",
+            sch_path="/sym-uuid-1",
+            sch_sheet_file="sheet.kicad_sch",
+            pads=[
+                Pad("1", "VIN", "passive", (9, 10)),    # power_in
+                Pad("2", "+5V_OUT", "passive", (11, 10)),  # power_out
+                Pad("3", "GND", "passive", (10, 11)),   # power_in
+            ],
+        )
+        board = _make_board(footprints=[fp])
+
+        sym = SymbolInstance(
+            lib_id="Regulator_Linear:LM7805",
+            uuid="sym-uuid-1",
+            reference="U1",
+            value="LM7805",
+            footprint="",
+            datasheet="",
+            extra_fields={},
+            sheet_path="/root-uuid",
+            pins=[
+                PinDef("1", "VI", "power_in"),
+                PinDef("2", "VO", "power_out"),
+                PinDef("3", "GND", "power_in"),
+            ],
+            footprint_path="/sym-uuid-1",
+        )
+        sch = _make_schematic(instances=[sym])
+        return board, sch
+
+    def test_power_out_source_detected(self):
+        board, sch = self._board_with_sch()
+        nl = build_netlist(board, sch, "uuid-reg")
+        out_net = next(n for n in nl.nets if n.name == "+5V_OUT")
+        self.assertTrue(out_net.has_power_out_source)
+        self.assertTrue(out_net.is_power_rail)
+
+    def test_power_in_is_power_rail_but_not_source(self):
+        board, sch = self._board_with_sch()
+        nl = build_netlist(board, sch, "uuid-reg")
+        vin_net = next(n for n in nl.nets if n.name == "VIN")
+        self.assertTrue(vin_net.is_power_rail)
+        self.assertFalse(vin_net.has_power_out_source)
+
+    def test_pin_type_from_schematic(self):
+        board, sch = self._board_with_sch()
+        nl = build_netlist(board, sch, "uuid-reg")
+        out_net = next(n for n in nl.nets if n.name == "+5V_OUT")
+        pin = next(p for p in out_net.pins if p.footprint_ref == "U1")
+        self.assertEqual(pin.electrical_type, "power_out")
+
+
+class TestRailEvidence(unittest.TestCase):
+    def _board(self, pads):
+        return _make_board(footprints=[Footprint(
+            reference="U1", value="", lib_id="", position=(0, 0), rotation=0, layer="F.Cu",
+            sch_path="/u1", sch_sheet_file="", pads=[Pad(n, net, pintype, (0, 0)) for n, net, pintype in pads],
+        )])
+
+    def test_open_collector_pins_alone_make_no_rail(self):
+        nl = build_netlist(self._board([("1", "IRQ_N", "open_collector")]), None, "b")
+        self.assertFalse(nl.nets[0].is_power_rail)
+
+    def test_a_net_a_power_symbol_names_is_a_declared_rail(self):
+        ground = SymbolInstance(lib_id="power:GND", uuid="g", reference="#PWR01", value="GND", footprint="",
+                                datasheet="", extra_fields={}, sheet_path="/r", pins=[], power="global")
+        flag = SymbolInstance(lib_id="power:PWR_FLAG", uuid="f", reference="#FLG01", value="PWR_FLAG",
+                              footprint="", datasheet="", extra_fields={}, sheet_path="/r", pins=[], power="global")
+        nl = build_netlist(self._board([("1", "GND", "passive"), ("2", "VCC", "power_in")]),
+                           _make_schematic([ground, flag]), "b")
+        self.assertTrue(next(n for n in nl.nets if n.name == "GND").is_power_rail)
+        nets = {n.name: (n.is_power_rail, n.rail_source, n.rail_confidence) for n in nl.nets}
+        self.assertEqual(nets["GND"], (True, "power_symbol", "declared"))
+        self.assertEqual(nets["VCC"], (True, "power_pin", "inferred"))
+
+
+class TestGroundEvidence(unittest.TestCase):
+    """Ground as the designer declared it; the name is a hint."""
+
+    def test_a_ground_symbol_names_the_ground_whatever_it_is_called(self):
+        from ingest.declarations import ground_nets, with_declared_grounds
+        from rules.schematic_rules import SchematicRuleContext, _check_undecoupled_power_pins
+
+        footprints = [
+            Footprint(reference="U1", value="MCU", lib_id="Package:QFN", position=(0, 0), rotation=0,
+                      layer="F.Cu", sch_path="/u1", sch_sheet_file="",
+                      pads=[Pad("1", "+3V3", "power_in", (0, 0)), Pad("2", "0V", "power_in", (1, 0))]),
+            Footprint(reference="C1", value="100n", lib_id="Capacitor_SMD:C_0402", position=(1, 1), rotation=0,
+                      layer="F.Cu", sch_path="/c1", sch_sheet_file="",
+                      pads=[Pad("1", "+3V3", "passive", (1, 1)), Pad("2", "0V", "passive", (2, 1))]),
+            Footprint(reference="R1", value="10k", lib_id="Resistor_SMD:R_0402", position=(3, 1), rotation=0,
+                      layer="F.Cu", sch_path="/r1", sch_sheet_file="",
+                      pads=[Pad("1", "AGND", "passive", (3, 1))]),
+        ]
+        # The designer's ground is named 0V, through KiCad's GND symbol.
+        ground = SymbolInstance(lib_id="power:GND", uuid="g", reference="#PWR01", value="0V", footprint="",
+                                datasheet="", extra_fields={}, sheet_path="/r", pins=[], power="global")
+        netlist = build_netlist(_make_board(footprints=footprints), _make_schematic([ground]), "b")
+        self.assertEqual(ground_nets(netlist), ["0V", "AGND"])
+        self.assertEqual(with_declared_grounds(["GND", "AGND"], netlist), ["GND", "AGND", "0V"])
+        # C1 decouples +3V3 to that ground; a name test alone did not see it.
+        self.assertEqual(_check_undecoupled_power_pins(SchematicRuleContext(netlist=netlist)), [])
+
+    def test_a_ground_is_no_supply_rail_whatever_declares_it(self):
+        # P02 Rev E: GND through its symbol, and U4's analog ground through a
+        # power_in pin, were both proposed to the power tree as rails.
+        from ingest.declarations import supply_rails
+
+        footprints = [Footprint(
+            reference="U4", value="TPS552882", lib_id="Package:QFN", position=(0, 0), rotation=0,
+            layer="F.Cu", sch_path="/u4", sch_sheet_file="",
+            pads=[Pad("3", "/VBUS_SYS", "power_in", (0, 0)), Pad("7", "/SYS_5V_AGND", "power_in", (1, 0)),
+                  Pad("9", "GND", "power_in", (2, 0))],
+        )]
+        ground = SymbolInstance(lib_id="power:GND", uuid="g", reference="#PWR01", value="GND", footprint="",
+                                datasheet="", extra_fields={}, sheet_path="/r", pins=[], power="global")
+        netlist = build_netlist(_make_board(footprints=footprints), _make_schematic([ground]), "b")
+        self.assertEqual(next(net for net in netlist.nets if net.name == "/SYS_5V_AGND").ground_source, "name")
+        self.assertEqual(supply_rails(netlist), {"/VBUS_SYS": "power_pin"})
+
+
+class TestSchematicLink(unittest.TestCase):
+    """A footprint meets its symbol by path; a reference is never a join key."""
+
+    def _regulator_symbol(self, reference="U1", footprint_path="/sym-u1"):
+        return SymbolInstance(
+            lib_id="Regulator_Linear:LM7805", uuid="sym-u1", reference=reference, value="LM7805",
+            footprint="", datasheet="", extra_fields={"MPN": "LM7805CT"}, sheet_path="/root",
+            pins=[PinDef("2", "VO", "power_out")], footprint_path=footprint_path,
+        )
+
+    def _footprint(self, reference, sch_path):
+        return Footprint(
+            reference=reference, value="LM7805", lib_id="Package_TO_SOT_THT:TO-220-3",
+            position=(0, 0), rotation=0, layer="F.Cu", sch_path=sch_path, sch_sheet_file="",
+            pads=[Pad("2", "+5V", "passive", (0, 0))],
+        )
+
+    def test_a_footprint_without_a_path_is_pcb_only_even_when_a_symbol_shares_its_reference(self):
+        board = _make_board(footprints=[self._footprint("U1", "")])
+        nl = build_netlist(board, _make_schematic([self._regulator_symbol()]), "b")
+        component = nl.components[0]
+        self.assertEqual(component.pin_types_by_pad["2"], "passive")
+        self.assertEqual(component.extra_fields, {})
+        self.assertEqual(component.schematic_link, "pcb_only")
+
+    def test_links_by_path_and_diagnoses_what_disagrees(self):
+        board = _make_board(footprints=[
+            self._footprint("U7", "/sym-u1"),     # linked, but the board kept an old reference
+            self._footprint("U2", "/deleted"),    # its symbol is gone from the schematic
+            self._footprint("U2", ""),
+        ])
+        nl = build_netlist(board, _make_schematic([self._regulator_symbol()]), "b")
+        self.assertEqual([c.schematic_link for c in nl.components], ["linked", "symbol_missing", "pcb_only"])
+        self.assertEqual(nl.components[0].pin_types_by_pad["2"], "power_out")
+        self.assertEqual(sorted((i.kind, tuple(i.references)) for i in nl.link_issues),
+                         [("duplicate_reference", ("U2",)), ("reference_mismatch", ("U7", "U1"))])
+
+
+class TestCrossBoardAliases(unittest.TestCase):
+    def test_aliases_populated(self):
+        fp = Footprint(
+            reference="J1", value="Conn", lib_id="Connector:J",
+            position=(5, 5), rotation=0, layer="F.Cu",
+            sch_path="", sch_sheet_file="",
+            pads=[Pad("1", "GND", "passive", (5, 5))],
+        )
+        board = _make_board(footprints=[fp])
+        cross = [CrossBoardNet(net_name="GND", boards=["uuid-main", "uuid-p02"],
+                               members=[("uuid-main", "GND_MAIN"), ("uuid-p02", "GND")])]
+        nl = build_netlist(board, None, "uuid-p02", cross_board_nets=cross)
+        gnd = next(n for n in nl.nets if n.name == "GND")
+        # Aliased under the other board's own net name, which a link can make differ.
+        self.assertEqual(gnd.aliases, {"uuid-main:GND_MAIN"})
+
+    def test_no_alias_for_same_board(self):
+        fp = Footprint(
+            reference="J1", value="Conn", lib_id="Connector:J",
+            position=(5, 5), rotation=0, layer="F.Cu",
+            sch_path="", sch_sheet_file="",
+            pads=[Pad("1", "GND", "passive", (5, 5))],
+        )
+        board = _make_board(footprints=[fp])
+        cross = [CrossBoardNet(net_name="GND", boards=["uuid-main", "uuid-p02"],
+                               members=[("uuid-main", "GND"), ("uuid-p02", "GND")])]
+        nl = build_netlist(board, None, "uuid-p02", cross_board_nets=cross)
+        gnd = next(n for n in nl.nets if n.name == "GND")
+        self.assertFalse(any("uuid-p02" in a for a in gnd.aliases))
+
+
+class TestVoltageEstimation(unittest.TestCase):
+    def test_3v3_name(self):
+        self.assertAlmostEqual(_estimate_voltage("+3V3_MAIN"), 3.3)
+
+    def test_5v_name(self):
+        self.assertAlmostEqual(_estimate_voltage("+5V_RAIL"), 5.0)
+
+    def test_12v_name(self):
+        self.assertAlmostEqual(_estimate_voltage("+12V"), 12.0)
+
+    def test_no_voltage(self):
+        self.assertIsNone(_estimate_voltage("SCL"))
+        self.assertIsNone(_estimate_voltage("GND"))
+        self.assertIsNone(_estimate_voltage("SAFE_PWR_EN"))
+
+    def test_vbus_raw_not_detected(self):
+        # J2_VBUS_RAW has no +prefix and no NVN pattern → None
+        self.assertIsNone(_estimate_voltage("J2_VBUS_RAW"))
+
+
+class TestNetsFromSegmentsAndZones(unittest.TestCase):
+    def test_segment_nets_included(self):
+        seg = Segment(net_name="CLK", width_mm=0.1, layer="F.Cu",
+                      start=(0, 0), end=(10, 0))
+        board = _make_board(segments=[seg])
+        nl = build_netlist(board, None, "uuid-x")
+        self.assertIn("CLK", {n.name for n in nl.nets})
+
+    def test_zone_nets_included(self):
+        zone = Zone(net_name="GND", layer="B.Cu")
+        board = _make_board(zones=[zone])
+        nl = build_netlist(board, None, "uuid-x")
+        self.assertIn("GND", {n.name for n in nl.nets})
+
+
+if __name__ == "__main__":
+    unittest.main()

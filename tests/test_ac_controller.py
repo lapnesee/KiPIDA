@@ -1,7 +1,13 @@
+import os
+import sys
 import threading
 import time
 from types import SimpleNamespace
 import unittest
+
+plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if plugin_dir not in sys.path:
+    sys.path.insert(0, plugin_dir)
 
 from application.ac_controller import (
     ACAnalysisCancelled, ACAnalysisController, ACControllerCallbacks, ACRunRequest,
@@ -116,6 +122,80 @@ class ACAnalysisControllerTests(unittest.TestCase):
         self.assertTrue(controller.wait(2.0))
         self.assertFalse(completed)
         self.assertEqual(str(errors[0]), "bad network")
+
+
+class SavedBoardCacheTests(unittest.TestCase):
+    def test_the_saved_board_is_parsed_again_only_once_it_changes(self):
+        # P02 Rev E, 2026-09-29 18:23: three AC profiles parsed the same file
+        # in turn on the UI thread, 0.9 s each.
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+        from application import ac_controller
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "board.kicad_pcb"
+            path.write_text("(kicad_pcb)")
+            with mock.patch.object(ac_controller, "read_board", side_effect=lambda p: object()) as read:
+                first = ac_controller._read_saved_board(path)
+                self.assertIs(ac_controller._read_saved_board(path), first)
+                path.write_text("(kicad_pcb (version 2))")
+                self.assertIsNot(ac_controller._read_saved_board(path), first)
+        self.assertEqual(read.call_count, 2)
+
+
+class DeferredNetworkTests(unittest.TestCase):
+    def test_a_profile_whose_network_fails_to_build_skips_only_itself(self):
+        # The hybrid networks are now meshed by the engine, off the UI thread
+        # (16 s per profile there on P02 Rev E); a profile over the node limit
+        # must still skip itself only, as it did when built in the dialog.
+        from unittest import mock
+        import application.ac_controller as controller
+
+        def build(inputs, settings, emit):
+            if settings.rail_name == "/VBUS_SYS":
+                raise ValueError("AC mesh contains 402,000 nodes")
+            return "network"
+
+        requests = tuple(
+            ACRunRequest(settings=SimpleNamespace(rail_name=name), network=None, _build=object())
+            for name in ("/VBUS_SYS", "/+5V_RAIL")
+        )
+        engine = controller.ACSolverEngine(solver_factory=FakeSolver)
+        with mock.patch.object(controller, "build_ac_network", build):
+            outcome = engine.solve(controller.ACBatchRequest(requests), lambda _m: None,
+                                   lambda *_a: None, lambda: False)
+
+        self.assertEqual([item.settings.rail_name for item, *_ in outcome.runs], ["/+5V_RAIL"])
+        self.assertEqual(outcome.runs[0][0].network, "network")
+        self.assertEqual(outcome.skipped, (("/VBUS_SYS", "AC mesh contains 402,000 nodes"),))
+
+    def test_the_profiles_sweep_side_by_side_in_the_batch_order(self):
+        # P02 Rev E's three profiles took 210.3 s one after another and
+        # 104.4 s in three threads. Each sweep here waits for the other two:
+        # one after another, the barrier would time out.
+        import threading
+        import application.ac_controller as controller
+
+        barrier = threading.Barrier(3, timeout=5.0)
+
+        class TogetherSolver(FakeSolver):
+            def solve_sweep(self, network, settings, progress_callback=None):
+                barrier.wait()
+                progress_callback(2, 2, 1000.0)
+                return f"sweep {settings.rail_name}"
+
+        names = ("/+5V_RAIL", "/+5V_U4", "/VBUS_SYS")
+        requests = tuple(ACRunRequest(settings=SimpleNamespace(rail_name=name), network="network")
+                         for name in names)
+        totals = []
+        outcome = controller.ACSolverEngine(solver_factory=TogetherSolver).solve(
+            controller.ACBatchRequest(requests), lambda _m: None,
+            lambda completed, total, _detail: totals.append((completed, total)), lambda: False,
+        )
+        self.assertEqual([result for _item, result, _opt in outcome.runs],
+                         [f"sweep {name}" for name in names])
+        self.assertEqual(max(totals), (6, 6))
 
 
 if __name__ == "__main__":

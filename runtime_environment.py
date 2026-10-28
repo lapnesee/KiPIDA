@@ -1,6 +1,5 @@
 """Runtime inspection and optional CUDA environment installation helpers."""
 
-import json
 from pathlib import Path
 import re
 import subprocess
@@ -13,12 +12,48 @@ except (ImportError, ValueError):
     from compute_backend import cuda_diagnostics
 
 
-def plugin_version(plugin_root=None):
+# The build's identity lives in build_info, which a result imports without
+# pulling compute_backend in; these names stay importable from here.
+try:
+    from .build_info import build_commit, plugin_version, source_fingerprint  # noqa: F401
+except (ImportError, ValueError):
+    from build_info import build_commit, plugin_version, source_fingerprint  # noqa: F401
+
+
+def imported_module_origins(names, plugin_root=None):
+    """Report modules imported from outside *plugin_root*, as "name -> path".
+
+    The fingerprint answers "what is deployed". This answers "what is running",
+    which is the question that actually bites: the plugin imports flat
+    top-level names, so any other directory earlier on sys.path holding a file
+    of the same name supplies that module instead -- while the entry point
+    still reports its own folder, because that is all it knows.
+
+    Only strangers are returned. A module living under the plugin root is the
+    expected case and saying so on every start would bury the one line that
+    matters.
+    """
+    import sys
+
     root = Path(plugin_root) if plugin_root else Path(__file__).resolve().parent
     try:
-        return str(json.loads((root / "plugin.json").read_text(encoding="utf-8"))["version"])
-    except (OSError, ValueError, KeyError, TypeError):
-        return "unknown"
+        root = root.resolve()
+    except OSError:
+        return []
+    strangers = []
+    for name in names:
+        module = sys.modules.get(name)
+        origin = getattr(module, "__file__", None)
+        if not origin:
+            continue
+        try:
+            resolved = Path(origin).resolve()
+            resolved.relative_to(root)
+        except ValueError:
+            strangers.append(f"{name} -> {origin}")
+        except OSError:
+            continue
+    return strangers
 
 
 def runtime_summary():

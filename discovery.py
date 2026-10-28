@@ -2,17 +2,57 @@ import re
 
 try:
     from .models import PowerRail, UnifiedSource, UnifiedLoad, ComponentRef
+    from .ingest.netlist_builder import is_ground_name
 except (ImportError, ValueError):
     from models import PowerRail, UnifiedSource, UnifiedLoad, ComponentRef
+    from ingest.netlist_builder import is_ground_name
+
+# A converter's internal node or a control line often carries its domain in
+# its name and is no rail: /MAIN_3V3_SW, /MAIN_3V3_FB, /J1_SAFE_PWR_EN,
+# /PWR_VALID2 on the P02 Rev E board. A token like these drops a name guess;
+# a rail the project declares is kept whatever it is called.
+_NOT_A_RAIL_TOKEN_RE = re.compile(
+    r"(?i)(^|[/_+\-.])(SW|LX|PH|FB|BOOT|BST|COMP|EN|PG|PGOOD|VALID|SENSE|GATE|ILIM|SS|SNUB)\d*([/_+\-.]|$)"
+)
+
+DISCOVERY_LABELS = {
+    "power_symbol": "declared by a power symbol",
+    "power_pin": "inferred from power pins",
+    "name": "guessed from its name",
+}
+_DISCOVERY_RANK = {"power_symbol": 0, "power_pin": 1, "name": 2}
+
+
+def rail_label(rail):
+    """How a rail is listed: its net, its voltage, and how the scan found it if it did."""
+    label = rail.net_name
+    if rail.nominal_voltage:
+        # A scanned rail's voltage is read off its name whatever found the rail.
+        label += f" ({rail.nominal_voltage}V{', from its name' if rail.discovery else ''})"
+    if rail.discovery in DISCOVERY_LABELS:
+        label += f" [{DISCOVERY_LABELS[rail.discovery]}]"
+    return label
+
 
 class NetDiscoverer:
     """
     Scans the board to identify likely power rails and their properties.
     Uses generic attribute access compatible with KiCad Protobuf API (kipy).
+
+    Rails come first from what the project's saved files declare -- nets a
+    power symbol names, then nets with power pins -- through
+    ``declared_rails``, a callable returning ``{net: source}``. Net-name
+    patterns are the last resort: listed after every declared rail, and every
+    rail they propose says it was guessed. They are not dropped when the files
+    declare some rails: the reference board p02_alimentation names only GND
+    with a power symbol and carries +3V3_MAIN, +5V_RAIL and its other rails on
+    labels, which no declaration reaches. A ground is never guessed a rail,
+    nor a net whose name says it is a converter node or a control line.
     """
-    def __init__(self, board, log_callback=None):
+    def __init__(self, board, log_callback=None, declared_rails=None):
         self.board = board
         self.log_callback = log_callback
+        self.declared_rails = declared_rails
         
         # Regex for voltage parsing
         # Matches: +3V3, 3V3, +5V, 12V, VCC_3V3
@@ -22,9 +62,10 @@ class NetDiscoverer:
             r'(\d+)V', # 5V -> 5.0
         ]
         
-        # Regex for likely power names to prioritize
+        # Regex for likely power names to prioritize. VBUS reaches a USB
+        # connector's supply, which carries no power pin (J1_VBUS_RAW).
         self.power_name_patterns = [
-            r'(?i)VCC', r'(?i)VDD', r'(?i)PWR', r'(?i)\+.*V', r'(?i)GND'
+            r'(?i)VCC', r'(?i)VDD', r'(?i)PWR', r'(?i)\+.*V', r'(?i)VBUS'
         ]
 
     def log(self, msg):
@@ -47,7 +88,10 @@ class NetDiscoverer:
                 try:
                     val = getattr(obj, method_name)()
                     if val is not None: return val
-                except: pass
+                except Exception:
+                    # A getter this kipy version lacks or refuses: the next
+                    # spelling is tried, then the default.
+                    pass
         return default
 
     def discover_power_nets(self):
@@ -162,36 +206,55 @@ class NetDiscoverer:
                 found_nets[synth_id] = name
                 synth_id += 1
 
-        # self.log(f"[DEBUG] Total unique nets identified from items: {len(found_nets)}")
-        
+        declared = {}
+        if self.declared_rails is not None:
+            try:
+                declared = dict(self.declared_rails() or {})
+            except Exception as exc:
+                self.log(
+                    f"The project's saved files could not be read for declared rails "
+                    f"({type(exc).__name__}: {exc}); rails are guessed from net names."
+                )
+
         for nc, s_name in found_nets.items():
             if not s_name: continue
-            
+
             # Filter logic
             # Use name-based sets
             has_pads = s_name in nets_with_pads
             has_copper = s_name in nets_with_copper
-            
+
             if not (has_pads and has_copper):
-                # self.log(f"[DEBUG] Skipping net '{s_name}' (code {nc}) - pads:{has_pads}, copper:{has_copper}")
                 continue
-                
-            # 2. Check if name looks like power
-            is_power_name = any(re.search(p, s_name) for p in self.power_name_patterns)
-            
+
             est_voltage = self._estimate_voltage(s_name)
-            
-            # If it has a voltage in name, or is explicitly VCC/GND-like, add it.
-            if est_voltage is not None or is_power_name:
-                rail = PowerRail(net_name=s_name)
-                if est_voltage:
-                    rail.nominal_voltage = est_voltage
-                candidates.append(rail)
-                # self.log(f"[DEBUG] Added power rail: {s_name} ({est_voltage}V)")
-                
-        # Sort candidates: Voltage found first, then name
-        candidates.sort(key=lambda r: (r.nominal_voltage if r.nominal_voltage else -1, r.net_name), reverse=True)
-        # self.log(f"[DEBUG] Returning {len(candidates)} power rail candidates")
+            source = declared.get(s_name)
+            if source is None:
+                # Last resort: the name looks like power, or carries a voltage,
+                # and says it is neither a ground nor a converter or control node.
+                is_power_name = any(re.search(p, s_name) for p in self.power_name_patterns)
+                guessed = (est_voltage is not None or is_power_name) and not (
+                    is_ground_name(s_name) or _NOT_A_RAIL_TOKEN_RE.search(s_name)
+                )
+                source = "name" if guessed else None
+            if source is None:
+                continue
+            rail = PowerRail(net_name=s_name, discovery=source)
+            if est_voltage:
+                rail.nominal_voltage = est_voltage
+            candidates.append(rail)
+
+        # Declared rails first, then inferred, then guessed; within each, by voltage and name.
+        candidates.sort(key=lambda r: (
+            _DISCOVERY_RANK.get(r.discovery, 3),
+            -(r.nominal_voltage or -1),
+            r.net_name,
+        ))
+        counts = {source: sum(1 for r in candidates if r.discovery == source) for source in DISCOVERY_LABELS}
+        self.log(
+            "Rail scan: " + ", ".join(f"{count} {DISCOVERY_LABELS[source]}" for source, count in counts.items())
+            + "."
+        )
         return candidates
 
     def _estimate_voltage(self, name):
@@ -210,21 +273,22 @@ class NetDiscoverer:
                 minor = int(m.group(2))
                 # infer decimal place. 'V' usually separates integer and decimal
                 return float(f"{major}.{minor}")
-            except: pass
+            except ValueError:
+                pass
             
         # Pattern 2: +12V or 5.0V
         m = re.search(r'plus(\d+\.?\d*)V', name, re.IGNORECASE) or \
             re.search(r'\+(\d+\.?\d*)V', name, re.IGNORECASE) 
         if m:
              try: return float(m.group(1))
-             except: pass
+             except ValueError: pass
              
         # Pattern 3: Simple "5V" suffix or prefix
         # Be careful not to match "V1" (version 1)
         m = re.search(r'\b(\d+\.?\d*)V\b', name, re.IGNORECASE)
         if m:
             try: return float(m.group(1))
-            except: pass
+            except ValueError: pass
             
         return None
 
@@ -241,7 +305,8 @@ class NetDiscoverer:
             method_name = f"get_{attr_name}"
             if hasattr(self.board, method_name):
                 try: return getattr(self.board, method_name)()
-                except: pass
+                except Exception as exc:
+                    self.log(f"Board {attr_name} could not be read ({exc}); none are counted.")
             return []
 
         # Iterate all footprints, then pads
@@ -290,7 +355,8 @@ class NetDiscoverer:
             method_name = f"get_{attr_name}"
             if hasattr(self.board, method_name):
                 try: return getattr(self.board, method_name)()
-                except: pass
+                except Exception as exc:
+                    self.log(f"Board {attr_name} could not be read ({exc}); none are counted.")
             return []
 
         # 1. Check if board has nets collection directly (efficient)

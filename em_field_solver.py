@@ -20,14 +20,14 @@ except ImportError:  # pragma: no cover - field solve remains usable without Sha
     prepare_geometry = None
 
 try:
-    from .inductor_em import triangular_harmonic_peak, TargetedInductorRefiner
+    from .inductor_em import triangular_harmonic_peak, trapezoid_envelope_db, TargetedInductorRefiner
     from .models import (
         EMFieldSimulationResult, EMFieldSourceContribution,
         EMInductorFieldContribution,
     )
     from .runtime_config import load_runtime_settings
 except (ImportError, ValueError):
-    from inductor_em import triangular_harmonic_peak, TargetedInductorRefiner
+    from inductor_em import triangular_harmonic_peak, trapezoid_envelope_db, TargetedInductorRefiner
     from models import (
         EMFieldSimulationResult, EMFieldSourceContribution,
         EMInductorFieldContribution,
@@ -36,7 +36,34 @@ except (ImportError, ValueError):
 
 
 EPSILON_0 = 8.8541878128e-12
+# Fallback only, for an element with no reference plane under it or no
+# known width; routed tracks over a plane use microstrip_capacitance_f_m.
 LINE_CAPACITANCE_F_M = 100.0e-12
+SPEED_OF_LIGHT_M_S = 299792458.0
+
+
+def microstrip_capacitance_f_m(width_mm, height_mm, epsilon_r):
+    """Per-unit-length capacitance of a microstrip, C = sqrt(e_eff) / (c Z0).
+
+    Hammerstad-Jensen Z0 and effective permittivity (zero thickness). The
+    near-field solver turned every trace's voltage into charge through one
+    nominal 100 pF/m whatever its width or height above the plane (old
+    audit item, audit-2026-09-23.md): a 0.2 mm trace 0.1 mm over its plane
+    on P02 Rev E's er 4.1 prepreg is ~117 pF/m, a 2 mm switch-node strip
+    several times that.
+    """
+    if width_mm <= 0.0 or height_mm <= 0.0:
+        return LINE_CAPACITANCE_F_M
+    u = width_mm / height_mm
+    epsilon_r = max(1.0, float(epsilon_r))
+    effective = (epsilon_r + 1.0) / 2.0 + (epsilon_r - 1.0) / 2.0 / math.sqrt(1.0 + 12.0 / u)
+    if u <= 1.0:
+        z0 = 60.0 / math.sqrt(effective) * math.log(8.0 / u + u / 4.0)
+    else:
+        z0 = 120.0 * math.pi / (
+            math.sqrt(effective) * (u + 1.393 + 0.667 * math.log(u + 1.444))
+        )
+    return math.sqrt(effective) / (SPEED_OF_LIGHT_M_S * z0)
 ELECTRIC_CONSTANT = 1.0 / (4.0 * math.pi * EPSILON_0)
 MAGNETIC_CONSTANT = 1.0 / (4.0 * math.pi)
 
@@ -47,13 +74,15 @@ class _FieldElement:
     direction_length_m: tuple
     length_m: float
     polarity: float = 1.0
+    capacitance_f_m: float = LINE_CAPACITANCE_F_M
 
 
 class EMNearFieldSolver:
     """Estimate E/H magnitude on a plane above the board.
 
-    The electric model uses a nominal 100 pF/m trace capacitance to turn each
-    configured source voltage into line charge.  The magnetic model integrates
+    The electric model turns each configured source voltage into line charge
+    through the trace's microstrip capacitance over its reference plane
+    (a nominal 100 pF/m only where there is no plane or width).  The magnetic model integrates
     vector Biot-Savart contributions for the configured trace current.  A
     continuous adjacent GND zone is represented by an ideal image return and
     differential conductors use opposite polarity.  Finite-plane current
@@ -81,9 +110,28 @@ class EMNearFieldSolver:
             cursor_mm += thickness_mm
         return positions
 
+    def _dielectric_epsilon_r(self):
+        values = [
+            float(layer.epsilon_r) for layer in getattr(self.snapshot.stackup, "layers", []) or []
+            if str(getattr(layer, "kind", "")).upper() == "DIELECTRIC" and float(layer.epsilon_r or 0.0) > 1.0
+        ]
+        return sum(values) / len(values) if values else 4.4
+
+    def _stackup_thickness_mm(self):
+        return sum(
+            max(0.0, float(getattr(layer, "thickness_mm", 0.0)))
+            for layer in getattr(self.snapshot.stackup, "layers", []) or []
+        )
+
     @staticmethod
     def _source_factor(source, requested_frequency_hz):
         fundamental = max(0.0, float(source.frequency_hz))
+        if fundamental <= 0.0:
+            # A source whose frequency nobody stated has no harmonic to place,
+            # as EE-003 tells the user. At 0 Hz it weighed in at full strength:
+            # on P02 Rev E the USB_HOST pair, frequency unknown, made the map's
+            # strongest E field, 52 V/m, all of it an electrostatic artefact.
+            return 0.0
         rise_s = max(1.0e-15, float(source.rise_time_ns) * 1.0e-9)
         if requested_frequency_hz <= 0.0:
             frequency = fundamental
@@ -93,9 +141,14 @@ class EMNearFieldSolver:
             harmonic = max(1, int(round(frequency / fundamental)))
         else:
             return 0.0
-        edge_bandwidth = 0.35 / rise_s
-        rolloff = 1.0 / math.sqrt(1.0 + (frequency / edge_bandwidth) ** 4)
-        return rolloff / harmonic
+        # Paul's trapezoid bound (EMC-3), shared with SW-001 and EE-002: this
+        # used to roll off at -60 dB/decade past its own corner (cut at
+        # 0.35/tr) instead of Paul's -40. P02 Rev E audit, 2026-09-23: for
+        # U4 (400 kHz, tr 10 ns) at 300 MHz this read -94.8 dB, 17.8 dB below
+        # the -77.0 dB the shared model below gives -- the three envelopes
+        # disagreed with each other in both directions, not just SW-001's.
+        level_db = trapezoid_envelope_db(harmonic, fundamental, rise_s)
+        return 10.0 ** (level_db / 20.0)
 
     def _reference_planes(self, layer_z):
         planes = []
@@ -109,10 +162,23 @@ class EMNearFieldSolver:
         return planes
 
     @staticmethod
-    def _reference_image_z(layer_id, midpoint_mm, layer_z, reference_planes):
+    def _reference_image_z(layer_id, midpoint_mm, layer_z, reference_planes, observation_z):
+        """The image source's z, or ``None`` -- and whether the element is shielded.
+
+        The image-charge/image-current method mirrors a source in the nearest
+        covering reference plane and is only valid when the observer sits on
+        the *same* side of that plane as the real source: P02 Rev E's
+        /MAIN_3V3_SW (U5, entirely on B.Cu) sits under two solid GND planes
+        (L2, L5) on the way to the default top-side observation point, and
+        mirroring gave 0.62x the field of the same trace on F.Cu -- the two
+        planes together only cut it x15.4, when a continuous plane between
+        source and observer approximates a Faraday shield instead. When the
+        plane lies strictly between the source and the observer, the element
+        is dropped (``shielded=True``) rather than mirrored.
+        """
         source_z = layer_z.get(int(layer_id))
         if source_z is None:
-            return None
+            return None, False
         candidates = []
         point = Point(*midpoint_mm) if Point is not None else None
         for reference_layer, reference_z, prepared_geometry in reference_planes:
@@ -121,9 +187,11 @@ class EMNearFieldSolver:
             if prepared_geometry.covers(point):
                 candidates.append((abs(reference_z - source_z), reference_z))
         if not candidates:
-            return None
+            return None, False
         plane_z = min(candidates)[1]
-        return 2.0 * plane_z - source_z
+        if min(source_z, observation_z) < plane_z < max(source_z, observation_z):
+            return None, True
+        return 2.0 * plane_z - source_z, False
 
     def _fallback_pad_path(self, net_name):
         points = []
@@ -157,7 +225,7 @@ class EMNearFieldSolver:
             return None
         return start, end, layer_id, coverage
 
-    def _elements_for_source(self, source, layer_z, reference_planes, step_mm):
+    def _elements_for_source(self, source, layer_z, reference_planes, step_mm, observation_z):
         routes = []
         for net_name, polarity in (
             (source.net_name, 1.0),
@@ -167,19 +235,21 @@ class EMNearFieldSolver:
                 continue
             for track in self.snapshot.tracks_by_net.get(net_name, []):
                 routes.append((net_name, track.start, track.end, track.layer_id,
-                               track.length_mm, polarity, "ROUTED_TRACKS"))
+                               track.length_mm, polarity, "ROUTED_TRACKS",
+                               float(getattr(track, "width_mm", 0.0) or 0.0)))
         geometry_source = "ROUTED_TRACKS"
         if not routes and str(source.kind).upper() == "SWITCHING":
             fallback = self._fallback_pad_path(source.net_name)
             if fallback is not None:
                 start, end, layer_id, _coverage = fallback
                 routes.append((source.net_name, start, end, layer_id,
-                               math.dist(start, end), 1.0, "PAD_TO_PAD_ZONE_PATH"))
+                               math.dist(start, end), 1.0, "PAD_TO_PAD_ZONE_PATH", 0.0))
                 geometry_source = "PAD_TO_PAD_ZONE_PATH"
         elements = []
         segments = []
         maximum_element_mm = max(0.25, min(2.0, step_mm, self.settings.field_probe_height_mm))
-        for net_name, start, end, layer_id, route_length, polarity, route_source in routes:
+        epsilon_r = self._dielectric_epsilon_r()
+        for net_name, start, end, layer_id, route_length, polarity, route_source, width_mm in routes:
             x0, y0 = start
             x1, y1 = end
             length_mm = max(float(route_length), math.hypot(x1 - x0, y1 - y0))
@@ -198,19 +268,30 @@ class EMNearFieldSolver:
                     x0 + fraction * (x1 - x0),
                     y0 + fraction * (y1 - y0),
                 )
+                image_z, shielded = self._reference_image_z(
+                    layer_id, midpoint_mm, layer_z, reference_planes, observation_z,
+                )
+                if shielded:
+                    # A continuous reference plane covers this point between
+                    # the source and this observer: drop the element rather
+                    # than mirror it, instead of the x15.4-only attenuation a
+                    # same-side image gave it.
+                    continue
+                capacitance = (
+                    microstrip_capacitance_f_m(width_mm, abs(z_m - image_z) * 1.0e3 / 2.0, epsilon_r)
+                    if image_z is not None else LINE_CAPACITANCE_F_M
+                )
                 elements.append(_FieldElement(
                     (midpoint_mm[0] * 1.0e-3, midpoint_mm[1] * 1.0e-3, z_m),
                     (dx_m, dy_m, dz_m),
                     element_length_m,
                     polarity,
+                    capacitance,
                 ))
-                image_z = self._reference_image_z(
-                    layer_id, midpoint_mm, layer_z, reference_planes,
-                )
                 if image_z is not None:
                     elements.append(_FieldElement(
                         (midpoint_mm[0] * 1.0e-3, midpoint_mm[1] * 1.0e-3, image_z),
-                        (dx_m, dy_m, dz_m), element_length_m, -polarity,
+                        (dx_m, dy_m, dz_m), element_length_m, -polarity, capacitance,
                     ))
         return elements, segments, geometry_source
 
@@ -249,6 +330,175 @@ class EMNearFieldSolver:
     @staticmethod
     def _to_numpy(array, xp):
         return np.asarray(array) if xp is np else xp.asnumpy(array)
+
+    def _accumulate_source(
+        self, source, factor, elements, geometry_source, analyzed_frequency,
+        harmonic_number, source_inductors, observation_z, xp, flat_x, flat_y,
+        cell_count, cell_batch, element_batch, x_values, y_values,
+    ):
+        """One source's E/H field, squared, at one observation plane.
+
+        Shared by every side ``solve`` evaluates: the vector Biot-Savart and
+        line-charge sums are identical regardless of which face is being
+        observed, only *which* elements survived ``_elements_for_source``'s
+        shielding test (and ``observation_z`` itself) differ per side.
+        """
+        source_e = xp.zeros(cell_count, dtype=xp.float64)
+        source_h = xp.zeros(cell_count, dtype=xp.float64)
+        voltage = max(0.0, float(source.voltage_swing_v)) * factor
+        if source_inductors:
+            # EMC-5, P02 Rev E: this trace carries the inductor's own
+            # current, not an idealized square wave -- the pulsed
+            # switch/FET current belongs to the tight hot loop (EMC-4), not
+            # the general SW-to-inductor route. Modelling it as 1/n (square,
+            # via the same envelope as the voltage's dV/dt) gave U4's 75th
+            # harmonic 58 mA (4.36 A / 75) here against 3.0e-5 A for the
+            # SAME harmonic of the SAME inductor's own triangular ripple
+            # model just below -- 66 dB apart for what is one current.
+            primary_model, _primary_footprint = source_inductors[0]
+            trace_duty = (
+                primary_model.vout_v / primary_model.vin_v
+                if primary_model.vin_v > 0.0 else 0.5
+            )
+            current = triangular_harmonic_peak(
+                primary_model.ripple_current_pp_a, harmonic_number, trace_duty,
+            )
+        else:
+            current = max(0.0, float(source.current_a)) * factor
+        midpoint = np.asarray([item.midpoint_m for item in elements], dtype=np.float64)
+        dl = np.asarray([item.direction_length_m for item in elements], dtype=np.float64)
+        lengths = np.asarray([item.length_m for item in elements], dtype=np.float64)
+        polarities = np.asarray([item.polarity for item in elements], dtype=np.float64)
+        capacitances = np.asarray([item.capacitance_f_m for item in elements], dtype=np.float64)
+        inductor_fields = [
+            (model, footprint, xp.zeros(cell_count, dtype=xp.float64))
+            for model, footprint in source_inductors
+        ]
+        for cell_start in range(0, cell_count, cell_batch):
+            cell_stop = min(cell_count, cell_start + cell_batch)
+            ox = xp.asarray(flat_x[cell_start:cell_stop])[:, None]
+            oy = xp.asarray(flat_y[cell_start:cell_stop])[:, None]
+            accumulated_e = xp.zeros((cell_stop - cell_start, 3), dtype=xp.float64)
+            accumulated_h = xp.zeros((cell_stop - cell_start, 3), dtype=xp.float64)
+            for element_start in range(0, len(elements), element_batch):
+                element_stop = min(len(elements), element_start + element_batch)
+                mid = xp.asarray(midpoint[element_start:element_stop])
+                line = xp.asarray(dl[element_start:element_stop])
+                length = xp.asarray(lengths[element_start:element_stop])
+                polarity = xp.asarray(polarities[element_start:element_stop])
+                capacitance = xp.asarray(capacitances[element_start:element_stop])
+                rx = ox - mid[None, :, 0]
+                ry = oy - mid[None, :, 1]
+                rz = observation_z - mid[None, :, 2]
+                radius_squared = xp.maximum(rx * rx + ry * ry + rz * rz, 1.0e-18)
+                inverse_radius = 1.0 / xp.sqrt(radius_squared)
+                charge = capacitance[None, :] * voltage * length[None, :] * polarity[None, :]
+                electric_scale = ELECTRIC_CONSTANT * charge * inverse_radius / radius_squared
+                accumulated_e[:, 0] += xp.sum(electric_scale * rx, axis=1)
+                accumulated_e[:, 1] += xp.sum(electric_scale * ry, axis=1)
+                accumulated_e[:, 2] += xp.sum(electric_scale * rz, axis=1)
+                cross_x = line[None, :, 1] * rz
+                cross_y = -line[None, :, 0] * rz
+                cross_z = line[None, :, 0] * ry - line[None, :, 1] * rx
+                magnetic_scale = (
+                    MAGNETIC_CONSTANT * current * polarity[None, :]
+                    * inverse_radius / radius_squared
+                )
+                accumulated_h[:, 0] += xp.sum(magnetic_scale * cross_x, axis=1)
+                accumulated_h[:, 1] += xp.sum(magnetic_scale * cross_y, axis=1)
+                accumulated_h[:, 2] += xp.sum(magnetic_scale * cross_z, axis=1)
+            for model, footprint, field_storage in inductor_fields:
+                duty = (
+                    model.vout_v / model.vin_v
+                    if model.vin_v > 0.0 else 0.5
+                )
+                harmonic_current = triangular_harmonic_peak(
+                    model.ripple_current_pp_a, harmonic_number, duty,
+                )
+                attenuation = (
+                    10.0 ** (-float(model.shielding_attenuation_db) / 20.0)
+                    if model.shielding_attenuation_db is not None else 1.0
+                )
+                # Transparent one-turn package-area equivalent.  It is an
+                # uncertainty estimate, not a reconstruction of the hidden winding.
+                area_m2 = max(0.0, model.width_mm * model.depth_mm) * 1.0e-6
+                moment = harmonic_current * area_m2 * attenuation
+                source_z = 0.5 * max(0.0, model.height_mm) * 1.0e-3
+                rx_i = ox[:, 0] - float(footprint.position[0]) * 1.0e-3
+                ry_i = oy[:, 0] - float(footprint.position[1]) * 1.0e-3
+                rz_i = observation_z - source_z
+                radius_sq = rx_i * rx_i + ry_i * ry_i + rz_i * rz_i
+                minimum_radius = max(
+                    0.25 * min(model.width_mm or 1.0, model.depth_mm or 1.0) * 1.0e-3,
+                    0.25e-3,
+                )
+                radius_sq = xp.maximum(radius_sq, minimum_radius * minimum_radius)
+                inverse_r = 1.0 / xp.sqrt(radius_sq)
+                inverse_r3 = inverse_r / radius_sq
+                inverse_r5 = inverse_r3 / radius_sq
+                scale = MAGNETIC_CONSTANT * moment
+                hx_i = scale * 3.0 * rz_i * rx_i * inverse_r5
+                hy_i = scale * 3.0 * rz_i * ry_i * inverse_r5
+                hz_i = scale * (3.0 * rz_i * rz_i * inverse_r5 - inverse_r3)
+                accumulated_h[:, 0] += hx_i
+                accumulated_h[:, 1] += hy_i
+                accumulated_h[:, 2] += hz_i
+                field_storage[cell_start:cell_stop] = xp.sqrt(
+                    hx_i * hx_i + hy_i * hy_i + hz_i * hz_i
+                )
+            source_e[cell_start:cell_stop] = xp.sqrt(xp.sum(accumulated_e * accumulated_e, axis=1))
+            source_h[cell_start:cell_stop] = xp.sqrt(xp.sum(accumulated_h * accumulated_h, axis=1))
+        source_e_np = self._to_numpy(source_e, xp)
+        source_h_np = self._to_numpy(source_h, xp)
+        source_e_index = int(np.argmax(source_e_np))
+        source_h_index = int(np.argmax(source_h_np))
+        e_y, e_x = np.unravel_index(source_e_index, (y_values.size, x_values.size))
+        h_y, h_x = np.unravel_index(source_h_index, (y_values.size, x_values.size))
+        contribution = EMFieldSourceContribution(
+            source_name=source.name,
+            net_names=tuple(filter(None, (source.net_name, getattr(source, "negative_net_name", "")))),
+            geometry_source=geometry_source,
+            geometry_confidence=(
+                "HIGH" if geometry_source == "ROUTED_TRACKS" else
+                "MEDIUM" if geometry_source == "PAD_TO_PAD_ZONE_PATH" else "LOW"
+            ),
+            maximum_e_v_m=float(source_e_np[source_e_index]),
+            maximum_h_a_m=float(source_h_np[source_h_index]),
+            maximum_e_position_mm=(float(x_values[e_x]), float(y_values[e_y])),
+            maximum_h_position_mm=(float(x_values[h_x]), float(y_values[h_y])),
+            analyzed_frequency_hz=analyzed_frequency,
+            harmonic_number=harmonic_number,
+        )
+        inductor_contributions = []
+        for model, _footprint, field_storage in inductor_fields:
+            field_np = self._to_numpy(field_storage, xp)
+            field_index = int(np.argmax(field_np))
+            field_y, field_x = np.unravel_index(field_index, (y_values.size, x_values.size))
+            duty = model.vout_v / model.vin_v if model.vin_v > 0.0 else 0.5
+            inductor_contributions.append(EMInductorFieldContribution(
+                ref_des=model.ref_des,
+                mpn=model.mpn,
+                source_name=source.name,
+                model_level=model.model_level,
+                shield_state=model.shield_state,
+                attenuation_applied_db=model.shielding_attenuation_db,
+                harmonic_number=harmonic_number,
+                analyzed_frequency_hz=analyzed_frequency,
+                ripple_current_pp_a=model.ripple_current_pp_a,
+                harmonic_current_peak_a=triangular_harmonic_peak(
+                    model.ripple_current_pp_a, harmonic_number, duty,
+                ),
+                maximum_h_a_m=float(field_np[field_index]),
+                maximum_h_position_mm=(float(x_values[field_x]), float(y_values[field_y])),
+                parameter_confidence=model.parameter_confidence,
+                model_confidence=(
+                    "HIGH" if model.shielding_attenuation_db is not None
+                    and model.ripple_current_pp_a > 0.0 else "LOW"
+                ),
+                parameter_reference=model.parameter_reference,
+                refinement_status=TargetedInductorRefiner.status(model),
+            ))
+        return source_e * source_e, source_h * source_h, contribution, inductor_contributions
 
     def solve(self, progress_callback=None):
         started = time.perf_counter()
@@ -299,12 +549,14 @@ class EMNearFieldSolver:
         enabled_sources = [source for source in self.settings.sources if source.enabled]
         layer_z = self._layer_z_m()
         reference_planes = self._reference_planes(layer_z)
-        prepared = []
         frequency_hz = max(0.0, float(self.settings.field_frequency_hz))
+
+        # Frequency, harmonic number and inductor models do not depend on
+        # which face is observed -- only the conductor elements (built per
+        # side, below) do, since a covering plane shields a source from one
+        # side's observer and not the other's.
+        prepared_meta = []
         for source in enabled_sources:
-            elements, segments, geometry_source = self._elements_for_source(
-                source, layer_z, reference_planes, step_mm,
-            )
             fundamental = max(0.0, float(source.frequency_hz))
             if frequency_hz > 0.0:
                 analyzed_frequency = frequency_hz
@@ -328,192 +580,158 @@ class EMNearFieldSolver:
                 if fundamental > 0.0 and analyzed_frequency > 0.0 else 1
             )
             factor = self._source_factor(source, analyzed_frequency)
-            inductors = self._inductors_for_source(source)
-            if not elements and not inductors:
-                warnings.append(f"No routed segment found for source net {source.net_name}.")
-                continue
             if factor <= 0.0:
                 warnings.append(f"Source {source.name} has no usable frequency for the selected field map.")
                 continue
-            if geometry_source == "PAD_TO_PAD_ZONE_PATH":
-                warnings.append(
-                    f"Source {source.name} has no routed track segment; field geometry uses "
-                    "a pad-to-pad path verified to remain at least 80% inside one copper zone."
-                )
-            if not elements and inductors:
-                geometry_source = "INDUCTOR_ONLY"
-                warnings.append(
-                    f"Source {source.name} has no routed segment; only its configured "
-                    "inductor magnetic model is evaluated."
-                )
-            prepared.append((
-                source, factor, elements, segments, geometry_source,
-                analyzed_frequency, harmonic_number, inductors,
-            ))
-        if not prepared:
+            inductors = self._inductors_for_source(source)
+            prepared_meta.append((source, factor, analyzed_frequency, harmonic_number, inductors))
+        if not prepared_meta:
             raise ValueError("No enabled EMI/EMC source has usable conductor or inductor geometry.")
 
-        xp, backend = self._array_backend(cell_count)
-        self.log(
-            f"[EM FIELD] Solving {cell_count:,} observation cells at {height_mm:g} mm "
-            f"with {sum(len(item[2]) for item in prepared):,} conductor/image elements on {backend}."
+        board_thickness_mm = self._stackup_thickness_mm()
+        # A near-field probe sees whichever face of the board is nearer it.
+        # A single top-side plane made a source shielded by full ground
+        # planes from that side read as (almost) nothing anywhere, rather
+        # than as the strong field a probe on its own side would actually
+        # measure -- P02 Rev E's /MAIN_3V3_SW (U5), entirely on B.Cu under
+        # two solid GND planes on the way to the top, read 46% of the map's
+        # peak H instead of being shielded from that side. Solving both
+        # faces and reporting the worse of the two at each point keeps that
+        # source visible without inventing field where a plane blocks it.
+        sides = (
+            ("TOP", height_mm * 1.0e-3),
+            ("BOTTOM", -(board_thickness_mm + height_mm) * 1.0e-3),
         )
+
+        side_geometry = []
+        seen_sources = set()
+        for side_label, observation_z in sides:
+            per_source = []
+            for source, factor, analyzed_frequency, harmonic_number, inductors in prepared_meta:
+                elements, segments, geometry_source = self._elements_for_source(
+                    source, layer_z, reference_planes, step_mm, observation_z,
+                )
+                if not elements and not inductors:
+                    continue
+                if not elements and inductors:
+                    geometry_source = "INDUCTOR_ONLY"
+                per_source.append((
+                    source, factor, elements, segments, geometry_source,
+                    analyzed_frequency, harmonic_number, inductors,
+                ))
+                seen_sources.add(source.name)
+            side_geometry.append((side_label, observation_z, per_source))
+        if not any(per_source for _label, _oz, per_source in side_geometry):
+            raise ValueError("No enabled EMI/EMC source has usable conductor or inductor geometry.")
+        for source, *_rest in prepared_meta:
+            if source.name not in seen_sources:
+                warnings.append(f"No routed segment found for source net {source.net_name}.")
+
+        xp, backend = self._array_backend(cell_count)
         grid_x, grid_y = np.meshgrid(x_values * 1.0e-3, y_values * 1.0e-3)
         flat_x = grid_x.ravel()
         flat_y = grid_y.ravel()
-        e_squared = xp.zeros(cell_count, dtype=xp.float64)
-        h_squared = xp.zeros(cell_count, dtype=xp.float64)
-        observation_z = height_mm * 1.0e-3
         cell_batch = 8192 if xp is np else 32768
         element_batch = 64
 
-        contribution_data = []
-        inductor_contribution_data = []
-        all_source_segments = []
-        for source_index, prepared_source in enumerate(prepared, start=1):
-            (source, factor, elements, segments, geometry_source,
-             analyzed_frequency, harmonic_number, source_inductors) = prepared_source
-            source_e = xp.zeros(cell_count, dtype=xp.float64)
-            source_h = xp.zeros(cell_count, dtype=xp.float64)
-            voltage = max(0.0, float(source.voltage_swing_v)) * factor
-            current = max(0.0, float(source.current_a)) * factor
-            midpoint = np.asarray([item.midpoint_m for item in elements], dtype=np.float64)
-            dl = np.asarray([item.direction_length_m for item in elements], dtype=np.float64)
-            lengths = np.asarray([item.length_m for item in elements], dtype=np.float64)
-            polarities = np.asarray([item.polarity for item in elements], dtype=np.float64)
-            inductor_fields = [
-                (model, footprint, xp.zeros(cell_count, dtype=xp.float64))
-                for model, footprint in source_inductors
-            ]
-            for cell_start in range(0, cell_count, cell_batch):
-                cell_stop = min(cell_count, cell_start + cell_batch)
-                ox = xp.asarray(flat_x[cell_start:cell_stop])[:, None]
-                oy = xp.asarray(flat_y[cell_start:cell_stop])[:, None]
-                accumulated_e = xp.zeros((cell_stop - cell_start, 3), dtype=xp.float64)
-                accumulated_h = xp.zeros((cell_stop - cell_start, 3), dtype=xp.float64)
-                for element_start in range(0, len(elements), element_batch):
-                    element_stop = min(len(elements), element_start + element_batch)
-                    mid = xp.asarray(midpoint[element_start:element_stop])
-                    line = xp.asarray(dl[element_start:element_stop])
-                    length = xp.asarray(lengths[element_start:element_stop])
-                    polarity = xp.asarray(polarities[element_start:element_stop])
-                    rx = ox - mid[None, :, 0]
-                    ry = oy - mid[None, :, 1]
-                    rz = observation_z - mid[None, :, 2]
-                    radius_squared = xp.maximum(rx * rx + ry * ry + rz * rz, 1.0e-18)
-                    inverse_radius = 1.0 / xp.sqrt(radius_squared)
-                    charge = LINE_CAPACITANCE_F_M * voltage * length[None, :] * polarity[None, :]
-                    electric_scale = ELECTRIC_CONSTANT * charge * inverse_radius / radius_squared
-                    accumulated_e[:, 0] += xp.sum(electric_scale * rx, axis=1)
-                    accumulated_e[:, 1] += xp.sum(electric_scale * ry, axis=1)
-                    accumulated_e[:, 2] += xp.sum(electric_scale * rz, axis=1)
-                    cross_x = line[None, :, 1] * rz
-                    cross_y = -line[None, :, 0] * rz
-                    cross_z = line[None, :, 0] * ry - line[None, :, 1] * rx
-                    magnetic_scale = (
-                        MAGNETIC_CONSTANT * current * polarity[None, :]
-                        * inverse_radius / radius_squared
-                    )
-                    accumulated_h[:, 0] += xp.sum(magnetic_scale * cross_x, axis=1)
-                    accumulated_h[:, 1] += xp.sum(magnetic_scale * cross_y, axis=1)
-                    accumulated_h[:, 2] += xp.sum(magnetic_scale * cross_z, axis=1)
-                for model, footprint, field_storage in inductor_fields:
-                    duty = (
-                        model.vout_v / model.vin_v
-                        if model.vin_v > 0.0 else 0.5
-                    )
-                    harmonic_current = triangular_harmonic_peak(
-                        model.ripple_current_pp_a, harmonic_number, duty,
-                    )
-                    attenuation = (
-                        10.0 ** (-float(model.shielding_attenuation_db) / 20.0)
-                        if model.shielding_attenuation_db is not None else 1.0
-                    )
-                    # Transparent one-turn package-area equivalent.  It is an
-                    # uncertainty estimate, not a reconstruction of the hidden winding.
-                    area_m2 = max(0.0, model.width_mm * model.depth_mm) * 1.0e-6
-                    moment = harmonic_current * area_m2 * attenuation
-                    source_z = 0.5 * max(0.0, model.height_mm) * 1.0e-3
-                    rx_i = ox[:, 0] - float(footprint.position[0]) * 1.0e-3
-                    ry_i = oy[:, 0] - float(footprint.position[1]) * 1.0e-3
-                    rz_i = observation_z - source_z
-                    radius_sq = rx_i * rx_i + ry_i * ry_i + rz_i * rz_i
-                    minimum_radius = max(
-                        0.25 * min(model.width_mm or 1.0, model.depth_mm or 1.0) * 1.0e-3,
-                        0.25e-3,
-                    )
-                    radius_sq = xp.maximum(radius_sq, minimum_radius * minimum_radius)
-                    inverse_r = 1.0 / xp.sqrt(radius_sq)
-                    inverse_r3 = inverse_r / radius_sq
-                    inverse_r5 = inverse_r3 / radius_sq
-                    scale = MAGNETIC_CONSTANT * moment
-                    hx_i = scale * 3.0 * rz_i * rx_i * inverse_r5
-                    hy_i = scale * 3.0 * rz_i * ry_i * inverse_r5
-                    hz_i = scale * (3.0 * rz_i * rz_i * inverse_r5 - inverse_r3)
-                    accumulated_h[:, 0] += hx_i
-                    accumulated_h[:, 1] += hy_i
-                    accumulated_h[:, 2] += hz_i
-                    field_storage[cell_start:cell_stop] = xp.sqrt(
-                        hx_i * hx_i + hy_i * hy_i + hz_i * hz_i
-                    )
-                source_e[cell_start:cell_stop] = xp.sqrt(xp.sum(accumulated_e * accumulated_e, axis=1))
-                source_h[cell_start:cell_stop] = xp.sqrt(xp.sum(accumulated_h * accumulated_h, axis=1))
-            e_squared += source_e * source_e
-            h_squared += source_h * source_h
-            source_e_np = self._to_numpy(source_e, xp)
-            source_h_np = self._to_numpy(source_h, xp)
-            source_e_index = int(np.argmax(source_e_np))
-            source_h_index = int(np.argmax(source_h_np))
-            e_y, e_x = np.unravel_index(source_e_index, (y_values.size, x_values.size))
-            h_y, h_x = np.unravel_index(source_h_index, (y_values.size, x_values.size))
-            contribution_data.append(EMFieldSourceContribution(
-                source_name=source.name,
-                net_names=tuple(filter(None, (source.net_name, getattr(source, "negative_net_name", "")))),
-                geometry_source=geometry_source,
-                geometry_confidence=(
-                    "HIGH" if geometry_source == "ROUTED_TRACKS" else
-                    "MEDIUM" if geometry_source == "PAD_TO_PAD_ZONE_PATH" else "LOW"
-                ),
-                maximum_e_v_m=float(source_e_np[source_e_index]),
-                maximum_h_a_m=float(source_h_np[source_h_index]),
-                maximum_e_position_mm=(float(x_values[e_x]), float(y_values[e_y])),
-                maximum_h_position_mm=(float(x_values[h_x]), float(y_values[h_y])),
-                analyzed_frequency_hz=analyzed_frequency,
-                harmonic_number=harmonic_number,
-            ))
-            for model, _footprint, field_storage in inductor_fields:
-                field_np = self._to_numpy(field_storage, xp)
-                field_index = int(np.argmax(field_np))
-                field_y, field_x = np.unravel_index(
-                    field_index, (y_values.size, x_values.size),
+        side_outcomes = []
+        progress_total = sum(len(per_source) for _label, _oz, per_source in side_geometry) or 1
+        progress_index = 0
+        for side_label, observation_z, per_source in side_geometry:
+            if not per_source:
+                continue
+            self.log(
+                f"[EM FIELD] Solving {cell_count:,} observation cells {side_label.lower()} of the "
+                f"board ({abs(observation_z) * 1.0e3:.3g} mm) with "
+                f"{sum(len(item[2]) for item in per_source):,} conductor/image elements on {backend}."
+            )
+            e_squared = xp.zeros(cell_count, dtype=xp.float64)
+            h_squared = xp.zeros(cell_count, dtype=xp.float64)
+            contribution_data = []
+            inductor_contribution_data = []
+            side_segments = []
+            side_elements = 0
+            for prepared_source in per_source:
+                (source, factor, elements, segments, geometry_source,
+                 analyzed_frequency, harmonic_number, source_inductors) = prepared_source
+                source_e_sq, source_h_sq, contribution, inductor_contributions = self._accumulate_source(
+                    source, factor, elements, geometry_source, analyzed_frequency, harmonic_number,
+                    source_inductors, observation_z, xp, flat_x, flat_y, cell_count,
+                    cell_batch, element_batch, x_values, y_values,
                 )
-                duty = model.vout_v / model.vin_v if model.vin_v > 0.0 else 0.5
-                inductor_contribution_data.append(EMInductorFieldContribution(
-                    ref_des=model.ref_des,
-                    mpn=model.mpn,
-                    source_name=source.name,
-                    model_level=model.model_level,
-                    shield_state=model.shield_state,
-                    attenuation_applied_db=model.shielding_attenuation_db,
-                    harmonic_number=harmonic_number,
-                    analyzed_frequency_hz=analyzed_frequency,
-                    ripple_current_pp_a=model.ripple_current_pp_a,
-                    harmonic_current_peak_a=triangular_harmonic_peak(
-                        model.ripple_current_pp_a, harmonic_number, duty,
-                    ),
-                    maximum_h_a_m=float(field_np[field_index]),
-                    maximum_h_position_mm=(float(x_values[field_x]), float(y_values[field_y])),
-                    parameter_confidence=model.parameter_confidence,
-                    model_confidence=(
-                        "HIGH" if model.shielding_attenuation_db is not None
-                        and model.ripple_current_pp_a > 0.0 else "LOW"
-                    ),
-                    parameter_reference=model.parameter_reference,
-                    refinement_status=TargetedInductorRefiner.status(model),
-                ))
-            all_source_segments.extend(segments)
-            if progress_callback:
-                progress_callback(source_index, len(prepared), source.name)
+                e_squared += source_e_sq
+                h_squared += source_h_sq
+                contribution_data.append(contribution)
+                inductor_contribution_data.extend(inductor_contributions)
+                side_segments.extend(segments)
+                side_elements += len(elements)
+                progress_index += 1
+                if progress_callback:
+                    progress_callback(progress_index, progress_total, f"{source.name} ({side_label.lower()})")
+            side_outcomes.append((
+                side_label, e_squared, h_squared, contribution_data,
+                inductor_contribution_data, side_segments, side_elements,
+            ))
+
+        e_squared = side_outcomes[0][1]
+        h_squared = side_outcomes[0][2]
+        for _label, e_sq, h_sq, *_rest in side_outcomes[1:]:
+            e_squared = xp.maximum(e_squared, e_sq)
+            h_squared = xp.maximum(h_squared, h_sq)
+
+        # A source visible from both sides (thin board, or no continuous
+        # plane between them) keeps whichever side gave it the larger
+        # field, so the relative-contribution percentages stay meaningful.
+        # A side with real conductor geometry always outranks one that
+        # fell back to INDUCTOR_ONLY: the inductor dipole model has no
+        # notion of which side it is mounted on, so on a board where the
+        # switch trace is shielded from only one side, that side's dipole
+        # (evaluated at the wrong distance for an unmounted-side guess)
+        # must not hide the other side's real, measured trace field --
+        # P02 Rev E's /MAIN_3V3_SW (U5) did exactly this before this
+        # ranking: it reported INDUCTOR_ONLY with Emax=0 despite 18 real
+        # B.Cu elements being visible from the board's own (bottom) side.
+        def rank(item):
+            return (
+                0 if item.geometry_source == "INDUCTOR_ONLY" else 1,
+                item.maximum_h_a_m, item.maximum_e_v_m,
+            )
+
+        contribution_by_name = {}
+        for _label, _e, _h, contribs, _ind, _segs, _count in side_outcomes:
+            for item in contribs:
+                existing = contribution_by_name.get(item.source_name)
+                if existing is None or rank(item) > rank(existing):
+                    contribution_by_name[item.source_name] = item
+        contribution_data = list(contribution_by_name.values())
+        for name in sorted({item.source_name for item in contribution_data
+                             if item.geometry_source == "PAD_TO_PAD_ZONE_PATH"}):
+            warnings.append(
+                f"Source {name} has no routed track segment; field geometry uses "
+                "a pad-to-pad path verified to remain at least 80% inside one copper zone."
+            )
+        for name in sorted({item.source_name for item in contribution_data
+                             if item.geometry_source == "INDUCTOR_ONLY"}):
+            warnings.append(
+                f"Source {name} has no routed segment; only its configured "
+                "inductor magnetic model is evaluated."
+            )
+
+        inductor_by_key = {}
+        for _label, _e, _h, _contribs, ind_contribs, _segs, _count in side_outcomes:
+            for item in ind_contribs:
+                key = (item.ref_des, item.source_name)
+                existing = inductor_by_key.get(key)
+                if existing is None or item.maximum_h_a_m > existing.maximum_h_a_m:
+                    inductor_by_key[key] = item
+        inductor_contribution_data = list(inductor_by_key.values())
+
+        # The routed geometry is the same physical track regardless of which
+        # side observes it; take it from whichever side solved first rather
+        # than listing every source's segments twice.
+        all_source_segments = side_outcomes[0][5]
+        source_count = len(contribution_data)
+        segment_count = sum(item[6] for item in side_outcomes)
 
         e_field = self._to_numpy(xp.sqrt(e_squared), xp).reshape(y_values.size, x_values.size)
         h_field = self._to_numpy(xp.sqrt(h_squared), xp).reshape(y_values.size, x_values.size)
@@ -533,8 +751,8 @@ class EMNearFieldSolver:
             frequency_hz=frequency_hz,
             frequency_mode=("SELECTED_ENVELOPE" if frequency_hz > 0.0
                             else "FIRST_IN_BAND_HARMONICS"),
-            source_count=len(prepared),
-            segment_count=sum(len(item[2]) for item in prepared),
+            source_count=source_count,
+            segment_count=segment_count,
             maximum_e_v_m=float(e_field[e_index]),
             maximum_h_a_m=float(h_field[h_index]),
             maximum_e_position_mm=(float(x_values[e_index[1]]), float(y_values[e_index[0]])),
@@ -548,6 +766,7 @@ class EMNearFieldSolver:
         )
         self.log(
             f"[EM FIELD] Complete in {result.elapsed_seconds:.3f} s: "
-            f"Emax={result.maximum_e_v_m:.4g} V/m, Hmax={result.maximum_h_a_m:.4g} A/m."
+            f"Emax={result.maximum_e_v_m:.4g} V/m, Hmax={result.maximum_h_a_m:.4g} A/m "
+            "(worse of the top-side and bottom-side observation planes)."
         )
         return result

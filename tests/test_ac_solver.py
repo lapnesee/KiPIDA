@@ -2,6 +2,7 @@ import os
 import sys
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 plugin_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if plugin_dir not in sys.path:
@@ -82,32 +83,139 @@ class TestACSolver(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not electrically connected"):
             ACSolver().solve_sweep(network, self.settings())
 
-    def test_auto_cuda_fallback_is_not_retried_at_every_frequency(self):
+    def test_auto_sweeps_on_the_cpu_without_trying_the_gpu(self):
+        # P02 Rev E, 85,337 nodes: AUTO sent the sweep to CUDA, whose BiCGSTAB
+        # stopped at status=5000 before the run fell back to one direct solve
+        # per point -- 733 s for 121 points.
         class RecordingBackend:
             def __init__(self):
                 self.settings = SimpleNamespace(backend="AUTO")
-                self.calls = []
+                self.calls = 0
 
-            def solve(self, _matrix, _rhs, **_kwargs):
-                requested = self.settings.backend
-                self.calls.append(requested)
-                return SimpleNamespace(
-                    values=ac_solver.np.asarray([0.1 + 0.0j, 0.0 + 0.0j]),
-                    metadata=SimpleNamespace(
-                        backend="CPU_SCIPY", device="CPU", solve_seconds=0.01,
-                        transfer_seconds=0.0, relative_residual=0.0, iterations=1,
-                        cache_hit=False,
-                        fallback_reason=("status=5000" if requested == "AUTO" else ""),
-                    ),
-                )
+            def solve(self, *_args, **_kwargs):
+                self.calls += 1
+                raise AssertionError("AUTO reached the GPU")
 
         solver = ACSolver()
         solver.compute_backend = RecordingBackend()
 
         result = solver.solve_sweep(self.network(), self.settings())
 
-        self.assertEqual(solver.compute_backend.calls, ["AUTO", "CPU", "CPU"])
-        self.assertEqual(result.compute_backend, "CPU_SCIPY")
+        self.assertEqual(solver.compute_backend.calls, 0)
+        self.assertEqual(result.compute_backend, ac_solver.RECYCLED_LU_BACKEND)
+        for impedance in result.impedance_ohm:
+            self.assertAlmostEqual(abs(impedance), 0.1, places=9)
+
+    def test_a_reused_factorisation_matches_a_direct_solve_at_every_point(self):
+        # The sweep carries one LU across frequencies and anchors nodes by row
+        # and column; the reference is the historical formulation, a direct
+        # solve per point with each anchor's row replaced by the identity.
+        np = ac_solver.np
+        from models import MeshBranch
+
+        size = 8
+        node = {(layer, i, j): (layer * size + i) * size + j
+                for layer in (0, 1) for i in range(size) for j in range(size)}
+        branches = [
+            MeshBranch(node[(layer, i, j)], node[(layer, i + di, j + dj)],
+                       resistance_ohm=1.1e-3, inductance_h=0.12e-9)
+            for (layer, i, j) in node for di, dj in ((1, 0), (0, 1))
+            if i + di < size and j + dj < size
+        ]
+        pair = lambda i, j: ACNodeConnection([node[(0, i, j)]], [node[(1, i, j)]])
+        capacitors = [
+            CapacitorModel(ref_des=f"C{k}", capacitance_f=value, esr_ohm=0.01, esl_h=0.5e-9)
+            for k, value in enumerate((10e-6, 1e-6, 100e-9, 10e-9))
+        ]
+        network = ACNetwork(
+            node_count=len(node), branches=branches, source=pair(0, 0),
+            measurement=pair(size - 1, size - 1),
+            capacitor_nodes={cap.ref_des: pair(k * 2 + 1, size - 2)
+                             for k, cap in enumerate(capacitors)},
+        )
+        settings = self.settings(
+            frequency_start_hz=1e3, frequency_stop_hz=1e9, frequency_points=61,
+            source=ACSourceModel(resistance_ohm=5e-3, inductance_h=2e-9),
+            capacitors=capacitors,
+        )
+
+        with mock.patch.object(ac_solver.scipy.sparse.linalg, "splu",
+                               wraps=ac_solver.scipy.sparse.linalg.splu) as splu:
+            result = ACSolver().solve_sweep(network, settings)
+
+        anchors = ACSolver._topology_anchors(network, capacitors)
+        elements = [(b.node_a, b.node_b, lambda f, b=b: complex(
+            b.resistance_ohm, 2 * np.pi * f * b.inductance_h)) for b in branches]
+        elements.append((node[(0, 0, 0)], node[(1, 0, 0)],
+                         lambda f: complex(5e-3, 2 * np.pi * f * 2e-9)))
+        elements += [(network.capacitor_nodes[cap.ref_des].rail_nodes[0],
+                      network.capacitor_nodes[cap.ref_des].ground_nodes[0],
+                      lambda f, cap=cap: ACSolver.capacitor_impedance(cap, f))
+                     for cap in capacitors]
+        for frequency, impedance in zip(result.frequencies_hz, result.impedance_ohm):
+            matrix = np.zeros((len(node), len(node)), dtype=complex)
+            for a, b, element in elements:
+                y = 1.0 / element(frequency)
+                matrix[a, a] += y
+                matrix[b, b] += y
+                matrix[a, b] -= y
+                matrix[b, a] -= y
+            current = np.zeros(len(node), dtype=complex)
+            current[node[(0, size - 1, size - 1)]] = 1.0
+            current[node[(1, size - 1, size - 1)]] = -1.0
+            for anchor in anchors:
+                matrix[anchor, :] = 0.0
+                matrix[anchor, anchor] = 1.0
+                current[anchor] = 0.0
+            voltage = np.linalg.solve(matrix, current)
+            expected = voltage[node[(0, size - 1, size - 1)]] - voltage[node[(1, size - 1, size - 1)]]
+            self.assertLess(abs(impedance - expected) / abs(expected),
+                            ac_solver.GPU_ACCURACY_TOLERANCE, f"{frequency:g} Hz")
+        self.assertLess(splu.call_count, 61 // 4, "the factorisation was not reused")
+        self.assertEqual(result.compute_backend, ac_solver.RECYCLED_LU_BACKEND)
+
+    def test_a_candidate_update_matches_a_full_sweep(self):
+        # AC-9: every optimizer trial was a full sweep of the network. The
+        # Woodbury update of one base solve must give the same impedances.
+        np = ac_solver.np
+        from models import MeshBranch
+
+        size = 6
+        node = {(layer, i, j): (layer * size + i) * size + j
+                for layer in (0, 1) for i in range(size) for j in range(size)}
+        branches = [
+            MeshBranch(node[(layer, i, j)], node[(layer, i + di, j + dj)],
+                       resistance_ohm=1.1e-3, inductance_h=0.12e-9)
+            for (layer, i, j) in node for di, dj in ((1, 0), (0, 1))
+            if i + di < size and j + dj < size
+        ]
+        pair = lambda i, j: ACNodeConnection([node[(0, i, j)]], [node[(1, i, j)]])
+        capacitors = [
+            CapacitorModel(ref_des=f"C{k}", capacitance_f=100e-9, esr_ohm=0.01,
+                           esl_h=0.5e-9, enabled=k == 0, candidate=k > 0)
+            for k in range(3)
+        ]
+        network = ACNetwork(
+            node_count=len(node), branches=branches, source=pair(0, 0),
+            measurement=pair(size - 1, size - 1),
+            capacitor_nodes={cap.ref_des: pair(k + 1, size - 2)
+                             for k, cap in enumerate(capacitors)},
+        )
+        settings = self.settings(
+            frequency_start_hz=1e3, frequency_stop_hz=1e9, frequency_points=21,
+            source=ACSourceModel(resistance_ohm=5e-3, inductance_h=2e-9),
+            capacitors=capacitors,
+        )
+        solver = ACSolver()
+        base = solver.candidate_impedances(network, settings, capacitors, ["C1", "C2"])
+        trial = [CapacitorModel(**{**vars(cap), "enabled": True}) for cap in capacitors]
+        trial[2].capacitance_f = 10e-6
+
+        fast = base.sweep(trial[1:])
+        full = solver.solve_sweep_multiport(network, settings, capacitors=trial)
+
+        deviation = np.abs(np.subtract(fast.impedance_ohm, full.impedance_ohm))
+        self.assertLess(float(np.max(deviation / np.abs(full.impedance_ohm))), 1e-7)
 
     def test_optimizer_populates_existing_candidate(self):
         candidate = CapacitorModel(

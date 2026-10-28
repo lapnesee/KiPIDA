@@ -1,6 +1,11 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+try:
+    from .physical_constants import COPPER_TEMPERATURE_COEFFICIENT_PER_C, DEFAULT_COPPER_THICKNESS_MM
+except (ImportError, ValueError):
+    from physical_constants import COPPER_TEMPERATURE_COEFFICIENT_PER_C, DEFAULT_COPPER_THICKNESS_MM
+
 @dataclass
 class ComponentRef:
     """Reference to a specific footprint component on the board."""
@@ -63,6 +68,13 @@ class VoltageRegulator:
     # Optional physical loss model.  Older project files omit it and retain
     # the legacy efficiency fallback in ``efficiency``.
     loss_model: Dict[str, Any] = field(default_factory=dict)
+    # On-resistance of a pass element -- a fuse, eFuse, shunt, switch or
+    # net-tie, i.e. a non-SWITCHING regulator whose output rail has the same
+    # nominal voltage as its input (DC-3). The DC solve propagates the input
+    # pad's own solved voltage minus input_current * r_pass_ohm to the output
+    # rail's source, instead of resetting it to nominal; 0.0 (undeclared)
+    # still propagates the upstream drop, just without the element's own.
+    r_pass_ohm: float = 0.0
 
 
 @dataclass
@@ -119,6 +131,11 @@ class PowerRail:
     loads: List[UnifiedLoad] = field(default_factory=list)
     # Regulators where this rail is the INPUT
     child_regulators: List[VoltageRegulator] = field(default_factory=list)
+    # How the board scan proposed the rail: "power_symbol" (declared by the
+    # designer), "power_pin" (inferred from a pin type) or "name" (guessed from
+    # the net name, its voltage too). Empty for a rail the project
+    # configuration holds, which is the designer's own entry; not saved.
+    discovery: str = ""
     
     def add_source(self, source: UnifiedSource):
         self.sources.append(source)
@@ -152,6 +169,32 @@ class ACSourceModel:
     inductance_h: float = 1.0e-9
 
 
+# Named small-signal source models the AC sweep can be told to use instead of
+# the untouched (R, L) defaults above. Each pair is what
+# scratchpad/audit/ac/source_lumped.py measured actually moving the
+# source/bulk anti-resonance against P02 Rev E's 7-capacitor bank: the
+# factory-floor default gives max|Z| 12 mOhm below 10 MHz and hides it
+# entirely, while a USB-C cable both reveals it and shifts its peak (133 mOhm
+# at 24 kHz; 362 mOhm, 92% of the 0.39226 ohm target, at 21 kHz for a worse
+# cable/regulator combination). "regulator_output" is a plain R+L stand-in
+# for a regulator's control-loop-limited output impedance, not a full
+# R_out + L with an explicit bandwidth roll-off -- that needs a
+# frequency-shaped source the solver's single complex R + jwL stamp does not
+# support yet, so it is published here as a limitation rather than modelled.
+# "series_element" is a rail fed through an eFuse, load switch or shunt from
+# a regulated one: its R_on in series with a regulator whose loop holds its
+# output in milliohms. P02 Rev E's /+5V_RAIL sits behind U15 (12.2 mOhm) and
+# R49 (7.5 mOhm) from U4; "regulator_output" alone, 50 mOhm, exceeds that
+# rail's 43 mOhm target and would fail it for a loop the R + jwL stamp
+# cannot represent.
+AC_SOURCE_PRESETS = (
+    ("default", "Default (10 mOhm + 1 nH, no board evidence)", 0.01, 1.0e-9),
+    ("usb_c_cable", "USB-C cable/connector (~0.1 ohm + 0.5 uH)", 0.1, 0.5e-6),
+    ("regulator_output", "Regulator output, unspecified bandwidth (~0.05 ohm + 1 uH)", 0.05, 1.0e-6),
+    ("series_element", "Pass element after a regulator (~20 mOhm + 5 nH)", 0.02, 5.0e-9),
+)
+
+
 @dataclass
 class ACMeasurementPort:
     """Differential rail-to-ground observation port."""
@@ -183,7 +226,32 @@ class ACAnalysisSettings:
     frequency_stop_hz: float = 1.0e8
     frequency_points: int = 121
     mesh_resolution_mm: float = 0.5
-    target_impedance_ohm: float = 0.05
+    # Zero means "derive from the rail" (see ac_model.resolve_target_impedance).
+    # The former 0.05 default decided pass/fail on every board without anyone
+    # choosing it, which is the arbitrary-default problem the audit records: a
+    # target only means something once a rail voltage and a load current exist
+    # to compute it from.
+    target_impedance_ohm: float = 0.0
+    # Inputs to that derivation, both design decisions rather than board facts.
+    ripple_fraction: float = 0.02
+    transient_fraction: float = 0.5
+    # Filled in once the target is resolved, so the report can state where the
+    # number came from instead of presenting a derived value as a chosen one.
+    target_impedance_provenance: str = ""
+    # 10-90 % rise time of the step the target budgets for; zero derives it
+    # from the edge of the EMC source switching the converter whose chopped
+    # current sets the target (ac_model.transient_bandwidth). Above
+    # 0.35 / rise time the step carries little current, and the allowed
+    # impedance rises with frequency (ac_model.target_mask).
+    transient_rise_time_ns: float = 0.0
+    # Filled in when the target is resolved; zero keeps the target flat.
+    transient_bandwidth_hz: float = 0.0
+    transient_bandwidth_provenance: str = ""
+    # Below this frequency a converter's chopped current has no content and
+    # the target is target_below_floor_ohm instead (ac_model.converter_band_floor).
+    target_floor_hz: float = 0.0
+    target_below_floor_ohm: float = 0.0
+    target_floor_provenance: str = ""
     source: ACSourceModel = field(default_factory=ACSourceModel)
     measurement_port: ACMeasurementPort = field(default_factory=ACMeasurementPort)
     capacitors: List[CapacitorModel] = field(default_factory=list)
@@ -249,9 +317,6 @@ class DifferentialAnalysisSettings:
     fabrication_profile: str = "GENERIC"
     geometry_mode: str = "AUTO"
     coplanar_ground_gap_mm: float = 0.15
-    enable_targeted_3d_refinement: bool = True
-    targeted_3d_max_sections: int = 4
-    targeted_3d_error_threshold_pct: float = 10.0
     minimum_width_mm: float = 0.10
     minimum_gap_mm: float = 0.10
     minimum_ground_clearance_mm: float = 0.15
@@ -273,7 +338,7 @@ class DifferentialSectionResult:
     reference_coverage_pct: float = 0.0
     single_ended_impedance_ohm: float = 0.0
     differential_impedance_ohm: float = 0.0
-    copper_thickness_mm: float = 0.035
+    copper_thickness_mm: float = DEFAULT_COPPER_THICKNESS_MM
     reference_distance_mm: float = 0.0
     reference_above_distance_mm: float = 0.0
     reference_below_distance_mm: float = 0.0
@@ -285,6 +350,11 @@ class DifferentialSectionResult:
     three_d_impedance_ohm: float = 0.0
     refinement_status: str = "NOT_SELECTED"
     refinement_reason: str = ""
+    # The mask actually modelled over this section (stackup value when the
+    # board states one, else the settings default), so a recommendation
+    # re-solves the same cross-section the measurement did.
+    solder_mask_thickness_mm: float = 0.02
+    solder_mask_epsilon_r: float = 3.3
     trustworthy: bool = False
     warnings: List[str] = field(default_factory=list)
 
@@ -331,6 +401,9 @@ class DifferentialPairResult:
     skew_margin_ps: float = 0.0
     length_symmetry_status: str = "NO_DATA"
     shorter_net: str = ""
+    # Share of the solved length whose reference plane qualifies; the
+    # verdict is taken on that length.
+    qualified_length_pct: float = 0.0
     status: str = "NO_DATA"
     trustworthy: bool = False
     warnings: List[str] = field(default_factory=list)
@@ -393,7 +466,10 @@ class EMCPhase10Settings:
     auto_run_full_wave: bool = False
     full_wave_backend: str = "OPENEMS_LOCAL"
     ngspice_path: str = r"C:\Spice64\bin\ngspice_con.exe"
-    spice_library_path: str = r"C:\Users\jbc66\Documents\DAW CONTROLEUR\Lib\SPICE"
+    # PSpice for TI runs the encrypted TI libraries ngspice cannot.
+    pspice_path: str = r"C:\Cadence\PSpiceTI\tools\bin\pspice.exe"
+    # Empty until set: it was one user's own folder, given to every project.
+    spice_library_path: str = ""
     openems_root: str = r"C:\openEMS"
     openems_python_path: str = ""
     gmsh_path: str = ""
@@ -613,6 +689,9 @@ class EMCPhase10RegionResult:
     port_geometry_source: str = ""
     port_confidence: str = ""
     warnings: List[str] = field(default_factory=list)
+    # The grid step this region is meshed at: the configured one, or coarser
+    # when that would exceed the cell limit (emc_phase10.select_target_regions).
+    mesh_resolution_mm: float = 0.0
 
 
 @dataclass
@@ -655,10 +734,47 @@ class EMCSpiceModelAudit:
 
 
 @dataclass
+class EMCBoardCircuitResult:
+    """A switching source's converter run in the board's own circuit.
+
+    *status* is SWITCHING once the switch node switches and the output and
+    inductor current hold still over the printed window, NOT_STEADY while
+    they drift, NOT_SWITCHING, FAILED, TIMEOUT or NOT_BUILT (the reason is
+    in *notes*). *disagreements* names each configured source value the
+    circuit contradicts.
+    """
+    source_name: str
+    component_ref: str
+    status: str
+    model_name: str = ""
+    netlist_path: str = ""
+    output_path: str = ""
+    simulated_s: float = 0.0
+    elapsed_seconds: float = 0.0
+    input_v: float = 0.0
+    load_a: float = 0.0
+    output_nominal_v: float = 0.0
+    frequency_hz: Optional[float] = None
+    switch_low_v: Optional[float] = None
+    switch_high_v: Optional[float] = None
+    output_v: Optional[float] = None
+    inductor_mean_a: Optional[float] = None
+    inductor_peak_a: Optional[float] = None
+    inductor_valley_a: Optional[float] = None
+    pin_mapping: str = ""
+    parts: List[str] = field(default_factory=list)
+    disagreements: List[str] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)
+
+
+@dataclass
 class EMCVirtualReceiverPoint:
     frequency_hz: float
     detector: str
-    level_dbuv_m: float
+    # A level relative to the strongest estimate, not a field strength: no
+    # far field is computed and no limit line exists to compare it with. It
+    # was named level_dbuv_m under a QUASI_PEAK detector (EMC-8).
+    level_rel_db: float
     limit_dbuv_m: Optional[float]
     margin_db: Optional[float]
     source_name: str
@@ -674,6 +790,7 @@ class EMCPhase10Result:
     palace_runs: List[EMCPalaceRemoteRunResult] = field(default_factory=list)
     receiver_points: List[EMCVirtualReceiverPoint] = field(default_factory=list)
     spice_model_audit: List[EMCSpiceModelAudit] = field(default_factory=list)
+    board_circuits: List[EMCBoardCircuitResult] = field(default_factory=list)
     output_directory: str = ""
     elapsed_seconds: float = 0.0
     limitations: List[str] = field(default_factory=list)
@@ -716,8 +833,20 @@ class ImpedanceSweepResult:
     frequencies_hz: List[float]
     impedance_ohm: List[complex]
     target_impedance_ohm: float = 0.0
+    # The target holds flat to here and rises with frequency above; zero is
+    # a flat target (ac_model.target_mask).
+    target_bandwidth_hz: float = 0.0
+    # Below target_floor_hz the allowed impedance is target_below_floor_ohm.
+    target_floor_hz: float = 0.0
+    target_below_floor_ohm: float = 0.0
     worst_frequency_hz: float = 0.0
     worst_impedance_ohm: float = 0.0
+    # The point with the least margin to the allowed impedance: once the
+    # target rises with frequency it need not be the worst |Z|. Zero with no
+    # target.
+    critical_frequency_hz: float = 0.0
+    critical_impedance_ohm: float = 0.0
+    critical_allowed_ohm: float = 0.0
     meets_target: bool = False
     compute_backend: str = "CPU"
     compute_device: str = "CPU"
@@ -729,6 +858,50 @@ class ImpedanceSweepResult:
     mesh_node_count: int = 0
     requested_grid_size_mm: float = 0.0
     effective_grid_size_mm: float = 0.0
+    # The meshed nets' tracks as the raster error depends on them:
+    # {"track_count", "finest_width_mm", "oblique_count"}.
+    track_summary: Dict[str, Any] = field(default_factory=dict)
+    # "hybrid" when the network came from the saved board file's hybrid mesh,
+    # "raster" when from the open board's raster mesh.
+    mesh_engine: str = "raster"
+    # The worst impedance solved again at half the grid step, when checked:
+    # {"grid_mm", "check_grid_mm", "frequency_hz", "impedance_ohm",
+    #  "check_impedance_ohm", "delta_pct"}, or {"not_checked": reason}.
+    grid_check: Dict[str, Any] = field(default_factory=dict)
+    # Populated by a multi-port sweep: one sweep per observation point, keyed
+    # by reference designator, plus which one produced this worst case. Left
+    # empty by a single-port solve, so existing consumers are unaffected.
+    per_port_results: Dict[str, "ImpedanceSweepResult"] = field(default_factory=dict)
+    worst_port_ref_des: str = ""
+    # Observation points dropped before solving, each {"ref_des", "reason"}.
+    # An impedance computed on copper that never reaches the source is
+    # meaningless, so such a port is removed rather than reported -- but
+    # removing it silently would hide a degraded analysis, so it is carried
+    # here and surfaced as a limitation.
+    excluded_ports: List[Dict[str, str]] = field(default_factory=list)
+    # Frequency above which the lumped quasi-static model stops being
+    # trustworthy, and how many swept points fall beyond it. Zero means no
+    # bound could be established. Points past it are still solved and
+    # reported -- the user may legitimately want to look -- but the report
+    # must say the confidence there is lower.
+    quasi_static_limit_hz: float = 0.0
+    points_beyond_quasi_static: int = 0
+    # True when the worst case landed on the last swept point, so the real
+    # maximum may lie outside the window rather than at its edge.
+    worst_at_sweep_edge: bool = False
+    # When worst_at_sweep_edge and the impedance was still rising there, the
+    # frequency at which linearly extrapolating that rise would cross the
+    # target -- 0.0 when not applicable (edge not reached, not rising, or no
+    # target). A PASS is not established when this falls inside the model's
+    # own quasi-static domain: the real crossing may already be within the
+    # window the tool claims to trust (AC-1).
+    extrapolated_crossing_hz: float = 0.0
+    # Outcome of the GPU-against-CPU audit run on the first swept point. Empty
+    # when the sweep never touched a GPU or the check was switched off. It
+    # records the agreement measured, or the disagreement that sent the rest
+    # of the sweep back to the CPU, so a reader can tell which arithmetic
+    # produced the impedances above.
+    gpu_accuracy_check: str = ""
 
 
 @dataclass
@@ -757,6 +930,8 @@ class DCSolveResult:
     valid: bool = True
     excluded_load_node_count: int = 0
     excluded_load_references: List[str] = field(default_factory=list)
+    excluded_load_current_a: float = 0.0
+    total_load_current_a: float = 0.0
     warnings: List[str] = field(default_factory=list)
 
 
@@ -791,6 +966,93 @@ class ThermalComponentModel:
     thermal_condition: str = ""
     parameter_provenance: Dict[str, Any] = field(default_factory=dict)
     loss_mechanisms: List[Dict[str, Any]] = field(default_factory=list)
+    # The board temperature theta_jb_c_per_w adds to: "BOARD" for a psiJB or
+    # thetaJB, which JEDEC JESD51-8 and -12 take on the board 1 mm from the
+    # package edge; "CASE" for a thetaJC or thetaJL, whose case or lead is
+    # the copper under the part. Empty reads the metric off the provenance.
+    theta_reference: str = ""
+    # A fuse's current rating and its datasheet thermal derating curve, rows
+    # {"temperature_c", "percent"} of the rating kept at that ambient: TH-006
+    # weighs the current the part carries against them.
+    rated_current_a: float = 0.0
+    current_derating: List[Dict[str, float]] = field(default_factory=list)
+    current_derating_source: str = ""
+    # A part that sheds a real share of its heat through its own surface (a
+    # power module, a large inductor or transformer): its loss goes into one
+    # body node instead of the board. The body reaches the board through
+    # theta_jb_c_per_w, spread over its heat pads as the direct deposit would
+    # be, and the air through its exposed surface -- body_area_mm2, or the
+    # width x depth top and the four sides of height_mm when 0 -- at the
+    # board's convection correlations and radiation, refined against the
+    # body's own temperature. Its junction is the body node. Off, the part
+    # keeps the default model: all its heat into the board, Tj = board +
+    # P x thetaJB.
+    body_exchange: bool = False
+    body_area_mm2: float = 0.0
+
+
+@dataclass
+class ThermalHeatsink:
+    """A heatsink: one isothermal node bonded through an interface and shedding heat to the air.
+
+    mount "BOARD" bonds it to a zone of one board face (side "TOP" or
+    "BOTTOM"): the rectangle x/y_min..max_mm in board coordinates, or
+    polygon_mm ([[x, y], ...], three points or more) when given. Each outer
+    cell under the zone reaches the heatsink through the interface over the
+    area it holds, and that area no longer exchanges with the air itself.
+    mount "COMPONENT" sets it on ref_des's top: the part gets a body node
+    (as ThermalComponentModel.body_exchange does), joined to the heatsink
+    through theta_jc_c_per_w (junction to the case top) plus the interface
+    over the part's width x depth.
+
+    The interface is interface_thickness_mm / interface_k_w_mk (a gap pad)
+    plus interface_resistance_k_cm2_w (a datasheet's area-specific contact
+    resistance); both 0 is a bonded joint. The air side is theta_sa_c_per_w
+    when stated, taken as constant; otherwise fin_area_mm2 at the airflow
+    settings' correlations on fin_length_mm (the square root of the base
+    area when 0) for its orientation -- "VERTICAL" plates, or a horizontal
+    plate facing "UP" or "DOWN" -- plus radiation at emissivity (0 unless
+    stated: fins that face each other radiate mostly to one another), refined
+    on the heatsink's own temperature. Off (enabled False or no heatsink at
+    all), the board is solved as before.
+    """
+    name: str = "HS1"
+    enabled: bool = True
+    mount: str = "BOARD"  # BOARD, COMPONENT
+    side: str = "BOTTOM"  # TOP, BOTTOM (BOARD mount)
+    x_min_mm: float = 0.0
+    y_min_mm: float = 0.0
+    x_max_mm: float = 0.0
+    y_max_mm: float = 0.0
+    polygon_mm: List[List[float]] = field(default_factory=list)
+    ref_des: str = ""
+    theta_jc_c_per_w: float = 0.0
+    interface_thickness_mm: float = 0.0
+    interface_k_w_mk: float = 0.0
+    interface_resistance_k_cm2_w: float = 0.0
+    theta_sa_c_per_w: float = 0.0
+    fin_area_mm2: float = 0.0
+    fin_length_mm: float = 0.0
+    orientation: str = "VERTICAL"  # VERTICAL, UP, DOWN
+    emissivity: float = 0.0
+
+
+@dataclass
+class HeatsinkThermalResult:
+    """What one heatsink did: its temperature, the heat it passed to the air, the path's resistances."""
+    name: str
+    mount: str
+    temperature_c: float
+    to_air_w: float
+    side: str = ""
+    ref_des: str = ""
+    # The area-weighted temperature of what it is bonded to: the board cells
+    # under its zone, or the part's body node.
+    base_c: float = 0.0
+    contact_area_mm2: float = 0.0
+    interface_c_per_w: float = 0.0
+    theta_sa_c_per_w: float = 0.0
+    theta_sa_source: str = ""
 
 
 @dataclass
@@ -808,12 +1070,23 @@ class ThermalAnalysisSettings:
     color_scale_maximum_mode: str = "AUTO"
     color_scale_maximum_c: Optional[float] = None
     show_internal_copper_layers: bool = True
+    # Solve a second time at twice the grid step and publish how far the
+    # hotspot moves: the thermal result had no error bar, and mesh resolution
+    # alone moved the reference board's hotspot by 7.4 C between 0.5 and 0.1 mm.
+    mesh_sensitivity_check: bool = True
+    # COH-4: a sealed enclosure raises the air the board sits in above the
+    # ambient outside its walls (CFD-4 measured ~16 K for P02 Rev E's box).
+    # True solves at ambient + that rise whenever an enclosure profile is
+    # handed to the run; False keeps the configured ambient and the report
+    # states the rise as an unapplied limitation instead.
+    apply_enclosure_ambient: bool = True
     coupled_iterations: int = 10
     convergence_c: float = 0.1
     relaxation: float = 0.6
-    copper_temp_coefficient_per_c: float = 0.00393
+    copper_temp_coefficient_per_c: float = COPPER_TEMPERATURE_COEFFICIENT_PER_C
     components: List[ThermalComponentModel] = field(default_factory=list)
     power_stage_reports: List[PowerStageResult] = field(default_factory=list)
+    heatsinks: List[ThermalHeatsink] = field(default_factory=list)
 
     def resolved_color_scale_minimum_c(self) -> Optional[float]:
         """Return the requested lower colour bound, or None for auto."""
@@ -851,6 +1124,20 @@ class ComponentThermalResult:
     theta_jb_c_per_w: float = 0.0
     thermal_source: str = "estimate"
     thermal_condition: str = ""
+    # Where board_temperature_c was read: "1 mm from the package" or "under
+    # the part" (ThermalComponentModel.theta_reference).
+    board_reference: str = "under the part"
+    rated_current_a: float = 0.0
+    current_derating: List[Dict[str, float]] = field(default_factory=list)
+    current_derating_source: str = ""
+    # ThermalComponentModel.body_exchange: what its body passes to the air and
+    # to the board; both 0 for a part without a body node.
+    body_exchange: bool = False
+    body_to_air_w: float = 0.0
+    body_to_board_w: float = 0.0
+    # What its body passes to a heatsink set on it (ThermalHeatsink mount
+    # COMPONENT); 0 without one.
+    body_to_heatsink_w: float = 0.0
 
 
 @dataclass
@@ -862,10 +1149,48 @@ class ThermalResult:
     temperature_vector_c: object = None
     hotspot: Optional[ThermalHotspot] = None
     component_results: List[ComponentThermalResult] = field(default_factory=list)
+    # {reference: C}, the hottest board cell under each footprint's pads,
+    # heat source or not (thermal_mesh placement_nodes).
+    placement_temperatures_c: Dict[str, float] = field(default_factory=dict)
+    # One row per heatsink the mesh bonded (ThermalAnalysisSettings.heatsinks), and
+    # one "name: reason" line per configured heatsink it could not.
+    heatsink_results: List[HeatsinkThermalResult] = field(default_factory=list)
+    heatsink_skipped: List[str] = field(default_factory=list)
+    # The check at twice the grid step, when it ran
+    # (ThermalAnalysisController._mesh_sensitivity), so a domain reading
+    # these temperatures can tell how far the mesh moves them.
+    mesh_sensitivity: Dict[str, Any] = field(default_factory=dict)
+    # How much cooler the ambient it was solved at could be because an input
+    # is a default: the enclosure air at 1 W/m2K more on a default wall
+    # coefficient (cfd_model.default_wall_air_uncertainty_k), 2.7 K on P02.
+    ambient_uncertainty_k: float = 0.0
     total_input_power_w: float = 0.0
     total_boundary_power_w: float = 0.0
     energy_balance_error_pct: float = 0.0
+    # What the model asked for (enabled components + copper losses) and
+    # how much of it never reached a mesh cell (TH-9).
+    intended_input_power_w: float = 0.0
+    undeposited_power_w: float = 0.0
     convection_coefficient_w_m2k: float = 0.0
+    # The surface exchange as actually applied, per exposed face, plus the
+    # correlation it came from. A hotspot is only as good as the coefficient
+    # that produced it, so the report must be able to state both rather than
+    # leaving a first-order assumption invisible.
+    surface_h_w_m2k: Dict[str, float] = field(default_factory=dict)
+    # Whether the surface coefficients above were actually refined against
+    # this solution (ThermalSolver._refine_surface_exchange ran at least
+    # once) rather than left at the mesh's nominal "ambient + 30 K" guess.
+    # The coupled path used to leave this False while still describing the
+    # coefficients as "refined" (TH-2).
+    surface_refined: bool = False
+    # Per-face kind ("top"/"bottom"/"edge"), whether the laminar correlation
+    # actually applies at the temperature the solve settled on -- P02 Rev E's
+    # Ra ~ 8.0e3 sits below the 1e4 lower bound the top/bottom-face
+    # correlations are stated for (TH-8). Empty when never evaluated (no
+    # refinement ran, e.g. CUSTOM airflow, where h is user-specified anyway).
+    surface_correlation_in_range: Dict[str, bool] = field(default_factory=dict)
+    convection_basis: str = ""
+    characteristic_length_m: float = 0.0
     iterations: int = 1
     converged: bool = True
     compute_backend: str = "CPU"
@@ -878,6 +1203,15 @@ class ThermalResult:
     compute_fallback_reason: str = ""
     compute_matrix_assembly: str = "CPU_CSR"
     compute_warm_start_used: bool = False
+    # The mesher silently coarsens the grid when the requested one would
+    # exceed the node budget. Carried here so the report can say the requested
+    # resolution was not honoured: someone who asks for 0.05 mm and receives
+    # 0.089 mm is otherwise told nothing outside the log, and reads the result
+    # as though it were the resolution they chose.
+    requested_grid_size_mm: float = 0.0
+    effective_grid_size_mm: float = 0.0
+    adaptive_grid: bool = False
+    mesh_node_count: int = 0
 
 
 @dataclass
@@ -886,6 +1220,8 @@ class ElectroThermalResult:
     dc_results: Dict[str, DCSolveResult] = field(default_factory=dict)
     iterations: int = 1
     converged: bool = True
+    # Heat the last iteration deposited: components at temperature plus copper.
+    total_heat_w: float = 0.0
 
 
 @dataclass
@@ -924,17 +1260,41 @@ class EnclosureGeometrySettings:
     board_offset_y_mm: float = 0.0
     board_offset_z_mm: float = 15.0
     wall_heat_transfer_w_m2k: float = 5.0
+    # Solid-air film radiation, CFD-6 (docs/audit-2026-09-23.md): the field
+    # this setting fills used to not exist, so the solver's own emissivity
+    # read always fell back to 0.0 -- radiation was dead code -- while a
+    # report limitation claimed it was part of the film. 0.0 keeps that exact
+    # behaviour; enter e.g. 0.9 for an FR4/plastic enclosure to turn it on.
+    emissivity: float = 0.0
 
 
 @dataclass
 class CFDSolverSettings:
     """Numerical controls for steady incompressible enclosure flow."""
     cell_size_mm: float = 5.0
-    max_iterations: int = 250
+    # A safety cap, not a target. Until the continuity residual stopped
+    # averaging in prescribed boundary cells, `converged` could never become
+    # True, so this bound was always reached and doubling it doubled every run.
+    # Now the loop breaks as soon as the solve settles: the validation duct
+    # converges at 845 iterations, the forced smoke case at 250, and neither
+    # pays for the headroom it does not use.
+    #
+    # Raised 250 -> 1000 because 250 silently truncated the duct at a third of
+    # what it needed. Cases that settle sooner are unaffected; only a genuinely
+    # unconverged run pays, and that run now says so honestly.
+    max_iterations: int = 1000
     tolerance: float = 1.0e-4
     relaxation: float = 0.45
     pseudo_time_step_s: float = 0.02
-    pressure_iterations: int = 60
+    # pressure_iterations (the Jacobi sweep count the old hand-rolled
+    # projection used) was removed here: the pressure Poisson system moved
+    # to a direct sparse solve (SparseComputeBackend) that has no sweep
+    # count to tune. Jacobi bought accuracy linearly and never reached it --
+    # 30/60/240/960 sweeps gave -8.2/-5.2/-1.6/-0.6% mass error on the
+    # validation duct; the sparse solve reaches 0.08% on the same case,
+    # unconditionally, with every sweep count verified identical
+    # (docs/audit-2026-09-23.md triage). config_manager still loads a
+    # project that saved the key; it just no longer reads it into anything.
     include_buoyancy: bool = True
     gravity_x_m_s2: float = 0.0
     gravity_y_m_s2: float = 0.0
@@ -974,8 +1334,20 @@ class EnclosureCFDResult:
     iterations: int = 0
     converged: bool = False
     mass_balance_error_pct: float = 0.0
+    # False for a sealed enclosure, where no flow crosses a boundary and the
+    # figure above is meaningless rather than good. Reporting 0% there would
+    # read as a conservation check that passed.
+    mass_balance_applicable: bool = True
     energy_balance_error_pct: float = 0.0
     maximum_velocity_m_s: float = 0.0
+    # Free-stream air speed approaching the board, for the flat-plate forced
+    # correlation. Deliberately not the wall-adjacent speed: Nu = 0.664 Re^0.5
+    # Pr^(1/3) models the boundary layer analytically and expects the
+    # free-stream value, which is also the quantity a coarse enclosure mesh
+    # resolves best. Zero when no board cells were found. See
+    # docs/validation-cfd.md.
+    board_free_stream_velocity_m_s: float = 0.0
+    board_free_stream_cells: int = 0
     maximum_air_temperature_c: float = 0.0
     maximum_solid_temperature_c: float = 0.0
     total_heat_w: float = 0.0
@@ -984,6 +1356,12 @@ class EnclosureCFDResult:
     compute_solve_seconds: float = 0.0
     compute_relative_residual: float = 0.0
     compute_fallback_reason: str = ""
+    # max(beta * |T - ambient|) over the fluid, at solve's end. Boussinesq
+    # (a linear density-vs-temperature approximation) is usually cited as
+    # valid to beta*dT <~ 0.1; above that the buoyancy force this solver
+    # computes is progressively less trustworthy. See CFD-7,
+    # docs/audit-2026-09-23.md.
+    boussinesq_beta_delta_t_max: float = 0.0
 
 def generate_regulator_name(input_ref_des: str, output_ref_des: str, output_rail_name: str = "") -> str:
     """

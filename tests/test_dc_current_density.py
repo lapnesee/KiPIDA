@@ -63,6 +63,32 @@ class DCCurrentDensityTests(unittest.TestCase):
         self.assertEqual(result.maximum_track_a_per_mm2, result.maximum_planar_a_per_mm2)
         self.assertEqual(result.maximum_zone_a_per_mm2, result.maximum_planar_a_per_mm2)
 
+    def test_a_sliver_cell_does_not_win_the_hotspot(self):
+        # DC-2 regression. P02 Rev E, /J2_PD_HV (2026-09-22 pdhv_density.py):
+        # the published 697 A/mm^2 maximum was a pad-copper cut cell 0.7%
+        # copper (1e-5 mm^2 section) carrying 4 mA, 4.3 mm from any pad of
+        # the net; the first density any properly-filled cell reached was
+        # 393 A/mm^2 (1.38 A through a full F.Cu cell near C16.1). A tiny
+        # current through a tiny sliver must not outrank a real cell.
+        mesh = Mesh()
+        mesh.nodes = [0, 1, 2, 3]
+        mesh.node_coords = {0: (0.0, 0.0, 0), 1: (0.1, 0.0, 0), 2: (1.0, 0.0, 0), 3: (1.1, 0.0, 0)}
+        mesh.grid_step = 0.1
+        # A near-empty cell: 1% copper fraction, tiny section, tiny current --
+        # 4 mA / (0.01 * 0.1 * 0.035) mm^2 = 114.3 A/mm^2.
+        mesh.add_edge_direct(0, 1, 1.0, kind="lateral", cross_section_mm2=0.01 * 0.1 * 0.035,
+                              geometry_source="pad-copper:In2.Cu:v")
+        # A fully-covered cell: 1 A through the full 0.1 mm x 0.035 mm face --
+        # 1 / (0.1 * 0.035) = 285.7 A/mm^2, the real hotspot.
+        mesh.add_edge_direct(2, 3, 1.0, kind="lateral", cross_section_mm2=1.0 * 0.1 * 0.035,
+                              geometry_source="zone:F.Cu:h")
+        detailed = DCSolveResult(
+            branch_currents_a=[0.004, 1.0], branch_losses_w=[0.0, 0.0],
+        )
+        result = calculate_current_density(mesh, detailed, self.stackup())
+        self.assertAlmostEqual(result.maximum_planar_a_per_mm2, 1.0 / (0.1 * 0.035), places=6)
+        self.assertEqual(result.planar_hotspot.branch_index, 1)
+
     def test_missing_or_invalid_geometry_is_reported(self):
         mesh, detailed = self.planar_mesh()
         result = calculate_current_density(
@@ -86,6 +112,60 @@ class DCCurrentDensityTests(unittest.TestCase):
         self.assertFalse(result.planar_samples)
         self.assertEqual(len(result.vertical_samples), 1)
         self.assertAlmostEqual(result.maximum_via_current_a, 0.2)
+        self.assertAlmostEqual(result.maximum_via_a_per_mm2, 20.0)
+        self.assertTrue(any("plating-thickness estimate" in item for item in result.warnings))
+
+    def test_a_track_branch_uses_its_own_width_not_the_grid_step(self):
+        # A 0.3 mm track meshed as one analytic branch on a 0.1 mm grid: the
+        # face is width x thickness. The grid step belongs to raster edges.
+        mesh = Mesh()
+        mesh.nodes = [0, 1]
+        mesh.node_coords = {0: (0.0, 0.0, 0), 1: (5.0, 0.0, 0)}
+        mesh.grid_step = 0.1
+        mesh.add_edge_direct(
+            0, 1, 10.0, kind="lateral", cross_section_mm2=0.3 * 0.035,
+            geometry_source="seg:F.Cu",
+        )
+        result = calculate_current_density(
+            mesh, DCSolveResult(branch_currents_a=[1.05]), self.stackup(),
+        )
+        self.assertAlmostEqual(result.maximum_planar_a_per_mm2, 100.0, places=9)
+        self.assertEqual(result.planar_samples[0].copper_kind, "TRACK")
+
+    def test_a_recorded_material_beats_the_geometric_guess(self):
+        mesh = Mesh()
+        mesh.nodes = [0, 1]
+        mesh.node_coords = {0: (0.0, 0.0, 0), 1: (0.1, 0.0, 0)}
+        mesh.grid_step = 0.1
+        mesh.add_edge_direct(
+            0, 1, 10.0, kind="lateral", cross_section_mm2=0.0021,
+            geometry_source="zone:F.Cu:h",
+        )
+        geometry = {
+            "track": {0: box(0.0, -0.1, 0.1, 0.1)},
+            "zone": {0: box(0.0, -0.1, 0.1, 0.1)},
+        }
+        result = calculate_current_density(
+            mesh, DCSolveResult(branch_currents_a=[0.21]), self.stackup(), geometry,
+        )
+        self.assertEqual(result.planar_samples[0].copper_kind, "ZONE")
+        self.assertAlmostEqual(result.maximum_planar_a_per_mm2, 100.0, places=9)
+
+    def test_hybrid_barrels_count_as_vias_and_through_hole_pads(self):
+        mesh = Mesh()
+        mesh.nodes = [0, 1, 2, 3]
+        mesh.node_coords = {
+            0: (2.0, 3.0, 0), 1: (2.0, 3.0, 2), 2: (6.0, 3.0, 0), 3: (6.0, 3.0, 2),
+        }
+        mesh.add_edge_direct(0, 1, 10.0, kind="vertical", cross_section_mm2=0.02,
+                             geometry_source="via:F.Cu-B.Cu")
+        mesh.add_edge_direct(2, 3, 10.0, kind="vertical", cross_section_mm2=0.05,
+                             geometry_source="pad:J1-1")
+        result = calculate_current_density(
+            mesh, DCSolveResult(branch_currents_a=[0.4, 1.0]), self.stackup(),
+        )
+        self.assertEqual([s.kind for s in result.vertical_samples], ["VIA", "PTH"])
+        self.assertAlmostEqual(result.maximum_via_current_a, 0.4)
         self.assertAlmostEqual(result.maximum_via_a_per_mm2, 20.0)
         self.assertTrue(any("plating-thickness estimate" in item for item in result.warnings))
 

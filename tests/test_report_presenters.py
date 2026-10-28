@@ -43,6 +43,23 @@ class ReportPresenterTests(unittest.TestCase):
         self.assertIn("Rail / return: +3V3 / GND", report)
         self.assertIn("C1: 1uF", report)
 
+    def test_ac_report_judges_the_band_limited_target(self):
+        # P02 Rev E, 2026-09-29 19:30: /VBUS_SYS read "Status: PASS" above
+        # "Worst/target ratio: 2.48x" and 9 exceeding points (46-100 MHz),
+        # all above the 35 MHz band of its 0.0889 ohm target.
+        final = SimpleNamespace(
+            meets_target=True, worst_impedance_ohm=0.2204, worst_frequency_hz=1e8,
+            target_impedance_ohm=0.0888889, target_bandwidth_hz=35e6,
+            compute_backend="CPU", compute_device="host", compute_solve_seconds=0.1,
+            compute_transfer_seconds=0.0, compute_relative_residual=1e-8, compute_cache_hits=0,
+            frequencies_hz=[1e6, 46.4e6, 1e8], impedance_ohm=[0.005 + 0j, 0.095 + 0j, 0.2204 + 0j],
+        )
+        report = format_ac_report(final, None, ACAnalysisSettings(rail_name="/VBUS_SYS"))
+
+        self.assertIn("Status: PASS", report)
+        self.assertIn("Target exceedance: 0/3 point(s); 2 point(s) above the flat target", report)
+        self.assertIn("Worst/target ratio: 0.868x", report)
+
     def test_dc_report_preserves_model_and_compute_provenance(self):
         detailed = SimpleNamespace(
             valid=False, excluded_load_references=["U2"], excluded_load_node_count=3,
@@ -76,6 +93,15 @@ class ReportPresenterTests(unittest.TestCase):
         self.assertIn("Maximum via current: 0.2 A", report)
         self.assertIn("TRACK on layer F.Cu at (1.0000, 2.0000) mm", report)
         self.assertIn("not an IPC ampacity certification", report)
+        self.assertIn("Drop:  0.2000 V", report)
+
+    def test_dc_report_names_the_worst_load_drop_and_the_engine(self):
+        report = format_dc_report({"VCC": {
+            "stats": (3.1, 3.3, 0.2), "load_drop_v": 0.05, "engine": "hybrid",
+        }})
+        self.assertIn("Worst load drop: 0.0500 V", report)
+        self.assertIn("Net spread: 0.2000 V", report)
+        self.assertIn("DC mesh: hybrid", report)
 
     def test_cfd_report_contains_conservation_and_scope(self):
         mesh = SimpleNamespace(cell_count=24, shape=(2, 3, 4))
@@ -175,7 +201,7 @@ class ReportPresenterTests(unittest.TestCase):
         )
         summary = "\n".join(format_emc_summary_lines(settings, result))
         details = "\n".join(format_emc_findings_lines(result))
-        self.assertIn("Target: CISPR 32 (EU)", summary)
+        self.assertIn("Reference standard (not evaluated): CISPR 32 (EU)", summary)
         self.assertIn("EMC-01 -7", summary)
         self.assertIn("geometry-only analysis", summary)
         self.assertIn("No finding was generated", details)

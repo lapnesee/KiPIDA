@@ -37,6 +37,30 @@ class ThermalPlacement:
     width_mm: float
     depth_mm: float
     side: str = "TOP"
+    # The copper outlines of the pads the package's heat enters the board
+    # through (heat_pads); empty leaves the mesher its placement window.
+    heat_pads: list = field(default_factory=list)
+
+
+# A package's heat enters the board through its solder joints, and mostly
+# through its largest ones: an exposed or drain pad when it has one, every
+# lead when they are alike. A pad under this fraction of the largest one's
+# area carries a signal, not the heat: P02 Rev E's CSD18540Q5B gate pad is
+# 0.97 mm2 against its 17.4 mm2 drain pad, the TPS25948's control pins 0.04 to
+# 0.05 mm2 against its 0.25 mm2 power pads.
+HEAT_PAD_AREA_FRACTION = 0.25
+
+# kiapi.board.types.PadType.PT_NPTH: kipy's Pad.pad_type for an unplated hole.
+PAD_TYPE_NPTH = 4
+
+
+def heat_pads(polygons):
+    """The pad outlines, of *polygons*, a package's heat enters the board through."""
+    polygons = [item for item in polygons if item is not None and not item.is_empty and item.area > 0.0]
+    if not polygons:
+        return []
+    largest = max(item.area for item in polygons)
+    return [item for item in polygons if item.area >= HEAT_PAD_AREA_FRACTION * largest]
 
 
 @dataclass
@@ -167,23 +191,50 @@ class PowerLossEstimator:
         return PowerLossEstimator.estimate_details(rails).components
 
 
+# The sources PowerLossEstimator writes; "estimated" is what a file without
+# a source loads as. A saved component with any other source (user, or a
+# note another tool wrote) holds values the file chose.
+ESTIMATE_SOURCES = frozenset({
+    "", "estimated", "power-tree-load", "power-tree-external-load", "regulator-loss",
+})
+
+
+def is_estimated_heat_source(model_source) -> bool:
+    return str(model_source or "").strip() in ESTIMATE_SOURCES
+
+
 def merge_component_heat_sources(estimated, saved_components, preserve_user=True):
     """Merge fresh electrical losses with persisted thermal component models.
 
     Automatic entries retain their current loss estimate but keep the physical
-    package and junction settings explicitly saved by the user.  User-owned
-    entries remain fully manual, including their power value.
+    package and junction settings explicitly saved by the user.  Entries the
+    estimate did not write (user, or another tool's) remain fully manual,
+    including their power value, and stay when the estimate does not name
+    them: a bridge diode's loss typed by hand has no electrical estimate, and
+    dropping it here took it out of the saved configuration at the next
+    refresh.
+
+    Loading and saving must give the file back: the saved order is kept,
+    newly estimated parts come after it, and a zero-watt external load is
+    only listed in a profile not saved yet. poe_bt's generated file gained a
+    J2 at 0 W and a new order at every save.
     """
-    saved_by_ref = {component.ref_des: component for component in saved_components}
-    merged = []
+    if not preserve_user:
+        return list(estimated)
+    saved_by_ref = {}
+    for component in saved_components:
+        saved_by_ref.setdefault(component.ref_des, component)
+    merged = {}
     for component in estimated:
         prior = saved_by_ref.get(component.ref_des)
-        if prior is None or not preserve_user:
-            merged.append(component)
-        elif prior.model_source == "user":
-            merged.append(replace(prior))
+        if prior is None:
+            if saved_by_ref and component.power_w <= 0.0:
+                continue
+            merged[component.ref_des] = component
+        elif not is_estimated_heat_source(prior.model_source):
+            merged[component.ref_des] = replace(prior)
         else:
-            merged.append(replace(
+            merged[component.ref_des] = replace(
                 component,
                 width_mm=prior.width_mm,
                 depth_mm=prior.depth_mm,
@@ -191,8 +242,26 @@ def merge_component_heat_sources(estimated, saved_components, preserve_user=True
                 theta_jb_c_per_w=prior.theta_jb_c_per_w,
                 max_junction_c=prior.max_junction_c,
                 enabled=prior.enabled,
-            ))
-    return merged
+                # The evidence goes with the numbers it backs: a datasheet
+                # thetaJB must not come back as an estimate, which TH-001
+                # reports as assumed and grades one step lower.
+                geometry_source=prior.geometry_source,
+                thermal_source=prior.thermal_source,
+                thermal_condition=prior.thermal_condition,
+                parameter_provenance=dict(prior.parameter_provenance or {}),
+                theta_reference=prior.theta_reference,
+                rated_current_a=prior.rated_current_a,
+                current_derating=[dict(row) for row in prior.current_derating or []],
+                current_derating_source=prior.current_derating_source,
+                body_exchange=prior.body_exchange,
+                body_area_mm2=prior.body_area_mm2,
+            )
+    for ref_des, component in saved_by_ref.items():
+        if ref_des not in merged and not is_estimated_heat_source(component.model_source):
+            merged[ref_des] = replace(component)
+    order = [ref_des for ref_des in saved_by_ref if ref_des in merged]
+    order += [ref_des for ref_des in merged if ref_des not in saved_by_ref]
+    return [merged[ref_des] for ref_des in order]
 
 
 class ThermalModelBuilder:
@@ -246,7 +315,12 @@ class ThermalModelBuilder:
                 return helper._get_val(current, "name", "")
             return current
 
-        fields = ("position", "start", "mid", "end", "layer", "width", "diameter", "net")
+        # drill_diameter: the via barrel's thermal conductance comes from its
+        # drill (TH-4), so a changed drill must invalidate the cached mesh.
+        fields = (
+            "position", "start", "mid", "end", "layer", "width", "diameter",
+            "drill_diameter", "net",
+        )
         for collection in ("tracks", "vias", "zones", "footprints", "shapes"):
             try:
                 items = list(helper._items(collection))
@@ -288,6 +362,8 @@ class ThermalModelBuilder:
                     if value is not None:
                         return value
                 except Exception:
+                    # A getter this kipy version lacks or refuses: the next
+                    # spelling is tried, then the default.
                     pass
         return default
 
@@ -298,6 +374,21 @@ class ThermalModelBuilder:
     def _to_mm(value):
         value = float(value or 0.0)
         return value / 1e6 if abs(value) > 10000 else value
+
+    def _via_diameter_mm(self, via):
+        """The barrel diameter a via's thermal branch should use, in mm.
+
+        kipy's Via exposes only ``diameter`` (outer copper) and
+        ``drill_diameter`` (hole) -- never ``width`` (verified against
+        kipy/board_types.py). Reading the nonexistent ``width`` attribute
+        silently defaulted every via to 0.6 mm; on P02 Rev E (685 vias, real
+        drills 0.3/0.4 mm) that understated barrel conductance by x2.07 /
+        x1.53. The drill sets the thermal barrel's bore, so it is read
+        first, falling back to the outer diameter only if the drill is
+        unavailable.
+        """
+        drill = self._get_val(via, "drill_diameter", self._get_val(via, "diameter", 0.6e6))
+        return max(self._to_mm(drill), 0.1)
 
     def _position(self, item):
         position = self._get_val(item, "position", self._get_val(item, "start"))
@@ -321,13 +412,52 @@ class ThermalModelBuilder:
             pads = self._get_val(self._get_val(footprint, "definition"), "pads", [])
         return pads or []
 
-    def _footprint_size(self, footprint, default_width, default_depth):
+    @staticmethod
+    def _is_unplated_hole(kind):
+        """Whether a pad type, kipy's or the file's, is a hole drilled without plating."""
+        return kind == PAD_TYPE_NPTH or str(kind).lower() in {"np_thru_hole", "pt_npth"}
+
+    def _joint_outlines(self, footprint, extractor, copper_ids):
+        """The copper outlines of the pads a footprint is soldered by.
+
+        A mounting hole is no joint: KiCad writes an unplated hole as a pad
+        the size of its drill on ``*.Cu``, so the layers alone keep it, and on
+        a module whose 3.2 mm fixing holes outsize its 2.8 x 2.0 mm pins the
+        holes alone passed heat_pads()' area cut and every watt of the module
+        went into a hole, a 200 C+ hotspot over bare laminate. A pad on no
+        copper layer (a paste or mask aperture) is no joint either.
+        """
+        outlines = []
+        for pad in self._pads(footprint):
+            if self._is_unplated_hole(self._get_val(pad, "pad_type")):
+                continue
+            declared = list(extractor.pad_layers(pad))
+            # A paste-only aperture is no joint; a pad stating no layer is kept.
+            if declared and copper_ids and not any(lid in copper_ids for lid in declared):
+                continue
+            try:
+                outlines.append(extractor.pad_polygon(pad))
+            except Exception:
+                continue
+        return outlines
+
+    def _footprint_size(self, footprint, default_width, default_depth, user_sized=False):
+        """Body size a component's heat is spread over, in mm.
+
+        The pads' extent (+0.5 mm) when there are two or more. It used to be
+        floored at the component model's size, which defaults to 3 x 3 mm, so
+        an 0402 or SOT-23 spread its heat over several times its real
+        footprint and ran cooler than it is (previous audits' "3 mm package
+        floor"). A size the user set is still honoured as a minimum.
+        """
         points = [self._position(pad) for pad in self._pads(footprint)]
         points = [point for point in points if point is not None]
         if len(points) >= 2:
-            width = max(point[0] for point in points) - min(point[0] for point in points)
-            depth = max(point[1] for point in points) - min(point[1] for point in points)
-            return max(default_width, width + 0.5), max(default_depth, depth + 0.5)
+            width = max(point[0] for point in points) - min(point[0] for point in points) + 0.5
+            depth = max(point[1] for point in points) - min(point[1] for point in points) + 0.5
+            if user_sized:
+                return max(default_width, width), max(default_depth, depth)
+            return width, depth
         return default_width, default_depth
 
     @staticmethod
@@ -398,7 +528,10 @@ class ThermalModelBuilder:
                 f"Merged {len(shapes):,} copper shapes on layer {layer} in "
                 f"{time.perf_counter() - layer_started:.3f} s."
             )
-        self._copper_cache[id(self.board)] = by_layer
+        if by_layer:
+            # An empty answer is not a board; caching it would keep serving it
+            # after the editor has caught up.
+            self._copper_cache[id(self.board)] = by_layer
         self._log(
             f"Built merged thermal copper for {len(by_layer)} layer(s) in "
             f"{time.perf_counter() - started:.3f} s."
@@ -438,7 +571,10 @@ class ThermalModelBuilder:
     def build(self, settings: ThermalAnalysisSettings, rails=None, copper_losses=None):
         if Polygon is None or unary_union is None:
             raise ImportError("Shapely is required for 3D thermal model extraction.")
-        extractor = GeometryExtractor(self.board, debug=self.debug, log_callback=self.log_callback)
+        extractor = GeometryExtractor(
+            self.board, debug=self.debug, log_callback=self.log_callback,
+            board_path=self.board_file_path,
+        )
         stackup = extractor.get_board_stackup()
         layer_order = list(stackup.get("layer_order", []))
         bottom_layer_id = layer_order[-1] if layer_order else None
@@ -456,8 +592,13 @@ class ThermalModelBuilder:
             if not ref_des or position is None:
                 continue
             component = saved_components.get(ref_des, ThermalComponentModel(ref_des=ref_des))
-            width, depth = self._footprint_size(footprint, component.width_mm, component.depth_mm)
+            width, depth = self._footprint_size(
+                footprint, component.width_mm, component.depth_mm,
+                user_sized=component.model_source == "user",
+            )
             layer = self._get_val(footprint, "layer", 0)
+            copper_ids = set((stackup.get("copper") or {}).keys())
+            outlines = self._joint_outlines(footprint, extractor, copper_ids)
             placements[ref_des] = ThermalPlacement(
                 ref_des=ref_des,
                 x_mm=position[0],
@@ -465,6 +606,7 @@ class ThermalModelBuilder:
                 width_mm=width,
                 depth_mm=depth,
                 side="BOTTOM" if self._is_bottom_layer(layer, bottom_layer_id) else "TOP",
+                heat_pads=heat_pads(outlines),
             )
             if ref_des in saved_components:
                 saved_components[ref_des].width_mm = width
@@ -479,6 +621,17 @@ class ThermalModelBuilder:
             )
 
         copper_by_layer = self._extract_copper(extractor)
+        if not copper_by_layer:
+            # KiCad's IPC answers with every collection empty while the PCB
+            # editor is still synchronising. The outline still comes from the
+            # saved file, so the mesh builds and solves -- as bare laminate.
+            # On P02 Rev E such a run reported a 145.8 C hotspot from 0.43 W of
+            # copper loss with nothing to spread it and no component heat at
+            # all, and the EMC domain then read that temperature as a fact.
+            raise ValueError(
+                "KiCad IPC returned no copper geometry on any layer, so the board would "
+                "be solved as bare laminate. Wait for PCB Editor synchronization and retry."
+            )
         outline, bounds = self._outline_and_bounds(copper_by_layer, placements)
         live_outline = extractor.get_board_outline(board_file_path=self.board_file_path)
         if live_outline is not None:
@@ -490,8 +643,7 @@ class ThermalModelBuilder:
             position = self._position(via)
             if position is None:
                 continue
-            width = self._to_mm(self._get_val(via, "width", 0.6e6))
-            vias.append(ThermalVia(position[0], position[1], max(width, 0.1)))
+            vias.append(ThermalVia(position[0], position[1], self._via_diameter_mm(via)))
 
         return ThermalBoardModel(
             bounds_mm=bounds,
