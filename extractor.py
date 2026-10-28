@@ -248,22 +248,13 @@ class GeometryExtractor:
         except (OSError, UnicodeDecodeError):
             return None
         points = []
-        graphic_start = re.compile(r'\(gr_(?:rect|line|arc|poly|curve|circle)\b')
         coordinate = re.compile(
             r'\((?:start|end|mid|center|xy)\s+'
             r'([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)'
         )
-        for match in graphic_start.finditer(text):
-            depth = 0
-            end = None
-            for index in range(match.start(), len(text)):
-                depth += (text[index] == '(') - (text[index] == ')')
-                if depth == 0:
-                    end = index + 1
-                    break
-            if end is None:
-                continue
-            graphic = text[match.start():end]
+        for graphic in GeometryExtractor._balanced_blocks(
+            text, '(gr_rect', '(gr_line', '(gr_arc', '(gr_poly', '(gr_curve', '(gr_circle',
+        ):
             if not re.search(r'\(layer\s+"Edge\.Cuts"\)', graphic):
                 continue
             points.extend((float(x), float(y)) for x, y in coordinate.findall(graphic))
@@ -286,22 +277,13 @@ class GeometryExtractor:
         except (OSError, UnicodeDecodeError):
             return None
         shapes = []
-        graphic_start = re.compile(r'\(gr_(?:rect|poly|circle)\b')
         coordinate = re.compile(
             r'\((?:start|end|center|xy)\s+'
             r'([-+]?\d*\.?\d+)\s+([-+]?\d*\.?\d+)'
         )
-        for match in graphic_start.finditer(text):
-            depth = 0
-            end = None
-            for index in range(match.start(), len(text)):
-                depth += (text[index] == '(') - (text[index] == ')')
-                if depth == 0:
-                    end = index + 1
-                    break
-            if end is None:
-                continue
-            graphic = text[match.start():end]
+        for graphic in GeometryExtractor._balanced_blocks(
+            text, '(gr_rect', '(gr_poly', '(gr_circle',
+        ):
             if not re.search(r'\(layer\s+"Edge\.Cuts"\)', graphic):
                 continue
             points = [(float(x), float(y)) for x, y in coordinate.findall(graphic)]
@@ -330,6 +312,23 @@ class GeometryExtractor:
         return unary_union(shapes) if unary_union is not None else shapes[0]
 
     @staticmethod
+    def _stackup_layers_from_file(board_path):
+        """Return each ``(layer ...)`` list of the saved ``(stackup ...)`` table,
+        top to bottom, or None when the file or its stackup cannot be read.
+
+        The search skips quoted strings: a title-block comment reading
+        "(stackup unchanged)" would otherwise be taken for the table.
+        """
+        try:
+            text = Path(board_path).read_text(encoding='utf-8')
+        except (OSError, UnicodeDecodeError, TypeError):
+            return None
+        stackup = next(GeometryExtractor._balanced_blocks(text, '(stackup'), None)
+        if stackup is None:
+            return None
+        return list(GeometryExtractor._balanced_blocks(stackup, '(layer'))
+
+    @staticmethod
     def _stackup_from_file(board_path):
         """Read per-dielectric er/material/loss tangent from the saved
         .kicad_pcb stackup table, in physical top-to-bottom order.
@@ -342,40 +341,17 @@ class GeometryExtractor:
         4.1 / 4.6 / 4.16 / 4.6 / 4.1 with materials 3313 / FR4 / 2116 / FR4 /
         3313 (audit-2026-09-23.md SI-1).
         """
-        try:
-            text = Path(board_path).read_text(encoding='utf-8')
-        except (OSError, UnicodeDecodeError):
+        layers = GeometryExtractor._stackup_layers_from_file(board_path)
+        if layers is None:
             return None
-        stackup_start = text.find('(stackup')
-        if stackup_start < 0:
-            return None
-        depth = 0
-        stackup_end = None
-        for index in range(stackup_start, len(text)):
-            depth += (text[index] == '(') - (text[index] == ')')
-            if depth == 0:
-                stackup_end = index + 1
-                break
-        if stackup_end is None:
-            return None
-        block = text[stackup_start:stackup_end]
-
         dielectrics = []
-        layer_start = re.compile(r'\(layer\s+"')
-        for match in layer_start.finditer(block):
-            depth = 0
-            end = None
-            for index in range(match.start(), len(block)):
-                depth += (block[index] == '(') - (block[index] == ')')
-                if depth == 0:
-                    end = index + 1
-                    break
-            if end is None:
-                continue
-            layer_text = block[match.start():end]
+        surface = re.compile(r'\(layer\s+"[^"]*"\s*\(type\s+"[^"]*(?:Solder Mask|Silk Screen|Solder Paste)"\)')
+        for layer_text in layers:
+            if surface.match(layer_text):
+                continue  # a mask can carry its own epsilon_r; it is no substrate
             eps_match = re.search(r'\(epsilon_r\s+([-+]?\d*\.?\d+)', layer_text)
             if not eps_match:
-                continue  # copper / mask / silk / paste: no dielectric constant
+                continue  # copper: no dielectric constant
             thickness_match = re.search(r'\(thickness\s+([-+]?\d*\.?\d+)', layer_text)
             material_match = re.search(r'\(material\s+"((?:\\.|[^"\\])*)"', layer_text)
             loss_match = re.search(r'\(loss_tangent\s+([-+]?\d*\.?\d+)', layer_text)
@@ -439,17 +415,12 @@ class GeometryExtractor:
         (audit-2026-09-23.md SI-6). KiCad writes epsilon_r for a mask only when
         the user set one, so it is optional.
         """
-        try:
-            text = Path(board_path).read_text(encoding='utf-8')
-        except (OSError, UnicodeDecodeError, TypeError):
-            return {}
         masks = {}
-        pattern = re.compile(
-            r'\(layer\s+"([FB])\.Mask"\s*\(type\s+"[^"]*Solder Mask"\)(.*?)\n\s*\)',
-            re.S,
-        )
-        for match in pattern.finditer(text):
-            body = match.group(2)
+        head = re.compile(r'\(layer\s+"([FB])\.Mask"\s*\(type\s+"[^"]*Solder Mask"\)')
+        for body in GeometryExtractor._stackup_layers_from_file(board_path) or []:
+            match = head.match(body)
+            if match is None:
+                continue
             thickness = re.search(r'\(thickness\s+([-+]?\d*\.?\d+)', body)
             epsilon = re.search(r'\(epsilon_r\s+([-+]?\d*\.?\d+)', body)
             if not thickness:
@@ -908,35 +879,39 @@ class GeometryExtractor:
         return merged
 
     @staticmethod
-    def _balanced_blocks(text, token):
-        """Yield balanced S-expression blocks beginning with *token*."""
+    def _balanced_blocks(text, *tokens):
+        """Yield the balanced S-expression lists headed by one of *tokens*.
+
+        A token is an opening parenthesis and a keyword, such as "(zone". It
+        must end the keyword ("(zone" does not match "(zone_connect"), and a
+        token inside a quoted string, such as a title-block comment reading
+        "(stackup unchanged)", is text, not a list. *text* must start outside
+        a string. Lists are yielded in file order; the search resumes after
+        each one, so a list nested in a yielded one is not yielded.
+        """
+        string = r'"(?:\\.|[^"\\])*"'
+        head = re.compile(
+            string + '|(?:' + '|'.join(re.escape(token) for token in tokens)
+            + r')(?=[\s()"]|$)'
+        )
+        scan = re.compile(string + r'|[()]')
         start = 0
         while True:
-            begin = text.find(token, start)
-            if begin < 0:
+            match = head.search(text, start)
+            if match is None:
                 return
+            if match.group().startswith('"'):
+                start = match.end()
+                continue
             depth = 0
-            quoted = False
-            escaped = False
-            for index in range(begin, len(text)):
-                character = text[index]
-                if quoted:
-                    if escaped:
-                        escaped = False
-                    elif character == "\\":
-                        escaped = True
-                    elif character == '"':
-                        quoted = False
-                    continue
-                if character == '"':
-                    quoted = True
-                elif character == "(":
+            for item in scan.finditer(text, match.start()):
+                if item.group() == "(":
                     depth += 1
-                elif character == ")":
+                elif item.group() == ")":
                     depth -= 1
                     if depth == 0:
-                        yield text[begin:index + 1]
-                        start = index + 1
+                        yield text[match.start():item.end()]
+                        start = item.end()
                         break
             else:
                 return

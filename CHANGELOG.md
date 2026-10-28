@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+The stackup read from the board file is the real `(setup (stackup ...))`
+table, even when a string quotes "(stackup". Before, the first occurrence in
+the file won. A title-block comment reading "1.16 mm (stackup unchanged)"
+comes before the setup, so the reader parsed the comment, found no
+dielectric, and SI-STACKUP-001 said the board file was unavailable to fall
+back to while it carried epsilon_r for every dielectric. The solder masks,
+the Edge.Cuts bounds and outline, and the saved zone fills now use the same
+reader:
+- A keyword inside a quoted string is text, not a list, and a parenthesis in
+  a string (a material named "PP (high Tg)") no longer opens or closes one.
+- A keyword must end where the token ends: "(zone" no longer matches
+  "(zone_connect".
+- A solder mask that carries its own epsilon_r no longer counts as a
+  dielectric. KiCad writes one when a mask material is set (on the
+  kit-dev-coldfire demo, "Dry Film" er 3.3), and the two extra layers made
+  the file disagree with IPC's dielectric count, so the fallback was dropped.
+On the 15 KiCad 10 demo boards with a stackup, only that demo reads
+differently: 3 dielectrics instead of 5.
+
 The thermal mesh no longer stalls on a band cut along a copper edge. Such a
 cut comes back from GEOS as a GeometryCollection of polygons, lines and
 points. Two things followed:
